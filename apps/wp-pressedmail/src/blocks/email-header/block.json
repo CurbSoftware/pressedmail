@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-header",
+  "version": "1.0.0",
+  "title": "Email Header",
+  "category": "pressedmail-email",
+  "icon": "heading",
+  "description": "Email header with logo/branding image.",
+  "keywords": ["header", "logo", "branding", "banner"],
+  "supports": {
+    "html": false,
+    "align": ["left", "center", "right"]
+  },
+  "attributes": {
+    "logoUrl": {
+      "type": "string",
+      "default": ""
+    },
+    "logoAlt": {
+      "type": "string",
+      "default": ""
+    },
+    "logoWidth": {
+      "type": "number",
+      "default": 200
+    },
+    "align": {
+      "type": "string",
+      "default": "center"
+    },
+    "backgroundColor": {
+      "type": "string",
+      "default": ""
+    },
+    "paddingVertical": {
+      "type": "number",
+      "default": 20
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

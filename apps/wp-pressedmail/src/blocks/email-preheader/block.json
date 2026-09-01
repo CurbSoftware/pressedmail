@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-preheader",
+  "version": "1.0.0",
+  "title": "Email Preheader",
+  "category": "pressedmail-email",
+  "icon": "visibility",
+  "description": "Hidden preview text shown in email client inbox previews.",
+  "keywords": ["preheader", "preview", "snippet", "hidden"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "multiple": false
+  },
+  "attributes": {
+    "text": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

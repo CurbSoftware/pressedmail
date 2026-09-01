@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-button",
+  "version": "1.0.0",
+  "title": "Email Button",
+  "category": "pressedmail-email",
+  "icon": "button",
+  "description": "A bulletproof email-safe CTA button with inline styles.",
+  "keywords": ["button", "cta", "link", "action"],
+  "supports": {
+    "html": false,
+    "align": ["left", "center", "right"]
+  },
+  "attributes": {
+    "text": {
+      "type": "string",
+      "default": "Click Here"
+    },
+    "url": {
+      "type": "string",
+      "default": "#"
+    },
+    "backgroundColor": {
+      "type": "string",
+      "default": "#0073aa"
+    },
+    "textColor": {
+      "type": "string",
+      "default": "#ffffff"
+    },
+    "borderRadius": {
+      "type": "number",
+      "default": 4
+    },
+    "fontSize": {
+      "type": "number",
+      "default": 16
+    },
+    "paddingVertical": {
+      "type": "number",
+      "default": 12
+    },
+    "paddingHorizontal": {
+      "type": "number",
+      "default": 24
+    },
+    "align": {
+      "type": "string",
+      "default": "center"
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

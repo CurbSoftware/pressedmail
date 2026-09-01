@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-divider",
+  "version": "1.0.0",
+  "title": "Email Divider",
+  "category": "pressedmail-email",
+  "icon": "minus",
+  "description": "An email-safe horizontal rule / spacer.",
+  "keywords": ["divider", "separator", "line", "hr", "spacer"],
+  "supports": {
+    "html": false,
+    "align": ["left", "center", "right"]
+  },
+  "attributes": {
+    "color": {
+      "type": "string",
+      "default": "#dddddd"
+    },
+    "height": {
+      "type": "number",
+      "default": 1
+    },
+    "width": {
+      "type": "string",
+      "default": "100%"
+    },
+    "align": {
+      "type": "string",
+      "default": "center"
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

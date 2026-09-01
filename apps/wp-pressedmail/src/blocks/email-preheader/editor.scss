@@ -1,0 +1,22 @@
+.pm-email-preheader {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px dashed #c4c4c4;
+  border-radius: 4px;
+  background: #f9f9f9;
+  font-size: 13px;
+  line-height: 1.5;
+
+  &__label {
+    font-weight: 600;
+    color: #757575;
+    white-space: nowrap;
+  }
+
+  &__text {
+    font-style: italic;
+    color: #999;
+  }
+}

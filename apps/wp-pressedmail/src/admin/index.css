@@ -1,0 +1,438 @@
+@import "../styles/tailwind-base.css";
+
+/* WordPress Admin Integration Styles */
+/* Make PressedMail work seamlessly within WordPress admin layout */
+/* IMPORTANT: Do NOT modify margin-top or positioning that affects admin menu alignment */
+
+/* ============================================================================
+   SMOOTH TRANSITIONS FOR WP ADMIN ELEMENTS
+   ============================================================================ */
+
+/* Add transitions to HTML element for wp-toolbar padding */
+html.wp-toolbar {
+  transition:
+    padding-top 0.25s ease-out,
+    margin-top 0.25s ease-out !important;
+}
+
+/* Add transitions to WP admin elements for smooth show/hide */
+body.toplevel_page_pressedmail-plugin #wpadminbar {
+  transition:
+    transform 0.25s ease-out,
+    opacity 0.2s ease-out !important;
+  transform-origin: top center;
+}
+
+body.toplevel_page_pressedmail-plugin #adminmenuwrap,
+body.toplevel_page_pressedmail-plugin #adminmenuback {
+  transition:
+    transform 0.25s ease-out,
+    opacity 0.2s ease-out,
+    width 0.25s ease-out !important;
+  transform-origin: left center;
+}
+
+body.toplevel_page_pressedmail-plugin #wpcontent {
+  transition:
+    margin-left 0.25s ease-out,
+    padding-left 0.25s ease-out !important;
+}
+
+body.toplevel_page_pressedmail-plugin #wpbody {
+  transition: padding-top 0.25s ease-out !important;
+}
+
+/* Immersive mode - hide WP admin UI with smooth transitions */
+
+/* Override wp-toolbar class on HTML element that reserves space for admin bar */
+html.wp-toolbar:has(body.pressedmail-immersive) {
+  padding-top: 0 !important;
+  margin-top: 0 !important;
+}
+
+/* Fallback for browsers without :has() support - target body directly */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  min-height: 100dvh !important;
+  height: 100dvh !important;
+  overflow: hidden !important;
+}
+
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpadminbar {
+  transform: translateY(-100%) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuwrap,
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuback {
+  transform: translateX(-100%) !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpcontent {
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+}
+
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpfooter {
+  display: none !important;
+}
+
+/* Plugin container transitions for smooth height changes */
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
+  transition:
+    height 0.25s ease-out,
+    min-height 0.25s ease-out,
+    margin-top 0.25s ease-out !important;
+}
+
+/* Immersive mode - plugin fills full viewport */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive
+  #pressedmail-plugin {
+  margin-top: 0 !important;
+  min-height: 100dvh !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+/* Ensure wpbody also fills height in immersive mode */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpbody,
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpbody-content {
+  min-height: 100dvh !important;
+  height: 100dvh !important;
+}
+
+/* Mobile: WP shifts the admin-bar offset from html.wp-toolbar to #wpbody
+   via @media (max-width: 600px) { #wpbody { padding-top: 46px } } in
+   wp-admin/css/common.css. Cancel that when we're hiding the bar. */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpbody {
+  padding-top: 0 !important;
+}
+
+/* Ensure wpcontent fills viewport in immersive mode */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpcontent {
+  min-height: 100dvh !important;
+  height: 100dvh !important;
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* Ensure plugin inner container fills full height in immersive mode */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive
+  #pressedmail-plugin
+  > div {
+  min-height: 100dvh !important;
+  height: 100dvh !important;
+}
+
+/* ============================================================================
+   SIDEBAR COLLAPSE/EXPAND TRANSITIONS (WordPress folded class)
+   ============================================================================ */
+
+/* Smooth transitions for WordPress admin menu collapse/expand */
+body.toplevel_page_pressedmail-plugin #adminmenu,
+body.toplevel_page_pressedmail-plugin #adminmenuback,
+body.toplevel_page_pressedmail-plugin #adminmenuwrap {
+  transition: width 0.2s ease-out !important;
+}
+
+/* Smooth content area adjustment when sidebar collapses */
+body.toplevel_page_pressedmail-plugin.folded #wpcontent,
+body.toplevel_page_pressedmail-plugin.auto-fold #wpcontent {
+  transition: margin-left 0.2s ease-out !important;
+}
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+
+/* Remove padding from WordPress content containers when on PressedMail page */
+body.toplevel_page_pressedmail-plugin #wpcontent {
+  padding-left: 0 !important;
+}
+
+body.toplevel_page_pressedmail-plugin #wpbody-content {
+  padding: 0 !important;
+}
+
+/* Hide WordPress admin footer */
+body.toplevel_page_pressedmail-plugin #wpfooter {
+  display: none !important;
+}
+
+/* Hide WordPress admin notices on PressedMail pages */
+body.toplevel_page_pressedmail-plugin .notice,
+body.toplevel_page_pressedmail-plugin .notice-warning,
+body.toplevel_page_pressedmail-plugin .update-nag,
+body.toplevel_page_pressedmail-plugin .inline {
+  display: none !important;
+}
+
+/* Make the plugin container fill available space within WP layout */
+body.toplevel_page_pressedmail-plugin .pressedmail-plugin-app,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
+  margin: 0 !important;
+  padding: 0 !important;
+  min-height: calc(100vh - 32px) !important;
+  height: calc(100vh - 32px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+
+/* ============================================================================
+   PHONE-SHELL VIEWPORT CONTAINMENT
+   When the native-mobile phone shell is active (data-pm-shell="phone", set by
+   MobileAppShell), the plugin owns the full viewport and scrolls internally via
+   a single .pm-momentum-scroll body. Keep WordPress's own wrappers from adding a
+   second scroll area, and size the container to the dynamic viewport so the
+   sticky bottom tab bar is never clipped by the container's overflow:hidden.
+   Scoped to the active phone shell + PressedMail page so other admin screens and
+   the desktop/tablet plugin layout are untouched. Mirrors the existing :has()
+   usage above (immersive-mode rule).
+   ============================================================================ */
+body.toplevel_page_pressedmail-plugin:has(
+    #pressedmail-plugin[data-pm-shell="phone"]
+  ) {
+  overflow: hidden !important;
+}
+
+body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+  #wpcontent,
+body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+  #wpbody,
+body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+  #wpbody-content {
+  overflow: hidden !important;
+}
+
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin[data-pm-shell="phone"] {
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+/* Suppress WordPress admin's chunky focus outline for pointer focus only.
+   :focus-visible is left alone on purpose: that is the state carrying our own
+   keyboard focus ring, and the ring is drawn with box-shadow, so neither
+   outline nor box-shadow may be cleared here. */
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  a:focus:not(:focus-visible),
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  button:focus:not(:focus-visible),
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  [role="button"]:focus:not(:focus-visible) {
+  outline: none !important;
+}
+
+/* Dark mode support for Radix portals (form controls, scrollbars).
+   Theme CSS variables are handled by plugin portal wrappers via useThemeClass(). */
+body.toplevel_page_pressedmail-plugin.dark [data-radix-popper-content-wrapper],
+body.toplevel_page_pressedmail-plugin.dark [data-radix-portal],
+html.dark
+  body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper],
+html.dark body.toplevel_page_pressedmail-plugin [data-radix-portal] {
+  color-scheme: dark;
+}
+
+/* Override WordPress admin input styles in Radix portals (outside #pressedmail-plugin).
+   Portals render as direct children of <body>, so #pressedmail-plugin scoped rules don't apply.
+   The useThemeClass() wrapper inside portals provides correct CSS variable scope.
+   Targets bare <input> elements (no type attribute) that existing tailwind-base.css rules miss. */
+body.toplevel_page_pressedmail-plugin [data-radix-popper-content-wrapper] input,
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  textarea,
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  select,
+body.toplevel_page_pressedmail-plugin [data-radix-portal] input,
+body.toplevel_page_pressedmail-plugin [data-radix-portal] textarea,
+body.toplevel_page_pressedmail-plugin [data-radix-portal] select {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  input::placeholder,
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  textarea::placeholder,
+body.toplevel_page_pressedmail-plugin [data-radix-portal] input::placeholder,
+body.toplevel_page_pressedmail-plugin
+  [data-radix-portal]
+  textarea::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 1 !important;
+}
+
+/* Override WordPress default heading colors to use theme-aware foreground */
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h1,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h2,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h3,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h4,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h5,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h6 {
+  color: var(--foreground) !important;
+}
+
+/* Ensure card headings use card-foreground */
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h1,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h2,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h3,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h4,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h5,
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h6 {
+  color: var(--card-foreground) !important;
+}
+
+/* Ensure card title icons + text stay inline in settings */
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin .pm-card-title {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+/* Extra specificity for h3 card titles to override WordPress admin styles */
+body.toplevel_page_pressedmail-plugin #pressedmail-plugin h3.pm-card-title {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+/* Settings pages should respect the active theme's shape and avoid cramped,
+   narrow content wells on larger admin screens. */
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  .settings-theme-wrapper
+  [data-slot="card"],
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  .settings-theme-wrapper
+  .rounded-lg,
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  .settings-theme-wrapper
+  .rounded-xl {
+  border-radius: var(--pm-border-radius, var(--radius)) !important;
+}
+
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  .settings-theme-wrapper
+  [data-slot="card-header"],
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  .settings-theme-wrapper
+  [data-slot="card-content"] {
+  padding-left: clamp(1rem, 1.6vw, 1.5rem);
+  padding-right: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+/* ============================================================================
+   TOOLTIP OVERRIDES FOR WORDPRESS ADMIN
+   ============================================================================ */
+
+/* Override WordPress admin tooltip styles to ensure Radix tooltips display correctly */
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  [role="tooltip"],
+body.toplevel_page_pressedmail-plugin [data-state="delayed-open"][data-side] {
+  background-color: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: calc(var(--radius) - 2px) !important;
+  font-family: inherit !important;
+  font-size: 0.75rem !important;
+  line-height: 1rem !important;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+  z-index: 99999 !important;
+}
+
+/* Reset any WordPress tooltip arrow styles */
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  [role="tooltip"]::before,
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  [role="tooltip"]::after {
+  display: none !important;
+}
+
+/* Ensure tooltip text inherits proper color */
+body.toplevel_page_pressedmail-plugin
+  [data-radix-popper-content-wrapper]
+  [role="tooltip"]
+  p {
+  color: inherit !important;
+  margin: 0 !important;
+}
+
+/* ============================================================================
+   Z-INDEX OVERRIDES FOR RADIX PORTALS
+   ============================================================================ */
+
+/* Ensure Radix portals (dropdowns, selects, popovers) render above WordPress
+   admin elements like #wpadminbar (z-index: 9990). Tailwind's z-50 (z-index: 50)
+   from @layer utilities is insufficient. Tooltips are already handled above.
+   Note: Radix v2 (radix-ui) components emit data-radix-* attributes on portals,
+   while Base UI (@base-ui/react) components use data-slot attributes instead. */
+body.toplevel_page_pressedmail-plugin [data-radix-popper-content-wrapper] {
+  z-index: 99999 !important;
+}
+
+/* Radix v2 dialog content rendered via portal */
+body.toplevel_page_pressedmail-plugin [data-radix-portal] > [role="dialog"] {
+  z-index: 99999 !important;
+}
+
+/* Base UI portals (Sheet, Dialog from @base-ui/react, no data-radix-* attributes) */
+body.toplevel_page_pressedmail-plugin [data-slot="sheet-content"],
+body.toplevel_page_pressedmail-plugin [data-slot="dialog-content"] {
+  z-index: 99999 !important;
+}
+
+body.toplevel_page_pressedmail-plugin [data-slot="sheet-overlay"],
+body.toplevel_page_pressedmail-plugin [data-slot="dialog-overlay"] {
+  z-index: 99998 !important;
+}
+
+/* ============================================================================
+   REDUCED MOTION
+   ============================================================================ */
+
+/* The transitions this file adds to the WordPress chrome sit outside
+   #pressedmail-plugin and carry !important, so the plugin's own reduced-motion
+   block in tailwind-base.css cannot reach them. They animate layout properties
+   deliberately: WordPress moves the admin menu and content area by changing
+   width, margin and padding, so smoothing that means transitioning the same
+   properties it mutates. That is fine for a once-per-toggle reflow and wrong
+   for someone who asked the OS to stop moving things. */
+@media (prefers-reduced-motion: reduce) {
+  body.toplevel_page_pressedmail-plugin #adminmenu,
+  body.toplevel_page_pressedmail-plugin #adminmenuback,
+  body.toplevel_page_pressedmail-plugin #adminmenuwrap,
+  body.toplevel_page_pressedmail-plugin #wpcontent,
+  body.toplevel_page_pressedmail-plugin #wpbody,
+  body.toplevel_page_pressedmail-plugin.folded #wpcontent,
+  body.toplevel_page_pressedmail-plugin.auto-fold #wpcontent,
+  html.wp-toolbar:has(body.pressedmail-immersive),
+  body.pressedmail-immersive #wpcontent,
+  body.pressedmail-immersive #wpbody {
+    transition: none !important;
+  }
+}

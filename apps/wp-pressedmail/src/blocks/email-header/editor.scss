@@ -1,0 +1,26 @@
+.wp-block-pressedmail-email-header {
+  border: 1px dashed #ddd;
+  border-radius: 2px;
+
+  .pressedmail-email-header__preview {
+    min-height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pressedmail-email-header__placeholder {
+    color: #757575;
+    font-style: italic;
+    margin: 0;
+  }
+
+  .pressedmail-email-header__logo {
+    pointer-events: none;
+  }
+}
+
+.pressedmail-email-header__media-upload {
+  margin-bottom: 16px;
+}

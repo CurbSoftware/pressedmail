@@ -1,0 +1,36 @@
+{
+  "name": "@kit/shared",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {},
+  "exports": {
+    "./analytics": "./src/analytics/index.ts",
+    "./logger": "./src/logger/index.ts",
+    "./utils": "./src/utils.ts",
+    "./storage/media-url": "./src/storage/media-url.ts",
+    "./hooks": "./src/hooks/index.ts",
+    "./events": "./src/events/index.tsx",
+    "./registry": "./src/registry/index.ts",
+    "./formatting": "./src/formatting/index.ts",
+    "./env": "./src/env/index.ts",
+    "./env/appsumo": "./src/env/appsumo.ts",
+    "./env/local-sign-in": "./src/env/local-sign-in.ts",
+    "./env/microsoft-oauth": "./src/env/microsoft-oauth.ts"
+  },
+  "devDependencies": {
+    "@kit/tsconfig": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:"
+  },
+  "dependencies": {
+    "next-runtime-env": "catalog:",
+    "pino": "catalog:"
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "src/*"
+      ]
+    }
+  }
+}

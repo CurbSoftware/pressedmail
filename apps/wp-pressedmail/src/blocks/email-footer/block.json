@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-footer",
+  "version": "1.0.0",
+  "title": "Email Footer",
+  "category": "pressedmail-email",
+  "icon": "minus",
+  "description": "Email footer with optional unsubscribe link.",
+  "keywords": ["footer", "unsubscribe", "legal", "copyright"],
+  "supports": {
+    "html": false,
+    "align": false
+  },
+  "attributes": {
+    "content": {
+      "type": "string",
+      "source": "html",
+      "selector": ".pm-email-footer-content",
+      "default": ""
+    },
+    "showUnsubscribe": {
+      "type": "boolean",
+      "default": true
+    },
+    "textColor": {
+      "type": "string",
+      "default": "#999999"
+    },
+    "backgroundColor": {
+      "type": "string",
+      "default": ""
+    },
+    "fontSize": {
+      "type": "number",
+      "default": 12
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

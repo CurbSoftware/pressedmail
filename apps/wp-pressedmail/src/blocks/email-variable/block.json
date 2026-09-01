@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-variable",
+  "version": "1.0.0",
+  "title": "Email Variable",
+  "category": "pressedmail-email",
+  "icon": "shortcode",
+  "description": "Insert a template variable placeholder (e.g. recipient name, sender email).",
+  "keywords": ["variable", "placeholder", "merge", "tag", "template"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "multiple": true
+  },
+  "attributes": {
+    "variableName": {
+      "type": "string",
+      "default": "recipient_name"
+    },
+    "fallback": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-column",
+  "version": "1.0.0",
+  "title": "Email Column",
+  "category": "pressedmail-email",
+  "icon": "align-left",
+  "description": "A single column inside an Email Columns block.",
+  "keywords": ["column"],
+  "parent": ["pressedmail/email-columns"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "inserter": false
+  },
+  "attributes": {
+    "width": {
+      "type": "string",
+      "default": "50%"
+    },
+    "verticalAlign": {
+      "type": "string",
+      "default": "top"
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

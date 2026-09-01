@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-columns",
+  "version": "1.0.0",
+  "title": "Email Columns",
+  "category": "pressedmail-email",
+  "icon": "columns",
+  "description": "Email-safe multi-column layout using tables.",
+  "keywords": ["columns", "layout", "grid", "table"],
+  "supports": {
+    "html": false,
+    "align": false
+  },
+  "attributes": {
+    "columns": {
+      "type": "number",
+      "default": 2
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

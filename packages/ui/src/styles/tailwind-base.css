@@ -1,0 +1,165 @@
+/*
+ * Shared Tailwind base for plugin apps.
+ *
+ * Provides the Tailwind CSS foundation, dark mode variant, and Shadcn UI
+ * theme mappings without pulling in web-app-specific styles (marketing
+ * animations, scrollbar customization, section backgrounds, etc.).
+ *
+ * Each plugin app imports this instead of its sibling web app's globals.css
+ * to avoid cross-app build coupling.
+ */
+
+/* Tailwind CSS */
+@import 'tailwindcss' source(none);
+
+/* Dark mode variant: must match web apps for shared component compatibility */
+@variant dark (&:where(.dark, .dark *));
+
+/*
+ * Shadcn UI theme: registers CSS variable-backed utility classes.
+ * Maps --color-* to Tailwind utilities (bg-background, text-foreground, etc.)
+ * and --radius-* to border-radius utilities.
+ *
+ * Actual variable values (--background, --foreground, etc.) are defined by
+ * each app's theme CSS files, scoped to the admin shell (for example
+ * `.curbpress-admin`), never to `:root`. That is why this block must be
+ * `@theme inline`: a plain `@theme` would emit `--color-background:
+ * var(--background)` onto `:root`, where `--background` does not exist, so
+ * every `--color-*` resolves to guaranteed-invalid and every color utility
+ * silently breaks. `inline` bakes the indirection into each utility
+ * (`background-color: var(--background)`), which then resolves against
+ * whatever scope the active theme defines.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+
+  --radius-radius: var(--radius);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+
+  --font-sans: -apple-system, var(--font-sans);
+  --font-heading: var(--font-heading);
+
+  --color-sidebar: var(--sidebar-background);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  /*
+   * Marketing section design tokens.
+   * Used by marketing pages across all product apps via the
+   * max-w-section* and py-section* utilities defined below.
+   */
+  --section-max-width: 1120px;
+  --section-narrow-width: 840px;
+  --section-wide-width: 1240px;
+  --section-text-width: 720px;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+@utility max-w-section {
+  max-width: var(--section-max-width);
+}
+
+@utility max-w-section-narrow {
+  max-width: var(--section-narrow-width);
+}
+
+@utility max-w-section-wide {
+  max-width: var(--section-wide-width);
+}
+
+@utility max-w-section-text {
+  max-width: var(--section-text-width);
+}
+
+@utility py-section {
+  padding-block: 96px;
+}
+
+@utility py-section-compact {
+  padding-block: 72px;
+}
+
+@utility py-section-large {
+  padding-block: 120px;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border, currentColor);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--muted-foreground, oklch(0.278 0.016 286));
+  }
+}

@@ -1,0 +1,3501 @@
+@import "@kit/ui/styles/tailwind-base.css";
+
+/* Plugin-specific theme styles */
+@import "./themes/pressedm.css";
+@import "./themes/contrast.css";
+
+/* Include PressedMail sources for Tailwind */
+@source "../**/*.{ts,tsx}";
+
+/* Include shadcn UI component definitions so Tailwind generates CSS for all
+   utilities used in CVA variants (e.g. px-2.5, gap-1.5, py-2, pl-2.5).
+   Without this, decimal-point utility classes from @kit/ui shadcn components
+   are missing from the compiled output.
+   Path: styles → src → pressedmail → apps → [repo root] → packages/ui */
+@source "../../../../packages/ui/src/shadcn/*.tsx";
+@source "../../../../packages/ui/src/plugin/*.tsx";
+
+@theme {
+  --color-pro: var(--pro);
+  --color-pro-foreground: var(--pro-foreground);
+  --color-pro-border: var(--pro-border);
+}
+
+@font-face {
+  font-family: "Wired";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/wired-regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Wired";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/wired-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Wired";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../assets/fonts/wired-italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Wired";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../assets/fonts/wired-bolditalic.woff2") format("woff2");
+}
+
+@layer base {
+  /* Alert/Status color variables - Light mode */
+  :root {
+    /* PressedMail pro tokens stay brand-consistent across palettes. */
+    --pro: oklch(0.585 0.233 264.052);
+    --pro-foreground: oklch(1 0 0);
+    --pro-border: color-mix(in oklch, var(--pro) 65%, white);
+    --pro-muted: color-mix(in oklch, var(--pro) 14%, var(--background, white));
+    /* Status fallbacks, kept in sync with DEFAULT_STATUS_HUES in
+       theme-variables.ts. Light fills are dark enough to read on white cards
+       (≥3:1); the runtime override injects the active palette's values. */
+    --success: oklch(0.52 0.16 150);
+    --success-foreground: oklch(1 0 0);
+    --success-border: oklch(0.5 0.15 150);
+    --warning: oklch(0.5 0.13 70);
+    --warning-foreground: oklch(1 0 0);
+    --warning-border: oklch(0.46 0.12 70);
+    --info: oklch(0.52 0.17 255);
+    --info-foreground: oklch(1 0 0);
+    --info-border: oklch(0.48 0.16 255);
+    --destructive-border: oklch(0.5 0.2 27);
+    --pm-footer-height-pane: 40px;
+    --pm-footer-height-status: 28px;
+    --pm-footer-padding-x: 12px;
+    --pm-footer-border: 1px solid var(--border);
+    --pm-footer-bg: var(--card);
+    --pm-footer-status-bg: color-mix(in oklch, var(--muted) 30%, transparent);
+    --pm-footer-fg: var(--muted-foreground);
+    /* Fixed email-content palette: single source of truth (R4).
+       These NEVER change with the UI theme so the composer edit surface,
+       the composer preview surface, and the fixed-light reading surface all
+       render sender-safe dark-on-white and can't drift apart. The two iframe
+       renderers can't share this CSS, so their color constants
+       (useThemeColorsForSandbox / EmailIframeRenderer::DEFAULT_*) mirror
+       these same hex values. */
+    --pm-email-bg: #ffffff;
+    --pm-email-fg: #111827;
+    --pm-email-muted-fg: #4b5563;
+    --pm-email-muted-bg: #f3f4f6;
+    --pm-email-accent-bg: #e5e7eb;
+    --pm-email-quote-fg: #555555;
+    --pm-email-quote-border: #b0b0b0;
+    --pm-email-link: #2563eb;
+    --pm-email-primary-fg: #ffffff;
+    --pm-email-destructive: #dc2626;
+    --pm-email-destructive-fg: #ffffff;
+    --pm-email-success: #15803d;
+    --pm-email-pro: #4f46e5;
+    --pm-email-table-border: #d1d5db;
+    --pm-email-code-bg: #f8fafc;
+    --pm-email-code-border: #e2e8f0;
+  }
+
+  /* Alert/Status color variables - Dark mode */
+  .dark {
+    --pro: oklch(0.707 0.165 254.624);
+    --pro-foreground: oklch(0.141 0.005 285.823);
+    --pro-border: color-mix(in oklch, var(--pro) 70%, black);
+    --pro-muted: color-mix(in oklch, var(--pro) 18%, var(--background, black));
+    /* Status fallbacks intentionally match :root exactly. Runtime overrides
+       inject the active palette's shared light status values, so the bundled
+       copies must not shift when dark mode is enabled. */
+    --success: oklch(0.52 0.16 150);
+    --success-foreground: oklch(1 0 0);
+    --success-border: oklch(0.5 0.15 150);
+    --warning: oklch(0.5 0.13 70);
+    --warning-foreground: oklch(1 0 0);
+    --warning-border: oklch(0.46 0.12 70);
+    --info: oklch(0.52 0.17 255);
+    --info-foreground: oklch(1 0 0);
+    --info-border: oklch(0.48 0.16 255);
+    --destructive-border: oklch(0.5 0.2 27);
+  }
+
+  #wpcontent {
+    padding-left: 0;
+  }
+
+  #wpbody-content {
+    padding: 0;
+  }
+
+  #pressedmail-plugin {
+    @apply bg-background text-foreground;
+    font-family: var(
+      --pm-font-family,
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      Roboto,
+      sans-serif
+    );
+    font-size: var(--pm-font-size, 18px);
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+    min-height: calc(100vh - 32px);
+    width: 100%;
+    color-scheme: light;
+
+    /* Override Tailwind 4 text size variables to scale with --pm-font-size */
+    --text-xs: calc(var(--pm-font-size, 18px) * 0.75);
+    --text-xs--line-height: calc(var(--pm-font-size, 18px) * 1);
+    --text-sm: calc(var(--pm-font-size, 18px) * 0.875);
+    --text-sm--line-height: calc(var(--pm-font-size, 18px) * 1.25);
+    --text-base: calc(var(--pm-font-size, 18px) * 1);
+    --text-base--line-height: calc(var(--pm-font-size, 18px) * 1.5);
+    --text-lg: calc(var(--pm-font-size, 18px) * 1.125);
+    --text-lg--line-height: calc(var(--pm-font-size, 18px) * 1.75);
+    --text-xl: calc(var(--pm-font-size, 18px) * 1.25);
+    --text-xl--line-height: calc(var(--pm-font-size, 18px) * 1.75);
+    --text-2xl: calc(var(--pm-font-size, 18px) * 1.5);
+    --text-2xl--line-height: calc(var(--pm-font-size, 18px) * 2);
+    --text-3xl: calc(var(--pm-font-size, 18px) * 1.875);
+    --text-3xl--line-height: calc(var(--pm-font-size, 18px) * 2.25);
+    /* Custom sizes for theme CSS (between standard Tailwind stops) */
+    --text-2xs: calc(var(--pm-font-size, 18px) * 0.6875);
+    --text-2xs--line-height: calc(var(--pm-font-size, 18px) * 0.875);
+    --text-xs-sm: calc(var(--pm-font-size, 18px) * 0.8125);
+    --text-xs-sm--line-height: calc(var(--pm-font-size, 18px) * 1.125);
+
+    /* Icon sizes scale with --pm-font-size so icons track the font setting.
+       Ratios mirror the Tailwind h-* and w-* rem stops with h-4 (16px) as 1x. */
+    --pm-icon-2: calc(var(--pm-font-size, 18px) * 0.5);
+    --pm-icon-2-5: calc(var(--pm-font-size, 18px) * 0.625);
+    --pm-icon-3: calc(var(--pm-font-size, 18px) * 0.75);
+    --pm-icon-3-5: calc(var(--pm-font-size, 18px) * 0.875);
+    --pm-icon-4: calc(var(--pm-font-size, 18px) * 1);
+    --pm-icon-5: calc(var(--pm-font-size, 18px) * 1.25);
+    --pm-icon-6: calc(var(--pm-font-size, 18px) * 1.5);
+    --pm-icon-7: calc(var(--pm-font-size, 18px) * 1.75);
+    --pm-icon-8: calc(var(--pm-font-size, 18px) * 2);
+    --pm-icon-9: calc(var(--pm-font-size, 18px) * 2.25);
+    --pm-icon-10: calc(var(--pm-font-size, 18px) * 2.5);
+    --pm-icon-12: calc(var(--pm-font-size, 18px) * 3);
+    --pm-icon-14: calc(var(--pm-font-size, 18px) * 3.5);
+    --pm-icon-16: calc(var(--pm-font-size, 18px) * 4);
+  }
+
+  /* Default text-sm for block text elements without explicit size classes.
+     Uses :where() for zero specificity: any Tailwind class overrides this. */
+  :where(#pressedmail-plugin)
+    :is(p, li, ol, ul, label):not(
+      :where(
+        [class*="text-2xs"],
+        [class*="text-xs"],
+        [class*="text-sm"],
+        [class*="text-base"],
+        [class*="text-lg"],
+        [class*="text-xl"],
+        [class*="text-2xl"],
+        [class*="text-3xl"],
+        [class*="text-["]
+      )
+    ) {
+    font-size: var(--text-sm);
+    line-height: var(--text-sm--line-height);
+  }
+
+  #pressedmail-plugin > * {
+    width: 100%;
+  }
+
+  .pm-layout-preview {
+    --pm-preview-bg: var(--card);
+    --pm-preview-border: var(--border);
+    --pm-preview-toolbar: var(--muted);
+    --pm-preview-sidebar: var(--secondary);
+    --pm-preview-list: var(--muted);
+    --pm-preview-pane: var(--accent);
+    --pm-preview-accent: var(--primary);
+    --pm-preview-text: var(--foreground);
+    --pm-preview-swatch-1: var(--primary);
+    --pm-preview-swatch-2: var(--secondary);
+    --pm-preview-swatch-3: var(--accent);
+    display: block;
+  }
+
+  [data-color-scheme="default"] .pm-layout-preview,
+  [data-color-scheme="curb"] .pm-layout-preview,
+  [data-color-scheme="pretty"] .pm-layout-preview,
+  [data-color-scheme="pressedg"] .pm-layout-preview,
+  [data-color-scheme="pressedout"] .pm-layout-preview,
+  [data-color-scheme="pressedcube"] .pm-layout-preview,
+  [data-color-scheme="tokyo"] .pm-layout-preview,
+  [data-color-scheme="executive"] .pm-layout-preview,
+  [data-color-scheme="contrast"] .pm-layout-preview,
+  [data-color-scheme="minimalist"] .pm-layout-preview {
+    --pm-preview-swatch-1: var(--primary);
+    --pm-preview-swatch-2: var(--secondary);
+    --pm-preview-swatch-3: var(--accent);
+  }
+
+  /*
+   * Propagate theme variables to body level for Radix portal inheritance.
+   * This ensures dialogs, popovers, and other portals can access theme colors.
+   */
+  body.toplevel_page_pressedmail-plugin:has(.pressedm-theme) {
+    --background: oklch(0.98 0.004 236.496);
+    --foreground: oklch(0.194 0.039 255.586);
+    --muted: oklch(0.957 0.003 247.859);
+    --muted-foreground: oklch(0.422 0.05 255.24);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.194 0.039 255.586);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.194 0.039 255.586);
+    --border: oklch(0.894 0.008 228.864);
+    --input: oklch(0.62 0.008 228.864);
+    --primary: oklch(0.52 0.11 222);
+    --primary-foreground: oklch(0.98 0.02 201);
+    --secondary: oklch(0.957 0.003 247.859);
+    --secondary-foreground: oklch(0.194 0.039 255.586);
+    --accent: oklch(0.962 0.008 241.664);
+    --accent-foreground: oklch(0.194 0.039 255.586);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.594 0.081 242.775);
+  }
+
+  /* Dark mode - default theme */
+  body.toplevel_page_pressedmail-plugin.dark:has(.pressedm-theme),
+  html.dark body.toplevel_page_pressedmail-plugin:has(.pressedm-theme) {
+    --background: oklch(0.118 0.017 243.68);
+    --foreground: oklch(0.98 0.004 236.496);
+    --muted: oklch(0.257 0.025 253.728);
+    --muted-foreground: oklch(0.827 0.012 231.689);
+    --popover: oklch(0.156 0.026 252.034);
+    --popover-foreground: oklch(0.98 0.004 236.496);
+    --card: oklch(0.156 0.026 252.034);
+    --card-foreground: oklch(0.98 0.004 236.496);
+    --border: oklch(0.901 0.019 242.985 / 14%);
+    --input: oklch(0.901 0.019 242.985 / 18%);
+    --primary: oklch(0.52 0.11 222);
+    --primary-foreground: oklch(0.98 0.02 201);
+    --secondary: oklch(0.257 0.025 253.728);
+    --secondary-foreground: oklch(0.98 0.004 236.496);
+    --accent: oklch(0.302 0.033 255.78);
+    --accent-foreground: oklch(0.98 0.004 236.496);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.718 0.056 240.941);
+  }
+
+  /* PressedG (Gmail) theme - Light mode */
+  body.toplevel_page_pressedmail-plugin:has(.pressedg-theme) {
+    --background: oklch(1 0 180);
+    --foreground: oklch(0.126 0.026 268.939);
+    --muted: oklch(0.885 0.01 276.021);
+    --muted-foreground: oklch(0.225 0.0234 264.3637);
+    --popover: oklch(0.992 0 161.565);
+    --popover-foreground: oklch(0.114 0.022 268.251);
+    --card: oklch(0.992 0 161.565);
+    --card-foreground: oklch(0.114 0.022 268.251);
+    --border: oklch(0.928 0.006 264.531);
+    --input: oklch(0.62 0.018 264);
+    --primary: oklch(0.635 0.225 23.238);
+    --primary-foreground: oklch(1 0 180);
+    --secondary: oklch(0.915 0.011 276);
+    --secondary-foreground: oklch(0.388 0.043 274.435);
+    --accent: oklch(0.866 0.024 275.781);
+    --accent-foreground: oklch(0.335 0.052 273.604);
+    --destructive: oklch(0.58 0.2078 25.3313);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.567 0.237 267.896);
+  }
+
+  /* Dark mode - PressedG theme */
+  body.toplevel_page_pressedmail-plugin.dark:has(.pressedg-theme),
+  html.dark body.toplevel_page_pressedmail-plugin:has(.pressedg-theme) {
+    --background: oklch(0.2046 0 0);
+    --foreground: oklch(0.9219 0 0);
+    --muted: oklch(0.2564 0 0);
+    --muted-foreground: oklch(0.875 0 0);
+    --popover: oklch(0.2564 0 0);
+    --popover-foreground: oklch(0.9219 0 0);
+    --card: oklch(0.2564 0 0);
+    --card-foreground: oklch(0.9219 0 0);
+    --border: oklch(0.3671 0 0);
+    --input: oklch(0.3671 0 0);
+    --primary: oklch(0.6956 0.1642 27.9263);
+    --primary-foreground: oklch(0.2046 0 0);
+    --secondary: oklch(0.3209 0 0);
+    --secondary-foreground: oklch(0.9219 0 0);
+    --accent: oklch(0.3671 0 0);
+    --accent-foreground: oklch(0.9219 0 0);
+    --destructive: oklch(0.58 0.2078 25.3313);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.6956 0.1642 27.9263);
+  }
+
+  /* Dark mode - Executive theme */
+  body.toplevel_page_pressedmail-plugin.dark:has(.executive-theme),
+  html.dark body.toplevel_page_pressedmail-plugin:has(.executive-theme) {
+    --background: oklch(0.1665 0 0);
+    --foreground: oklch(0.9578 0 0);
+    --muted: oklch(0.2564 0 0);
+    --muted-foreground: oklch(0.875 0 0);
+    --popover: oklch(0.2046 0 0);
+    --popover-foreground: oklch(0.9578 0 0);
+    --card: oklch(0.2046 0 0);
+    --card-foreground: oklch(0.9578 0 0);
+    --border: oklch(0.3671 0 0);
+    --input: oklch(0.3671 0 0);
+    --primary: oklch(0.6493 0.1473 163.2339);
+    --primary-foreground: oklch(0.1665 0 0);
+    --secondary: oklch(0.56 0.188 259.8145);
+    --secondary-foreground: oklch(1 0 0);
+    --accent: oklch(0.3209 0.05 166);
+    --accent-foreground: oklch(0.9578 0 0);
+    --destructive: oklch(0.58 0.2078 25.3313);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.6493 0.1473 163.2339);
+  }
+
+  /* PressedOut (Outlook) theme - Light mode */
+  body.toplevel_page_pressedmail-plugin:has(.pressedout-theme) {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.3211 0 0);
+    --muted: oklch(0.9846 0.0017 247.8389);
+    --muted-foreground: oklch(0.225 0.0234 264.3637);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.3211 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.3211 0 0);
+    --border: oklch(0.9276 0.0058 264.5313);
+    --input: oklch(0.62 0.012 264);
+    --primary: oklch(0.56 0.188 259.8145);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.967 0.0029 264.5419);
+    --secondary-foreground: oklch(0.4461 0.0263 256.8018);
+    --accent: oklch(0.9514 0.025 236.8242);
+    --accent-foreground: oklch(0.3791 0.1378 265.5222);
+    --destructive: oklch(0.58 0.2078 25.3313);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.6231 0.188 259.8145);
+  }
+}
+
+/* ==========================================================================
+   THEME COLOR OVERRIDES - Remap hardcoded Tailwind colors to theme variables
+   ========================================================================== */
+
+/*
+ * Override hardcoded Tailwind color classes within #pressedmail-plugin
+ * to use ShadCN UI CSS custom properties. This enables theme switching
+ * without modifying every component.
+ *
+ * Written WITHOUT CSS nesting for maximum compatibility.
+ *
+ * ShadCN UI Design System Variables:
+ * - --background, --foreground (page backgrounds)
+ * - --card, --card-foreground (card surfaces)
+ * - --muted, --muted-foreground (subtle backgrounds/text)
+ * - --accent, --accent-foreground (hover states)
+ * - --primary, --primary-foreground (action buttons)
+ * - --secondary, --secondary-foreground (secondary actions)
+ * - --destructive, --destructive-foreground (error/delete)
+ * - --border, --input, --ring (borders/focus)
+ * - --success, --success-foreground (success states)
+ */
+
+/* ===== BACKGROUNDS ===== */
+
+/* Main page background - bg-white -> --background */
+#pressedmail-plugin .bg-white {
+  background-color: var(--background) !important;
+}
+
+/* Card/elevated surfaces - bg-gray-50 -> --card */
+#pressedmail-plugin .bg-gray-50 {
+  background-color: var(--card) !important;
+}
+
+/* Muted/secondary backgrounds - bg-gray-100 -> --muted */
+#pressedmail-plugin .bg-gray-100 {
+  background-color: var(--muted) !important;
+}
+
+/* Hover states */
+#pressedmail-plugin .hover\:bg-gray-100:hover {
+  background-color: var(--accent) !important;
+}
+#pressedmail-plugin .hover\:bg-gray-50:hover {
+  background-color: var(--accent) !important;
+}
+
+/* ===== PRIMARY ACTIONS (Blue -> Primary) ===== */
+
+#pressedmail-plugin .bg-blue-600 {
+  background-color: var(--primary) !important;
+}
+#pressedmail-plugin .bg-blue-500 {
+  background-color: var(--primary) !important;
+}
+
+#pressedmail-plugin .hover\:bg-blue-700:hover {
+  background-color: color-mix(in oklch, var(--primary) 85%, black) !important;
+}
+#pressedmail-plugin .hover\:bg-blue-600:hover {
+  background-color: color-mix(in oklch, var(--primary) 85%, black) !important;
+}
+
+#pressedmail-plugin .text-blue-600 {
+  color: var(--primary) !important;
+}
+#pressedmail-plugin .text-blue-700 {
+  color: var(--primary) !important;
+}
+
+/* Text on primary buttons */
+#pressedmail-plugin .bg-blue-600 .text-white,
+#pressedmail-plugin .bg-blue-500 .text-white,
+#pressedmail-plugin .bg-primary .text-white {
+  color: var(--primary-foreground) !important;
+}
+
+/* Selected/active states with primary color tint */
+#pressedmail-plugin .bg-blue-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--primary) 12%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-blue-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--primary) 15%,
+    var(--background)
+  ) !important;
+}
+
+.dark #pressedmail-plugin {
+  color-scheme: dark;
+}
+
+/* ===== BORDERS ===== */
+
+#pressedmail-plugin .border-gray-200 {
+  border-color: var(--border) !important;
+}
+#pressedmail-plugin .border-gray-300 {
+  border-color: var(--border) !important;
+}
+#pressedmail-plugin .border-gray-100 {
+  border-color: var(--border) !important;
+}
+
+/* Focus ring */
+#pressedmail-plugin .ring-blue-500 {
+  --tw-ring-color: var(--ring) !important;
+}
+#pressedmail-plugin .focus\:ring-blue-500:focus {
+  --tw-ring-color: var(--ring) !important;
+}
+
+#pressedmail-plugin .focus\:border-blue-500:focus {
+  border-color: var(--ring) !important;
+}
+
+/* ===== TEXT COLORS ===== */
+
+/* Primary foreground text */
+#pressedmail-plugin .text-gray-900 {
+  color: var(--foreground) !important;
+}
+#pressedmail-plugin .text-gray-800 {
+  color: var(--foreground) !important;
+}
+#pressedmail-plugin .text-gray-700 {
+  color: var(--foreground) !important;
+}
+
+/* Muted/secondary text */
+#pressedmail-plugin .text-gray-600 {
+  color: var(--muted-foreground) !important;
+}
+#pressedmail-plugin .text-gray-500 {
+  color: var(--muted-foreground) !important;
+}
+#pressedmail-plugin .text-gray-400 {
+  color: var(--muted-foreground) !important;
+}
+
+/* ===== DESTRUCTIVE (Red) ===== */
+
+#pressedmail-plugin .bg-red-600 {
+  background-color: var(--destructive) !important;
+}
+#pressedmail-plugin .bg-red-500 {
+  background-color: var(--destructive) !important;
+}
+
+#pressedmail-plugin .hover\:bg-red-700:hover {
+  background-color: color-mix(
+    in oklch,
+    var(--destructive) 85%,
+    black
+  ) !important;
+}
+#pressedmail-plugin .hover\:bg-red-600:hover {
+  background-color: color-mix(
+    in oklch,
+    var(--destructive) 85%,
+    black
+  ) !important;
+}
+
+#pressedmail-plugin .text-red-600 {
+  color: var(--destructive) !important;
+}
+#pressedmail-plugin .text-red-700 {
+  color: var(--destructive) !important;
+}
+
+#pressedmail-plugin .bg-red-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--destructive) 12%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-red-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--destructive) 15%,
+    var(--background)
+  ) !important;
+}
+
+/* ===== SUCCESS (Green) ===== */
+
+#pressedmail-plugin .bg-green-600 {
+  background-color: var(--success) !important;
+}
+#pressedmail-plugin .bg-green-500 {
+  background-color: var(--success) !important;
+}
+
+#pressedmail-plugin .text-green-600 {
+  color: var(--success) !important;
+}
+#pressedmail-plugin .text-green-700 {
+  color: var(--success) !important;
+}
+
+#pressedmail-plugin .bg-green-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--success) 12%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-green-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--success) 15%,
+    var(--background)
+  ) !important;
+}
+
+/* ===== WARNING (Yellow/Amber) ===== */
+
+#pressedmail-plugin .bg-yellow-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--warning) 15%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-yellow-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--warning) 20%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-amber-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--warning) 15%,
+    var(--background)
+  ) !important;
+}
+
+#pressedmail-plugin .text-yellow-600 {
+  color: var(--warning) !important;
+}
+#pressedmail-plugin .text-yellow-700 {
+  color: var(--warning) !important;
+}
+#pressedmail-plugin .text-amber-600 {
+  color: var(--warning) !important;
+}
+
+/* ===== ACCENT (Purple) ===== */
+
+#pressedmail-plugin .bg-purple-50 {
+  background-color: color-mix(
+    in oklch,
+    var(--accent) 20%,
+    var(--background)
+  ) !important;
+}
+#pressedmail-plugin .bg-purple-100 {
+  background-color: color-mix(
+    in oklch,
+    var(--accent) 25%,
+    var(--background)
+  ) !important;
+}
+
+#pressedmail-plugin .text-purple-600 {
+  color: var(--primary) !important;
+}
+#pressedmail-plugin .text-purple-700 {
+  color: var(--primary) !important;
+}
+
+#pressedmail-plugin .bg-purple-600 {
+  background-color: var(--primary) !important;
+}
+#pressedmail-plugin .bg-purple-500 {
+  background-color: var(--primary) !important;
+}
+
+/* ===== DIVIDERS ===== */
+
+#pressedmail-plugin .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border) !important;
+}
+#pressedmail-plugin .divide-gray-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border) !important;
+}
+
+/* ===== DARK MODE OVERRIDES ===== */
+/* These apply when .dark class is on html or body */
+
+.dark #pressedmail-plugin .bg-white {
+  background-color: var(--background) !important;
+}
+.dark #pressedmail-plugin .bg-gray-50 {
+  background-color: var(--card) !important;
+}
+.dark #pressedmail-plugin .bg-gray-100 {
+  background-color: var(--muted) !important;
+}
+
+.dark #pressedmail-plugin .hover\:bg-gray-100:hover {
+  background-color: var(--accent) !important;
+}
+.dark #pressedmail-plugin .hover\:bg-gray-50:hover {
+  background-color: var(--accent) !important;
+}
+
+.dark #pressedmail-plugin .text-gray-900 {
+  color: var(--foreground) !important;
+}
+.dark #pressedmail-plugin .text-gray-800 {
+  color: var(--foreground) !important;
+}
+.dark #pressedmail-plugin .text-gray-700 {
+  color: var(--foreground) !important;
+}
+
+.dark #pressedmail-plugin .text-gray-600 {
+  color: var(--muted-foreground) !important;
+}
+.dark #pressedmail-plugin .text-gray-500 {
+  color: var(--muted-foreground) !important;
+}
+.dark #pressedmail-plugin .text-gray-400 {
+  color: var(--muted-foreground) !important;
+}
+
+.dark #pressedmail-plugin .border-gray-200 {
+  border-color: var(--border) !important;
+}
+.dark #pressedmail-plugin .border-gray-300 {
+  border-color: var(--border) !important;
+}
+
+.dark #pressedmail-plugin .divide-gray-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--border) !important;
+}
+
+/* ==========================================================================
+   FONT-SIZE ENFORCEMENT. Override WordPress admin font-size rules.
+   UNLAYERED with !important to beat WP admin's unlayered CSS (e.g.
+   `body { font-size: 13px }`). Tailwind 4 emits utilities inside
+   @layer utilities, which always loses to unlayered styles per the
+   CSS Cascade Layers spec. Same pattern as color overrides above.
+   ========================================================================== */
+
+/* Base font-size on plugin container */
+#pressedmail-plugin {
+  font-size: var(--pm-font-size, 18px) !important;
+}
+
+/* Enforce Tailwind text-size utilities within the plugin.
+   [class~="text-sm"] = exact word match, won't match md:text-sm. */
+#pressedmail-plugin [class~="text-2xs"] {
+  font-size: var(--text-2xs) !important;
+  line-height: var(--text-2xs--line-height) !important;
+}
+#pressedmail-plugin [class~="text-xs"] {
+  font-size: var(--text-xs) !important;
+  line-height: var(--text-xs--line-height) !important;
+}
+#pressedmail-plugin [class~="text-sm"] {
+  font-size: var(--text-sm) !important;
+  line-height: var(--text-sm--line-height) !important;
+}
+#pressedmail-plugin [class~="text-base"] {
+  font-size: var(--text-base) !important;
+  line-height: var(--text-base--line-height) !important;
+}
+#pressedmail-plugin [class~="text-lg"] {
+  font-size: var(--text-lg) !important;
+  line-height: var(--text-lg--line-height) !important;
+}
+#pressedmail-plugin [class~="text-xl"] {
+  font-size: var(--text-xl) !important;
+  line-height: var(--text-xl--line-height) !important;
+}
+#pressedmail-plugin [class~="text-2xl"] {
+  font-size: var(--text-2xl) !important;
+  line-height: var(--text-2xl--line-height) !important;
+}
+#pressedmail-plugin [class~="text-3xl"] {
+  font-size: var(--text-3xl) !important;
+  line-height: var(--text-3xl--line-height) !important;
+}
+
+/* Catch-all: block text elements without explicit Tailwind text-size class */
+#pressedmail-plugin
+  :is(p, li, ol, ul, label):not(
+    [class*="text-2xs"],
+    [class*="text-xs"],
+    [class*="text-sm"],
+    [class*="text-base"],
+    [class*="text-lg"],
+    [class*="text-xl"],
+    [class*="text-2xl"],
+    [class*="text-3xl"],
+    [class*="text-["]
+  ) {
+  font-size: var(--text-sm) !important;
+  line-height: var(--text-sm--line-height) !important;
+}
+
+/* Enforce icon (svg) sizes to scale with --pm-font-size, mirroring the text
+   utilities above. Scoped to svg so layout boxes that share the same h-* and
+   w-* classes are untouched. [class~="h-4"] is an exact-word match, so responsive
+   variants (md:h-4) and arbitrary values (h-[20px]) are left alone. SVGs
+   without these utility classes (logos/illustrations) are unaffected. */
+#pressedmail-plugin svg[class~="h-2"] {
+  height: var(--pm-icon-2) !important;
+}
+#pressedmail-plugin svg[class~="w-2"] {
+  width: var(--pm-icon-2) !important;
+}
+#pressedmail-plugin svg[class~="h-2.5"] {
+  height: var(--pm-icon-2-5) !important;
+}
+#pressedmail-plugin svg[class~="w-2.5"] {
+  width: var(--pm-icon-2-5) !important;
+}
+#pressedmail-plugin svg[class~="h-3"] {
+  height: var(--pm-icon-3) !important;
+}
+#pressedmail-plugin svg[class~="w-3"] {
+  width: var(--pm-icon-3) !important;
+}
+#pressedmail-plugin svg[class~="h-3.5"] {
+  height: var(--pm-icon-3-5) !important;
+}
+#pressedmail-plugin svg[class~="w-3.5"] {
+  width: var(--pm-icon-3-5) !important;
+}
+#pressedmail-plugin svg[class~="h-4"] {
+  height: var(--pm-icon-4) !important;
+}
+#pressedmail-plugin svg[class~="w-4"] {
+  width: var(--pm-icon-4) !important;
+}
+#pressedmail-plugin svg[class~="h-5"] {
+  height: var(--pm-icon-5) !important;
+}
+#pressedmail-plugin svg[class~="w-5"] {
+  width: var(--pm-icon-5) !important;
+}
+#pressedmail-plugin svg[class~="h-6"] {
+  height: var(--pm-icon-6) !important;
+}
+#pressedmail-plugin svg[class~="w-6"] {
+  width: var(--pm-icon-6) !important;
+}
+#pressedmail-plugin svg[class~="h-7"] {
+  height: var(--pm-icon-7) !important;
+}
+#pressedmail-plugin svg[class~="w-7"] {
+  width: var(--pm-icon-7) !important;
+}
+#pressedmail-plugin svg[class~="h-8"] {
+  height: var(--pm-icon-8) !important;
+}
+#pressedmail-plugin svg[class~="w-8"] {
+  width: var(--pm-icon-8) !important;
+}
+#pressedmail-plugin svg[class~="h-9"] {
+  height: var(--pm-icon-9) !important;
+}
+#pressedmail-plugin svg[class~="w-9"] {
+  width: var(--pm-icon-9) !important;
+}
+#pressedmail-plugin svg[class~="h-10"] {
+  height: var(--pm-icon-10) !important;
+}
+#pressedmail-plugin svg[class~="w-10"] {
+  width: var(--pm-icon-10) !important;
+}
+#pressedmail-plugin svg[class~="h-12"] {
+  height: var(--pm-icon-12) !important;
+}
+#pressedmail-plugin svg[class~="w-12"] {
+  width: var(--pm-icon-12) !important;
+}
+#pressedmail-plugin svg[class~="h-14"] {
+  height: var(--pm-icon-14) !important;
+}
+#pressedmail-plugin svg[class~="w-14"] {
+  width: var(--pm-icon-14) !important;
+}
+#pressedmail-plugin svg[class~="h-16"] {
+  height: var(--pm-icon-16) !important;
+}
+#pressedmail-plugin svg[class~="w-16"] {
+  width: var(--pm-icon-16) !important;
+}
+/* Tailwind v4 size-* (sets width + height together) for icon svgs. */
+#pressedmail-plugin svg[class~="size-3"] {
+  width: var(--pm-icon-3) !important;
+  height: var(--pm-icon-3) !important;
+}
+#pressedmail-plugin svg[class~="size-3.5"] {
+  width: var(--pm-icon-3-5) !important;
+  height: var(--pm-icon-3-5) !important;
+}
+#pressedmail-plugin svg[class~="size-4"] {
+  width: var(--pm-icon-4) !important;
+  height: var(--pm-icon-4) !important;
+}
+#pressedmail-plugin svg[class~="size-5"] {
+  width: var(--pm-icon-5) !important;
+  height: var(--pm-icon-5) !important;
+}
+#pressedmail-plugin svg[class~="size-6"] {
+  width: var(--pm-icon-6) !important;
+  height: var(--pm-icon-6) !important;
+}
+#pressedmail-plugin svg[class~="size-8"] {
+  width: var(--pm-icon-8) !important;
+  height: var(--pm-icon-8) !important;
+}
+
+@layer components {
+  /* Base theme-aware form controls (covers raw inputs/selects/textareas across plugin/admin) */
+  :where(#pressedmail-plugin)
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ):not([data-no-theme]),
+  :where(#pressedmail-plugin) textarea:not([data-no-theme]),
+  :where(#pressedmail-plugin) select:not([data-no-theme]),
+  :where(body.toplevel_page_pressedmail-plugin)
+    :where(
+      input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+          [type="file"]
+        ):not([data-no-theme]),
+      textarea:not([data-no-theme]),
+      select:not([data-no-theme])
+    ) {
+    @apply rounded-md border border-input bg-background text-foreground;
+    @apply placeholder:text-muted-foreground/70;
+    /* ponytail: ring alpha stays at /30 to match the shared @kit/ui plugin
+       controls. A 30% ring cannot reach the 3:1 that WCAG 1.4.11 asks of a
+       focus indicator whatever --ring holds, but raising it means raising it in
+       packages/ui too, which restyles PressedNotes and CurbPress in the same
+       stroke. Raise both together when that cross-product change is wanted. */
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30;
+    @apply disabled:cursor-not-allowed disabled:opacity-50 transition-colors;
+  }
+
+  :where(#pressedmail-plugin) textarea,
+  :where(body.toplevel_page_pressedmail-plugin) textarea {
+    @apply resize-y px-3 py-2;
+  }
+
+  :where(#pressedmail-plugin)
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ),
+  :where(body.toplevel_page_pressedmail-plugin)
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(
+      [type="file"]
+    ) {
+    @apply px-3 py-1 text-sm;
+  }
+
+  :where(#pressedmail-plugin) select,
+  :where(body.toplevel_page_pressedmail-plugin) select {
+    @apply text-sm shadow-xs px-3 py-2;
+  }
+
+  /* Dialog/portal surfaces - ensure themed backgrounds/text even when portaled to <body> */
+  :where([data-radix-portal]) [role="dialog"],
+  :where(#pressedmail-plugin) [role="dialog"],
+  :where(body.toplevel_page_pressedmail-plugin) [role="dialog"] {
+    @apply rounded-lg border border-border bg-card text-card-foreground shadow-lg;
+  }
+
+  /* Dialog content spacing and section dividers */
+  :where([data-radix-portal]) [role="dialog"] header,
+  :where(#pressedmail-plugin) [role="dialog"] header,
+  :where(body.toplevel_page_pressedmail-plugin) [role="dialog"] header {
+    @apply border-b border-border pb-4;
+  }
+
+  :where([data-radix-portal]) [role="dialog"] footer,
+  :where(#pressedmail-plugin) [role="dialog"] footer,
+  :where(body.toplevel_page_pressedmail-plugin) [role="dialog"] footer {
+    @apply border-t border-border pt-4;
+  }
+
+  /* Dialog typography defaults */
+  :where([data-radix-portal]) [role="dialog"] h1,
+  :where([data-radix-portal]) [role="dialog"] h2,
+  :where([data-radix-portal]) [role="dialog"] h3,
+  :where(#pressedmail-plugin) [role="dialog"] h1,
+  :where(#pressedmail-plugin) [role="dialog"] h2,
+  :where(#pressedmail-plugin) [role="dialog"] h3 {
+    @apply text-foreground;
+  }
+
+  :where([data-radix-portal]) [role="dialog"] p,
+  :where(#pressedmail-plugin) [role="dialog"] p {
+    @apply text-sm text-muted-foreground;
+  }
+
+  /* Force flex display on shadcn labels, DetailSection h3 headings, and
+     DetailRow dt cells. WP admin ships unlayered form/heading rules that
+     can override Tailwind's `display: flex` utility (utilities are emitted
+     inside @layer utilities and lose to unlayered styles). Without this
+     the leading lucide icon stacks above the text instead of sitting
+     inline to its left. */
+  :where(#pressedmail-plugin) [data-slot="label"],
+  :where(body.toplevel_page_pressedmail-plugin) [data-slot="label"] {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  :where(#pressedmail-plugin) [data-testid$="-section"] > div > h3,
+  :where(body.toplevel_page_pressedmail-plugin)
+    [data-testid$="-section"]
+    > div
+    > h3 {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 0.375rem;
+  }
+
+  :where(#pressedmail-plugin) dl > div.grid > dt,
+  :where(body.toplevel_page_pressedmail-plugin) dl > div.grid > dt {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Ensure WP admin containers inherit theme color scheme for native controls */
+  body.toplevel_page_pressedmail-plugin {
+    color-scheme: light;
+  }
+  body.toplevel_page_pressedmail-plugin.dark,
+  html.dark body.toplevel_page_pressedmail-plugin {
+    color-scheme: dark;
+  }
+
+  .pm-email-content-surface {
+    /* --pm-email-canvas-bg is the user-picked canvas pane color (composer
+       only). Email content renders on a fixed light surface independent of the
+       app UI theme, so senders' emails look the same in dark and light mode.
+       The sender's own colors still win via inline styles; the per-user
+       force-light / invert override remains the opt-in path. */
+    background: var(--pm-email-canvas-bg, #ffffff);
+    color: var(--pm-email-fg);
+    color-scheme: light;
+  }
+
+  /* Host chrome around sandboxed HTML messages follows the active UI theme.
+     The email document keeps its independent fixed-light palette inside the
+     iframe; these values style only the wrapper and native scrollbar gutter. */
+  .pm-email-sandbox-frame {
+    background: var(--card);
+    color: var(--card-foreground);
+    border-color: var(--border);
+    color-scheme: normal;
+    overflow: hidden;
+  }
+
+  /* Plain-TEXT reading surface (R1). Text-only emails carry no inherent colors,
+     so, unlike RTF/HTML, they may safely ADAPT to the UI light/dark theme.
+     This is the reading pane's plain-text branch ONLY; the HTML sandbox stays
+     fixed-white and the composer edit surface stays fixed-white (WYSIWYG). */
+  .pm-email-text-surface {
+    background: var(--card);
+    color: var(--card-foreground);
+    color-scheme: normal;
+  }
+
+  /* Plain composer bodies have no authored presentation, so editing and
+     preview intentionally inherit the active desktop/mobile theme. */
+  .pm-composer-text-surface {
+    background: var(--card);
+    color: var(--card-foreground);
+    color-scheme: normal;
+  }
+
+  /* Editable recipient-style preview applied to the LIVE composer editor when
+     Preview is toggled. The editor stays mounted and editable; this only
+     restyles it as an email-safe light recipient canvas. */
+  .pm-email-preview-surface {
+    --pm-email-preview-reader-width: 640px;
+    --pm-email-preview-reader-min-width: 320px;
+    --pm-email-preview-padding-x: clamp(1rem, 4vw, 2rem);
+    --pm-email-preview-padding-y: clamp(0.875rem, 2vw, 1.25rem);
+    /* Canvas pane around the centered email sheet, honors the user-picked
+       canvas color, otherwise the recipient-style white page. */
+    background: var(--pm-email-canvas-bg, #ffffff);
+    color: var(--pm-email-fg);
+    color-scheme: light;
+    overflow-x: auto;
+  }
+
+  .pm-email-preview-surface :where([data-slate-editor]) {
+    /* The email "sheet" honors the user-picked email background; the live
+       editor background (inline on .pm-composer-editor) is neutralized below
+       so the canvas color shows beside the centered sheet. */
+    background: var(--pm-email-body-bg, #ffffff);
+    color: var(--pm-email-fg);
+  }
+
+  .pm-email-preview-surface
+    :where([data-slate-editor])
+    :where(h1, h2, h3, h4, h5, h6, p, li, blockquote, td, th, dt, dd) {
+    color: var(--pm-email-fg) !important;
+  }
+
+  .pm-email-preview-surface :where([data-slate-editor]) :where(a) {
+    color: var(--pm-email-link) !important;
+  }
+
+  /* Live-editor chrome (the "Signature" badge, the quote "from" header) is
+     marked data-pm-decoration. It is not part of the sent email, so hide it in
+     Preview so the recipient-style canvas matches what actually ships. */
+  .pm-email-preview-surface
+    :where([data-slate-editor])
+    :where([data-pm-decoration]) {
+    display: none !important;
+  }
+
+  .email-html-container {
+    @apply rounded-md border shadow-sm;
+  }
+
+  .email-html-container .email-html-content {
+    @apply p-4 text-sm leading-relaxed;
+    color: inherit;
+  }
+
+  /* Themed Form Elements */
+  .pm-input {
+    @apply w-full px-3 py-1 rounded-md text-sm;
+    @apply border border-input bg-background text-foreground;
+    @apply placeholder:text-muted-foreground/70;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring/30;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply transition-colors duration-150;
+  }
+
+  .pm-textarea {
+    @apply w-full px-3 py-2 rounded-md text-sm;
+    @apply border border-input bg-background text-foreground;
+    @apply placeholder:text-muted-foreground/70;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring/30;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply resize-y transition-colors duration-150;
+  }
+
+  .pm-select {
+    @apply w-full px-3 py-2 rounded-md text-sm;
+    @apply border border-input bg-background text-foreground;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring/30;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply transition-colors duration-150;
+  }
+
+  .pm-label {
+    @apply block text-sm font-medium text-foreground;
+  }
+
+  .pm-label-muted {
+    @apply block text-sm font-medium text-muted-foreground;
+  }
+
+  .pm-helper-text {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .pm-error-text {
+    @apply text-xs text-destructive;
+  }
+
+  /* Themed Form Card/Container */
+  .pm-form-card {
+    @apply w-full rounded-lg border border-border bg-card text-card-foreground;
+  }
+
+  .pm-form-header {
+    @apply p-6 border-b border-border;
+  }
+
+  .pm-form-title {
+    @apply text-lg font-semibold text-foreground;
+  }
+
+  .pm-form-description {
+    @apply text-sm text-muted-foreground mt-1;
+  }
+
+  .pm-form-content {
+    @apply p-6 space-y-6;
+  }
+
+  .pm-form-footer {
+    @apply flex justify-end gap-2 p-6 border-t border-border;
+  }
+
+  .pm-form-section {
+    @apply space-y-4 rounded-lg border border-border p-4;
+  }
+
+  .pm-form-section-title {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+
+  /* Themed Buttons */
+  .pm-btn-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
+    @apply text-sm font-medium transition-colors;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+
+  .pm-btn-secondary {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
+    @apply text-sm font-medium transition-colors;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+
+  .pm-btn-outline {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
+    @apply text-sm font-medium transition-colors;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply border border-input bg-background text-foreground;
+    @apply hover:bg-accent hover:text-accent-foreground;
+  }
+
+  .pm-btn-ghost {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
+    @apply text-sm font-medium transition-colors;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground;
+  }
+
+  .pm-btn-destructive {
+    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
+    @apply text-sm font-medium transition-colors;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+
+  /* Themed Toggle Switch */
+  .pm-toggle {
+    @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full;
+    @apply transition-colors duration-200 ease-in-out;
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+    @apply disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .pm-toggle[aria-checked="false"] {
+    @apply bg-muted;
+  }
+
+  .pm-toggle[aria-checked="true"] {
+    @apply bg-primary;
+  }
+
+  .pm-toggle-thumb {
+    @apply pointer-events-none inline-block h-5 w-5 rounded-full;
+    @apply bg-background shadow-lg transform transition duration-200 ease-in-out;
+    @apply mt-0.5;
+  }
+
+  .pm-toggle[aria-checked="false"] .pm-toggle-thumb {
+    @apply translate-x-0.5;
+  }
+
+  .pm-toggle[aria-checked="true"] .pm-toggle-thumb {
+    @apply translate-x-5;
+  }
+
+  /* Themed Alert */
+  .pm-alert-error {
+    @apply flex items-center gap-2 p-3 rounded-md text-sm;
+    @apply bg-destructive/10 text-destructive;
+  }
+
+  .pm-alert-warning {
+    @apply flex items-center gap-2 p-3 rounded-md text-sm;
+    @apply bg-yellow-500/10 text-yellow-600 dark:text-yellow-500;
+  }
+
+  .pm-alert-success {
+    @apply flex items-center gap-2 p-3 rounded-md text-sm;
+    @apply bg-green-500/10 text-green-600 dark:text-green-500;
+  }
+
+  .pm-alert-info {
+    @apply flex items-center gap-2 p-3 rounded-md text-sm;
+    @apply bg-blue-500/10 text-blue-600 dark:text-blue-500;
+  }
+}
+
+/* ==========================================================================
+   HIGH SPECIFICITY FORM INPUT OVERRIDES
+   Ensures all inputs follow theme colors regardless of WordPress admin styles
+   ========================================================================== */
+
+/*
+ * These styles use high specificity to override WordPress admin default input
+ * styles with theme-aware colors. This is critical for proper dark mode support.
+ */
+
+/* Text-based input elements */
+#pressedmail-plugin input[type="text"]:not([data-no-theme]),
+#pressedmail-plugin input[type="email"]:not([data-no-theme]),
+#pressedmail-plugin input[type="password"]:not([data-no-theme]),
+#pressedmail-plugin input[type="search"]:not([data-no-theme]),
+#pressedmail-plugin input[type="tel"]:not([data-no-theme]),
+#pressedmail-plugin input[type="url"]:not([data-no-theme]),
+#pressedmail-plugin input[type="number"]:not([data-no-theme]),
+#pressedmail-plugin input[type="date"]:not([data-no-theme]),
+#pressedmail-plugin input[type="time"]:not([data-no-theme]),
+#pressedmail-plugin input[type="datetime-local"]:not([data-no-theme]),
+#pressedmail-plugin input[type="month"]:not([data-no-theme]),
+#pressedmail-plugin input[type="week"]:not([data-no-theme]),
+#pressedmail-plugin textarea:not([data-no-theme]),
+#pressedmail-plugin select:not([data-no-theme]) {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--pm-control-shadow, none) !important;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease !important;
+}
+
+/* Placeholder text */
+#pressedmail-plugin input::placeholder,
+#pressedmail-plugin textarea::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 0.7 !important;
+}
+
+/* Focus states */
+#pressedmail-plugin input[type="text"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="email"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="password"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="search"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="tel"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="url"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="number"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="date"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="time"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="datetime-local"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="month"]:focus:not([data-no-theme]),
+#pressedmail-plugin input[type="week"]:focus:not([data-no-theme]),
+#pressedmail-plugin textarea:focus:not([data-no-theme]),
+#pressedmail-plugin select:focus:not([data-no-theme]) {
+  border-color: var(--ring) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent) !important;
+}
+
+/*
+ * Keep the header search transparent over its themed wrapper. WordPress
+ * admin forms.css otherwise paints the data-no-theme input white.
+ */
+#pressedmail-plugin input[type="search"][data-no-theme] {
+  background-color: transparent !important;
+  color: var(--foreground) !important;
+}
+
+/*
+ * Reset external (WordPress admin forms.css) focus styling for data-no-theme
+ * inputs without forcing a themed ring. WP admin leaks a box-shadow + outline
+ * on input:focus that bleeds through the data-no-theme opt-out; without this
+ * reset it renders in WP admin blue on the left/right edges (visible where the
+ * search wrapper's overflow-hidden can't clip it). data-no-theme inputs manage
+ * their own focus presentation via their surrounding wrapper's focus-within.
+ */
+#pressedmail-plugin input:focus[data-no-theme],
+#pressedmail-plugin textarea:focus[data-no-theme],
+#pressedmail-plugin select:focus[data-no-theme] {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Hover states (when not focused or disabled) */
+#pressedmail-plugin
+  input[type="text"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="email"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="password"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="search"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="tel"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="url"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="number"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="date"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="time"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="datetime-local"]:hover:not(:focus):not(:disabled):not(
+    [data-no-theme]
+  ),
+#pressedmail-plugin
+  input[type="month"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  input[type="week"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  textarea:hover:not(:focus):not(:disabled):not([data-no-theme]),
+#pressedmail-plugin
+  select:hover:not(:focus):not(:disabled):not([data-no-theme]) {
+  border-color: color-mix(in oklch, var(--ring) 50%, var(--input)) !important;
+}
+
+/* Disabled states */
+#pressedmail-plugin input:disabled:not([data-no-theme]),
+#pressedmail-plugin textarea:disabled:not([data-no-theme]),
+#pressedmail-plugin select:disabled:not([data-no-theme]) {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  background-color: var(--muted) !important;
+}
+
+/* Radio and native checkbox inputs - accent color for checked state */
+#pressedmail-plugin input[type="radio"],
+#pressedmail-plugin input[type="checkbox"] {
+  accent-color: var(--primary) !important;
+}
+
+/* Kit UI checkboxes - tokenized states shared by inbox, contacts, and portals */
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="checkbox"]:not([data-checked]) {
+  border-color: var(--checkbox-border, var(--input)) !important;
+  background-color: var(--checkbox-background, transparent) !important;
+  outline: 1px solid
+    color-mix(in oklch, var(--checkbox-border, var(--input)) 65%, transparent);
+  outline-offset: 1px;
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="checkbox"][data-checked] {
+  border-color: var(--checkbox-checked-background, var(--primary)) !important;
+  background-color: var(
+    --checkbox-checked-background,
+    var(--primary)
+  ) !important;
+  color: var(
+    --checkbox-checked-foreground,
+    var(--primary-foreground)
+  ) !important;
+  outline: 1px solid
+    color-mix(
+      in oklch,
+      var(--checkbox-checked-background, var(--primary)) 45%,
+      transparent
+    );
+  outline-offset: 1px;
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="checkbox"][data-checked]
+  [data-slot="checkbox-indicator"] {
+  color: var(
+    --checkbox-checked-foreground,
+    var(--primary-foreground)
+  ) !important;
+}
+
+/* Native picker affordances. Calendar glyphs below are token-painted instead
+  of inverted so they stay aligned with theme foreground colors. */
+#pressedmail-plugin input[type="date"]::-webkit-calendar-picker-indicator,
+#pressedmail-plugin input[type="time"]::-webkit-calendar-picker-indicator,
+#pressedmail-plugin
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+#pressedmail-plugin input[type="month"]::-webkit-calendar-picker-indicator,
+#pressedmail-plugin input[type="week"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
+/* Event date selectors: replace the native calendar bitmap with a masked SVG
+   painted by --foreground so it matches theme text/icons in contacts and
+   calendar event forms across light and dark themes. */
+#pressedmail-plugin input[type="date"]::-webkit-calendar-picker-indicator,
+#pressedmail-plugin
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+[data-radix-portal] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-radix-portal]
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  background-color: var(--foreground);
+  -webkit-mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3e%3cline x1='16' y1='2' x2='16' y2='6'/%3e%3cline x1='8' y1='2' x2='8' y2='6'/%3e%3cline x1='3' y1='10' x2='21' y2='10'/%3e%3c/svg%3e");
+  mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3crect x='3' y='4' width='18' height='18' rx='2' ry='2'/%3e%3cline x1='16' y1='2' x2='16' y2='6'/%3e%3cline x1='8' y1='2' x2='8' y2='6'/%3e%3cline x1='3' y1='10' x2='21' y2='10'/%3e%3c/svg%3e");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+/* Quiet-hours (and any standalone time field) clock glyph: replace the native
+   bitmap with a masked SVG painted by the theme's --muted-foreground token so
+   the icon recolors with light/dark instead of vanishing against the input
+   background. The token already differs per theme + .dark, so no invert hack
+   is needed here. */
+#pressedmail-plugin input[type="time"]::-webkit-calendar-picker-indicator {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  background-color: var(--muted-foreground);
+  -webkit-mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3ccircle cx='12' cy='12' r='9'/%3e%3cpath d='M12 7v5l3 2'/%3e%3c/svg%3e");
+  mask-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3ccircle cx='12' cy='12' r='9'/%3e%3cpath d='M12 7v5l3 2'/%3e%3c/svg%3e");
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.dark
+  #pressedmail-plugin
+  input[type="month"]::-webkit-calendar-picker-indicator,
+.dark
+  #pressedmail-plugin
+  input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) !important;
+}
+
+/* Select dropdown custom arrow - light mode */
+#pressedmail-plugin select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2371717a' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e") !important;
+  background-position: right 0.5rem center !important;
+  background-repeat: no-repeat !important;
+  background-size: 1.5em 1.5em !important;
+  padding-right: 2.5rem !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+}
+
+/* Select dropdown custom arrow - dark mode */
+.dark #pressedmail-plugin select {
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23a1a1aa' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e") !important;
+}
+
+/* Dialog/Modal input overrides - ensures inputs in modals also follow theme */
+#pressedmail-plugin [role="dialog"] input,
+#pressedmail-plugin [role="dialog"] textarea,
+#pressedmail-plugin [role="dialog"] select,
+#pressedmail-plugin [data-radix-popper-content-wrapper] input,
+#pressedmail-plugin [data-radix-popper-content-wrapper] textarea,
+#pressedmail-plugin [data-radix-popper-content-wrapper] select {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+#pressedmail-plugin [role="dialog"] input::placeholder,
+#pressedmail-plugin [role="dialog"] textarea::placeholder,
+#pressedmail-plugin [data-radix-popper-content-wrapper] input::placeholder,
+#pressedmail-plugin [data-radix-popper-content-wrapper] textarea::placeholder {
+  color: var(--muted-foreground) !important;
+}
+
+/* Search input specific styling - common in headers */
+#pressedmail-plugin input[type="search"] {
+  -webkit-appearance: none !important;
+  appearance: none !important;
+}
+
+#pressedmail-plugin input[type="search"]::-webkit-search-cancel-button,
+#pressedmail-plugin input[type="search"]::-webkit-search-decoration {
+  -webkit-appearance: none !important;
+}
+
+/* File input styling */
+#pressedmail-plugin input[type="file"] {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+#pressedmail-plugin input[type="file"]::file-selector-button {
+  background-color: var(--muted) !important;
+  color: var(--foreground) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius) !important;
+  padding: 0.5rem 1rem !important;
+  margin-right: 0.75rem !important;
+  cursor: pointer !important;
+  transition: background-color 0.15s ease !important;
+}
+
+#pressedmail-plugin input[type="file"]::file-selector-button:hover {
+  background-color: var(--accent) !important;
+}
+
+/* Range input (slider) styling */
+#pressedmail-plugin input[type="range"] {
+  accent-color: var(--primary) !important;
+  background: transparent !important;
+}
+
+/* Autofill styling - prevents browser from overriding background */
+#pressedmail-plugin input:-webkit-autofill,
+#pressedmail-plugin input:-webkit-autofill:hover,
+#pressedmail-plugin input:-webkit-autofill:focus,
+#pressedmail-plugin textarea:-webkit-autofill,
+#pressedmail-plugin textarea:-webkit-autofill:hover,
+#pressedmail-plugin textarea:-webkit-autofill:focus,
+#pressedmail-plugin select:-webkit-autofill,
+#pressedmail-plugin select:-webkit-autofill:hover,
+#pressedmail-plugin select:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground) !important;
+  -webkit-box-shadow: 0 0 0px 1000px var(--background) inset !important;
+  box-shadow: 0 0 0px 1000px var(--background) inset !important;
+  transition: background-color 5000s ease-in-out 0s !important;
+}
+
+/* ==========================================================================
+   RADIX DIALOG/POPOVER PORTAL OVERRIDES
+   Dialogs render outside #pressedmail-plugin via portals - need direct styling
+   ========================================================================== */
+
+/*
+ * Radix UI dialogs and popovers use portals that render outside the plugin
+ * container. CSS variables may not inherit, so we use direct color values.
+ */
+
+/* Set CSS variables directly on the portal for light mode (default) */
+[data-radix-portal] {
+  font-size: var(--pm-font-size, 18px) !important;
+  /* Text size scaling for portals - uses --pm-font-size from <html> */
+  --text-xs: calc(var(--pm-font-size, 18px) * 0.75);
+  --text-xs--line-height: calc(var(--pm-font-size, 18px) * 1);
+  --text-sm: calc(var(--pm-font-size, 18px) * 0.875);
+  --text-sm--line-height: calc(var(--pm-font-size, 18px) * 1.25);
+  --text-base: calc(var(--pm-font-size, 18px) * 1);
+  --text-base--line-height: calc(var(--pm-font-size, 18px) * 1.5);
+  --text-lg: calc(var(--pm-font-size, 18px) * 1.125);
+  --text-lg--line-height: calc(var(--pm-font-size, 18px) * 1.75);
+  --text-xl: calc(var(--pm-font-size, 18px) * 1.25);
+  --text-xl--line-height: calc(var(--pm-font-size, 18px) * 1.75);
+  --text-2xl: calc(var(--pm-font-size, 18px) * 1.5);
+  --text-2xl--line-height: calc(var(--pm-font-size, 18px) * 2);
+  --text-3xl: calc(var(--pm-font-size, 18px) * 1.875);
+  --text-3xl--line-height: calc(var(--pm-font-size, 18px) * 2.25);
+  /* Custom sizes for theme CSS (between standard Tailwind stops) */
+  --text-2xs: calc(var(--pm-font-size, 18px) * 0.6875);
+  --text-2xs--line-height: calc(var(--pm-font-size, 18px) * 0.875);
+  --text-xs-sm: calc(var(--pm-font-size, 18px) * 0.8125);
+  --text-xs-sm--line-height: calc(var(--pm-font-size, 18px) * 1.125);
+  /* Icon sizes scale with --pm-font-size inside portals too. */
+  --pm-icon-2: calc(var(--pm-font-size, 18px) * 0.5);
+  --pm-icon-2-5: calc(var(--pm-font-size, 18px) * 0.625);
+  --pm-icon-3: calc(var(--pm-font-size, 18px) * 0.75);
+  --pm-icon-3-5: calc(var(--pm-font-size, 18px) * 0.875);
+  --pm-icon-4: calc(var(--pm-font-size, 18px) * 1);
+  --pm-icon-5: calc(var(--pm-font-size, 18px) * 1.25);
+  --pm-icon-6: calc(var(--pm-font-size, 18px) * 1.5);
+  --pm-icon-7: calc(var(--pm-font-size, 18px) * 1.75);
+  --pm-icon-8: calc(var(--pm-font-size, 18px) * 2);
+  --pm-icon-9: calc(var(--pm-font-size, 18px) * 2.25);
+  --pm-icon-10: calc(var(--pm-font-size, 18px) * 2.5);
+  --pm-icon-12: calc(var(--pm-font-size, 18px) * 3);
+  --pm-icon-14: calc(var(--pm-font-size, 18px) * 3.5);
+  --pm-icon-16: calc(var(--pm-font-size, 18px) * 4);
+  --background: oklch(0.98 0.004 236.496);
+  --foreground: oklch(0.194 0.039 255.586);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.194 0.039 255.586);
+  --muted: oklch(0.957 0.003 247.859);
+  --muted-foreground: oklch(0.422 0.05 255.24);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.194 0.039 255.586);
+  --border: oklch(0.894 0.008 228.864);
+  --input: oklch(0.62 0.008 228.864);
+  --primary: oklch(0.52 0.11 222);
+  --primary-foreground: oklch(0.98 0.02 201);
+  --secondary: oklch(0.957 0.003 247.859);
+  --secondary-foreground: oklch(0.194 0.039 255.586);
+  --accent: oklch(0.962 0.008 241.664);
+  --accent-foreground: oklch(0.194 0.039 255.586);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.594 0.081 242.775);
+}
+
+/* Default text-sm for block text elements in Radix portals */
+:where([data-radix-portal])
+  :is(p, li, ol, ul, label):not(
+    :where(
+      [class*="text-2xs"],
+      [class*="text-xs"],
+      [class*="text-sm"],
+      [class*="text-base"],
+      [class*="text-lg"],
+      [class*="text-xl"],
+      [class*="text-2xl"],
+      [class*="text-3xl"],
+      [class*="text-["]
+    )
+  ) {
+  font-size: var(--text-sm) !important;
+  line-height: var(--text-sm--line-height) !important;
+}
+
+/* Enforce Tailwind text-size utilities within portals */
+[data-radix-portal] [class~="text-2xs"] {
+  font-size: var(--text-2xs) !important;
+  line-height: var(--text-2xs--line-height) !important;
+}
+[data-radix-portal] [class~="text-xs"] {
+  font-size: var(--text-xs) !important;
+  line-height: var(--text-xs--line-height) !important;
+}
+[data-radix-portal] [class~="text-sm"] {
+  font-size: var(--text-sm) !important;
+  line-height: var(--text-sm--line-height) !important;
+}
+[data-radix-portal] [class~="text-base"] {
+  font-size: var(--text-base) !important;
+  line-height: var(--text-base--line-height) !important;
+}
+[data-radix-portal] [class~="text-lg"] {
+  font-size: var(--text-lg) !important;
+  line-height: var(--text-lg--line-height) !important;
+}
+[data-radix-portal] [class~="text-xl"] {
+  font-size: var(--text-xl) !important;
+  line-height: var(--text-xl--line-height) !important;
+}
+[data-radix-portal] [class~="text-2xl"] {
+  font-size: var(--text-2xl) !important;
+  line-height: var(--text-2xl--line-height) !important;
+}
+[data-radix-portal] [class~="text-3xl"] {
+  font-size: var(--text-3xl) !important;
+  line-height: var(--text-3xl--line-height) !important;
+}
+
+/* Enforce icon (svg) sizes within portals so dropdown/menu/tooltip icons
+   scale with --pm-font-size like the in-container icons. */
+[data-radix-portal] svg[class~="h-2"] {
+  height: var(--pm-icon-2) !important;
+}
+[data-radix-portal] svg[class~="w-2"] {
+  width: var(--pm-icon-2) !important;
+}
+[data-radix-portal] svg[class~="h-2.5"] {
+  height: var(--pm-icon-2-5) !important;
+}
+[data-radix-portal] svg[class~="w-2.5"] {
+  width: var(--pm-icon-2-5) !important;
+}
+[data-radix-portal] svg[class~="h-3"] {
+  height: var(--pm-icon-3) !important;
+}
+[data-radix-portal] svg[class~="w-3"] {
+  width: var(--pm-icon-3) !important;
+}
+[data-radix-portal] svg[class~="h-3.5"] {
+  height: var(--pm-icon-3-5) !important;
+}
+[data-radix-portal] svg[class~="w-3.5"] {
+  width: var(--pm-icon-3-5) !important;
+}
+[data-radix-portal] svg[class~="h-4"] {
+  height: var(--pm-icon-4) !important;
+}
+[data-radix-portal] svg[class~="w-4"] {
+  width: var(--pm-icon-4) !important;
+}
+[data-radix-portal] svg[class~="h-5"] {
+  height: var(--pm-icon-5) !important;
+}
+[data-radix-portal] svg[class~="w-5"] {
+  width: var(--pm-icon-5) !important;
+}
+[data-radix-portal] svg[class~="h-6"] {
+  height: var(--pm-icon-6) !important;
+}
+[data-radix-portal] svg[class~="w-6"] {
+  width: var(--pm-icon-6) !important;
+}
+[data-radix-portal] svg[class~="h-7"] {
+  height: var(--pm-icon-7) !important;
+}
+[data-radix-portal] svg[class~="w-7"] {
+  width: var(--pm-icon-7) !important;
+}
+[data-radix-portal] svg[class~="h-8"] {
+  height: var(--pm-icon-8) !important;
+}
+[data-radix-portal] svg[class~="w-8"] {
+  width: var(--pm-icon-8) !important;
+}
+[data-radix-portal] svg[class~="size-3"] {
+  width: var(--pm-icon-3) !important;
+  height: var(--pm-icon-3) !important;
+}
+[data-radix-portal] svg[class~="size-3.5"] {
+  width: var(--pm-icon-3-5) !important;
+  height: var(--pm-icon-3-5) !important;
+}
+[data-radix-portal] svg[class~="size-4"] {
+  width: var(--pm-icon-4) !important;
+  height: var(--pm-icon-4) !important;
+}
+[data-radix-portal] svg[class~="size-5"] {
+  width: var(--pm-icon-5) !important;
+  height: var(--pm-icon-5) !important;
+}
+[data-radix-portal] svg[class~="size-6"] {
+  width: var(--pm-icon-6) !important;
+  height: var(--pm-icon-6) !important;
+}
+
+/* Dark mode variables for portals */
+.dark [data-radix-portal],
+html.dark [data-radix-portal] {
+  --background: oklch(0.118 0.017 243.68);
+  --foreground: oklch(0.98 0.004 236.496);
+  --card: oklch(0.156 0.026 252.034);
+  --card-foreground: oklch(0.98 0.004 236.496);
+  --muted: oklch(0.257 0.025 253.728);
+  --muted-foreground: oklch(0.827 0.012 231.689);
+  --popover: oklch(0.156 0.026 252.034);
+  --popover-foreground: oklch(0.98 0.004 236.496);
+  --border: oklch(0.901 0.019 242.985 / 14%);
+  --input: oklch(0.901 0.019 242.985 / 18%);
+  --primary: oklch(0.52 0.11 222);
+  --primary-foreground: oklch(0.98 0.02 201);
+  --secondary: oklch(0.257 0.025 253.728);
+  --secondary-foreground: oklch(0.98 0.004 236.496);
+  --accent: oklch(0.302 0.033 255.78);
+  --accent-foreground: oklch(0.98 0.004 236.496);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.718 0.056 240.941);
+}
+
+/* ==========================================================================
+   THEME-SPECIFIC PORTAL OVERRIDES
+   Use :has() to detect theme class inside portal and apply correct variables
+   ========================================================================== */
+
+/* Default Theme - Light mode */
+[data-radix-portal]:has(.pressedm-theme) {
+  --radius: 0.5rem;
+  --background: oklch(0.98 0.004 236.496);
+  --foreground: oklch(0.194 0.039 255.586);
+  --muted: oklch(0.957 0.003 247.859);
+  --muted-foreground: oklch(0.422 0.05 255.24);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.194 0.039 255.586);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.194 0.039 255.586);
+  --border: oklch(0.894 0.008 228.864);
+  --input: oklch(0.62 0.008 228.864);
+  --primary: oklch(0.52 0.11 222);
+  --primary-foreground: oklch(0.98 0.02 201);
+  --secondary: oklch(0.957 0.003 247.859);
+  --secondary-foreground: oklch(0.194 0.039 255.586);
+  --accent: oklch(0.962 0.008 241.664);
+  --accent-foreground: oklch(0.194 0.039 255.586);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.594 0.081 242.775);
+  --chart-1: oklch(0.87 0.12 207);
+  --chart-2: oklch(0.8 0.13 212);
+  --chart-3: oklch(0.71 0.13 215);
+  --chart-4: oklch(0.61 0.11 222);
+  --chart-5: oklch(0.52 0.09 223);
+}
+
+/* Default Theme - Dark mode */
+[data-radix-portal]:has(.dark .pressedm-theme) {
+  --background: oklch(0.118 0.017 243.68);
+  --foreground: oklch(0.98 0.004 236.496);
+  --muted: oklch(0.257 0.025 253.728);
+  --muted-foreground: oklch(0.827 0.012 231.689);
+  --popover: oklch(0.156 0.026 252.034);
+  --popover-foreground: oklch(0.98 0.004 236.496);
+  --card: oklch(0.156 0.026 252.034);
+  --card-foreground: oklch(0.98 0.004 236.496);
+  --border: oklch(0.901 0.019 242.985 / 14%);
+  --input: oklch(0.901 0.019 242.985 / 18%);
+  --primary: oklch(0.52 0.11 222);
+  --primary-foreground: oklch(0.98 0.02 201);
+  --secondary: oklch(0.257 0.025 253.728);
+  --secondary-foreground: oklch(0.98 0.004 236.496);
+  --accent: oklch(0.302 0.033 255.78);
+  --accent-foreground: oklch(0.98 0.004 236.496);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.718 0.056 240.941);
+}
+
+/* PressedG (Gmail) Theme - Light mode */
+[data-radix-portal]:has(.pressedg-theme) {
+  --background: oklch(1 0 180);
+  --foreground: oklch(0.126 0.026 268.939);
+  --muted: oklch(0.885 0.01 276.021);
+  --muted-foreground: oklch(0.225 0.0234 264.3637);
+  --popover: oklch(0.992 0 161.565);
+  --popover-foreground: oklch(0.114 0.022 268.251);
+  --card: oklch(0.992 0 161.565);
+  --card-foreground: oklch(0.114 0.022 268.251);
+  --border: oklch(0.928 0.006 264.531);
+  --input: oklch(0.62 0.018 264);
+  --primary: oklch(0.635 0.225 23.238);
+  --primary-foreground: oklch(1 0 180);
+  --secondary: oklch(0.915 0.011 276);
+  --secondary-foreground: oklch(0.388 0.043 274.435);
+  --accent: oklch(0.866 0.024 275.781);
+  --accent-foreground: oklch(0.335 0.052 273.604);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.567 0.237 267.896);
+}
+
+/* PressedG (Gmail) Theme - Dark mode */
+[data-radix-portal]:has(.dark .pressedg-theme) {
+  --background: oklch(0.134 0.016 272.261);
+  --foreground: oklch(0.991 0.001 276.148);
+  --muted: oklch(0.249 0.013 275.396);
+  --muted-foreground: oklch(0.875 0 0);
+  --popover: oklch(0.144 0.019 273.129);
+  --popover-foreground: oklch(1 0 180);
+  --card: oklch(0.144 0.019 273.129);
+  --card-foreground: oklch(1 0 180);
+  --border: oklch(0.278 0.03 256.848);
+  --input: oklch(0.278 0.03 256.848);
+  --primary: oklch(0.6956 0.1642 27.9263);
+  --primary-foreground: oklch(0.2046 0 0);
+  --secondary: oklch(0.186 0.01 275.429);
+  --secondary-foreground: oklch(0.728 0.027 275.646);
+  --accent: oklch(0.269 0.031 274.373);
+  --accent-foreground: oklch(0.798 0.032 275.616);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.6956 0.1642 27.9263);
+}
+
+/* PressedOut (Outlook) Theme - Light mode */
+[data-radix-portal]:has(.pressedout-theme) {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.3211 0 0);
+  --muted: oklch(0.9846 0.0017 247.8389);
+  --muted-foreground: oklch(0.225 0.0234 264.3637);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.3211 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.3211 0 0);
+  --border: oklch(0.9276 0.0058 264.5313);
+  --input: oklch(0.62 0.012 264);
+  --primary: oklch(0.56 0.188 259.8145);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0.0029 264.5419);
+  --secondary-foreground: oklch(0.4461 0.0263 256.8018);
+  --accent: oklch(0.9514 0.025 236.8242);
+  --accent-foreground: oklch(0.3791 0.1378 265.5222);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.6231 0.188 259.8145);
+}
+
+/* PressedOut (Outlook) Theme - Dark mode */
+[data-radix-portal]:has(.dark .pressedout-theme) {
+  --background: oklch(0.2046 0 0);
+  --foreground: oklch(0.9219 0 0);
+  --muted: oklch(0.2564 0 0);
+  --muted-foreground: oklch(0.875 0 0);
+  --popover: oklch(0.2564 0 0);
+  --popover-foreground: oklch(0.9219 0 0);
+  --card: oklch(0.2564 0 0);
+  --card-foreground: oklch(0.9219 0 0);
+  --border: oklch(0.3671 0 0);
+  --input: oklch(0.3671 0 0);
+  --primary: oklch(0.56 0.188 259.8145);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.3209 0 0);
+  --secondary-foreground: oklch(0.9219 0 0);
+  --accent: oklch(0.3791 0.1378 265.5222);
+  --accent-foreground: oklch(0.8587 0.0813 251.8514);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.6231 0.188 259.8145);
+}
+
+/* Curb Theme - Light mode */
+[data-radix-portal]:has(.curb-theme) {
+  --background: oklch(0.99 0.001 286);
+  --foreground: oklch(0.141 0.005 285.823);
+  --muted: oklch(0.945 0.003 286.375);
+  --muted-foreground: oklch(0.276 0.016 285.938);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --border: oklch(0.875 0.006 286.32);
+  --input: oklch(0.62 0.006 286.32);
+  --primary: oklch(0.68 0.18 75);
+  --primary-foreground: oklch(0.15 0.04 75);
+  --secondary: oklch(0.955 0.002 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --accent: oklch(0.955 0.002 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.6 0.15 75);
+}
+
+/* Curb Theme - Dark mode */
+[data-radix-portal]:has(.dark .curb-theme) {
+  --background: oklch(0.1 0.004 285.823);
+  --foreground: oklch(0.985 0 0);
+  --muted: oklch(0.185 0.005 286.033);
+  --muted-foreground: oklch(0.8525 0.015 286.067);
+  --popover: oklch(0.135 0.005 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --card: oklch(0.135 0.005 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --primary: oklch(0.75 0.18 75);
+  --primary-foreground: oklch(0.15 0.04 75);
+  --secondary: oklch(0.185 0.005 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.185 0.005 286.033);
+  --accent-foreground: oklch(0.85 0.15 85);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.75 0.15 75);
+}
+
+/* Pretty Theme - Light mode */
+[data-radix-portal]:has(.pretty-theme) {
+  --background: oklch(0.99 0.006 12);
+  --foreground: oklch(0.18 0.01 350);
+  --muted: oklch(0.955 0.018 12);
+  --muted-foreground: oklch(0.25 0.03 350);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 350);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 350);
+  --border: oklch(0.9 0.02 10);
+  --input: oklch(0.62 0.02 10);
+  --primary: oklch(0.55 0.22 350);
+  --primary-foreground: oklch(0.99 0.005 350);
+  --secondary: oklch(0.969 0.015 12.422);
+  --secondary-foreground: oklch(0.25 0.03 350);
+  --accent: oklch(0.969 0.015 12.422);
+  --accent-foreground: oklch(0.25 0.03 350);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.55 0.18 350);
+}
+
+/* Pretty Theme - Dark mode */
+[data-radix-portal]:has(.dark .pretty-theme) {
+  --background: oklch(0.13 0.012 350);
+  --foreground: oklch(0.985 0.004 350);
+  --muted: oklch(0.2 0.012 350);
+  --muted-foreground: oklch(0.86 0.03 350);
+  --popover: oklch(0.16 0.012 350);
+  --popover-foreground: oklch(0.985 0.004 350);
+  --card: oklch(0.16 0.012 350);
+  --card-foreground: oklch(0.985 0.004 350);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 15%);
+  --primary: oklch(0.68 0.2 350);
+  --primary-foreground: oklch(0.16 0.04 350);
+  --secondary: oklch(0.2 0.012 350);
+  --secondary-foreground: oklch(0.985 0.004 350);
+  --accent: oklch(0.2 0.012 350);
+  --accent-foreground: oklch(0.82 0.14 350);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.68 0.16 350);
+}
+
+/* Tokyo Theme - Light mode */
+[data-radix-portal]:has(.tokyo-theme) {
+  --background: oklch(1 0 180);
+  --foreground: oklch(0.137 0.036 258.526);
+  --muted: oklch(0.968 0.007 247.895);
+  --muted-foreground: oklch(0.225 0.041 257.44);
+  --popover: oklch(1 0 180);
+  --popover-foreground: oklch(0.137 0.036 258.526);
+  --card: oklch(1 0 180);
+  --card-foreground: oklch(0.137 0.036 258.526);
+  --border: oklch(0.929 0.013 255.532);
+  --input: oklch(0.62 0.025 256);
+  --primary: oklch(0.419 0.199 262.534);
+  --primary-foreground: oklch(0.984 0.003 247.859);
+  --secondary: oklch(0.968 0.007 247.895);
+  --secondary-foreground: oklch(0.208 0.04 265.727);
+  --accent: oklch(0.968 0.007 247.895);
+  --accent-foreground: oklch(0.208 0.04 265.727);
+  --destructive: oklch(0.58 0.238 27.654);
+  --destructive-foreground: oklch(0.984 0.003 247.859);
+  --ring: oklch(0.418 0.199 262.612);
+}
+
+/* Tokyo Theme - Dark mode */
+[data-radix-portal]:has(.dark .tokyo-theme) {
+  --background: oklch(0.203 0.014 285.102);
+  --foreground: oklch(0.766 0.049 276.035);
+  --muted: oklch(0.286 0.023 278.46);
+  --muted-foreground: oklch(0.875 0.04 279.856);
+  --popover: oklch(0.226 0.019 280.253);
+  --popover-foreground: oklch(0.766 0.049 276.035);
+  --card: oklch(0.226 0.019 280.253);
+  --card-foreground: oklch(0.766 0.049 276.035);
+  --border: oklch(0.396 0.036 278.297);
+  --input: oklch(0.248 0.025 277.622);
+  --primary: oklch(0.867 0 180);
+  --primary-foreground: oklch(0.321 0 180);
+  --secondary: oklch(0.718 0.113 269.854);
+  --secondary-foreground: oklch(0.226 0.019 280.253);
+  --accent: oklch(0.197 0.016 280.374);
+  --accent-foreground: oklch(0.867 0 180);
+  --destructive: oklch(0.58 0.238 27.654);
+  --destructive-foreground: oklch(0.984 0.003 247.859);
+  --ring: oklch(0.718 0.113 269.854);
+}
+
+/* Executive Theme - Light mode */
+[data-radix-portal]:has(.executive-theme) {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.2 0.02 260);
+  --muted: oklch(0.97 0.01 260);
+  --muted-foreground: oklch(0.225 0.0234 264.3637);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.2 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.2 0.02 260);
+  --border: oklch(0.92 0.01 260);
+  --input: oklch(0.62 0.02 260);
+  --primary: oklch(0.5 0.12 165);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.55 0.18 260);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.97 0.01 260);
+  --accent-foreground: oklch(0.35 0.02 260);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.5 0.12 165);
+}
+
+/* Executive Theme - Dark mode */
+[data-radix-portal]:has(.dark .executive-theme) {
+  --background: oklch(0.18 0.02 260);
+  --foreground: oklch(0.95 0.01 260);
+  --muted: oklch(0.25 0.02 260);
+  --muted-foreground: oklch(0.875 0 0);
+  --popover: oklch(0.2 0.02 260);
+  --popover-foreground: oklch(0.95 0.01 260);
+  --card: oklch(0.2 0.02 260);
+  --card-foreground: oklch(0.95 0.01 260);
+  --border: oklch(0.32 0.02 260);
+  --input: oklch(0.28 0.02 260);
+  --primary: oklch(0.6493 0.1473 163.2339);
+  --primary-foreground: oklch(0.1665 0 0);
+  --secondary: oklch(0.55 0.18 260);
+  --secondary-foreground: oklch(0.95 0.01 260);
+  --accent: oklch(0.28 0.02 260);
+  --accent-foreground: oklch(0.95 0.01 260);
+  --destructive: oklch(0.58 0.2078 25.3313);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.6493 0.1473 163.2339);
+}
+
+/* Minimalist Theme - Light mode */
+[data-radix-portal]:has(.minimalist-theme) {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.01 286);
+  --muted: oklch(0.97 0.005 286);
+  --muted-foreground: oklch(0.225 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.01 286);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.01 286);
+  --border: oklch(0.92 0.005 286);
+  --input: oklch(0.62 0.01 286);
+  --primary: oklch(0.18 0.01 286);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.53 0.015 286);
+  --secondary-foreground: oklch(1 0 0);
+  --accent: oklch(0.97 0.005 286);
+  --accent-foreground: oklch(0.18 0.01 286);
+  --destructive: oklch(0.5772 0.2454 27.3252);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.18 0.01 286);
+}
+
+/* Minimalist Theme - Dark mode */
+[data-radix-portal]:has(.dark .minimalist-theme) {
+  --background: oklch(0.15 0.01 286);
+  --foreground: oklch(0.97 0.005 286);
+  --muted: oklch(0.22 0.01 286);
+  --muted-foreground: oklch(0.875 0 0);
+  --popover: oklch(0.18 0.01 286);
+  --popover-foreground: oklch(0.97 0.005 286);
+  --card: oklch(0.18 0.01 286);
+  --card-foreground: oklch(0.97 0.005 286);
+  --border: oklch(0.3 0.01 286);
+  --input: oklch(0.25 0.01 286);
+  --primary: oklch(0.97 0.005 286);
+  --primary-foreground: oklch(0.15 0.01 286);
+  --secondary: oklch(0.53 0.015 286);
+  --secondary-foreground: oklch(0.97 0.005 286);
+  --accent: oklch(0.25 0.01 286);
+  --accent-foreground: oklch(0.97 0.005 286);
+  --destructive: oklch(0.5772 0.2454 27.3252);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.97 0.005 286);
+}
+
+/* Contrast Theme - Light mode */
+[data-radix-portal]:has(.contrast-theme) {
+  --background: oklch(0.9956 0 0);
+  --foreground: oklch(0.1665 0 0);
+  --muted: oklch(0.9578 0 0);
+  --muted-foreground: oklch(0.225 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.1665 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.1665 0 0);
+  --border: oklch(0.18 0 0);
+  --input: oklch(0.18 0 0);
+  --primary: oklch(0.1665 0 0);
+  --primary-foreground: oklch(0.9956 0 0);
+  --secondary: oklch(0.9219 0 0);
+  --secondary-foreground: oklch(0.1665 0 0);
+  --accent: oklch(0.9578 0 0);
+  --accent-foreground: oklch(0.1665 0 0);
+  --destructive: oklch(0.5772 0.2454 27.3252);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.1665 0 0);
+}
+
+/* Contrast Theme - Dark mode */
+[data-radix-portal]:has(.dark .contrast-theme) {
+  --background: oklch(0.1665 0 0);
+  --foreground: oklch(0.9956 0 0);
+  --muted: oklch(0.2564 0 0);
+  --muted-foreground: oklch(0.875 0 0);
+  --popover: oklch(0.2046 0 0);
+  --popover-foreground: oklch(0.9956 0 0);
+  --card: oklch(0.2046 0 0);
+  --card-foreground: oklch(0.9956 0 0);
+  --border: oklch(0.92 0 0);
+  --input: oklch(0.92 0 0);
+  --primary: oklch(0.9956 0 0);
+  --primary-foreground: oklch(0.1665 0 0);
+  --secondary: oklch(0.2564 0 0);
+  --secondary-foreground: oklch(0.9956 0 0);
+  --accent: oklch(0.2564 0 0);
+  --accent-foreground: oklch(0.9956 0 0);
+  --destructive: oklch(0.5772 0.2454 27.3252);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.9956 0 0);
+}
+
+/* PressedCube (Roundcube) Theme - Light mode */
+[data-radix-portal]:has(.pressedcube-theme) {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.225 0.016 285.938);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.62 0.004 286.32);
+  --primary: oklch(0.57 0.233 264.052);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.585 0.233 264.052);
+}
+
+/* PressedCube (Roundcube) Theme - Dark mode */
+[data-radix-portal]:has(.dark .pressedcube-theme) {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.875 0.015 286.067);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --primary: oklch(0.707 0.165 254.624);
+  --primary-foreground: oklch(0.3 0.05 260);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(1 0 0);
+  --ring: oklch(0.552 0.016 285.938);
+}
+
+/* Dialog content background and text */
+[data-radix-portal] [role="dialog"] {
+  background-color: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border-color: var(--border) !important;
+}
+
+[data-radix-portal] .dark [role="dialog"] {
+  background-color: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border-color: var(--border) !important;
+}
+
+/* Inputs inside dialogs/popovers */
+[data-radix-portal] input[type="text"],
+[data-radix-portal] input[type="email"],
+[data-radix-portal] input[type="password"],
+[data-radix-portal] input[type="search"],
+[data-radix-portal] input[type="tel"],
+[data-radix-portal] input[type="url"],
+[data-radix-portal] input[type="number"],
+[data-radix-portal] input[type="date"],
+[data-radix-portal] input[type="time"],
+[data-radix-portal] input[type="datetime-local"],
+[data-radix-portal] input[type="month"],
+[data-radix-portal] input[type="week"],
+[data-radix-portal] textarea,
+[data-radix-portal] select {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--pm-control-shadow, none) !important;
+}
+
+/* Inputs inside dialogs/popovers inherit the dark theme from the portal scope. */
+[data-radix-portal] .dark input[type="text"],
+[data-radix-portal] .dark input[type="email"],
+[data-radix-portal] .dark input[type="password"],
+[data-radix-portal] .dark input[type="search"],
+[data-radix-portal] .dark input[type="tel"],
+[data-radix-portal] .dark input[type="url"],
+[data-radix-portal] .dark input[type="number"],
+[data-radix-portal] .dark input[type="date"],
+[data-radix-portal] .dark input[type="time"],
+[data-radix-portal] .dark input[type="datetime-local"],
+[data-radix-portal] .dark input[type="month"],
+[data-radix-portal] .dark input[type="week"],
+[data-radix-portal] .dark textarea,
+[data-radix-portal] .dark select {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+/* Placeholder text */
+[data-radix-portal] input::placeholder,
+[data-radix-portal] textarea::placeholder {
+  color: var(--muted-foreground) !important;
+  opacity: 0.7 !important;
+}
+
+[data-radix-portal] .dark input::placeholder,
+[data-radix-portal] .dark textarea::placeholder {
+  color: var(--muted-foreground) !important;
+}
+
+/* Focus states for dialog inputs */
+[data-radix-portal] input:focus,
+[data-radix-portal] textarea:focus,
+[data-radix-portal] select:focus {
+  border-color: var(--ring) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent) !important;
+}
+
+/* Labels in dialogs */
+[data-radix-portal] label {
+  color: var(--foreground) !important;
+}
+
+[data-radix-portal] .dark label {
+  color: var(--foreground) !important;
+}
+
+/* Muted text in dialogs */
+[data-radix-portal] .text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+
+[data-radix-portal] .dark .text-muted-foreground {
+  color: var(--muted-foreground) !important;
+}
+
+/* Select trigger buttons in dialogs */
+[data-radix-portal] button[role="combobox"] {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+[data-radix-portal] .dark button[role="combobox"] {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+/* Select content dropdown */
+[data-radix-popper-content-wrapper] [role="listbox"],
+[data-radix-portal] [role="listbox"] {
+  background-color: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border-color: var(--border) !important;
+}
+
+[data-radix-popper-content-wrapper] .dark [role="listbox"],
+[data-radix-portal] .dark [role="listbox"] {
+  background-color: var(--popover) !important;
+  color: var(--popover-foreground) !important;
+  border-color: var(--border) !important;
+}
+
+/* Select items */
+[data-radix-popper-content-wrapper] [role="option"],
+[data-radix-portal] [role="option"] {
+  color: var(--foreground) !important;
+}
+
+[data-radix-popper-content-wrapper] .dark [role="option"],
+[data-radix-portal] .dark [role="option"] {
+  color: var(--foreground) !important;
+}
+
+[data-radix-popper-content-wrapper] [role="option"]:hover,
+[data-radix-portal] [role="option"]:hover,
+[data-radix-popper-content-wrapper] [role="option"][data-highlighted],
+[data-radix-portal] [role="option"][data-highlighted] {
+  background-color: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+}
+
+[data-radix-popper-content-wrapper] .dark [role="option"]:hover,
+[data-radix-portal] .dark [role="option"]:hover,
+[data-radix-popper-content-wrapper] .dark [role="option"][data-highlighted],
+[data-radix-portal] .dark [role="option"][data-highlighted] {
+  background-color: var(--accent) !important;
+  color: var(--accent-foreground) !important;
+}
+
+/* Switch component in dialogs */
+[data-radix-portal] [role="switch"] {
+  background-color: var(--muted) !important;
+}
+
+[data-radix-portal] [role="switch"][data-state="checked"] {
+  background-color: var(--primary) !important;
+}
+
+[data-radix-portal] .dark [role="switch"] {
+  background-color: var(--muted) !important;
+}
+
+[data-radix-portal] .dark [role="switch"][data-state="checked"] {
+  background-color: var(--primary) !important;
+}
+
+/* Buttons in dialogs - outline variant */
+[data-radix-portal] button.border {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+[data-radix-portal] .dark button.border {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+  border-color: var(--input) !important;
+}
+
+/* Primary buttons in dialogs */
+[data-radix-portal] button.bg-primary {
+  background-color: var(--primary) !important;
+  color: var(--primary-foreground) !important;
+}
+
+/* Time picker icon in dialogs - dark mode */
+[data-radix-portal]
+  .dark
+  input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) !important;
+}
+
+/* Textarea specific styling in dialogs */
+[data-radix-portal] textarea {
+  resize: vertical !important;
+  min-height: 80px !important;
+}
+
+/* ==========================================================================
+   MOBILE APP SHELL. Phase A foundation, extended in Phase D
+   - Safe-area inset CSS variables (consumed by useSafeAreaInsets)
+   - Touch-target floor and tap-highlight utilities
+   - Phone-shell overrides under [data-pm-shell="phone"]
+   - Scoped to both the admin (#pressedmail-plugin) and standalone frontend
+     (#pressedmail-plugin-frontend) hosts via a :where() selector list so
+     specificity stays low.
+   ========================================================================== */
+
+#pressedmail-plugin,
+#pressedmail-plugin-frontend {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-pt {
+  padding-top: var(--safe-top);
+}
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-pb {
+  padding-bottom: var(--safe-bottom);
+}
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-pl {
+  padding-left: var(--safe-left);
+}
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-pr {
+  padding-right: var(--safe-right);
+}
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-px {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-safe-py {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-touch-target {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-no-tap-highlight {
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-momentum-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-no-bounce {
+  overscroll-behavior: none;
+}
+
+/* Two-row clamp for the inbox filter/tag chip cluster. InboxFilterChips pins
+   every chip to a uniform h-7 (1.75rem) and the wrap container uses gap-2
+   (0.5rem), so row 2 ends at 2*1.75 + 0.5 = 4rem and row 3 starts at 4.5rem.
+   A max-height of 4.25rem lands in that gap: exactly two rows show, row 3 is
+   fully clipped. The "More tags" toggle removes the class to reveal the rest.
+   CSS-only so it works without measuring (jsdom-safe). */
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-chip-clamp-2 {
+  max-height: 4.25rem;
+  overflow: hidden;
+}
+
+/* Phone-shell mode: applied when MobileAppShell sets data-pm-shell="phone" on
+   the plugin root. Reins in 300ms double-tap zoom, removes ugly tap-highlight,
+   and lightens the global font scale so the desktop --pm-font-size doesn't
+   crowd small viewports. */
+#pressedmail-plugin[data-pm-shell="phone"],
+#pressedmail-plugin-frontend[data-pm-shell="phone"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#pressedmail-plugin[data-pm-shell="phone"]:not(
+    [data-pm-font-customized="true"]
+  ),
+#pressedmail-plugin-frontend[data-pm-shell="phone"]:not(
+    [data-pm-font-customized="true"]
+  ) {
+  --pm-font-size: clamp(15px, 4.2vw, 17px);
+}
+
+#pressedmail-plugin[data-pm-shell="phone"]
+  *:where(button, a, [role="button"], [role="tab"]),
+#pressedmail-plugin-frontend[data-pm-shell="phone"]
+  *:where(button, a, [role="button"], [role="tab"]) {
+  -webkit-touch-callout: none;
+}
+
+/* Drilldown transition for screens pushed onto the back-stack. Mount-only;
+   skipped automatically by prefers-reduced-motion. */
+@keyframes pm-screen-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-screen-slide-in {
+  animation: pm-screen-slide-in 200ms ease-out;
+}
+
+/*
+ * Reduced motion, once, for everything the plugin renders.
+ *
+ * There are hundreds of animate-in / animate-out / transition-* / animate-spin
+ * call sites, so guarding them one at a time never stays complete. The portal
+ * selectors are not optional: dialogs, sheets, popovers and menus render
+ * outside the plugin roots, and that is where most of the motion lives.
+ */
+@media (prefers-reduced-motion: reduce) {
+  #pressedmail-plugin,
+  #pressedmail-plugin *,
+  #pressedmail-plugin *::before,
+  #pressedmail-plugin *::after,
+  #pressedmail-plugin-frontend,
+  #pressedmail-plugin-frontend *,
+  #pressedmail-plugin-frontend *::before,
+  #pressedmail-plugin-frontend *::after,
+  [data-pm-portal],
+  [data-pm-portal] *,
+  [data-pm-portal] *::before,
+  [data-pm-portal] *::after,
+  [data-radix-portal],
+  [data-radix-portal] *,
+  [data-radix-portal] *::before,
+  [data-radix-portal] *::after,
+  [data-radix-popper-content-wrapper],
+  [data-radix-popper-content-wrapper] *,
+  [data-radix-popper-content-wrapper] *::before,
+  [data-radix-popper-content-wrapper] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Composer editor, single-spaced paragraph rhythm.
+ *
+ * The Plate editable surface is a div[data-slate-editor] (TipTap's
+ * .ProseMirror is gone). The sizing chain root → .pm-composer-editor
+ * (PlateContainer) → .pm-composer-editor-content (wrapper div) →
+ * [data-slate-editor] must pass min-height/flex down, otherwise the
+ * editable area collapses to its text height and the composer looks
+ * dead. Paragraph margins are zeroed so the canvas stays single spaced,
+ * also inside quoted blockquotes for reply/forward bodies.
+ */
+#pressedmail-plugin .pm-composer-editor-root {
+  display: flex;
+  flex-direction: column;
+}
+
+#pressedmail-plugin .pm-composer-editor {
+  display: flex;
+  min-height: inherit;
+  flex: 1 1 auto;
+  cursor: text;
+  /* The content area must never scroll horizontally, content adapts. */
+  overflow-x: hidden;
+}
+
+#pressedmail-plugin .pm-composer-editor .pm-composer-editor-content {
+  display: flex;
+  min-height: inherit;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] {
+  min-height: inherit;
+  flex: 1 1 auto;
+  cursor: text;
+  line-height: 1.25;
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  /* Long unbroken runs (URLs, tokens) wrap instead of widening the canvas. */
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  /* Horizontal padding hosts the DnD drag-handle gutter (-translate-x-full,
+     ~22px wide) so handles render inside the content area, not at the pane
+     edge. The container intentionally carries no horizontal padding. */
+  padding: 0.75rem 2.5rem;
+}
+
+@media (min-width: 640px) {
+  #pressedmail-plugin .pm-composer-editor [data-slate-editor] {
+    padding: 0.75rem 3rem;
+  }
+}
+
+/* Default writing/editing size for the email composer body. Reads the per-user
+   "Composer default font size" preference (--pm-composer-font-size, published on
+   .pm-email-content-surface by ComposerContent) and falls back to 14px. Scoped
+   to the email surface so other editors (e.g. signatures) keep their own size.
+   Per-selection font-size marks (toolbar stepper) render as inline spans that
+   override this base. */
+#pressedmail-plugin
+  .pm-email-content-surface
+  .pm-composer-editor
+  [data-slate-editor] {
+  font-size: var(--pm-composer-font-size, 14px);
+  font-family: var(--pm-composer-font-family, system-ui, sans-serif);
+}
+
+#pressedmail-plugin .pm-email-preview-surface .pm-composer-editor {
+  overflow-x: auto;
+  /* In Preview the email is a centered reader-width sheet ([data-slate-editor]).
+     Drop the full-width inline email background so the canvas color shows in the
+     margins; the sheet itself is colored via --pm-email-body-bg above. */
+  background: transparent !important;
+}
+
+#pressedmail-plugin
+  .pm-email-preview-surface
+  .pm-composer-editor
+  [data-slate-editor] {
+  box-sizing: border-box;
+  inline-size: clamp(
+    var(--pm-email-preview-reader-min-width),
+    100%,
+    var(--pm-email-preview-reader-width)
+  );
+  max-inline-size: var(--pm-email-preview-reader-width);
+  margin-inline: auto;
+  padding-block: var(--pm-email-preview-padding-y);
+  padding-inline: var(--pm-email-preview-padding-x);
+}
+
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] p,
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] blockquote p {
+  margin: 0;
+  line-height: 1.25 !important;
+}
+
+#pressedmail-plugin .pm-composer-editor [data-pm-block="quote"][data-collapsed="true"] {
+  max-height: 4.5em;
+  overflow: hidden;
+}
+
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] ul,
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] ol {
+  margin-bottom: 0;
+  margin-top: 0;
+  line-height: 1.25 !important;
+}
+
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] li {
+  margin: 0;
+  line-height: 1.25 !important;
+}
+
+/* Plate renders unordered list items as block elements with
+   display:list-item (no <ul> wrapper) and ordered items inside a real
+   <ol><li>; the bare ::marker selector covers both shapes. */
+#pressedmail-plugin .pm-composer-editor [data-slate-editor] ::marker {
+  color: currentColor;
+}
+
+/* Legacy/pasted tables (quoted reply bodies, raw HTML) get forced to the
+   canvas width. The interactive Plate table (.pm-composer-table) manages its
+   own capped width, width:100%!important here would stretch narrow tables
+   to full width and fight its min(px, 100%) sizing. */
+#pressedmail-plugin
+  .pm-composer-editor
+  [data-slate-editor]
+  table:not(.pm-composer-table) {
+  position: relative;
+  max-width: 100%;
+  /* Fixed layout at full width caps explicit colSizes proportionally so a
+     resized table can never force the content area to scroll sideways. */
+  width: 100% !important;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* PM_EMAIL_CANVAS_THEME_BOUNDARY_START */
+/*
+ * Fixed-light Plate email canvas.
+ *
+ * The application theme injector writes literal colors with !important onto
+ * semantic utilities. The floating composer also sits inside .bg-card, whose
+ * WordPress heading rule is more specific than a plain editor heading rule.
+ * This boundary therefore rebases both ShadCN and Tailwind variables and uses
+ * a deliberately more-specific scope for the injected utility classes. It
+ * stops at [data-slate-editor], leaving the composer toolbar and portaled menus
+ * on the selected application theme. Inline author color marks are descendants
+ * of these defaults and continue to win normally.
+ */
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor] {
+  --background: var(--pm-email-bg, #ffffff);
+  --foreground: var(--pm-email-fg, #111827);
+  --card: var(--pm-email-bg, #ffffff);
+  --card-foreground: var(--pm-email-fg, #111827);
+  --popover: var(--pm-email-bg, #ffffff);
+  --popover-foreground: var(--pm-email-fg, #111827);
+  --primary: var(--pm-email-link, #2563eb);
+  --primary-foreground: var(--pm-email-primary-fg, #ffffff);
+  --secondary: var(--pm-email-muted-bg, #f3f4f6);
+  --secondary-foreground: var(--pm-email-fg, #111827);
+  --muted: var(--pm-email-muted-bg, #f3f4f6);
+  --muted-foreground: var(--pm-email-muted-fg, #4b5563);
+  --accent: var(--pm-email-accent-bg, #e5e7eb);
+  --accent-foreground: var(--pm-email-fg, #111827);
+  --destructive: var(--pm-email-destructive, #dc2626);
+  --destructive-foreground: var(--pm-email-destructive-fg, #ffffff);
+  --success: var(--pm-email-success, #15803d);
+  --success-foreground: var(--pm-email-primary-fg, #ffffff);
+  --pro: var(--pm-email-pro, #4f46e5);
+  --border: var(--pm-email-table-border, #d1d5db);
+  --input: var(--pm-email-table-border, #d1d5db);
+  --ring: var(--pm-email-link, #2563eb);
+  --color-background: var(--pm-email-bg, #ffffff);
+  --color-foreground: var(--pm-email-fg, #111827);
+  --color-card: var(--pm-email-bg, #ffffff);
+  --color-card-foreground: var(--pm-email-fg, #111827);
+  --color-popover: var(--pm-email-bg, #ffffff);
+  --color-popover-foreground: var(--pm-email-fg, #111827);
+  --color-primary: var(--pm-email-link, #2563eb);
+  --color-primary-foreground: var(--pm-email-primary-fg, #ffffff);
+  --color-secondary: var(--pm-email-muted-bg, #f3f4f6);
+  --color-secondary-foreground: var(--pm-email-fg, #111827);
+  --color-muted: var(--pm-email-muted-bg, #f3f4f6);
+  --color-muted-foreground: var(--pm-email-muted-fg, #4b5563);
+  --color-accent: var(--pm-email-accent-bg, #e5e7eb);
+  --color-accent-foreground: var(--pm-email-fg, #111827);
+  --color-destructive: var(--pm-email-destructive, #dc2626);
+  --color-destructive-foreground: var(--pm-email-destructive-fg, #ffffff);
+  --color-success: var(--pm-email-success, #15803d);
+  --color-success-foreground: var(--pm-email-primary-fg, #ffffff);
+  --color-pro: var(--pm-email-pro, #4f46e5);
+  --color-border: var(--pm-email-table-border, #d1d5db);
+  --color-input: var(--pm-email-table-border, #d1d5db);
+  --color-ring: var(--pm-email-link, #2563eb);
+  color: var(--pm-email-fg, #111827);
+  color-scheme: light;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-background, .bg-card, .bg-popover) {
+  background-color: var(--pm-email-bg, #ffffff) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-muted, .hover\:bg-muted:hover) {
+  background-color: var(--pm-email-muted-bg, #f3f4f6) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-muted\/30) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-muted-bg, #f3f4f6) 30%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-muted\/40) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-muted-bg, #f3f4f6) 40%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-muted\/50, .hover\:bg-muted\/50:hover) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-muted-bg, #f3f4f6) 50%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-muted\/60) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-muted-bg, #f3f4f6) 60%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(
+    .bg-accent,
+    .hover\:bg-accent:hover,
+    .focus\:bg-accent:focus,
+    .data-\[active-item\=true\]\:bg-accent[data-active-item="true"]
+  ) {
+  background-color: var(--pm-email-accent-bg, #e5e7eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-primary, .hover\:bg-primary:hover) {
+  background-color: var(--pm-email-link, #2563eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-primary\/5) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 5%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-primary\/10, .hover\:bg-primary\/10:hover) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 10%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-primary\/20) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 20%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-primary\/90, .hover\:bg-primary\/90:hover) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 90%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-secondary) {
+  background-color: var(--pm-email-muted-bg, #f3f4f6) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.bg-destructive) {
+  background-color: var(--pm-email-destructive, #dc2626) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(
+    .text-foreground,
+    .text-card-foreground,
+    .text-popover-foreground,
+    .text-accent-foreground,
+    .text-secondary-foreground,
+    .hover\:text-foreground:hover,
+    .hover\:text-accent-foreground:hover,
+    .focus\:text-accent-foreground:focus,
+    .data-\[active-item\=true\]\:text-accent-foreground[data-active-item="true"]
+  ) {
+  color: var(--pm-email-fg, #111827) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-muted-foreground, .hover\:text-muted-foreground:hover) {
+  color: var(--pm-email-muted-fg, #4b5563) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-primary, .hover\:text-primary:hover) {
+  color: var(--pm-email-link, #2563eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-primary-foreground) {
+  color: var(--pm-email-primary-fg, #ffffff) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-destructive, .hover\:text-destructive:hover) {
+  color: var(--pm-email-destructive, #dc2626) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-destructive-foreground) {
+  color: var(--pm-email-destructive-fg, #ffffff) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.text-success) {
+  color: var(--pm-email-success, #15803d) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.placeholder\:text-muted-foreground)::placeholder {
+  color: var(--pm-email-muted-fg, #4b5563) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.border-border, .border-input, .border-muted) {
+  border-color: var(--pm-email-table-border, #d1d5db) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.border-primary, .hover\:border-primary:hover) {
+  border-color: var(--pm-email-link, #2563eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.border-primary\/20) {
+  border-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 20%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.border-primary\/50, .hover\:border-primary\/50:hover) {
+  border-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 50%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.border-destructive) {
+  border-color: var(--pm-email-destructive, #dc2626) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.ring-ring, .ring-primary) {
+  --tw-ring-color: var(--pm-email-link, #2563eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.focus-visible\:border-ring:focus-visible) {
+  border-color: var(--pm-email-link, #2563eb) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.focus-visible\:ring-ring\/50:focus-visible) {
+  --tw-ring-color: color-mix(
+    in srgb,
+    var(--pm-email-link, #2563eb) 50%,
+    transparent
+  ) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.ring-offset-background) {
+  --tw-ring-offset-color: var(--pm-email-bg, #ffffff) !important;
+}
+
+.dark
+  :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(.dark\:bg-input\/30) {
+  background-color: color-mix(
+    in srgb,
+    var(--pm-email-table-border, #d1d5db) 30%,
+    transparent
+  ) !important;
+}
+
+/* Cell chrome for legacy/pasted tables only. The interactive Plate table
+   (.pm-composer-table) draws its own cell borders as ::before overlays and
+   pads via an inner wrapper; an element border here doubles every line
+   (misaligned 1px-offset grid) and min-width breaks the 8px drag-handle
+   column. This ID-scoped rule outranks the cell's border-none/p-0 utilities,
+   so exclusion is the only safe shape. */
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  table:not(.pm-composer-table)
+  :where(td, th) {
+  position: relative;
+  min-width: 3rem;
+  border: 1px solid var(--pm-email-table-border, #d1d5db);
+  padding: 0.375rem 0.5rem;
+  vertical-align: top;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  th {
+  font-weight: 600;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :where(h1, h2, h3, h4, h5, h6) {
+  color: var(--pm-email-fg, #111827) !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  pre {
+  background-color: var(--pm-email-code-bg, #f8fafc);
+  border-color: var(--pm-email-code-border, #e2e8f0);
+  color: var(--pm-email-fg, #111827);
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  blockquote {
+  margin: 0;
+  border-left: 2px solid var(--pm-email-quote-border, #b0b0b0);
+  padding-left: 0.75rem;
+  color: var(--pm-email-quote-fg, #555555);
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  a {
+  color: var(--pm-email-link, #2563eb);
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  hr {
+  margin: 0.5rem 0;
+  border: 0;
+  border-top: 1px solid var(--pm-email-table-border, #d1d5db);
+}
+
+/*
+ * Code-block syntax highlighting (lowlight/hljs token classes).
+ * GitHub-style palette from the plate playground template; the template
+ * styles these via `**:[.hljs-*]` arbitrary variants which this build does
+ * not emit, so the colors live here, scoped to the composer editor.
+ */
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type
+  ) {
+  color: #d73a49;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-variable
+  ) {
+  color: #005cc5;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(.hljs-regexp, .hljs-string) {
+  color: #032f62;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
+  color: #22863a;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(.hljs-comment, .hljs-code, .hljs-formula) {
+  color: #6a737d;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(.hljs-built_in, .hljs-symbol) {
+  color: #e36209;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  :is(.hljs-title, .hljs-title.class_, .hljs-title.function_) {
+  color: #6f42c1;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-section {
+  color: #005cc5;
+  font-weight: 700;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-bullet {
+  color: #735c0f;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-emphasis {
+  font-style: italic;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-strong {
+  font-weight: 700;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-addition {
+  background: #f0fff4;
+  color: #22863a;
+}
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-email-content-surface
+  :is(.pm-plate-email-surface, .pm-plate-signature-surface, .pm-plate-auto-reply-surface, .pm-plate-content-block-surface)
+  .pm-composer-editor
+  [data-slate-editor]
+  .hljs-deletion {
+  background: #ffeef0;
+  color: #b31d28;
+}
+
+/* PM_EMAIL_CANVAS_THEME_BOUNDARY_END */
+
+/* Recipient preview is the live editable Plate canvas with
+   .pm-email-preview-surface applied. It shares the fixed-light boundary above;
+   no separate preview palette may reintroduce application-theme colors. */
+
+/*
+ * Thin, themed scrollbars (sidebars, reading pane, any overflow).
+ * Scoped to the plugin roots so other apps on the page are unaffected.
+ */
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  *::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: var(--radius);
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  *::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+/* Slim the base-ui ScrollArea (default/pressedg sidebars) within plugin scope. */
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="scroll-area-scrollbar"][data-orientation="vertical"] {
+  width: 0.4rem !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="scroll-area-scrollbar"][data-orientation="horizontal"] {
+  height: 0.4rem !important;
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="scroll-area-thumb"] {
+  background-color: var(--border);
+}

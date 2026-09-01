@@ -1,0 +1,25 @@
+{
+  "extends": "@kit/tsconfig/base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmitOnError": false,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "~/components": ["./src/shadcn"],
+      "~/components/*": ["./src/shadcn/*"],
+      "~/utils": ["./src/lib/utils"],
+      "~/lib/*": ["./src/lib/*"],
+      "~/hooks": ["./src/hooks"],
+      "~/hooks/*": ["./src/hooks/*"],
+      "~/ui": ["./src/shadcn"],
+      "~/ui/*": ["./src/shadcn/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "**/*.test.*", "**/*.stories.*"]
+}

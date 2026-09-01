@@ -1,0 +1,506 @@
+/**
+ * Contrast Theme Stylesheet
+ *
+ * High-contrast black & white with bold, exaggerated borders.
+ * Pro design for Agency tier subscribers.
+ */
+
+@layer base {
+  /* Contrast Theme OKLCH Color Palette - Light Mode */
+  .contrast-theme {
+    /* OKLCH color palette - Monochrome zinc */
+    --radius: 0.25rem;
+    --background: oklch(0.98 0 0);
+    --foreground: oklch(0.13 0 0);
+    --muted: oklch(0.945 0 0);
+    --muted-foreground: oklch(0.225 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.13 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.13 0 0);
+    --border: oklch(0.13 0 0);
+    --input: oklch(0.13 0 0);
+    --checkbox-border: oklch(0.13 0 0);
+    --checkbox-background: transparent;
+    --primary: oklch(0.13 0 0);
+    --primary-foreground: oklch(1 0 0);
+    --secondary: oklch(0.9 0 0);
+    --secondary-foreground: oklch(0.13 0 0);
+    --accent: oklch(0.93 0 0);
+    --accent-foreground: oklch(0.13 0 0);
+    --destructive: oklch(0.5772 0.2454 27.3252);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.13 0 0);
+    --chart-1: oklch(0.13 0 0);
+    --chart-2: oklch(0.3671 0 0);
+    --chart-3: oklch(0.551 0 0);
+    --chart-4: oklch(0.7083 0 0);
+    --chart-5: oklch(0.8587 0 0);
+
+    /* Legacy theme variables - Monochrome color palette */
+    --theme-primary: #111111;
+    --theme-primary-foreground: #ffffff;
+    --theme-secondary: #52525b;
+    --theme-secondary-foreground: #ffffff;
+    --theme-accent: #f4f4f5;
+    --theme-accent-foreground: #111111;
+    --theme-background: #ffffff;
+    --theme-foreground: #111111;
+    --theme-muted: #f4f4f5;
+    --theme-muted-foreground: oklch(0.225 0 0);
+    --theme-border: #111111;
+    --theme-input: #ffffff;
+    --theme-ring: #111111;
+    --theme-success: #22c55e;
+    --theme-warning: #f59e0b;
+    --theme-error: #ef4444;
+    --theme-starred: #facc15;
+    --theme-important: #fb923c;
+  }
+
+  /* Contrast Theme Dark Mode */
+  .dark .contrast-theme {
+    /* OKLCH color palette - Dark Mode */
+    --background: oklch(0.1 0 0);
+    --foreground: oklch(0.99 0 0);
+    --muted: oklch(0.2 0 0);
+    --muted-foreground: oklch(0.875 0 0);
+    --popover: oklch(0.16 0 0);
+    --popover-foreground: oklch(0.99 0 0);
+    --card: oklch(0.16 0 0);
+    --card-foreground: oklch(0.99 0 0);
+    --border: oklch(0.97 0 0);
+    --input: oklch(0.97 0 0);
+    --checkbox-border: oklch(0.97 0 0);
+    --checkbox-background: transparent;
+    --primary: oklch(0.99 0 0);
+    --primary-foreground: oklch(0.1 0 0);
+    --secondary: oklch(0.22 0 0);
+    --secondary-foreground: oklch(0.99 0 0);
+    --accent: oklch(0.24 0 0);
+    --accent-foreground: oklch(0.99 0 0);
+    --destructive: oklch(0.5772 0.2454 27.3252);
+    --destructive-foreground: oklch(1 0 0);
+    --ring: oklch(0.99 0 0);
+  }
+}
+
+/* Theme container styles */
+.contrast-theme .theme-container {
+  background-color: var(--theme-background);
+  color: var(--theme-foreground);
+  min-height: 100vh;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Helvetica Neue",
+    sans-serif;
+}
+
+.contrast-theme .theme-panel {
+  background-color: var(--theme-background);
+  border: 2px solid var(--theme-border);
+  border-radius: 0;
+}
+
+/* Navigation styles */
+.contrast-theme .theme-nav-container {
+  background-color: var(--theme-background);
+  border-right: 2px solid var(--theme-border);
+  padding: 0.75rem;
+}
+
+.contrast-theme .theme-nav-button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  transition: all 0.15s ease-in-out;
+  color: var(--theme-foreground);
+  background-color: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.contrast-theme .theme-nav-button:hover {
+  background-color: var(--theme-muted);
+}
+
+.contrast-theme .theme-nav-button[data-state="active"] {
+  background-color: var(--theme-muted);
+  color: var(--theme-foreground);
+  border-left-color: var(--theme-primary);
+}
+
+/* Mail list styles */
+.contrast-theme .theme-mail-list-container {
+  background-color: var(--theme-background);
+  border-right: 2px solid var(--theme-border);
+}
+
+.contrast-theme .theme-mail-item {
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  border-bottom: 2px solid var(--theme-border);
+}
+
+.contrast-theme .theme-mail-item:hover {
+  background-color: #fafafa;
+}
+
+.contrast-theme .theme-mail-item[data-selected="true"] {
+  background-color: var(--theme-border);
+}
+
+.contrast-theme .theme-mail-item[data-unread="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: var(--theme-primary);
+  margin-right: 0.5rem;
+}
+
+.contrast-theme .theme-mail-item-name {
+  font-weight: 400;
+  color: var(--theme-foreground);
+  font-size: var(--text-sm);
+}
+
+.contrast-theme .theme-mail-item-subject {
+  font-weight: 400;
+  color: var(--theme-foreground);
+  font-size: var(--text-sm);
+}
+
+.contrast-theme .theme-mail-item-preview {
+  color: var(--theme-muted-foreground);
+  font-size: var(--text-xs);
+}
+
+.contrast-theme .theme-mail-item-date {
+  color: var(--theme-muted-foreground);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+/* Mail display styles */
+.contrast-theme .theme-mail-display-container {
+  background-color: var(--theme-background);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.contrast-theme .theme-mail-display-header {
+  background-color: var(--theme-background);
+  border-bottom: 2px solid var(--theme-border);
+  padding: 1.5rem;
+}
+
+.contrast-theme .theme-mail-display-content {
+  flex: 1;
+  overflow: auto;
+  padding: 1.5rem;
+  color: var(--theme-foreground);
+  line-height: 1.7;
+}
+
+/* Search styles */
+.contrast-theme .theme-search-container {
+  padding: 1rem;
+  border-bottom: 2px solid var(--theme-border);
+  background-color: var(--theme-background);
+}
+
+.contrast-theme .theme-search-input {
+  width: 100%;
+  padding: 0.5rem 1rem 0.5rem 2.5rem;
+  border: 2px solid var(--theme-border);
+  border-radius: 0;
+  background-color: var(--theme-background);
+  color: var(--theme-foreground);
+  font-size: var(--text-sm);
+}
+
+.contrast-theme .theme-search-input:focus {
+  outline: none;
+  border-color: var(--theme-primary);
+}
+
+/* Button styles */
+.contrast-theme .theme-button-primary {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  font-weight: 400;
+  border-radius: 0;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: all 0.15s ease-in-out;
+}
+
+.contrast-theme .theme-button-primary:hover {
+  background-color: #27272a;
+}
+
+.contrast-theme .theme-button-secondary {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+  background-color: var(--theme-background);
+  color: var(--theme-foreground);
+  font-weight: 400;
+  border-radius: 0;
+  border: 2px solid var(--theme-border);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: all 0.15s ease-in-out;
+}
+
+.contrast-theme .theme-button-secondary:hover {
+  background-color: var(--theme-muted);
+}
+
+.contrast-theme .theme-button-outline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1.5rem;
+  background-color: transparent;
+  color: var(--theme-foreground);
+  font-weight: 400;
+  border-radius: 0;
+  border: 2px solid var(--theme-primary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  transition: all 0.15s ease-in-out;
+}
+
+.contrast-theme .theme-button-outline:hover {
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+}
+
+/* Icon button styles */
+.contrast-theme .theme-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  background-color: transparent;
+  color: var(--theme-muted-foreground);
+  border-radius: 0;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+}
+
+.contrast-theme .theme-button-icon:hover {
+  background-color: var(--theme-muted);
+  color: var(--theme-foreground);
+}
+
+/* Badge styles */
+.contrast-theme .theme-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  background-color: var(--theme-muted);
+  color: var(--theme-muted-foreground);
+  border-radius: 0;
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.contrast-theme .theme-badge-primary {
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+}
+
+.contrast-theme .theme-badge-success {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.contrast-theme .theme-badge-warning {
+  background-color: #fef3c7;
+  color: #d97706;
+}
+
+.contrast-theme .theme-badge-error {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+/* Avatar styles */
+.contrast-theme .theme-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 9999px;
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* Folder item styles */
+.contrast-theme .theme-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  color: var(--theme-foreground);
+  border-left: 2px solid transparent;
+}
+
+.contrast-theme .theme-folder-item:hover {
+  background-color: #fafafa;
+}
+
+.contrast-theme .theme-folder-item[data-active="true"] {
+  background-color: var(--theme-muted);
+  border-left-color: var(--theme-primary);
+}
+
+.contrast-theme .theme-folder-item-count {
+  font-size: var(--text-xs);
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  padding: 0.125rem 0.5rem;
+  border-radius: 0;
+}
+
+/* Card styles */
+.contrast-theme .theme-card {
+  background-color: var(--theme-background);
+  border: 2px solid var(--theme-border);
+  border-radius: 0;
+  padding: 1.5rem;
+}
+
+.contrast-theme .theme-card-elevated {
+  background-color: var(--theme-background);
+  border: none;
+  border-radius: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 1.5rem;
+}
+
+/* FAB styles */
+.contrast-theme .theme-fab {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  width: 3rem;
+  height: 3rem;
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease-in-out;
+  z-index: 50;
+  border: none;
+  cursor: pointer;
+}
+
+.contrast-theme .theme-fab:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Toast styles */
+.contrast-theme .theme-toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background-color: var(--theme-primary);
+  color: var(--theme-primary-foreground);
+  border-radius: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  font-size: var(--text-sm);
+}
+
+/* Empty state styles */
+.contrast-theme .theme-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 1.5rem;
+  text-align: center;
+  color: var(--theme-muted-foreground);
+}
+
+.contrast-theme .theme-empty-state-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-bottom: 1rem;
+  color: var(--theme-muted-foreground);
+}
+
+.contrast-theme .theme-empty-state-title {
+  font-size: var(--text-base);
+  font-weight: 400;
+  color: var(--theme-foreground);
+  margin-bottom: 0.5rem;
+}
+
+/* Separator styles */
+.contrast-theme .theme-separator {
+  width: 100%;
+  height: 1px;
+  background-color: var(--theme-border);
+  margin: 1rem 0;
+}
+
+/* Dark mode support */
+.dark .contrast-theme {
+  --theme-primary: #fcfcfc;
+  --theme-primary-foreground: #111111;
+  --theme-secondary: #a1a1aa;
+  --theme-secondary-foreground: #111111;
+  --theme-accent: #27272a;
+  --theme-accent-foreground: #fcfcfc;
+  --theme-background: #09090b;
+  --theme-foreground: #fcfcfc;
+  --theme-muted: #27272a;
+  --theme-muted-foreground: oklch(0.875 0 0);
+  --theme-border: #f5f5f5;
+  --theme-input: #18181b;
+  --theme-ring: #fcfcfc;
+}
+
+.dark .contrast-theme .theme-mail-item:hover {
+  background-color: #27272a;
+}
+
+.dark .contrast-theme .theme-mail-item[data-selected="true"] {
+  background-color: #3f3f46;
+}
+
+.dark .contrast-theme .theme-folder-item:hover {
+  background-color: #27272a;
+}

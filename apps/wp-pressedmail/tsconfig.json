@@ -1,0 +1,20 @@
+{
+  "extends": "@kit/tsconfig/base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "checkJs": false,
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "ES2021.Intl"],
+    "jsx": "react-jsx",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2020",
+    "skipLibCheck": true
+  },
+  "include": ["src", "vite.config.ts", "scripts"],
+  "exclude": ["node_modules", "dist", "plugin-files"]
+}

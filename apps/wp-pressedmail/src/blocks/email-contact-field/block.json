@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-contact-field",
+  "version": "1.0.0",
+  "title": "Email Contact Field",
+  "category": "pressedmail-email",
+  "icon": "id",
+  "description": "Insert a contact merge field (first name, last name, email, company) that gets personalized per recipient.",
+  "keywords": ["contact", "merge", "personalize", "name", "field"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "multiple": true
+  },
+  "attributes": {
+    "fieldName": {
+      "type": "string",
+      "default": "first_name"
+    },
+    "fallback": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js"
+}

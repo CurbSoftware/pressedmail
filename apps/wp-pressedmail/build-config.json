@@ -1,0 +1,164 @@
+{
+  "$schema": "../../tooling/schemas/build-config.schema.json",
+  "pluginSlug": "pressedmail",
+  "versions": {
+    "free": {
+      "name": "PressedMail",
+      "slug": "pressedmail",
+      "description": "A modern email client in your WordPress admin dashboard",
+      "outputFile": "pressedmail-free.zip",
+      "featureFlags": {
+        "isPro": false,
+        "entitlements": {
+          "white_label": false
+        },
+        "features": {
+          "layouts": {
+            "enabled": true,
+            "available": [
+              "pressedm"
+            ]
+          },
+          "themes": {
+            "enabled": true,
+            "available": [
+              "pressedm",
+              "contrast"
+            ]
+          },
+          "email_accounts": {
+            "enabled": true,
+            "limit": -1
+          },
+          "users": {
+            "enabled": true,
+            "limit": -1
+          },
+          "tags": {
+            "enabled": true,
+            "limit": -1
+          },
+          "folders": {
+            "enabled": true,
+            "type": "imap_only"
+          },
+          "signatures": {
+            "enabled": true,
+            "limit": -1
+          },
+          "email_rules": {
+            "enabled": true,
+            "limit": -1
+          },
+          "user_roles": {
+            "enabled": true,
+            "type": "all_users"
+          },
+          "phishing_detection": false,
+          "prevent_impersonation": true,
+          "contacts": false,
+          "contact_lists": {
+            "enabled": false,
+            "limit": 0
+          },
+          "calendar": false,
+          "calendars": {
+            "enabled": false,
+            "limit": 0
+          },
+          "snooze": false,
+          "undo_send": false,
+          "snippets": {
+            "enabled": false,
+            "limit": 0
+          },
+          "signature_rules": false,
+          "sender_aliases": {
+            "enabled": false,
+            "limit": 0
+          },
+          "email_tracking": false,
+          "auto_followups": false,
+          "auto_replies": false,
+          "scheduled_emails": false,
+          "smart_inbox": false,
+          "auto_tagger": false,
+          "ai_integration": {
+            "enabled": false,
+            "type": "none"
+          }
+        }
+      },
+      "excludeReact": [
+        "layouts/variants/pressedg/**",
+        "layouts/variants/pressedout/**"
+      ]
+    }
+  },
+  "baseIncludes": [
+    "pressedmail.php",
+    "plugin.php",
+    "uninstall.php",
+    "readme.txt",
+    "LICENSE.txt",
+    "composer.json",
+    "includes",
+    "libs",
+    "database",
+    "assets",
+    "languages"
+  ],
+  "alwaysExclude": [
+    "**/.git",
+    "**/.github",
+    "**/.vscode",
+    "**/.idea",
+    "**/.DS_Store",
+    "**/node_modules",
+    "**/*.map",
+    "**/*.log",
+    "**/.env",
+    "**/.env.*",
+    "**/tests",
+    "**/test",
+    "**/Tests",
+    "**/Test",
+    "**/*.test.php",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.js",
+    "**/*.test.mjs",
+    "**/coverage",
+    "**/storybook-static",
+    "**/cache",
+    "**/vendor/bin",
+    "**/nesbot/carbon/bin",
+    "**/nesbot/carbon/src/Carbon/Lang",
+    "**/illuminate/support/Testing",
+    "**/.gitignore",
+    "**/.gitattributes",
+    "**/.editorconfig",
+    "**/.deepsource.toml",
+    "**/.phpstorm.meta.php",
+    "**/vendor/**/README.md",
+    "**/vendor/**/readme.md",
+    "**/vendor/**/CHANGELOG.md",
+    "**/vendor/**/CODE_OF_CONDUCT.md",
+    "**/vendor/**/SECURITY.md",
+    "**/vendor/**/CONTRIBUTING.md",
+    "**/vendor/**/UPGRADE.md",
+    "languages/*.po",
+    "**/phpunit.xml",
+    "**/phpunit.xml.dist",
+    "**/vite-dev-server.json",
+    "**/integrity-manifest.json",
+    "**/module-graph.json",
+    "assets/admin/dist-free",
+    "assets/admin/dist-pro",
+    "assets/frontend",
+    "libs/assets-dev.php"
+  ],
+  "stripAfterComposerInstall": [
+    "composer.lock"
+  ]
+}

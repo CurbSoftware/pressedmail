@@ -1,0 +1,1207 @@
+/**
+ * Message Service Implementation
+ *
+ * Wraps message operation API endpoints with type-safe interface.
+ * Handles single and batch operations with optimistic cache updates.
+ *
+ * @since 2.0.0
+ */
+
+import type { EmailMessage } from "@/types";
+import type {
+  IMessageOperations,
+  GetMessageOptions,
+  OperationResult,
+  BatchOperationResult,
+  MessageFlag,
+  MessageIdentifierMode,
+  MessageMutationOptions,
+  BatchMessageMutationOptions,
+  FolderTarget,
+} from "../interfaces";
+import type { ICacheService } from "../interfaces";
+import type { IConnectionStateService } from "../interfaces/connection-state.interface";
+import {
+  apiPost,
+  apiForm,
+  type ApiResponse,
+  type ApiErrorResponse,
+} from "@/lib/api-client";
+import {
+  markEmailAsReadRouteApi,
+  markEmailAsUnreadRouteApi,
+  batchMarkReadRouteApi,
+  batchMarkUnreadRouteApi,
+  batchDeleteRouteApi,
+  batchMoveRouteApi,
+  emptyTrashRouteApi,
+  deleteEmailFromImapRouteApi,
+  moveEmailRouteApi,
+  flagEmailRouteApi,
+  messageRawHeadersRouteApi,
+  messageDetailRouteApi,
+  buildApiUrl,
+} from "@/context/Strings";
+import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
+import { isDestinationMutationTarget } from "@/lib/folder-destination";
+import type { MutationTarget } from "@/lib/folder-target";
+
+/**
+ * Check if response is an error.
+ */
+function isError(
+  response: ApiResponse | ApiErrorResponse | Error,
+): response is ApiErrorResponse | Error {
+  if (response instanceof Error) return true;
+  if (!("status" in response)) return false;
+  const status = (response as { status: unknown }).status;
+  // PHP REST endpoints answer HTTP 200 with a string status envelope
+  // ({ status: 'error' | 'success', ... }); transport failures surface a numeric
+  // HTTP status. Treat both shapes as errors so optimistic updates revert.
+  if (typeof status === "string") return status === "error";
+  return typeof status === "number" && (status >= 400 || status === 505);
+}
+
+/**
+ * Extract error message from response.
+ */
+function getErrorMessage(response: ApiErrorResponse | Error): string {
+  if (response instanceof Error) {
+    return response.message;
+  }
+  if (typeof response.message === "string") {
+    return response.message;
+  }
+  if (
+    typeof response.data === "object" &&
+    response.data !== null &&
+    "message" in response.data &&
+    typeof response.data.message === "string"
+  ) {
+    return response.data.message;
+  }
+  return "An error occurred";
+}
+
+interface BatchMutationResponse {
+  status?: string | number;
+  message?: string;
+  processed_count?: number;
+  failed_ids?: unknown;
+  total_count?: number;
+}
+
+/**
+ * Message Service Implementation
+ *
+ * Implements IMessageOperations for message CRUD and batch operations.
+ */
+export class MessageService implements IMessageOperations {
+  private cache: ICacheService | null;
+  private connectionState: IConnectionStateService | null;
+
+  constructor(
+    cache?: ICacheService,
+    connectionState?: IConnectionStateService,
+  ) {
+    this.cache = cache ?? null;
+    this.connectionState = connectionState ?? null;
+  }
+
+  /**
+   * Wrap an operation with circuit breaker if available.
+   */
+  private async withBreaker<T>(
+    accountId: string | number,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (this.connectionState) {
+      return this.connectionState.withCircuitBreaker(
+        String(accountId),
+        operation,
+      );
+    }
+    return operation();
+  }
+
+  private getMutationFolder(options?: { folder?: string }): string {
+    const folder = options?.folder?.trim();
+    return folder && folder.length > 0 ? folder : "INBOX";
+  }
+
+  private getIdentifierMode(options?: {
+    identifierMode?: MessageIdentifierMode;
+  }): MessageIdentifierMode {
+    return options?.identifierMode === "msg_no" ? "msg_no" : "uid";
+  }
+
+  private buildMessageMutationPayload(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Record<string, string | number> {
+    const payload: Record<string, string | number> = {
+      account_id: accountId,
+      folder: this.getMutationFolder(options),
+    };
+    const identifierMode = this.getIdentifierMode(options);
+
+    if (identifierMode === "msg_no") {
+      payload.msg_no = messageId;
+      return payload;
+    }
+
+    payload.uid = messageId;
+    if (options?.msgNo !== undefined && options.msgNo !== null) {
+      payload.msg_no = options.msgNo;
+    }
+
+    return payload;
+  }
+
+  private buildBatchMutationPayload(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
+  ): Record<string, string | number | boolean | (string | number)[]> {
+    return {
+      account_id: accountId,
+      folder: this.getMutationFolder(options),
+      message_ids: messageIds,
+      is_uid: this.getIdentifierMode(options) === "uid",
+    };
+  }
+
+  private createBatchFailureResult(
+    messageIds: (string | number)[],
+    error: string,
+  ): BatchOperationResult {
+    return {
+      success: false,
+      error,
+      successCount: 0,
+      failedIds: messageIds,
+      totalCount: messageIds.length,
+    };
+  }
+
+  private parseBatchResponse(
+    response: ApiResponse,
+    messageIds: (string | number)[],
+  ): BatchOperationResult {
+    const batchResponse = response as BatchMutationResponse;
+
+    if (
+      batchResponse.failed_ids !== undefined &&
+      !Array.isArray(batchResponse.failed_ids)
+    ) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: failed_ids must be an array",
+      );
+    }
+
+    const failedIds = Array.isArray(batchResponse.failed_ids)
+      ? batchResponse.failed_ids.filter(
+          (identifier): identifier is string | number =>
+            typeof identifier === "string" || typeof identifier === "number",
+        )
+      : [];
+
+    if (
+      Array.isArray(batchResponse.failed_ids) &&
+      failedIds.length !== batchResponse.failed_ids.length
+    ) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: failed_ids must contain only message identifiers",
+      );
+    }
+
+    if (
+      batchResponse.processed_count !== undefined &&
+      typeof batchResponse.processed_count !== "number"
+    ) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: processed_count must be a number",
+      );
+    }
+
+    const processedCount =
+      typeof batchResponse.processed_count === "number"
+        ? batchResponse.processed_count
+        : Math.max(0, messageIds.length - failedIds.length);
+
+    if (processedCount < 0 || processedCount > messageIds.length) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: processed_count is out of range",
+      );
+    }
+
+    if (processedCount + failedIds.length !== messageIds.length) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: processed_count and failed_ids do not match the requested total",
+      );
+    }
+
+    const resolvedFailedIds =
+      failedIds.length > 0
+        ? failedIds
+        : processedCount === messageIds.length
+          ? []
+          : messageIds;
+    const success = resolvedFailedIds.length === 0;
+
+    const rawCreated = (batchResponse as { created_folders?: unknown })
+      .created_folders;
+    const createdFolders = Array.isArray(rawCreated)
+      ? rawCreated
+          .filter(
+            (entry): entry is { path?: unknown; folder_id?: unknown } =>
+              typeof entry === "object" && entry !== null,
+          )
+          .map((entry) => ({
+            path: String(entry.path ?? ""),
+            folderId:
+              typeof entry.folder_id === "number" ? entry.folder_id : null,
+          }))
+          .filter((entry) => entry.path !== "")
+      : [];
+
+    return {
+      success,
+      successCount: processedCount,
+      failedIds: resolvedFailedIds,
+      totalCount: messageIds.length,
+      ...(createdFolders.length > 0 ? { createdFolders } : {}),
+      error: success
+        ? undefined
+        : `Failed to process ${resolvedFailedIds.length} of ${messageIds.length} messages`,
+    };
+  }
+
+  /** Max message IDs sent per batch request: keeps each live-IMAP mutation request
+   * comfortably under the gateway timeout. Larger selections are chunked sequentially so
+   * the whole operation completes without a single unbounded (504-prone) request. */
+  private static readonly BATCH_CHUNK_SIZE = 100;
+
+  private async executeBatchRequest(
+    accountId: string | number,
+    route: string,
+    messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
+    extraPayload?: Record<string, unknown>,
+  ): Promise<BatchOperationResult> {
+    const chunkSize = MessageService.BATCH_CHUNK_SIZE;
+    if (messageIds.length <= chunkSize) {
+      return this.executeBatchChunk(
+        accountId,
+        route,
+        messageIds,
+        options,
+        extraPayload,
+      );
+    }
+
+    // Large selection → send in bounded chunks and aggregate, so a multi-thousand
+    // delete/move can't blow the gateway timeout in one request and never silently
+    // drops the overflow the server would otherwise leave as `remaining`.
+    const aggregate: BatchOperationResult = {
+      success: true,
+      successCount: 0,
+      failedIds: [],
+      totalCount: messageIds.length,
+    };
+    for (let i = 0; i < messageIds.length; i += chunkSize) {
+      const chunkIds = messageIds.slice(i, i + chunkSize);
+      const result = await this.executeBatchChunk(
+        accountId,
+        route,
+        chunkIds,
+        options,
+        extraPayload,
+      );
+      aggregate.successCount =
+        (aggregate.successCount ?? 0) + (result.successCount ?? 0);
+      if (result.failedIds?.length) {
+        aggregate.failedIds = [
+          ...(aggregate.failedIds ?? []),
+          ...result.failedIds,
+        ];
+      }
+      if (result.createdFolders?.length) {
+        aggregate.createdFolders = [
+          ...(aggregate.createdFolders ?? []),
+          ...result.createdFolders,
+        ];
+      }
+      if (result.rateLimited) {
+        aggregate.rateLimited = true;
+      }
+      if (!result.success) {
+        const unattemptedIds = messageIds.slice(i + chunkIds.length);
+        if (unattemptedIds.length > 0) {
+          aggregate.failedIds = [
+            ...(aggregate.failedIds ?? []),
+            ...unattemptedIds,
+          ];
+        }
+        aggregate.success = false;
+        aggregate.error ??= result.error;
+        break;
+      }
+    }
+    return aggregate;
+  }
+
+  /** Longest wait honoured for a 429 before giving up on the chunk. */
+  private static readonly MAX_RETRY_AFTER_SECONDS = 70;
+  /** Retries per chunk after a throttled response. */
+  private static readonly RATE_LIMIT_RETRIES = 2;
+
+  private static delay(seconds: number): Promise<void> {
+    return new Promise((resolve) =>
+      globalThis.setTimeout(resolve, Math.max(0, seconds) * 1000),
+    );
+  }
+
+  /**
+   * Retry-after seconds from a throttled envelope, or null when not throttled.
+   */
+  private static retryAfterSeconds(response: unknown): number | null {
+    const envelope = response as
+      | { status?: number | string; retry_after?: number }
+      | undefined;
+    const status = Number(envelope?.status);
+    if (status !== 429) return null;
+    const retryAfter = Number(envelope?.retry_after);
+    return Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter, MessageService.MAX_RETRY_AFTER_SECONDS)
+      : 1;
+  }
+
+  private async executeBatchChunk(
+    accountId: string | number,
+    route: string,
+    messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
+    extraPayload?: Record<string, unknown>,
+    attempt = 0,
+  ): Promise<BatchOperationResult> {
+    if (messageIds.length === 0) {
+      return {
+        success: true,
+        successCount: 0,
+        failedIds: [],
+        totalCount: 0,
+      };
+    }
+
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(route, {
+          ...this.buildBatchMutationPayload(accountId, messageIds, options),
+          ...extraPayload,
+        }),
+      );
+
+      if (isError(response)) {
+        // A throttled chunk is not a failed chunk: wait out the server's
+        // retry_after and try again, rather than abandoning the rest of a
+        // sweep the user asked for.
+        const retryAfter = MessageService.retryAfterSeconds(response);
+        if (
+          retryAfter !== null &&
+          attempt < MessageService.RATE_LIMIT_RETRIES
+        ) {
+          await MessageService.delay(retryAfter);
+          const retried = await this.executeBatchChunk(
+            accountId,
+            route,
+            messageIds,
+            options,
+            extraPayload,
+            attempt + 1,
+          );
+          return { ...retried, rateLimited: true };
+        }
+
+        return {
+          ...this.createBatchFailureResult(
+            messageIds,
+            getErrorMessage(response as ApiErrorResponse),
+          ),
+          ...(retryAfter !== null ? { rateLimited: true } : {}),
+        };
+      }
+
+      return this.parseBatchResponse(response, messageIds);
+    } catch (error) {
+      return this.createBatchFailureResult(
+        messageIds,
+        error instanceof Error
+          ? error.message
+          : "Batch mailbox operation failed",
+      );
+    }
+  }
+
+  // ============== Single Message Operations ==============
+
+  async getMessage(
+    accountId: string | number,
+    messageId: string | number,
+    options?: GetMessageOptions,
+  ): Promise<EmailMessage | null> {
+    // Check cache first (unless forcing refresh)
+    const folder = options?.folder ?? "INBOX";
+    if (!options?.forceRefresh && this.cache) {
+      const cached = this.cache.getMessageDetail(
+        String(accountId),
+        folder,
+        messageId,
+      );
+      if (
+        cached &&
+        (cached.htmlBody || cached.textBody || !options?.includeBody)
+      ) {
+        return cached;
+      }
+    }
+
+    try {
+      const url = buildApiUrl(`${messageDetailRouteApi}${accountId}`, {
+        uid: String(messageId),
+        folder,
+        ...getMailboxSourceRequestParams(),
+      });
+
+      const response = await apiPost<EmailMessage>(url, {
+        uid: messageId,
+        account_id: accountId,
+        ...getMailboxSourceRequestParams(),
+      });
+
+      if (isError(response)) {
+        console.error(
+          "[MessageService] Failed to get message detail:",
+          response,
+        );
+        return null;
+      }
+
+      const message = (response as ApiResponse<EmailMessage>).data ?? null;
+
+      // Cache the detail
+      if (message && this.cache) {
+        this.cache.setMessageDetail(
+          String(accountId),
+          message.folder ?? "INBOX",
+          message,
+        );
+      }
+
+      return message;
+    } catch (error) {
+      console.error("[MessageService] getMessage error:", error);
+      return null;
+    }
+  }
+
+  async markAsRead(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    // Optimistic update
+    if (this.cache) {
+      this.cache.updateMessage(String(accountId), messageId, { read: true });
+    }
+
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(
+          markEmailAsReadRouteApi,
+          this.buildMessageMutationPayload(accountId, messageId, options),
+        ),
+      );
+
+      if (isError(response)) {
+        // Rollback optimistic update
+        if (this.cache) {
+          this.cache.updateMessage(String(accountId), messageId, {
+            read: false,
+          });
+        }
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      // Rollback
+      if (this.cache) {
+        this.cache.updateMessage(String(accountId), messageId, { read: false });
+      }
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to mark as read",
+      };
+    }
+  }
+
+  async markAsUnread(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    // Optimistic update
+    if (this.cache) {
+      this.cache.updateMessage(String(accountId), messageId, { read: false });
+    }
+
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(
+          markEmailAsUnreadRouteApi,
+          this.buildMessageMutationPayload(accountId, messageId, options),
+        ),
+      );
+
+      if (isError(response)) {
+        // Rollback
+        if (this.cache) {
+          this.cache.updateMessage(String(accountId), messageId, {
+            read: true,
+          });
+        }
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      // Rollback
+      if (this.cache) {
+        this.cache.updateMessage(String(accountId), messageId, { read: true });
+      }
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to mark as unread",
+      };
+    }
+  }
+
+  async toggleStar(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(flagEmailRouteApi, {
+          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          flag: "\\Flagged",
+          action: "toggle",
+        }),
+      );
+
+      if (isError(response)) {
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      // Get the new starred state from response if available
+      const data = (response as ApiResponse).data;
+      const newStarred = data?.starred ?? data?.flagged;
+
+      // Update cache with new state
+      if (this.cache && newStarred !== undefined) {
+        this.cache.updateMessage(String(accountId), messageId, {
+          starred: newStarred,
+        });
+      }
+
+      return {
+        success: true,
+        message: data,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to toggle star",
+      };
+    }
+  }
+
+  async getRawHeaders(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Promise<{ success: boolean; headers?: string; error?: string }> {
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(
+          messageRawHeadersRouteApi,
+          this.buildMessageMutationPayload(accountId, messageId, options),
+        ),
+      );
+
+      if (isError(response)) {
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      const data = (response as ApiResponse).data as
+        | { raw_headers?: unknown }
+        | undefined;
+      const headers =
+        typeof data?.raw_headers === "string" ? data.raw_headers : "";
+
+      return { success: true, headers };
+    } catch (error) {
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to fetch headers",
+      };
+    }
+  }
+
+  async deleteMessage(
+    accountId: string | number,
+    messageId: string | number,
+    permanent = false,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    const folder = this.getMutationFolder(options);
+
+    // Optimistic removal from cache
+    if (this.cache) {
+      this.cache.removeMessage(String(accountId), messageId);
+    }
+
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(deleteEmailFromImapRouteApi, {
+          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          permanent: permanent ? 1 : 0,
+        }),
+      );
+
+      if (isError(response)) {
+        // Rollback: would need to re-fetch or restore from backup
+        // For now, just invalidate cache to force refresh
+        if (this.cache) {
+          this.cache.invalidateMessages({
+            accountId: String(accountId),
+            folder,
+          });
+        }
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      return { success: true };
+    } catch (error) {
+      // Invalidate cache on error
+      if (this.cache) {
+        this.cache.invalidateMessages({
+          accountId: String(accountId),
+          folder,
+        });
+      }
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to delete message",
+      };
+    }
+  }
+
+  async moveMessage(
+    accountId: string | number,
+    messageId: string | number,
+    targetFolder: string | FolderTarget,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    const sourceFolder = this.getMutationFolder(options);
+    const targetPath =
+      typeof targetFolder === "string" ? targetFolder : targetFolder.path;
+
+    // Optimistic removal from current folder cache
+    if (this.cache) {
+      this.cache.removeMessage(String(accountId), messageId);
+    }
+
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(moveEmailRouteApi, {
+          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          target_folder: targetPath,
+          ...(typeof targetFolder === "string" || targetFolder.folderId === null
+            ? {}
+            : {
+                target_account_id: targetFolder.accountId,
+                target_folder_id: targetFolder.folderId,
+              }),
+        }),
+      );
+
+      if (isError(response)) {
+        // Invalidate to force refresh
+        if (this.cache) {
+          this.cache.invalidateMessages({
+            accountId: String(accountId),
+            folder: sourceFolder,
+          });
+        }
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      // Invalidate target folder cache too
+      if (this.cache) {
+        this.cache.invalidateMessages({
+          accountId: String(accountId),
+          folder: sourceFolder,
+        });
+        this.cache.invalidateMessages({
+          accountId: String(accountId),
+          folder: targetPath,
+        });
+      }
+
+      return { success: true };
+    } catch (error) {
+      if (this.cache) {
+        this.cache.invalidateMessages({
+          accountId: String(accountId),
+          folder: sourceFolder,
+        });
+      }
+      return {
+        success: false,
+        error:
+          error instanceof Error ? error.message : "Failed to move message",
+      };
+    }
+  }
+
+  async archiveMessage(
+    accountId: string | number,
+    messageId: string | number,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    // Archive is just a move to Archive folder
+    return this.moveMessage(accountId, messageId, "Archive", options);
+  }
+
+  async setFlag(
+    accountId: string | number,
+    messageId: string | number,
+    flag: MessageFlag,
+    value: boolean,
+    options?: MessageMutationOptions,
+  ): Promise<OperationResult> {
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(flagEmailRouteApi, {
+          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          flag,
+          action: value ? "add" : "remove",
+        }),
+      );
+
+      if (isError(response)) {
+        return {
+          success: false,
+          error: getErrorMessage(response as ApiErrorResponse),
+        };
+      }
+
+      // Update cache based on flag
+      if (this.cache) {
+        const updates: Partial<EmailMessage> = {};
+        switch (flag) {
+          case "\\Seen":
+            updates.read = value;
+            break;
+          case "\\Flagged":
+            updates.starred = value;
+            break;
+          // Other flags don't have direct EmailMessage mappings
+        }
+        if (Object.keys(updates).length > 0) {
+          this.cache.updateMessage(String(accountId), messageId, updates);
+        }
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Failed to set flag",
+      };
+    }
+  }
+
+  // ============== Batch Operations ==============
+
+  async batchMarkRead(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
+  ): Promise<BatchOperationResult> {
+    return this.executeBatchRequest(
+      accountId,
+      batchMarkReadRouteApi,
+      messageIds,
+      options,
+    );
+  }
+
+  async batchMarkUnread(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
+  ): Promise<BatchOperationResult> {
+    return this.executeBatchRequest(
+      accountId,
+      batchMarkUnreadRouteApi,
+      messageIds,
+      options,
+    );
+  }
+
+  async batchDelete(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    permanent = false,
+    options?: BatchMessageMutationOptions,
+  ): Promise<BatchOperationResult> {
+    return this.executeBatchRequest(
+      accountId,
+      batchDeleteRouteApi,
+      messageIds,
+      options,
+      {
+        expunge: true,
+        permanent: permanent ? 1 : 0,
+      },
+    );
+  }
+
+  async batchMove(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    targetFolder: MutationTarget,
+    options?: BatchMessageMutationOptions,
+  ): Promise<BatchOperationResult> {
+    // Cross-account destination union: the server resolves, and, behind the
+    // explicit opt-in, creates, the folder per account. The batch endpoints
+    // are form-encoded, so the union MUST travel as a JSON string, a raw
+    // object toString()s into "[object Object]" inside FormData.
+    if (isDestinationMutationTarget(targetFolder)) {
+      return this.executeBatchRequest(
+        accountId,
+        batchMoveRouteApi,
+        messageIds,
+        options,
+        {
+          target_destination: JSON.stringify(targetFolder.destination),
+          create_missing_target: 1,
+        },
+      );
+    }
+
+    return this.executeBatchRequest(
+      accountId,
+      batchMoveRouteApi,
+      messageIds,
+      options,
+      {
+        target_folder:
+          typeof targetFolder === "string" ? targetFolder : targetFolder.path,
+        ...(typeof targetFolder === "string" || targetFolder.folderId === null
+          ? {}
+          : {
+              target_account_id: targetFolder.accountId,
+              target_folder_id: targetFolder.folderId,
+            }),
+      },
+    );
+  }
+
+  async emptyTrash(
+    accountId: string | number,
+    folder = "Trash",
+  ): Promise<BatchOperationResult> {
+    // The server empties Trash in bounded batches (capped per request to stay under the
+    // gateway timeout) and reports `remaining`. Keep calling until it's drained, or a
+    // safety cap, so a large Trash empties fully in a single user action.
+    const MAX_PASSES = 50;
+    const aggregate: BatchOperationResult = {
+      success: true,
+      successCount: 0,
+      failedIds: [],
+      totalCount: 0,
+    };
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      const { result, remaining } = await this.emptyTrashChunk(
+        accountId,
+        folder,
+      );
+      aggregate.successCount =
+        (aggregate.successCount ?? 0) + (result.successCount ?? 0);
+      aggregate.totalCount =
+        (aggregate.totalCount ?? 0) + (result.totalCount ?? 0);
+      if (result.failedIds?.length) {
+        aggregate.failedIds = [
+          ...(aggregate.failedIds ?? []),
+          ...result.failedIds,
+        ];
+      }
+      if (result.rateLimited) {
+        aggregate.rateLimited = true;
+      }
+      if (!result.success) {
+        aggregate.success = false;
+        aggregate.error = result.error;
+        break;
+      }
+      if (remaining <= 0) {
+        break;
+      }
+    }
+
+    return aggregate;
+  }
+
+  private async emptyTrashChunk(
+    accountId: string | number,
+    folder: string,
+  ): Promise<{ result: BatchOperationResult; remaining: number }> {
+    try {
+      const response = await this.withBreaker(accountId, () =>
+        apiForm(emptyTrashRouteApi, {
+          account_id: accountId,
+          folder: this.getMutationFolder({ folder }),
+        }),
+      );
+
+      if (isError(response)) {
+        return {
+          result: {
+            success: false,
+            error: getErrorMessage(response as ApiErrorResponse),
+            successCount: 0,
+            failedIds: [],
+            totalCount: 0,
+          },
+          remaining: 0,
+        };
+      }
+
+      const payload = response as BatchMutationResponse & {
+        remaining?: number;
+      };
+      if (
+        payload.failed_ids !== undefined &&
+        !Array.isArray(payload.failed_ids)
+      ) {
+        return {
+          result: {
+            success: false,
+            error: "Invalid empty-trash response: failed_ids must be an array",
+            successCount: 0,
+            failedIds: [],
+            totalCount: 0,
+          },
+          remaining: 0,
+        };
+      }
+
+      const failedIds = Array.isArray(payload.failed_ids)
+        ? payload.failed_ids.filter(
+            (identifier): identifier is string | number =>
+              typeof identifier === "string" || typeof identifier === "number",
+          )
+        : [];
+      const successCount =
+        typeof payload.processed_count === "number"
+          ? payload.processed_count
+          : 0;
+      const totalCount =
+        typeof payload.total_count === "number"
+          ? payload.total_count
+          : successCount + failedIds.length;
+      const remaining =
+        typeof payload.remaining === "number" && payload.remaining > 0
+          ? payload.remaining
+          : 0;
+
+      return {
+        result: {
+          success: failedIds.length === 0,
+          successCount,
+          failedIds,
+          totalCount,
+          error:
+            failedIds.length === 0
+              ? undefined
+              : `Failed to empty ${failedIds.length} Trash messages`,
+        },
+        remaining,
+      };
+    } catch (error) {
+      return {
+        result: {
+          success: false,
+          error: error instanceof Error ? error.message : "Empty Trash failed",
+          successCount: 0,
+          failedIds: [],
+          totalCount: 0,
+        },
+        remaining: 0,
+      };
+    }
+  }
+
+  async batchArchive(
+    accountId: string | number,
+    messageIds: (string | number)[],
+  ): Promise<BatchOperationResult> {
+    return this.batchMove(accountId, messageIds, "Archive");
+  }
+
+  async batchToggleStar(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    starred: boolean,
+  ): Promise<BatchOperationResult> {
+    return this.executeBatch(messageIds, (id) =>
+      this.setFlag(accountId, id, "\\Flagged", starred),
+    );
+  }
+
+  async batchApplyLabels(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    _labels: string[],
+  ): Promise<BatchOperationResult> {
+    // Labels are not directly supported via IMAP flags
+    // This would require custom implementation or Gmail API
+    console.warn("[MessageService] batchApplyLabels not implemented for IMAP");
+    return {
+      success: false,
+      error: "Label operations not supported for this account type",
+      successCount: 0,
+      failedIds: messageIds,
+      totalCount: messageIds.length,
+    };
+  }
+
+  async batchRemoveLabels(
+    accountId: string | number,
+    messageIds: (string | number)[],
+    _labels: string[],
+  ): Promise<BatchOperationResult> {
+    console.warn("[MessageService] batchRemoveLabels not implemented for IMAP");
+    return {
+      success: false,
+      error: "Label operations not supported for this account type",
+      successCount: 0,
+      failedIds: messageIds,
+      totalCount: messageIds.length,
+    };
+  }
+
+  // ============== Private Helpers ==============
+
+  /**
+   * Execute batch operation with parallel processing.
+   */
+  private async executeBatch(
+    ids: (string | number)[],
+    operation: (id: string | number) => Promise<OperationResult>,
+  ): Promise<BatchOperationResult> {
+    const results = await Promise.allSettled(ids.map((id) => operation(id)));
+
+    const failedIds: (string | number)[] = [];
+    let successCount = 0;
+    let firstError: string | undefined;
+
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled" && result.value.success) {
+        successCount++;
+      } else {
+        failedIds.push(ids[index]!);
+        const error =
+          result.status === "fulfilled"
+            ? result.value.error
+            : result.reason instanceof Error
+              ? result.reason.message
+              : undefined;
+        if (!firstError && error) {
+          firstError = error;
+        }
+      }
+    });
+
+    return {
+      success: failedIds.length === 0,
+      successCount,
+      failedIds,
+      totalCount: ids.length,
+      error:
+        failedIds.length > 0
+          ? (firstError ??
+            `Failed to process ${failedIds.length} of ${ids.length} messages`)
+          : undefined,
+    };
+  }
+}
+
+/**
+ * Singleton instance for shared message operations.
+ */
+let messageServiceInstance: MessageService | null = null;
+
+/**
+ * Get the shared MessageService instance.
+ */
+export function getMessageService(
+  cache?: ICacheService,
+  connectionState?: IConnectionStateService,
+): MessageService {
+  if (!messageServiceInstance) {
+    messageServiceInstance = new MessageService(cache, connectionState);
+  }
+  return messageServiceInstance;
+}
+
+/**
+ * Reset the message service (mainly for testing).
+ */
+export function resetMessageService(): void {
+  messageServiceInstance = null;
+}

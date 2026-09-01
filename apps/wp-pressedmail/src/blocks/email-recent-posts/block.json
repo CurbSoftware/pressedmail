@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-recent-posts",
+  "version": "1.0.0",
+  "title": "Email Recent Posts",
+  "category": "pressedmail-email",
+  "icon": "admin-post",
+  "description": "Display recent WordPress posts as email-safe cards, lists, or minimal entries.",
+  "keywords": ["posts", "blog", "recent", "dynamic", "newsletter"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "multiple": true
+  },
+  "attributes": {
+    "postCount": {
+      "type": "number",
+      "default": 3
+    },
+    "postType": {
+      "type": "string",
+      "default": "post"
+    },
+    "category": {
+      "type": "string",
+      "default": ""
+    },
+    "displayStyle": {
+      "type": "string",
+      "default": "cards",
+      "enum": ["cards", "list", "minimal"]
+    },
+    "showExcerpt": {
+      "type": "boolean",
+      "default": true
+    },
+    "showThumbnail": {
+      "type": "boolean",
+      "default": true
+    },
+    "excerptLength": {
+      "type": "number",
+      "default": 55
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js",
+  "render": "file:./render.php"
+}

@@ -1,0 +1,507 @@
+{
+  "$schema": "./manifest.schema.json",
+  "version": "2.0.0",
+  "layouts": {
+    "pressedm": {
+      "id": "pressedm",
+      "name": "PressedM",
+      "description": "Classic three-column email layout",
+      "requiresPro": false,
+      "php": {
+        "class": "\\PressedMail\\Layouts\\DefaultLayout"
+      },
+      "react": {
+        "module": "@/layouts/variants/default",
+        "entry": "defaultLayoutParts"
+      },
+      "preview": {
+        "sidebar": "bg-indigo-500",
+        "list": "bg-slate-400 dark:bg-slate-600",
+        "content": "bg-slate-200 dark:bg-slate-700"
+      }
+    },
+    "pressedg": {
+      "id": "pressedg",
+      "name": "PressedG",
+      "description": "Gmail-inspired conversation layout",
+      "requiresPro": true,
+      "php": {
+        "class": "\\PressedMail\\Layouts\\PressedGLayout"
+      },
+      "react": {
+        "module": "@/layouts/variants/pressedg",
+        "entry": "pressedGLayoutParts"
+      },
+      "preview": {
+        "sidebar": "bg-orange-500",
+        "list": "bg-stone-400 dark:bg-stone-600",
+        "content": "bg-stone-200 dark:bg-stone-700"
+      }
+    },
+    "pressedout": {
+      "id": "pressedout",
+      "name": "PressedOut",
+      "description": "Outlook-inspired ribbon layout",
+      "requiresPro": true,
+      "php": {
+        "class": "\\PressedMail\\Layouts\\PressedOutLayout"
+      },
+      "react": {
+        "module": "@/layouts/variants/pressedout",
+        "entry": "pressedOutLayoutParts"
+      },
+      "preview": {
+        "sidebar": "bg-blue-500",
+        "list": "bg-sky-400 dark:bg-sky-600",
+        "content": "bg-sky-200 dark:bg-sky-700"
+      }
+    }
+  },
+  "themes": {
+    "pressedm": {
+      "id": "pressedm",
+      "name": "PressedM",
+      "requiresPro": false,
+      "category": "free",
+      "colors": {
+        "light": {
+          "primary": "#6366f1",
+          "secondary": "#64748b",
+          "accent": "#f1f5f9"
+        },
+        "dark": {
+          "primary": "#818cf8",
+          "secondary": "#94a3b8",
+          "accent": "#1e293b"
+        }
+      }
+    },
+    "curb": {
+      "id": "curb",
+      "name": "CurbPress",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#d78300",
+          "secondary": "#f0f0f1",
+          "accent": "#f0f0f1"
+        },
+        "dark": {
+          "primary": "#ef9900",
+          "secondary": "#121215",
+          "accent": "#121215"
+        }
+      }
+    },
+    "pretty": {
+      "id": "pretty",
+      "name": "Pretty",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#d6336c",
+          "secondary": "#fff1f2",
+          "accent": "#fecdd3"
+        },
+        "dark": {
+          "primary": "#f5a8c8",
+          "secondary": "#2e1620",
+          "accent": "#3a2430"
+        }
+      }
+    },
+    "pressedg": {
+      "id": "pressedg",
+      "name": "PressedG",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#e54d26",
+          "secondary": "#e8e4e1",
+          "accent": "#d9d4cf"
+        },
+        "dark": {
+          "primary": "#e54d26",
+          "secondary": "#3d3a38",
+          "accent": "#2d2b2a"
+        }
+      }
+    },
+    "pressedout": {
+      "id": "pressedout",
+      "name": "PressedOut",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#0078d4",
+          "secondary": "#f3f2f1",
+          "accent": "#deecf9"
+        },
+        "dark": {
+          "primary": "#0078d4",
+          "secondary": "#3d3d3d",
+          "accent": "#004578"
+        }
+      }
+    },
+    "pressedcube": {
+      "id": "pressedcube",
+      "name": "PressedCube",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#37beff",
+          "secondary": "#486b7c",
+          "accent": "#d5effc"
+        },
+        "dark": {
+          "primary": "#37beff",
+          "secondary": "#2a3f47",
+          "accent": "#1a2d35"
+        }
+      }
+    },
+    "tokyo": {
+      "id": "tokyo",
+      "name": "Tokyo",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#5b4acd",
+          "secondary": "#f3f1f0",
+          "accent": "#e8e6e5"
+        },
+        "dark": {
+          "primary": "#dedede",
+          "secondary": "#7a8fbd",
+          "accent": "#2d3548"
+        }
+      }
+    },
+    "executive": {
+      "id": "executive",
+      "name": "Executive",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#0d6e5b",
+          "secondary": "#2563eb",
+          "accent": "#6b7280"
+        },
+        "dark": {
+          "primary": "#10b981",
+          "secondary": "#3b82f6",
+          "accent": "#9ca3af"
+        }
+      }
+    },
+    "minimalist": {
+      "id": "minimalist",
+      "name": "Minimalist",
+      "requiresPro": true,
+      "category": "pro",
+      "colors": {
+        "light": {
+          "primary": "#18181b",
+          "secondary": "#71717a",
+          "accent": "#fafafa"
+        },
+        "dark": {
+          "primary": "#fafafa",
+          "secondary": "#a1a1aa",
+          "accent": "#18181b"
+        }
+      }
+    },
+    "contrast": {
+      "id": "contrast",
+      "name": "Contrast",
+      "requiresPro": false,
+      "category": "free",
+      "colors": {
+        "light": {
+          "primary": "#111111",
+          "secondary": "#f5f5f5",
+          "accent": "#000000"
+        },
+        "dark": {
+          "primary": "#fafafa",
+          "secondary": "#1a1a1a",
+          "accent": "#ededed"
+        }
+      }
+    }
+  },
+  "features": {
+    "core": {
+      "email_client": {
+        "id": "email_client",
+        "name": "Email Client",
+        "description": "Basic email client functionality with IMAP/SMTP support",
+        "php_class": "\\PressedMail\\Features\\Core\\EmailClient",
+        "requires_license": false,
+        "category": "core"
+      },
+      "dark_mode": {
+        "id": "dark_mode",
+        "name": "Dark Mode",
+        "description": "Dark mode theme support for the email interface",
+        "php_class": "\\PressedMail\\Features\\Core\\DarkMode",
+        "requires_license": false,
+        "category": "core"
+      },
+      "tags": {
+        "id": "tags",
+        "name": "Tags",
+        "description": "Organize emails with custom tags",
+        "php_class": "\\PressedMail\\Features\\Core\\Tags",
+        "requires_license": false,
+        "category": "inbox"
+      },
+      "folders": {
+        "id": "folders",
+        "name": "Folders",
+        "description": "Custom and smart folders for organizing emails",
+        "php_class": "\\PressedMail\\Features\\Core\\Folders",
+        "requires_license": false,
+        "category": "inbox"
+      },
+      "signatures": {
+        "id": "signatures",
+        "name": "Signatures",
+        "description": "Create and manage email signatures",
+        "php_class": "\\PressedMail\\Features\\Core\\Signatures",
+        "requires_license": false,
+        "category": "email"
+      },
+      "user_roles": {
+        "id": "user_roles",
+        "name": "User Roles",
+        "description": "Role-based access control",
+        "php_class": "\\PressedMail\\Features\\Core\\UserRoles",
+        "requires_license": false,
+        "category": "access"
+      }
+    },
+    "premium": {
+      "contacts": {
+        "id": "contacts",
+        "name": "Contact Book",
+        "description": "Save and manage contacts for quick email addressing",
+        "php_class": "\\PressedMail\\Features\\Core\\Contacts",
+        "requires_license": true,
+        "category": "productivity"
+      },
+      "calendar": {
+        "id": "calendar",
+        "name": "Calendar",
+        "description": "Local calendar for scheduling events",
+        "php_class": "\\PressedMail\\Features\\Pro\\Calendar",
+        "requires_license": true,
+        "category": "productivity"
+      },
+      "ai_integration": {
+        "id": "ai_integration",
+        "name": "AI Assistant",
+        "description": "AI-powered email composition and summarization",
+        "php_class": "\\PressedMail\\Features\\Pro\\AIIntegration",
+        "requires_license": true,
+        "category": "ai"
+      },
+      "phishing_detection": {
+        "id": "phishing_detection",
+        "name": "Phishing Detection",
+        "description": "AI-powered detection of phishing emails",
+        "php_class": "\\PressedMail\\Features\\Core\\PhishingDetection",
+        "requires_license": true,
+        "category": "security"
+      },
+      "themes": {
+        "id": "themes",
+        "name": "Custom Themes",
+        "description": "Additional UI themes and customization options",
+        "php_class": "\\PressedMail\\Features\\Pro\\Themes",
+        "requires_license": true,
+        "category": "customization"
+      },
+      "whitelabelling": {
+        "id": "whitelabelling",
+        "name": "Whitelabelling",
+        "description": "Custom branding and remove PressedMail references",
+        "php_class": "\\PressedMail\\Features\\Pro\\Whitelabelling",
+        "requires_license": true,
+        "extended_only": true,
+        "category": "customization"
+      },
+      "admin_domain_allowlist": {
+        "id": "admin_domain_allowlist",
+        "name": "Allowed Email Domains",
+        "description": "Authoritative managed IMAP and SMTP settings for approved email domains",
+        "php_class": "\\PressedMail\\Features\\Pro\\AdminDomainAllowlist",
+        "requires_license": true,
+        "extended_only": false,
+        "category": "access"
+      }
+    }
+  },
+  "build": {
+    "free": {
+      "variant": "free",
+      "slug": "pressedmail",
+      "name": "PressedMail",
+      "description": "A modern email client in your WordPress admin dashboard",
+      "featureFlags": {
+        "isPro": false,
+        "entitlements": {
+          "white_label": false
+        },
+        "features": {
+          "layouts": {
+            "enabled": true,
+            "available": [
+              "pressedm"
+            ]
+          },
+          "themes": {
+            "enabled": true,
+            "available": [
+              "pressedm",
+              "contrast"
+            ]
+          },
+          "email_accounts": {
+            "enabled": true,
+            "limit": -1
+          },
+          "users": {
+            "enabled": true,
+            "limit": -1
+          },
+          "tags": {
+            "enabled": true,
+            "limit": -1
+          },
+          "folders": {
+            "enabled": true,
+            "type": "imap_only"
+          },
+          "signatures": {
+            "enabled": true,
+            "limit": -1
+          },
+          "email_rules": {
+            "enabled": true,
+            "limit": -1
+          },
+          "user_roles": {
+            "enabled": true,
+            "type": "all_users"
+          },
+          "phishing_detection": false,
+          "prevent_impersonation": true,
+          "contacts": false,
+          "contact_lists": {
+            "enabled": false,
+            "limit": 0
+          },
+          "calendar": false,
+          "calendars": {
+            "enabled": false,
+            "limit": 0
+          },
+          "snooze": false,
+          "undo_send": false,
+          "snippets": {
+            "enabled": false,
+            "limit": 0
+          },
+          "signature_rules": false,
+          "sender_aliases": {
+            "enabled": false,
+            "limit": 0
+          },
+          "email_tracking": false,
+          "auto_followups": false,
+          "auto_replies": false,
+          "scheduled_emails": false,
+          "smart_inbox": false,
+          "auto_tagger": false,
+          "ai_integration": {
+            "enabled": false,
+            "type": "none"
+          }
+        }
+      }
+    }
+  },
+  "baseIncludes": [
+    "pressedmail.php",
+    "plugin.php",
+    "uninstall.php",
+    "readme.txt",
+    "LICENSE.txt",
+    "composer.json",
+    "includes",
+    "libs",
+    "database",
+    "assets",
+    "languages"
+  ],
+  "alwaysExclude": [
+    "**/.git",
+    "**/.github",
+    "**/.vscode",
+    "**/.idea",
+    "**/.DS_Store",
+    "**/node_modules",
+    "**/*.map",
+    "**/*.log",
+    "**/.env",
+    "**/.env.*",
+    "**/tests",
+    "**/test",
+    "**/Tests",
+    "**/Test",
+    "**/*.test.php",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.js",
+    "**/*.test.mjs",
+    "**/coverage",
+    "**/storybook-static",
+    "**/cache",
+    "**/vendor/bin",
+    "**/nesbot/carbon/bin",
+    "**/nesbot/carbon/src/Carbon/Lang",
+    "**/illuminate/support/Testing",
+    "**/.gitignore",
+    "**/.gitattributes",
+    "**/.editorconfig",
+    "**/.deepsource.toml",
+    "**/.phpstorm.meta.php",
+    "**/vendor/**/README.md",
+    "**/vendor/**/readme.md",
+    "**/vendor/**/CHANGELOG.md",
+    "**/vendor/**/CODE_OF_CONDUCT.md",
+    "**/vendor/**/SECURITY.md",
+    "**/vendor/**/CONTRIBUTING.md",
+    "**/vendor/**/UPGRADE.md",
+    "languages/*.po",
+    "**/phpunit.xml",
+    "**/phpunit.xml.dist",
+    "**/vite-dev-server.json",
+    "**/integrity-manifest.json",
+    "**/module-graph.json",
+    "assets/admin/dist-free",
+    "assets/admin/dist-pro",
+    "assets/frontend",
+    "libs/assets-dev.php"
+  ]
+}

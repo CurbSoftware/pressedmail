@@ -1,0 +1,26 @@
+/* Editor-only flexbox preview for email columns. */
+.pm-email-columns-editor {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+
+  /* Each child column block takes equal space in the editor. */
+  > .block-editor-inner-blocks {
+    display: flex;
+    flex: 1 1 0%;
+    width: 100%;
+
+    > .block-editor-block-list__layout {
+      display: flex;
+      flex: 1 1 0%;
+      width: 100%;
+
+      /* Individual column blocks share space equally. */
+      > .wp-block {
+        flex: 1 1 0%;
+        min-width: 0;
+      }
+    }
+  }
+}

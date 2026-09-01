@@ -1,0 +1,34 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "pressedmail/email-site-info",
+  "version": "1.0.0",
+  "title": "Email Site Info",
+  "category": "pressedmail-email",
+  "icon": "admin-site-alt3",
+  "description": "Insert WordPress site information (name, URL, description, date) into email templates.",
+  "keywords": ["site", "info", "name", "url", "date", "dynamic"],
+  "supports": {
+    "html": false,
+    "align": false,
+    "multiple": true
+  },
+  "attributes": {
+    "field": {
+      "type": "string",
+      "default": "site_name"
+    },
+    "format": {
+      "type": "string",
+      "default": "inline",
+      "enum": ["inline", "block"]
+    },
+    "dateFormat": {
+      "type": "string",
+      "default": "F j, Y"
+    }
+  },
+  "textdomain": "pressedmail",
+  "editorScript": "file:./index.js",
+  "render": "file:./render.php"
+}

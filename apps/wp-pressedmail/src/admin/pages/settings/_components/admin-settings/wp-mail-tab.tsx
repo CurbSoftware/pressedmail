@@ -5,8 +5,9 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import {
   Alert,
   AlertDescription,
-  Checkbox,
   Label,
+  RadioGroup,
+  RadioGroupItem,
   Select,
   SelectContent,
   SelectItem,
@@ -267,50 +268,101 @@ export function WpMailTab() {
       ) : null}
 
       <SettingsSectionCard
-        title={__("WordPress email", "pressedmail")}
+        title={__("Where WordPress sends its own email", "pressedmail")}
         description={__(
-          "Send WordPress system email through your own SMTP server instead of the server's default PHP mailer. That covers password resets, new user notices, WooCommerce order mail, form notifications, and anything else a plugin or theme sends. This is separate from your PressedMail inboxes.",
+          "Password resets, new user notices, WooCommerce order mail, form notifications: anything WordPress, a plugin or a theme sends.",
           "pressedmail",
         )}>
-        <div className="space-y-3">
+        <RadioGroup
+          value={draft.enabled ? "pressedmail" : "wordpress"}
+          data-test="wp-mail-mailer-choice"
+          onValueChange={(value) => {
+            if (value === "pressedmail" && !hasUsableDefault) return;
+            setDraft({ ...draft, enabled: value === "pressedmail" });
+          }}
+          className="space-y-3">
           <Label
-            htmlFor="wp-mail-enabled"
-            className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-medium">
-            <Checkbox
-              id="wp-mail-enabled"
-              data-test="wp-mail-enabled"
-              checked={draft.enabled}
-              disabled={
-                saving ||
-                connectionsSaving ||
-                (!draft.enabled && !hasUsableDefault)
-              }
-              onCheckedChange={(checked) =>
-                setDraft({ ...draft, enabled: checked === true })
-              }
+            htmlFor="wp-mail-mailer-wordpress"
+            className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5">
+            <RadioGroupItem
+              id="wp-mail-mailer-wordpress"
+              data-test="wp-mail-mailer-wordpress"
+              value="wordpress"
+              disabled={saving || connectionsSaving}
+              className="mt-0.5"
             />
-            <span>
-              {__("Send WordPress email through SMTP", "pressedmail")}
+            <span className="space-y-1">
+              <span className="block text-sm font-medium">
+                {__("WordPress default", "pressedmail")}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {__(
+                  "PHP mail(). Fine on hosts that deliver it, and quietly dropped on the ones that do not.",
+                  "pressedmail",
+                )}
+              </span>
             </span>
           </Label>
-          {!hasConnection ? (
-            <p className="text-xs text-muted-foreground">
-              {__(
-                "Add a mail server below first, then turn this on.",
-                "pressedmail",
-              )}
-            </p>
-          ) : !hasUsableDefault ? (
-            <p className="text-xs text-muted-foreground">
-              {__(
-                "Choose an enabled, complete default mail server before turning this on.",
-                "pressedmail",
-              )}
-            </p>
-          ) : null}
-        </div>
+
+          <Label
+            htmlFor="wp-mail-mailer-pressedmail"
+            className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5">
+            <RadioGroupItem
+              id="wp-mail-mailer-pressedmail"
+              data-test="wp-mail-enabled"
+              value="pressedmail"
+              disabled={saving || connectionsSaving || !hasUsableDefault}
+              className="mt-0.5"
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-medium">
+                {__("PressedMail SMTP", "pressedmail")}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {__(
+                  "The mail server set up below. Applies site-wide, to every plugin and theme.",
+                  "pressedmail",
+                )}
+              </span>
+              {!hasConnection ? (
+                <span
+                  className="block text-xs text-warning"
+                  data-test="wp-mail-mailer-blocked"
+                  data-testid="wp-mail-mailer-blocked">
+                  {__(
+                    "Add a mail server below first, then come back and choose this.",
+                    "pressedmail",
+                  )}
+                </span>
+              ) : !hasUsableDefault ? (
+                <span
+                  className="block text-xs text-warning"
+                  data-test="wp-mail-mailer-blocked"
+                  data-testid="wp-mail-mailer-blocked">
+                  {__(
+                    "One of the servers below has to be enabled, complete, and set as the default before this can be chosen.",
+                    "pressedmail",
+                  )}
+                </span>
+              ) : null}
+            </span>
+          </Label>
+        </RadioGroup>
+
+        <p
+          className="mt-4 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
+          data-test="wp-mail-inbox-note"
+          data-testid="wp-mail-inbox-note">
+          {__(
+            "Your PressedMail inboxes are not affected either way. Mail you send from an inbox always goes out through that account's own server, so it stays authorised for its domain.",
+            "pressedmail",
+          )}
+        </p>
       </SettingsSectionCard>
 
+      {/* Always rendered. Hiding this while the site is on the WordPress
+          default would hide the only way to add the mail server the second
+          option needs, which is the state most people arrive in. */}
       <WpMailConnectionsPanel
         state={state}
         onStateChange={handleStateChange}

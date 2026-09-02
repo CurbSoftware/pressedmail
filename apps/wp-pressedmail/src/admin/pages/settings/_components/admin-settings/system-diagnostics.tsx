@@ -84,6 +84,17 @@ function PluginStatusRow({
   );
 }
 
+/**
+ * Whether this build owns its own update checks.
+ *
+ * The flag crosses into JS through wp_localize_script(), which stringifies
+ * everything: true becomes "1" and false becomes "". Comparing it to a boolean
+ * is always false, so accept every spelling the runtime can produce.
+ */
+function ownsItsUpdates(value: unknown): boolean {
+  return value === true || value === "1" || value === 1;
+}
+
 export function SystemDiagnostics() {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [versionLookupState, setVersionLookupState] =
@@ -122,11 +133,17 @@ export function SystemDiagnostics() {
   const extensionEntries = Object.entries(extensions || {}).filter(
     ([key]) => key !== "imap",
   );
+  // "Managed by WordPress.org" is a statement about where the edition gets its
+  // updates, so it follows the edition. Pro updates come from the licence
+  // server; if that lookup cannot run, say "Unavailable" rather than claim
+  // something about this build that is not true.
   const latestVersionLabel =
     versionLookupState === "loading"
       ? __("Checking...", "pressedmail")
       : versionLookupState === "wporg"
-        ? __("Managed by WordPress.org", "pressedmail")
+        ? isPro
+          ? __("Unavailable", "pressedmail")
+          : __("Managed by WordPress.org", "pressedmail")
         : latestVersion || __("Unavailable", "pressedmail");
 
   useEffect(() => {
@@ -134,11 +151,16 @@ export function SystemDiagnostics() {
     const apiUrl = window.pressedmailPlugin?.apiUrl;
     const nonce = window.pressedmailPlugin?.wpApiSettings?.nonce;
 
-    // WordPress.org builds do not register /updates/check. Core's update
-    // system owns the version there, so the lookup would only 404. Only an
-    // explicit true opts into the lookup: an absent flag (older PHP runtime
-    // data) must not trigger a request to a route that may not exist.
-    if (window.pressedmailPlugin?.useCustomUpdates !== true) {
+    // The route only exists where the plugin owns its own updates, so an
+    // absent or false flag means there is nothing to call. What the flag does
+    // NOT tell us is who distributes this edition, which is why the label
+    // above reads `isPro` instead of this.
+    //
+    // wp_localize_script() casts every value to a string, so this arrives as
+    // "1", never boolean true. A strict `!== true` therefore matched on every
+    // build, and Pro silently skipped the lookup it was entitled to make. The
+    // isPro check above already accepts both spellings; this one has to as well.
+    if (!ownsItsUpdates(window.pressedmailPlugin?.useCustomUpdates)) {
       setVersionLookupState("wporg");
       setLatestVersion(null);
       return;

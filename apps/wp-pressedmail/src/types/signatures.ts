@@ -41,14 +41,8 @@ export interface SignatureCapabilities {
   edit: boolean;
   /** Whether user can delete signatures */
   delete: boolean;
-  /** Maximum allowed signatures (-1 = unlimited) */
-  max_signatures: number;
-  /** Whether signatures are unlimited */
-  is_unlimited: boolean;
   /** Current signature count */
   current_count: number;
-  /** Remaining signatures that can be created */
-  remaining: number;
   /** Whether HTML editor is available */
   html_editor: boolean;
 }

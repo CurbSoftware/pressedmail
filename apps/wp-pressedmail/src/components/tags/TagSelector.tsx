@@ -170,14 +170,6 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
           </div>
         )}
 
-        {/* Limit Warning */}
-        {capabilities && !capabilities.is_unlimited && (
-          <div className="px-3 py-2 text-xs text-muted-foreground border-t border-border">
-            {capabilities.remaining > 0
-              ? `${capabilities.remaining} tags remaining`
-              : "Tag limit reached"}
-          </div>
-        )}
 
         <PopoverArrow className="fill-popover" />
       </PopoverContent>

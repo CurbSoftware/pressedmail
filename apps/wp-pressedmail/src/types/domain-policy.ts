@@ -126,6 +126,18 @@ export interface AdminConnectedAccountRow {
     | "out_of_policy"
     | "policy_disabled"
     | "policy_invalid";
+  /**
+   * Why an account is out of policy. `domain_not_allowed` means the account
+   * should not exist under this policy; `server_settings_drift` means it should,
+   * but its connection settings no longer match. Only the first is ever a
+   * candidate for removal.
+   */
+  compliance_reason?:
+    | "compliant"
+    | "domain_not_allowed"
+    | "server_settings_drift"
+    | "policy_disabled"
+    | "policy_invalid";
 }
 
 export interface AdminConnectedAccountsPage {
@@ -134,6 +146,8 @@ export interface AdminConnectedAccountsPage {
   per_page: number;
   total: number;
   total_pages: number;
+  /** Accounts on a domain the policy does not allow, site-wide, not page-wide. */
+  out_of_policy_count?: number;
 }
 
 export interface PurgeConfirmationPreview {

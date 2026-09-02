@@ -35,10 +35,7 @@ export interface TagCapabilities {
   edit: boolean;
   delete: boolean;
   assign: boolean;
-  max_tags: number;
-  is_unlimited: boolean;
   current_count: number;
-  remaining: number;
 }
 
 /**
@@ -107,9 +104,7 @@ export interface TagOperationResponse {
   capabilities?: TagCapabilities;
   code?: string;
   data?: {
-    limit_reached?: boolean;
     current_count?: number;
-    max_tags?: number;
   };
 }
 

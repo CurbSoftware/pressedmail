@@ -542,14 +542,14 @@ export function EmailConnectionsCard() {
                     })}
                   </ul>
                 ) : (
-                  <div className="overflow-x-auto rounded-lg border">
+                  <div className="w-full overflow-x-auto rounded-lg border">
                     <table className="w-full min-w-[820px] table-auto divide-y divide-border text-sm">
                       <thead className="bg-muted/50 text-left">
                         <tr>
-                          <th className="w-[26%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
+                          <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
                             {__("Display Name", "pressedmail")}
                           </th>
-                          <th className="w-[38%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
+                          <th className="whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
                             {__("Email Address", "pressedmail")}
                           </th>
                           <th className="w-[1%] whitespace-nowrap px-4 py-3 pr-6 font-medium text-muted-foreground">
@@ -583,7 +583,7 @@ export function EmailConnectionsCard() {
                               key={account.id}
                               data-test="email-account-row"
                               data-testid="email-account-row">
-                              <td className="max-w-0 overflow-hidden whitespace-nowrap px-4 py-3">
+                              <td className="max-w-[18rem] overflow-hidden whitespace-nowrap px-4 py-3">
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <span
                                     className="block min-w-0 truncate text-sm font-medium text-foreground"
@@ -600,7 +600,7 @@ export function EmailConnectionsCard() {
                                   ) : null}
                                 </div>
                               </td>
-                              <td className="max-w-0 overflow-hidden whitespace-nowrap px-4 py-3 text-muted-foreground">
+                              <td className="max-w-[24rem] overflow-hidden whitespace-nowrap px-4 py-3 text-muted-foreground">
                                 <span
                                   className="block truncate"
                                   title={account.email}>
@@ -614,7 +614,7 @@ export function EmailConnectionsCard() {
                                   {provider}
                                 </Badge>
                               </td>
-                              <td className="max-w-0 overflow-hidden whitespace-nowrap px-4 py-3">
+                              <td className="max-w-[14rem] overflow-hidden whitespace-nowrap px-4 py-3">
                                 <AccountSignatureControl
                                   accountId={account.id}
                                   signature={assignedSignature}

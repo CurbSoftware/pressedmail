@@ -1374,6 +1374,9 @@
 #pressedmail-plugin input[type="search"][data-no-theme] {
   background-color: transparent !important;
   color: var(--foreground) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 /*

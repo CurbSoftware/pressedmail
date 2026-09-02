@@ -286,6 +286,22 @@ body.toplevel_page_pressedmail-plugin #pressedmail-plugin h6 {
   color: var(--foreground) !important;
 }
 
+/* WordPress headings are unlayered, while plugin typography utilities live in
+   Tailwind layers. Portals sit outside #pressedmail-plugin, so roll WordPress'
+   heading declarations back and let each dialog or popover heading keep its
+   theme token and authored type scale. */
+body.toplevel_page_pressedmail-plugin
+  [data-pm-portal]
+  :where(h1, h2, h3, h4, h5, h6) {
+  color: revert-layer;
+  font-size: revert-layer;
+  font-weight: revert-layer;
+  line-height: revert-layer;
+  letter-spacing: revert-layer;
+  margin: revert-layer;
+  padding: revert-layer;
+}
+
 /* Ensure card headings use card-foreground */
 body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h1,
 body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h2,

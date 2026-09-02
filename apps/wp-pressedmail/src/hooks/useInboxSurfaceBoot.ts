@@ -40,6 +40,9 @@ import {
   useSyncIntervalMinutes,
 } from "@/context/admin-settings";
 
+/** Messages whose bodies are warmed on boot; one page of the default list. */
+const BOOT_PREFETCH_LIMIT = 25;
+
 const DEFAULT_BOOT_LIMIT = 50;
 const DEFAULT_BOOT_TIMEOUT_MS = 30_000;
 const DEFAULT_SYNC_INTERVAL_MINUTES = 5;
@@ -682,9 +685,13 @@ export function useInboxSurfaceBoot({
         }
       }
 
-      // Prefetch bodies for first visible messages. Keep batch small to
-      // conserve the rate-limited detail endpoint budget (50/min).
-      const prefetchMessages = result.messages.slice(0, 5);
+      // Warm the bodies of the first page. The batch endpoint takes fifteen
+      // messages per request against a 50/min budget, so a whole page costs one
+      // or two requests rather than one per message: the old cap of five was
+      // priced against the single-message endpoint, not this one. Anything
+      // beyond the first page is warmed by useVisibleBodyPrefetch as the reader
+      // moves, and only while the sync driver is idle.
+      const prefetchMessages = result.messages.slice(0, BOOT_PREFETCH_LIMIT);
       if (prefetchMessages.length === 0) {
         return { serviceable };
       }

@@ -4,6 +4,7 @@ import { mails } from "@/admin/pages/inbox/data";
 import { useAppContext } from "@/context/AppProvider";
 import Wizard from "@/context/SetupWizardWidget";
 import { useInboxSurfaceBoot } from "@/hooks/useInboxSurfaceBoot";
+import { useVisibleBodyPrefetch } from "@/hooks/useVisibleBodyPrefetch";
 import { AlertCircle, Loader2 } from "lucide-react";
 
 import {
@@ -25,6 +26,11 @@ export default function MailPage() {
 
   // Single boot point for the admin inbox. Do NOT also call in ThemedMailLayout.
   const { accountImportState } = useInboxSurfaceBoot();
+
+  // Warm the bodies of whatever page is on screen, so opening a message does
+  // not wait on IMAP. Boot warms the first few once; this keeps up with paging
+  // and folder changes, and stands down whenever the sync driver is working.
+  useVisibleBodyPrefetch();
 
   const showWizard = !hasCompletedSetup || isAddAccount;
 

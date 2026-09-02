@@ -377,8 +377,12 @@ img[data-blocked="true"]{
   min-width:24px;min-height:24px;
   background:#f0f0f0;border:1px dashed #ccc;
 }
-table{width:100% !important;max-width:100% !important;border-collapse:collapse;table-layout:fixed}
-td,th{padding:4px 8px;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
+/* Tables size to their content. A fixed table layout divides the pane by the
+   first row and ignores everything else, and anywhere-wrapping on a cell drops
+   its min-content width to one character, so together they crushed every
+   column. A table wider than the pane scrolls instead of being squeezed. */
+table{max-width:100%;border-collapse:collapse}
+td,th{padding:4px 8px;overflow-wrap:break-word}
 div,p,span,a,li,blockquote{max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 :where(blockquote){
   margin:8px 0;padding-left:12px;
@@ -386,7 +390,7 @@ div,p,span,a,li,blockquote{max-width:100%;overflow-wrap:anywhere;word-break:brea
 }
 pre,code{max-width:100%;overflow-x:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}
 pre{padding:8px;background:#f5f5f5;border-radius:4px}
-.pm-email-content{min-height:calc(100vh - 32px);max-width:100%;overflow-x:hidden;overflow-wrap:anywhere;word-break:break-word}
+.pm-email-content{min-height:calc(100vh - 32px);max-width:100%;overflow-x:auto;overflow-wrap:break-word}
 </style>
 </head>
 <body><main class="pm-email-content">${sanitizedHtml}</main></body>

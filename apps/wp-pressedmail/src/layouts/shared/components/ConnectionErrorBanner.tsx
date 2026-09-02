@@ -1,11 +1,23 @@
 import { useSyncExternalStore } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { __ } from "@wordpress/i18n";
 
 import { Alert, AlertDescription, Button } from "@kit/ui/plugin";
 import { useInbox, useInboxState } from "@/context/InboxContext";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 import { cn } from "@/lib/utils";
+
+/**
+ * Reload the whole page.
+ *
+ * Both notices this banner carries are conditions an in-app refetch cannot
+ * clear: an expired session needs a new WordPress nonce, and a stalled
+ * background queue needs the driver restarted. Isolated here so the tests can
+ * stub one thing rather than the global.
+ */
+function reloadPage(): void {
+  window.location.reload();
+}
 
 export type ConnectionErrorKind =
   | "generic"
@@ -217,6 +229,19 @@ export function ConnectionErrorBanner() {
         "flex items-center gap-2 rounded-lg border bg-muted px-4 py-2 text-xs text-muted-foreground",
       )}>
       <span className="flex-1">{syncDelayed}</span>
+      {/* A delayed background queue means the app is doing the sync itself in
+          this tab. Reloading restarts that work from a clean state, which is
+          the one thing a reader can usefully do about it. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="h-7 shrink-0 px-2 text-xs"
+        data-test="sync-delayed-reload"
+        onClick={reloadPage}>
+        <RefreshCw className="mr-1 size-3" aria-hidden="true" />
+        {__("Reload", "pressedmail")}
+      </Button>
     </div>
   ) : null;
 
@@ -268,9 +293,10 @@ export function ConnectionErrorBanner() {
 
   const handleRetry = () => {
     if (isSessionOnly) {
-      // Optimistically clear; the next driver tick re-marks it if still broken.
-      connectionState.clearSessionError();
-      void refreshMessages();
+      // An expired session cannot be healed by refetching: the page needs a
+      // fresh WordPress nonce, which only a real page load issues. The copy
+      // has always said "reload the page", so the button now does that.
+      reloadPage();
       return;
     }
 
@@ -318,8 +344,14 @@ export function ConnectionErrorBanner() {
             variant="outline"
             size="sm"
             className="h-7 shrink-0 px-2 text-xs"
+            data-test="connection-error-retry"
             onClick={handleRetry}>
-            {__("Retry", "pressedmail")}
+            {isSessionOnly ? (
+              <RefreshCw className="mr-1 size-3" aria-hidden="true" />
+            ) : null}
+            {isSessionOnly
+              ? __("Reload page", "pressedmail")
+              : __("Retry", "pressedmail")}
           </Button>
         </div>
       </Alert>

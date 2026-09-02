@@ -74,6 +74,17 @@ let consecutiveTimeouts = 0;
 let overdueStreak = 0;
 let activeTickCount = 0;
 
+/**
+ * Whether the sync driver is mid-tick.
+ *
+ * Read by opportunistic background work (body prefetch) so it never competes
+ * with an advance for the same IMAP connection. On a low-end server the two
+ * running together is what makes both feel slow.
+ */
+export function isSyncBusy(): boolean {
+  return inFlight;
+}
+
 function schedule(ms: number): void {
   if (typeof window === "undefined" || mountCount <= 0) {
     return;

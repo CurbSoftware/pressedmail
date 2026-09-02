@@ -104,12 +104,13 @@ export function refreshRestNonce(
       if (!url) {
         return null;
       }
-      const res = await rawFetch(url, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `action=${REFRESH_NONCE_ACTION}`,
-      });
+      // Core registers wp_ajax_rest-nonce from $_GET['action'] only, so the
+      // action has to travel in the query string; a POST body answers 0/400.
+      // Same bare GET core's own api-fetch heal uses.
+      const res = await rawFetch(
+        `${url}${url.includes("?") ? "&" : "?"}action=${REFRESH_NONCE_ACTION}`,
+        { credentials: "same-origin" },
+      );
       if (!res.ok) {
         return null;
       }

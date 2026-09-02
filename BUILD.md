@@ -7,7 +7,7 @@ the complete, human-readable source that produces those files, as required
 by the WordPress.org Plugin Directory.
 
 Canonical location: https://git.curbsoftware.com/PressedMail/pressedmail-free
-Monorepo source tag: `pressedmail-v1.0.20`
+Monorepo source tag: `pressedmail-v1.0.21`
 
 ## Layout
 

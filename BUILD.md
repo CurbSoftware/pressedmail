@@ -1,13 +1,12 @@
 # Building PressedMail (free) from source
 
-The PressedMail admin interface is a React application compiled with Vite
-(plus webpack for the Gutenberg blocks). The WordPress plugin ships the
-compiled output in `assets/admin/dist/` and `assets/blocks/`; this tree is
-the complete, human-readable source that produces those files, as required
-by the WordPress.org Plugin Directory.
+The PressedMail admin interface is a React application compiled with Vite.
+The WordPress plugin ships the compiled output in `assets/admin/dist/`;
+this tree is the complete, human-readable source that produces those
+files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Monorepo source tag: `pressedmail-v1.0.24`
+Monorepo source tag: `pressedmail-v1.0.25`
 
 ## Layout
 
@@ -24,7 +23,8 @@ Monorepo source tag: `pressedmail-v1.0.24`
 
 - Node.js 20+
 - pnpm 11 (exact version pinned via `packageManager` in `package.json`)
-- Vite (admin SPA) + webpack (Gutenberg blocks)
+- Vite (admin SPA); webpack via `@wordpress/scripts` for the block sources
+  noted below
 - React 19, TypeScript, Tailwind CSS v4
 
 ## Build steps
@@ -35,10 +35,12 @@ pnpm build
 ```
 
 The build writes the compiled, hashed free-variant assets to
-`apps/wp-pressedmail/plugin-files/assets/admin/dist/` and the Gutenberg
-block assets to `apps/wp-pressedmail/plugin-files/assets/blocks/`. These
-are the exact files shipped in the free plugin zip. No build step
-downloads or executes remote code.
+`apps/wp-pressedmail/plugin-files/assets/admin/dist/`. Those are the
+exact files shipped in the free plugin zip. The same command also
+compiles the Gutenberg block sources under `src/blocks/` into
+`assets/blocks/`; the plugin does not register or ship those blocks, so
+that output is not part of the package. No build step downloads or
+executes remote code.
 
 ## Third-party assets
 

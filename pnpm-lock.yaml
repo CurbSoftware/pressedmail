@@ -220,7 +220,7 @@ importers:
         version: 2.2.0(react@19.2.4)
       '@hookform/resolvers':
         specifier: ^5.2.2
-        version: 5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@6.15.0))(ajv@6.15.0)(joi@18.2.5)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)
+        version: 5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@6.15.0))(ajv@6.15.0)(joi@18.2.6)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)
       '@kit/plate':
         specifier: workspace:*
         version: link:../../packages/plate
@@ -703,7 +703,7 @@ importers:
         version: 1.7.0(@date-fns/tz@1.5.0)(@types/react@19.2.14)(date-fns@4.4.0)(react@19.2.4)
       '@hookform/resolvers':
         specifier: ^5.2.2
-        version: 5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(joi@18.2.5)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)
+        version: 5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(joi@18.2.6)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)
       '@kit/shared':
         specifier: workspace:*
         version: link:../shared
@@ -7312,8 +7312,8 @@ packages:
       bare-events:
         optional: true
 
-  bare-url@2.5.3:
-    resolution: {integrity: sha512-3absfEzoyFosWT8v83ZcJgbTJxv+S/sI7jBfeCMlUVatSaefRmwweqBhFpMllQv+HTxs/FbbToVOw1c05NORkQ==}
+  bare-url@2.5.4:
+    resolution: {integrity: sha512-Gxa7UVWBr0/edU1b+TJhn/AZvMQUj9OGspvYsaTYQrAbZA4BOTZGL3LiZxvD+CeMlDH4juwD84+eTAp/bLYW5g==}
 
   base64-js@1.5.1:
     resolution: {integrity: sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA==}
@@ -8930,8 +8930,8 @@ packages:
   fast-string-width@3.0.2:
     resolution: {integrity: sha512-gX8LrtNEI5hq8DVUfRQMbr5lpaS4nMIWV+7XEbXk2b8kiQIizgnlr12B4dA3ZEx3308ze0O4Q1R+cHts8kyUJg==}
 
-  fast-uri@3.1.6:
-    resolution: {integrity: sha512-7Ical1vFEMr0onbVzEDIreM22I4khW+fzyQPwvAFWBp1iwdshSZRsL4jjRvPG9JP1uiqMHRto+YU6R2/CzDz5Q==}
+  fast-uri@3.1.7:
+    resolution: {integrity: sha512-dOvZVzjdZdz7phd9v6jCbwxrBW3fK6n8Rc0CtdmM4bumzMnxywBYhuph6J819RRw/ku+rLbelwfMunktuzVVHg==}
 
   fast-wrap-ansi@0.2.2:
     resolution: {integrity: sha512-7F2Fl+TjRSenLqlU3UjSH0iyqopqoZIu7eZVpEirP2g1GtWa2G/ecEmBdgz31+Mxr+ELclgg6sokpSFIQiZ02Q==}
@@ -10139,8 +10139,8 @@ packages:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
 
-  joi@18.2.5:
-    resolution: {integrity: sha512-+gEA7rLfaNWx9JzawWPrPetSZwT16NUqHtECDgjyAJreXcs4TM7tx2Pa+VVJJK0YHM83ybrVdaT6UekHH50FJQ==}
+  joi@18.2.6:
+    resolution: {integrity: sha512-8MD5jy4xIcTQi/pHbc10auxclVoJS3pPNiLaTNfW0eh90GbOPU+Y2AjDQnuQsUcHUGNJxqTMmAW6Ho895RaKPA==}
     engines: {node: '>= 20'}
 
   jose@6.2.10:
@@ -16390,7 +16390,7 @@ snapshots:
     dependencies:
       hono: 4.13.5
 
-  '@hookform/resolvers@5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@6.15.0))(ajv@6.15.0)(joi@18.2.5)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)':
+  '@hookform/resolvers@5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@6.15.0))(ajv@6.15.0)(joi@18.2.6)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)':
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.71.2(react@19.2.4)
@@ -16399,10 +16399,10 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       ajv: 6.15.0
       ajv-formats: 2.1.1(ajv@6.15.0)
-      joi: 18.2.5
+      joi: 18.2.6
       zod: 4.3.6
 
-  '@hookform/resolvers@5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(joi@18.2.5)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)':
+  '@hookform/resolvers@5.9.1(@sinclair/typebox@0.27.12)(@standard-schema/spec@1.1.0)(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(joi@18.2.6)(react-hook-form@7.71.2(react@19.2.4))(zod@4.3.6)':
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.71.2(react@19.2.4)
@@ -16411,7 +16411,7 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       ajv: 8.20.0
       ajv-formats: 2.1.1(ajv@8.20.0)
-      joi: 18.2.5
+      joi: 18.2.6
       zod: 4.3.6
 
   '@humanfs/core@0.19.2':
@@ -21734,7 +21734,7 @@ snapshots:
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.6
+      fast-uri: 3.1.7
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -22029,7 +22029,7 @@ snapshots:
       bare-events: 2.9.2
       bare-path: 3.1.1
       bare-stream: 2.13.4(bare-events@2.9.2)
-      bare-url: 2.5.3
+      bare-url: 2.5.4
       fast-fifo: 1.3.2
     transitivePeerDependencies:
       - bare-abort-controller
@@ -22047,7 +22047,7 @@ snapshots:
     transitivePeerDependencies:
       - react-native-b4a
 
-  bare-url@2.5.3:
+  bare-url@2.5.4:
     dependencies:
       bare-path: 3.1.1
 
@@ -24058,7 +24058,7 @@ snapshots:
     dependencies:
       fast-string-truncated-width: 3.0.3
 
-  fast-uri@3.1.6: {}
+  fast-uri@3.1.7: {}
 
   fast-wrap-ansi@0.2.2:
     dependencies:
@@ -25467,7 +25467,7 @@ snapshots:
 
   jiti@2.7.0: {}
 
-  joi@18.2.5:
+  joi@18.2.6:
     dependencies:
       '@hapi/address': 5.1.1
       '@hapi/formula': 3.0.2
@@ -30252,7 +30252,7 @@ snapshots:
   wait-on@8.0.5(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1):
     dependencies:
       axios: 1.20.0(debug@4.4.3(supports-color@8.1.1))(supports-color@8.1.1)
-      joi: 18.2.5
+      joi: 18.2.6
       lodash: 4.18.1
       minimist: 1.2.8
       rxjs: 7.8.2

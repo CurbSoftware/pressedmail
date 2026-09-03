@@ -36,7 +36,6 @@ interface PressedMailPluginGlobal {
   apiUrl?: string;
   adminAjaxUrl?: string;
   restNamespace?: string;
-  legacyRestNamespace?: string;
   assetsUrl?: string;
   developer?: string;
   /** Effective plugin-scoped UI locale ('' on first run → browser detect). */

@@ -4,8 +4,8 @@ Human-readable source for the compiled admin interface shipped in the
 PressedMail WordPress plugin (`assets/admin/dist/`), published to satisfy
 the WordPress.org Plugin Directory's reviewable-source requirement.
 
-Canonical location: https://git.curbsoftware.com/PressedMail/pressedmail-free
-Monorepo source tag: `pressedmail-v1.0.23`
+Canonical location: https://github.com/CurbSoftware/pressedmail
+Monorepo source tag: `pressedmail-v1.0.24`
 
 See [BUILD.md](./BUILD.md) for the toolchain and build steps.
 

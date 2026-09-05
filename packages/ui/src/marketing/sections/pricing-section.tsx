@@ -32,6 +32,9 @@ export interface PricingSectionProps {
   heroShader?: boolean;
   comparisonGrid?: React.ReactNode;
   className?: string;
+  /** Merged onto every plan card, and onto the highlighted one. */
+  cardClassName?: string;
+  accentedCardClassName?: string;
   headline?: React.ReactNode;
   description?: React.ReactNode;
   toggleCaption?: React.ReactNode;
@@ -103,6 +106,8 @@ export function PricingSection({
   heroShader = false,
   comparisonGrid,
   className,
+  cardClassName,
+  accentedCardClassName,
   headline,
   description,
   toggleCaption,
@@ -198,6 +203,8 @@ export function PricingSection({
             {/* Pricing Cards */}
             <PricingCards
               plans={displayPlans}
+              cardClassName={cardClassName}
+              accentedCardClassName={accentedCardClassName}
               onCheckoutPlan={onCheckoutPlan}
             />
 

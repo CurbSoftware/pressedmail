@@ -31,7 +31,7 @@ export function MarketingSectionHeading({
       {eyebrow ? (
         <h2
           data-testid="marketing-section-heading-eyebrow"
-          className="text-primary font-mono text-sm font-semibold tracking-[0.12em] uppercase"
+          className="text-accent-cyan-strong font-mono text-sm font-semibold tracking-[0.12em] uppercase"
         >
           {eyebrow}
         </h2>

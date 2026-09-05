@@ -38,11 +38,20 @@ export interface PricingPlan {
   disabled?: boolean;
   checkoutMode?: 'link' | 'bitcart';
   cryptoPlanSlug?: string;
+  /** Merged last onto this plan's card, after the shared class strings. */
+  className?: string;
 }
 
 export interface PricingCardsProps {
   plans: PricingPlan[];
   className?: string;
+  /**
+   * Classes merged onto every plan card after its own, so a site can seat
+   * the card on its own surface without forking the component. The accented
+   * variant is merged last, on the highlighted plan only.
+   */
+  cardClassName?: string;
+  accentedCardClassName?: string;
   onCheckoutPlan?: (plan: PricingPlan) => void;
 }
 
@@ -78,9 +87,13 @@ function NotIncludedItem({ text }: { text: string }) {
 
 function PricingCard({
   plan,
+  cardClassName,
+  accentedCardClassName,
   onCheckoutPlan,
 }: {
   plan: PricingPlan;
+  cardClassName?: string;
+  accentedCardClassName?: string;
   onCheckoutPlan?: (plan: PricingPlan) => void;
 }) {
   const t = useTranslations('marketing');
@@ -121,6 +134,9 @@ function PricingCard({
         isAccented
           ? 'hover:border-primary/60'
           : 'hover:border-primary/50 hover:shadow-[var(--shadow-elevated)]',
+        cardClassName,
+        isAccented && accentedCardClassName,
+        plan.className,
       )}
     >
       {/* Border trail on featured cards */}
@@ -128,10 +144,10 @@ function PricingCard({
 
       {/* Badge */}
       {plan.badge && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+        <div className="absolute -top-3.5 left-1/2 z-20 -translate-x-1/2">
           <Badge
             className={cn(
-              'px-3 py-0.5 text-xs font-semibold shadow-md',
+              'px-4 py-1 text-sm font-semibold shadow-md',
               plan.badge === 'Limited Time'
                 ? 'border-primary/50 bg-background text-foreground'
                 : 'border-primary/50 bg-primary text-primary-foreground',
@@ -274,6 +290,8 @@ function PricingCard({
 export function PricingCards({
   plans,
   className,
+  cardClassName,
+  accentedCardClassName,
   onCheckoutPlan,
 }: PricingCardsProps) {
   if (plans.length === 0) return null;
@@ -282,7 +300,12 @@ export function PricingCards({
   if (plans.length === 1) {
     return (
       <div className={cn('mx-auto max-w-md', className)}>
-        <PricingCard plan={plans[0]!} onCheckoutPlan={onCheckoutPlan} />
+        <PricingCard
+          plan={plans[0]!}
+          cardClassName={cardClassName}
+          accentedCardClassName={accentedCardClassName}
+          onCheckoutPlan={onCheckoutPlan}
+        />
       </div>
     );
   }
@@ -301,6 +324,8 @@ export function PricingCards({
         <PricingCard
           key={plan.planId}
           plan={plan}
+          cardClassName={cardClassName}
+          accentedCardClassName={accentedCardClassName}
           onCheckoutPlan={onCheckoutPlan}
         />
       ))}

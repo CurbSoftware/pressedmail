@@ -740,6 +740,24 @@
 }
 
 /* ==========================================================================
+   ANCHORS RENDERED AS BUTTONS. <Button asChild> puts the button utilities on
+   an <a data-slot="button">. WP admin's unlayered `a`, `a:hover`, `a:active`
+   and `a:focus` rules beat those layered utilities, so the label painted in
+   WP link blue on top of the themed button background: the Free "Explore
+   PressedMail Pro" buttons were unreadable in every palette. revert-layer
+   hands colour, underline and focus shadow back to the layered utilities,
+   whichever variant set them, without hard-coding a colour here.
+   ========================================================================== */
+#pressedmail-plugin a[data-slot="button"],
+#pressedmail-plugin a[data-slot="button"]:hover,
+#pressedmail-plugin a[data-slot="button"]:active,
+#pressedmail-plugin a[data-slot="button"]:focus {
+  color: revert-layer;
+  text-decoration: revert-layer;
+  box-shadow: revert-layer;
+}
+
+/* ==========================================================================
    FONT-SIZE ENFORCEMENT. Override WordPress admin font-size rules.
    UNLAYERED with !important to beat WP admin's unlayered CSS (e.g.
    `body { font-size: 13px }`). Tailwind 4 emits utilities inside

@@ -79,7 +79,7 @@ export function CookieBanner({
           type={'button'}
           size={'sm'}
           onClick={accept}
-          className={'h-8 min-w-[5rem] px-3 sm:flex-none'}
+          className={'h-8 min-w-[5rem] px-3 max-sm:h-11 sm:flex-none'}
         >
           <Trans i18nKey={'common:cookieBanner.accept'} />
         </Button>
@@ -89,7 +89,7 @@ export function CookieBanner({
           size={'sm'}
           variant={'outline'}
           onClick={reject}
-          className={'h-8 min-w-[5rem] px-3 sm:flex-none'}
+          className={'h-8 min-w-[5rem] px-3 max-sm:h-11 sm:flex-none'}
         >
           <Trans i18nKey={'common:cookieBanner.reject'} />
         </Button>
@@ -97,7 +97,7 @@ export function CookieBanner({
         <a
           href={policyHref}
           className={
-            'text-muted-foreground hover:text-foreground inline-flex h-9 items-center text-xs underline underline-offset-4'
+            'text-muted-foreground hover:text-foreground inline-flex h-9 items-center text-xs underline underline-offset-4 max-sm:h-11'
           }
         >
           <Trans i18nKey={'common:cookieBanner.learnMore'} />
@@ -129,7 +129,7 @@ export function CookieSettingsTrigger({
       data-test={'cookie-settings-trigger'}
       className={
         className ??
-        'text-muted-foreground hover:text-foreground text-sm underline-offset-2 transition-colors hover:underline'
+        'text-muted-foreground hover:text-foreground inline-flex min-h-6 items-center text-sm underline-offset-2 transition-colors hover:underline max-sm:min-h-11'
       }
     >
       <Trans

@@ -9,6 +9,16 @@ type FlameRgb = [number, number, number];
 export interface FlameWrapOptions {
   /** Flame color as [r, g, b] in 0-1 range. */
   color?: FlameColor;
+  /**
+   * Colour of the flame's root, the darkest band where it meets the content.
+   * Defaults to `color`, which keeps the single-hue look exactly as it was.
+   */
+  rootColor?: FlameColor;
+  /**
+   * Colour the tips and sparks burn toward before going white. Defaults to
+   * `color`.
+   */
+  tipColor?: FlameColor;
   /** Overall brightness of the fire (0 to 3). */
   intensity?: number;
   /** Reach of the flames above the top edge in CSS pixels. */
@@ -67,14 +77,21 @@ export interface FlameWrapInstance {
   destroy: () => void;
 }
 
-type ResolvedFlameWrapOptions = Omit<Required<FlameWrapOptions>, 'color'> & {
+type ResolvedFlameWrapOptions = Omit<
+  Required<FlameWrapOptions>,
+  'color' | 'rootColor' | 'tipColor'
+> & {
   color: FlameRgb;
+  rootColor: FlameRgb;
+  tipColor: FlameRgb;
 };
 
 const DEFAULT_COLOR: FlameRgb = [0.31, 0.54, 1];
 
 const DEFAULTS: ResolvedFlameWrapOptions = {
   color: DEFAULT_COLOR,
+  rootColor: DEFAULT_COLOR,
+  tipColor: DEFAULT_COLOR,
   intensity: 0.5,
   height: 170,
   spread: 8,
@@ -152,6 +169,27 @@ function resolveFlameColor(
   }
 }
 
+/**
+ * The three colours the shader takes, resolved together. Root and tip fall
+ * back to the body colour, so a caller that names only `color` gets the same
+ * single-hue flame it always did.
+ */
+function resolvePalette(
+  options: Pick<FlameWrapOptions, 'color' | 'rootColor' | 'tipColor'>,
+  referenceElement: HTMLElement,
+): Pick<ResolvedFlameWrapOptions, 'color' | 'rootColor' | 'tipColor'> {
+  const color = resolveFlameColor(
+    options.color ?? DEFAULTS.color,
+    referenceElement,
+  );
+
+  return {
+    color,
+    rootColor: resolveFlameColor(options.rootColor ?? color, referenceElement),
+    tipColor: resolveFlameColor(options.tipColor ?? color, referenceElement),
+  };
+}
+
 const VERT = `#version 300 es
 precision highp float;
 layout(location = 0) in vec2 aPos;
@@ -172,6 +210,8 @@ uniform vec2 uRectCenter;
 uniform vec2 uRectHalf;
 uniform float uCorner;
 uniform vec3 uColor;
+uniform vec3 uRoot;
+uniform vec3 uTip;
 uniform float uIntensity;
 uniform float uHeight;
 uniform float uSpread;
@@ -340,10 +380,11 @@ void main () {
     + win * root * (0.1 + 0.4 * n);
   e *= mix(0.45, 1.0, wTop) * max(emis, 0.001);
 
-  vec3 hot = mix(uColor, vec3(1.0), 0.35);
-  vec3 deep = mix(uColor, uColor * uColor, 0.5) * 0.9;
+  vec3 hot = mix(uTip, vec3(1.0), 0.22);
+  vec3 deep = mix(uRoot, uRoot * uRoot, 0.5) * 0.9;
   float ramp = 1.0 - exp(-e * 2.4);
-  vec3 fireCol = mix(deep, uColor, S(0.0, 0.55, ramp));
+  vec3 fireCol = mix(deep, uColor, S(0.12, 0.7, ramp));
+  fireCol = mix(fireCol, uTip, S(0.3, 0.95, g) * wTop);
   float core = ramp * (0.45 + 0.55 * exp(-g * 2.2)) * (0.5 + 0.5 * n);
   fireCol = mix(fireCol, hot, S(0.7, 1.05, core));
   fireCol *= 0.8 + 0.4 * ramp;
@@ -388,7 +429,7 @@ void main () {
       spark += (sbody + sbloom) * tw * tw * on * bmask * (1.0 - 0.35 * L);
     }
     spark *= gate * uSparks;
-    fireCol += mix(uColor, vec3(1.0), 0.55) * spark * 1.6;
+    fireCol += mix(uTip, vec3(1.0), 0.3) * spark * 1.6;
     fireA = clamp(fireA + spark * 0.85, 0.0, 1.0);
   }
 
@@ -481,7 +522,7 @@ export function createFlameWrap(
   const config: ResolvedFlameWrapOptions = {
     ...DEFAULTS,
     ...options,
-    color: resolveFlameColor(options.color ?? DEFAULTS.color, content),
+    ...resolvePalette(options, content),
   };
 
   const gl = output.getContext('webgl2', {
@@ -552,6 +593,8 @@ export function createFlameWrap(
     uRectHalf: requiredUniform('uRectHalf'),
     uCorner: requiredUniform('uCorner'),
     uColor: requiredUniform('uColor'),
+    uRoot: requiredUniform('uRoot'),
+    uTip: requiredUniform('uTip'),
     uIntensity: requiredUniform('uIntensity'),
     uHeight: requiredUniform('uHeight'),
     uSpread: requiredUniform('uSpread'),
@@ -676,6 +719,18 @@ export function createFlameWrap(
       config.color[1],
       config.color[2],
     );
+    gl!.uniform3f(
+      uniforms.uRoot,
+      config.rootColor[0],
+      config.rootColor[1],
+      config.rootColor[2],
+    );
+    gl!.uniform3f(
+      uniforms.uTip,
+      config.tipColor[0],
+      config.tipColor[1],
+      config.tipColor[2],
+    );
     gl!.uniform1f(uniforms.uIntensity, Math.max(config.intensity, 0));
     gl!.uniform1f(uniforms.uHeight, Math.max(config.height, 24) * dpr);
     gl!.uniform1f(uniforms.uSpread, Math.max(config.spread, 8) * dpr);
@@ -759,11 +814,22 @@ export function createFlameWrap(
 
   return {
     setOptions(next) {
+      const paletteChanged =
+        next.color !== undefined ||
+        next.rootColor !== undefined ||
+        next.tipColor !== undefined;
       const resolvedNext = {
         ...next,
-        ...(next.color === undefined
-          ? {}
-          : { color: resolveFlameColor(next.color, content) }),
+        ...(paletteChanged
+          ? resolvePalette(
+              {
+                color: next.color ?? config.color,
+                rootColor: next.rootColor,
+                tipColor: next.tipColor,
+              },
+              content,
+            )
+          : {}),
       };
       let changed = false;
       for (const [key, value] of Object.entries(resolvedNext)) {

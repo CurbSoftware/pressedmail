@@ -134,7 +134,28 @@ export function SiteHeaderWithBanner({
     }
   }, [currentBannerHash]);
 
-  const showBanner = dismissedHash !== undefined && banner && !bannerDismissed;
+  /*
+   * The banner appears after hydration, never during it.
+   *
+   * `dismissedHash` is `undefined` on the server and, once the store is read,
+   * `null` for a reader who has dismissed nothing. So the server rendered no
+   * banner and the very first client render rendered one, React found an extra
+   * element in the header, and it threw away and rebuilt that subtree on every
+   * page load on every route. The mismatch was reported as a mismatch, which
+   * is how it went unnoticed: nothing looked broken, the header was simply
+   * built twice.
+   *
+   * Gating on a mounted flag makes the first client render identical to the
+   * server's by construction, whatever the store says.
+   */
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const showBanner =
+    mounted && dismissedHash !== undefined && banner && !bannerDismissed;
 
   return (
     <div className="contents" data-site-header-shell>

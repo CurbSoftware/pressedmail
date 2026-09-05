@@ -131,6 +131,7 @@ export function StickyFooter({
                         key={link.title}
                         size="icon-sm"
                         variant="outline"
+                        className="max-sm:size-11"
                         asChild
                       >
                         <a
@@ -176,7 +177,7 @@ export function StickyFooter({
                                 href={link.href}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="hover:text-foreground inline-flex items-center transition-all duration-300"
+                                className="hover:text-foreground inline-flex min-h-6 items-center transition-all duration-300 max-sm:min-h-11 max-sm:w-full"
                                 {...umamiClick(UMAMI_EVENTS.footerLinkClicked, {
                                   'footer-column': group.label,
                                   'footer-label': link.title,
@@ -195,7 +196,7 @@ export function StickyFooter({
                             ) : (
                               <Link
                                 href={link.href}
-                                className="hover:text-foreground inline-flex items-center transition-all duration-300"
+                                className="hover:text-foreground inline-flex min-h-6 items-center transition-all duration-300 max-sm:min-h-11 max-sm:w-full"
                                 {...umamiClick(UMAMI_EVENTS.footerLinkClicked, {
                                   'footer-column': group.label,
                                   'footer-label': link.title,
@@ -227,7 +228,7 @@ export function StickyFooter({
                 {bottomText && <p>{bottomText}</p>}
               </div>
               <div className="flex shrink-0 items-center gap-4">
-                <CookieSettingsTrigger className="hover:text-foreground text-sm underline-offset-2 transition-colors hover:underline" />
+                <CookieSettingsTrigger className="hover:text-foreground inline-flex min-h-6 items-center text-sm underline-offset-2 transition-colors hover:underline max-sm:min-h-11" />
                 {languageSelector && (
                   <div className="shrink-0">{languageSelector}</div>
                 )}

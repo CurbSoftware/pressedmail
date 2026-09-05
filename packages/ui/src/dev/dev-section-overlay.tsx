@@ -61,7 +61,7 @@ export function DevSectionOverlay() {
   }
 
   return (
-    <div style={OVERLAY_STYLE}>
+    <div data-dev-overlay style={OVERLAY_STYLE}>
       <button
         type="button"
         onClick={() => toggleDevSections()}

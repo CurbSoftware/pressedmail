@@ -28,6 +28,10 @@ interface HlsVideoPlayerProps {
   fallbackImageClassName?: string;
   dataAnalyticsVideo?: string;
   dataTest?: string;
+  /** Fires when playback reaches the end. Only meaningful with `loop` off. */
+  onEnded?: () => void;
+  /** Playback speed. 1 is natural; hls.js resets it on attach, so it is reapplied. */
+  playbackRate?: number;
 }
 
 function isHlsSource(src: string): boolean {
@@ -55,6 +59,8 @@ export function HlsVideoPlayer({
   fallbackImageClassName,
   dataAnalyticsVideo,
   dataTest,
+  onEnded,
+  playbackRate,
 }: HlsVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<{ destroy: () => void } | null>(null);
@@ -209,6 +215,22 @@ export function HlsVideoPlayer({
     };
   }, [src, autoplay, startLevel, destroyHls]);
 
+  // Attaching a source resets the element's rate, so apply it now and again
+  // whenever new media metadata lands.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || playbackRate === undefined) return;
+
+    const apply = () => {
+      video.playbackRate = playbackRate;
+    };
+
+    apply();
+    video.addEventListener('loadedmetadata', apply);
+
+    return () => video.removeEventListener('loadedmetadata', apply);
+  }, [playbackRate, src]);
+
   const renderFallback = () => {
     if (fallbackImageLight && fallbackImageDark) {
       return (
@@ -313,6 +335,7 @@ export function HlsVideoPlayer({
         preload={preload}
         onCanPlay={handleCanPlay}
         onError={handleError}
+        onEnded={onEnded}
         data-analytics-video={dataAnalyticsVideo}
         className={cn(
           'absolute inset-0 h-full w-full object-contain',

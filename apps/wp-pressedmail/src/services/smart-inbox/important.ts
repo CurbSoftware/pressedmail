@@ -1,3 +1,7 @@
+import {
+  parseAccountQualifiedToken,
+  parseMessageIdentityRef,
+} from "@/lib/message-identity";
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 import { apiFetch } from "@/lib/api-client";
 /**
@@ -11,12 +15,15 @@ import { apiFetch } from "@/lib/api-client";
 
 export interface ToggleResult {
   success: boolean;
+  error?: string;
+  requiresRefresh?: boolean;
 }
 
 export interface MarkImportantContext {
   accountId?: string | number | null;
   folder?: string | null;
   identifierMode?: "uid" | "msg_no";
+  uidValidity?: string | number;
 }
 
 /**
@@ -27,31 +34,64 @@ export async function markMessageImportant(
   important: boolean,
   context: MarkImportantContext = {},
 ): Promise<ToggleResult> {
+  const token =
+    typeof messageId === "string"
+      ? parseAccountQualifiedToken(messageId)
+      : null;
+  const ref =
+    token?.kind === "message"
+      ? token
+      : parseMessageIdentityRef({
+          accountId: context.accountId,
+          folder: context.folder,
+          uidValidity: context.uidValidity,
+          uid: messageId,
+        });
+  if (
+    !ref ||
+    context.identifierMode === "msg_no" ||
+    (context.accountId != null &&
+      String(context.accountId) !== String(ref.accountId)) ||
+    (context.folder != null && context.folder !== ref.folder) ||
+    (context.uidValidity != null &&
+      String(context.uidValidity) !== ref.uidValidity)
+  ) {
+    return {
+      success: false,
+      requiresRefresh: true,
+      error: "The message identity changed. Reload the mailbox.",
+    };
+  }
   try {
-    const body: Record<string, unknown> = {
-      message_id: String(messageId),
+    const body = {
+      message_id: ref.uid,
+      account_id: ref.accountId,
+      folder: ref.folder,
+      uid_validity: ref.uidValidity,
+      identifier_mode: "uid",
       important,
     };
-    if (context.accountId !== undefined && context.accountId !== null) {
-      body.account_id = context.accountId;
-    }
-    if (context.folder) {
-      body.folder = context.folder;
-    }
-    if (context.identifierMode) {
-      body.identifier_mode = context.identifierMode;
-    }
 
-    const response = await apiFetch(`/wp-json/${getRuntimeRestNamespace()}/smart-inbox/important`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await apiFetch(
+      `/wp-json/${getRuntimeRestNamespace()}/smart-inbox/important`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+    );
 
     if (!response.ok) {
-      return { success: false };
+      return {
+        success: false,
+        requiresRefresh: response.status === 409,
+        error:
+          response.status === 409
+            ? "The mailbox changed. Reload it before changing importance."
+            : "Could not update importance.",
+      };
     }
 
     const data = await response.json();

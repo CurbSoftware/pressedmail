@@ -44,7 +44,8 @@ export interface TagCapabilities {
 export interface MessageIdentifier {
   account_id: number;
   message_uid: string;
-  folder?: string;
+  folder: string;
+  uid_validity: string;
 }
 
 /**
@@ -136,13 +137,15 @@ export interface TagsContextValue {
     tagId: number,
     accountId: number,
     messageUid: string,
-    folder?: string,
+    folder: string,
+    uidValidity: string,
   ) => Promise<void>;
   removeTag: (
     tagId: number,
     accountId: number,
     messageUid: string,
-    folder?: string,
+    folder: string,
+    uidValidity: string,
   ) => Promise<void>;
   batchAssignTag: (
     tagId: number,
@@ -155,7 +158,8 @@ export interface TagsContextValue {
   getMessageTags: (
     accountId: number,
     messageUid: string,
-    folder?: string,
+    folder: string,
+    uidValidity: string,
   ) => Promise<Tag[]>;
   reorderTags: (order: number[]) => Promise<void>;
 }

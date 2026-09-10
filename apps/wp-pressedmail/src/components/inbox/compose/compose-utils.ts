@@ -33,7 +33,6 @@ function escapeHtml(unsafe: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
 
 export type ComposeMode = "new" | "reply" | "reply-all" | "forward";
 
@@ -46,13 +45,6 @@ export type ComposeMode = "new" | "reply" | "reply-all" | "forward";
  */
 export const COMPOSER_LEADING_BLANK_LINES_HTML =
   '<p style="text-align: left;"><br></p>'.repeat(5);
-
-/** Strip HTML tags to get plain text. */
-export function stripHtml(html: string): string {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent || div.innerText || "";
-}
 
 export function looksLikeHtml(value: string): boolean {
   return /<\/?[a-z][\s\S]*>/i.test(value);
@@ -228,16 +220,22 @@ To: ${to}
 ${body}`;
 }
 
-/** Format quoted HTML for inline reply (Outlook-style). */
+/**
+ * Format quoted HTML for inline reply (Outlook-style).
+ *
+ * A plain <blockquote>, which Plate's own BlockquotePlugin deserializes. It
+ * used to carry data-pm-block="quote" and deserialize into a bespoke node type
+ * that had no rules and no transforms: the quote could not be unwrapped with
+ * Backspace, the block-type menu would not convert it, and its paragraphs were
+ * a depth the drag-handle gate did not cover. The stock blockquote lifts a
+ * block out on Backspace-at-start, toggles, and holds real paragraph blocks.
+ */
 export function formatQuotedHtml(message: EmailMessage): string {
   const date = formatEmailDate(message.receivedDate ?? message.date);
   const sender = parseSenderName(message);
   const bodyHtml = getQuotedBodyHtml(message);
-  const collapsed = getUserPreferencesSnapshot()
-    .composer_quote_collapsed_by_default;
-  const collapsedAttr = collapsed ? ' data-collapsed="true"' : "";
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">On ${date}, ${sender} wrote:</p><blockquote data-pm-block="quote"${collapsedAttr} style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">On ${date}, ${sender} wrote:</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
 }
 
 /** Format forwarded HTML with headers for inline forward (Outlook-style). */
@@ -247,11 +245,8 @@ export function formatForwardedHtml(message: EmailMessage): string {
   const to = message.to || "";
   const subject = message.subject || "";
   const bodyHtml = getQuotedBodyHtml(message);
-  const collapsed = getUserPreferencesSnapshot()
-    .composer_quote_collapsed_by_default;
-  const collapsedAttr = collapsed ? ' data-collapsed="true"' : "";
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">---------- Forwarded message ---------<br>From: ${escapeHtml(from)}<br>Date: ${date}<br>Subject: ${escapeHtml(subject)}<br>To: ${escapeHtml(to)}</p><blockquote data-pm-block="quote"${collapsedAttr} style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">---------- Forwarded message ---------<br>From: ${escapeHtml(from)}<br>Date: ${date}<br>Subject: ${escapeHtml(subject)}<br>To: ${escapeHtml(to)}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
 }
 
 /** Get display title for compose mode. */

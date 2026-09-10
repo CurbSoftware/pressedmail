@@ -295,11 +295,13 @@ export interface ICacheService {
    * @param accountId - Account identifier
    * @param messageId - Message identifier
    * @param updates - Partial message data to merge
+   * @param folder - Source IMAP folder; UIDs are only unique within a folder
    */
   updateMessage(
     accountId: string,
     messageId: string | number,
     updates: Partial<EmailMessage>,
+    folder: string,
   ): void;
 
   /**

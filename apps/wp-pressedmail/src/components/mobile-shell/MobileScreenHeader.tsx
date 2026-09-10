@@ -35,6 +35,8 @@ export interface MobileScreenHeaderProps {
   className?: string;
   /** Hide the back button even when canGoBack is true. */
   hideBack?: boolean;
+  /** Keep the heading accessible without a visible title beside dense actions. */
+  hideTitle?: boolean;
   /**
    * Action-page Cancel. When set, a Cancel control renders in the leading group
    * *after* the auto Back button (the two coexist), letting compose/edit screens
@@ -57,6 +59,7 @@ export function MobileScreenHeader({
   variant = "default",
   className,
   hideBack = false,
+  hideTitle = false,
   onCancel,
   onBack,
   cancelLabel = "Cancel",
@@ -121,7 +124,11 @@ export function MobileScreenHeader({
           screen reader user has no landmark to jump to and the shell reads as
           one undifferentiated region. aria-level 2 rather than an <h1>: this
           renders inside wp-admin, which already owns the page's h1. */}
-      {isLarge ? (
+      {hideTitle ? (
+        <div role="heading" aria-level={2} className="sr-only">
+          {title}
+        </div>
+      ) : isLarge ? (
         <div
           data-variant={variant}
           role="heading"

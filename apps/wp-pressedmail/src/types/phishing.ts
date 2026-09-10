@@ -271,6 +271,9 @@ export interface PhishingStatusResponse {
  * Email data for phishing analysis.
  */
 export interface PhishingEmailData {
+  uid_validity?: string | number;
+  rfc_message_id?: string;
+  folder?: string;
   message_id: string;
   sender_email: string;
   sender_name: string;

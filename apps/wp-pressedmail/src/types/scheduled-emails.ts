@@ -16,6 +16,8 @@ export type ScheduledEmailStatus =
   | "failed"
   | "cancelled";
 
+import { __ } from "@wordpress/i18n";
+
 import { unwrapEmailBodyHtml } from "@/services/email-safe-html.service";
 import type { ComposeData, EmailContentType } from "@/types";
 import type { ContactListRecipientDescriptor } from "@/types/recipients";
@@ -33,12 +35,16 @@ export interface ScheduledEmail {
   draft_folder?: string | null;
   draft_uidvalidity?: number | null;
   message_id?: string | null;
+  in_reply_to?: string | null;
+  message_references?: string | null;
   to_addresses: string;
   cc_addresses: string | null;
   bcc_addresses: string | null;
   contact_lists?: ContactListRecipientDescriptor[];
   subject: string | null;
   body: string | null;
+  tracking_requested?: boolean;
+  tracking_consent_revision?: string | null;
   content_type: EmailContentType;
   attachments: string | null;
   scheduled_at: string;
@@ -53,6 +59,8 @@ export interface ScheduledEmail {
  * Data for scheduling a new email.
  */
 export interface ScheduleEmailData {
+  in_reply_to?: string;
+  references?: string;
   account_id: number;
   to_addresses: string | string[];
   cc_addresses?: string | string[];
@@ -60,7 +68,9 @@ export interface ScheduleEmailData {
   subject?: string;
   body?: string;
   content_type?: EmailContentType;
-  attachments?: string[];
+  attachments?: ScheduledAttachmentDescriptor[];
+  tracking_requested?: boolean;
+  tracking_consent_revision?: string;
   scheduled_at: string;
 }
 
@@ -68,6 +78,8 @@ export interface ScheduleEmailData {
  * Data for updating a scheduled email.
  */
 export interface UpdateScheduledEmailData {
+  in_reply_to?: string;
+  references?: string;
   to_addresses?: string | string[];
   cc_addresses?: string | string[];
   bcc_addresses?: string | string[];
@@ -183,6 +195,7 @@ export function parseScheduledDraftHandoff(
 export interface ScheduledAttachmentDescriptor {
   id?: number;
   wpAttachmentId?: number;
+  sha256?: string;
   filename?: string;
   mimeType?: string;
   mime?: string;
@@ -197,6 +210,7 @@ export interface ScheduledAttachmentDescriptor {
  */
 export function parseScheduledAttachments(
   raw?: string | null,
+  strict = false,
 ): ScheduledAttachmentDescriptor[] {
   if (!raw) {
     return [];
@@ -205,15 +219,36 @@ export function parseScheduledAttachments(
   try {
     const parsed: unknown = typeof raw === "string" ? JSON.parse(raw) : raw;
     if (Array.isArray(parsed)) {
+      if (
+        strict &&
+        parsed.some(
+          (entry) =>
+            !entry || typeof entry !== "object" || Array.isArray(entry),
+        )
+      ) {
+        throw new Error("Invalid scheduled attachment record.");
+      }
       return parsed.filter(
         (entry): entry is ScheduledAttachmentDescriptor =>
           !!entry && typeof entry === "object",
       );
     }
   } catch {
-    // Malformed JSON. Treat as no attachments.
+    if (strict)
+      throw new Error(
+        __(
+          "The saved attachments cannot be restored. Cancel this schedule and select the files again.",
+          "pressedmail",
+        ),
+      );
   }
-
+  if (strict)
+    throw new Error(
+      __(
+        "The saved attachments cannot be restored. Cancel this schedule and select the files again.",
+        "pressedmail",
+      ),
+    );
   return [];
 }
 
@@ -241,15 +276,32 @@ export function getScheduledComposeData(
   email: ScheduledEmail,
   draft: ScheduledDraftHandoff,
 ): Partial<ComposeData> {
-  const attachments = parseScheduledAttachments(email.attachments)
+  const attachments = parseScheduledAttachments(email.attachments, true)
     .map((descriptor) => {
       const wpId = descriptor.wpAttachmentId ?? descriptor.id;
-      if (typeof wpId !== "number" || wpId <= 0) {
-        return null;
+      if (
+        typeof wpId !== "number" ||
+        !Number.isSafeInteger(wpId) ||
+        wpId <= 0 ||
+        descriptor.source !== "media-library" ||
+        typeof descriptor.filename !== "string" ||
+        typeof descriptor.mimeType !== "string" ||
+        !Number.isSafeInteger(descriptor.size) ||
+        (descriptor.size ?? -1) < 0 ||
+        typeof descriptor.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(descriptor.sha256)
+      ) {
+        throw new Error(
+          __(
+            "The saved attachments cannot be restored. Cancel this schedule and select the files again.",
+            "pressedmail",
+          ),
+        );
       }
       return {
         id: `wp-media-${wpId}`,
         wpAttachmentId: wpId,
+        sha256: descriptor.sha256,
         filename: descriptor.filename ?? "",
         mimeType: descriptor.mimeType ?? descriptor.mime ?? "",
         size: descriptor.size ?? 0,
@@ -262,6 +314,19 @@ export function getScheduledComposeData(
     );
 
   const contentType = email.content_type ?? "html";
+  const trackingRequested =
+    contentType === "html" && email.tracking_requested === true;
+  if (
+    trackingRequested &&
+    !/^[a-f0-9]{32}$/.test(email.tracking_consent_revision ?? "")
+  ) {
+    throw new Error(
+      __(
+        "The saved read receipt consent cannot be verified. Cancel this schedule and compose the message again.",
+        "pressedmail",
+      ),
+    );
+  }
   // The row stores send-prepared HTML, wrapper and all. Strip it on the way
   // back into the composer, and recover the background: nothing else persists
   // that colour, so the wrapper is the only record of it.
@@ -276,6 +341,12 @@ export function getScheduledComposeData(
     bcc: parseScheduledAddresses(email.bcc_addresses).join(", "),
     contactLists: email.contact_lists ?? [],
     subject: email.subject ?? "",
+    readReceipt: {
+      requested: trackingRequested,
+      revision: trackingRequested ? email.tracking_consent_revision! : "",
+    },
+    inReplyTo: email.in_reply_to ?? undefined,
+    references: email.message_references ?? undefined,
     body: unwrapped.html,
     bodyBackgroundColor: unwrapped.bodyBackgroundColor,
     contentType,

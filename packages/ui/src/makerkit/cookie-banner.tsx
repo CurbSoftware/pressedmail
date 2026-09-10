@@ -20,10 +20,12 @@ const ConsentStatus = {
 
 interface CookieBannerProps {
   policyHref?: string;
+  description?: string;
 }
 
 export function CookieBanner({
   policyHref = '/cookie-policy',
+  description,
 }: CookieBannerProps = {}) {
   const { status, accept, reject } = useCookieConsent();
   const [hasMounted, setHasMounted] = useState(false);
@@ -68,9 +70,9 @@ export function CookieBanner({
         </h2>
         <p
           id="cookie-consent-description"
-          className="text-muted-foreground text-xs leading-5 sm:line-clamp-1"
+          className={`text-muted-foreground text-xs leading-5 ${description ? '' : 'sm:line-clamp-1'}`}
         >
-          <Trans i18nKey={'common:cookieBanner.description'} />
+          {description ?? <Trans i18nKey={'common:cookieBanner.description'} />}
         </p>
       </div>
 

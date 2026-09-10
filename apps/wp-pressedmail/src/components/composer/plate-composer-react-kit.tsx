@@ -101,8 +101,6 @@ import {
   AISuggestionPlugin,
   AttachmentCardNode,
   AttachmentCardPlugin,
-  QuoteBlockPlugin,
-  QuoteNode,
   SignatureBlockPlugin,
   SignatureNode,
 } from './nodes';
@@ -113,6 +111,7 @@ import {
   CodeSyntaxLeaf,
 } from './plate/code-block-node';
 import { DndKit } from './plate/dnd-kit';
+import { StripDecorationsOnCopyPlugin } from './plate/strip-decorations-on-copy';
 import { ColumnElement, ColumnGroupElement } from './plate/column-node';
 import { DateElement } from './plate/date-node';
 import { EquationElement, InlineEquationElement } from './plate/equation-node';
@@ -192,6 +191,11 @@ export const ComposerReactPlugins = [
     rules: { break: { empty: 'reset' } },
   }),
   BlockquotePlugin.configure({
+    // A blockquote holds paragraph blocks (see normalizeBlockquoteChildren in
+    // @platejs/basic-nodes). Declaring that makes BlockDraggable treat its
+    // children as draggable blocks, which is what lets a block be dragged into
+    // or out of a quoted reply.
+    node: { isContainer: true },
     inputRules: [BlockquoteRules.markdown()],
   }),
   HorizontalRulePlugin.configure({
@@ -443,6 +447,9 @@ export const ComposerReactPlugins = [
   ...CursorOverlayKit,
   // Chrome: selection bubble toolbar (renders after the editable surface)
   ...FloatingToolbarKit,
+  // Editor-only chrome must not ride along on copy/cut/drag.
+  StripDecorationsOnCopyPlugin,
+
   // Chrome: drag-handle block reordering (react-dnd)
   ...DndKit,
 
@@ -450,9 +457,6 @@ export const ComposerReactPlugins = [
   // do not redefine them here, they carry the data-pm-* HTML contract)
   toPlatePlugin(SignatureBlockPlugin, {
     node: { component: SignatureNode },
-  }),
-  toPlatePlugin(QuoteBlockPlugin, {
-    node: { component: QuoteNode },
   }),
   toPlatePlugin(AttachmentCardPlugin, {
     node: { component: AttachmentCardNode },

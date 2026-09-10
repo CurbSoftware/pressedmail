@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Inbox Context
  *
@@ -64,6 +68,7 @@ import {
 } from "@/services/implementations";
 import { refreshAccountSync } from "@/services/sync-driver.service";
 import { useAppContext } from "./AppProvider";
+import { appMessage } from "./toast";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getSelectedFolder } from "@/lib/folder-persistence";
 import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
@@ -84,10 +89,12 @@ import {
   clearPaneSelection,
   savePaneSelection,
 } from "@/lib/open-pane-persistence";
-import { matchesMessageById } from "@/lib/consolidated-message-match";
 import {
   getMessageIdentityKey,
+  getMessageIdentityRef,
+  parseMessageIdentityRef,
   parseAccountQualifiedToken,
+  type MessageIdentityRef,
 } from "@/lib/message-identity";
 import {
   buildPerAccountPathDestination,
@@ -96,180 +103,124 @@ import {
 } from "@/lib/folder-destination";
 import type { MutationTarget } from "@/lib/folder-target";
 
-type MessageIdentifierMode = "uid" | "msg_no";
+const IDENTITY_ERROR =
+  "The mailbox reference is incomplete or has changed. Refresh the mailbox and try again.";
 
-const matchesMessageId = matchesMessageById;
-
-/**
- * Group message IDs by their accountId for per-account batch operations.
- * Returns a Map of accountId → array of original message UIDs (not consolidatedUids).
- */
-interface GroupedMessageRef {
-  /** Original UID for the server API call */
-  apiId: string | number;
-  /** consolidatedUid (or fallback) for local state updates via updateMessage/removeMessage */
-  localId: string | number;
-  /** Folder context for the IMAP mutation */
-  folder: string;
-  /** Legacy message number compatibility fallback */
-  msgNo?: string | number;
-  /** Primary identifier mode for the server payload */
-  identifierMode: MessageIdentifierMode;
+interface ResolvedMessageRef extends MessageIdentityRef {
+  /** Complete token retained for service calls and local state updates. */
+  apiId: string;
+  localId: string;
+  identifierMode: "uid";
 }
 
-interface ResolvedMessageRef extends GroupedMessageRef {
-  /** Account owning the message */
-  accountId: string | number | null;
-}
+type GroupedMessageRef = ResolvedMessageRef;
 
 interface GroupedMailboxMessageRefs {
-  accountId: string | number;
+  accountId: number;
   folder: string;
-  identifierMode: MessageIdentifierMode;
+  uidValidity: string;
+  identifierMode: "uid";
   refs: GroupedMessageRef[];
 }
 
 function resolveMessageRef(
   messageId: string | number,
-  messages: EmailMessage[],
-  fallbackAccountId: string | number | null,
-  fallbackFolder: string,
-  folderForAccount?: (accountId: number) => string,
-): ResolvedMessageRef {
-  const message = messages.find((candidate) =>
-    matchesMessageId(candidate, messageId),
-  );
-
-  // Cross-page selection in consolidated mode: the row is no longer loaded but
-  // its identity key carries the account + uid, synthesize the ref instead of
-  // failing with "No account selected". (Rows identified only by mirror-row id
-  // stay unresolvable here; batch endpoints address uids.)
-  if (!message && typeof messageId === "string") {
-    const parsed = parseAccountQualifiedToken(messageId);
-    if (parsed?.uid) {
-      return {
-        accountId: parsed.accountId,
-        apiId: parsed.uid,
-        localId: messageId,
-        folder: folderForAccount?.(parsed.accountId) ?? fallbackFolder,
-        msgNo: undefined,
-        identifierMode: "uid",
-      };
-    }
-  }
-
-  const apiId = message?.uid ?? message?.msg_no ?? message?.id ?? messageId;
-
-  return {
-    accountId: message?.accountId ?? fallbackAccountId,
-    apiId,
-    localId: messageId,
-    folder: message?.folder ?? fallbackFolder,
-    msgNo: message?.msg_no,
-    identifierMode: message?.uid !== undefined ? "uid" : "msg_no",
-  };
+): ResolvedMessageRef | null {
+  const parsed = parseAccountQualifiedToken(String(messageId));
+  if (parsed?.kind !== "message") return null;
+  const localId = JSON.stringify([
+    parsed.accountId,
+    parsed.folder,
+    parsed.uidValidity,
+    parsed.uid,
+  ]);
+  return { ...parsed, localId, apiId: localId, identifierMode: "uid" };
 }
 
 function resolveReplySourceRef(
   source: ComposeReplySource,
 ): ResolvedMessageRef | null {
-  const parsed = parseAccountQualifiedToken(source.identity);
-  const sourceAccountId = source.accountId ?? parsed?.accountId;
-  const uid = source.uid ?? parsed?.uid;
-  const msgNo = source.msgNo;
-
-  if (
-    parsed &&
-    source.accountId !== undefined &&
-    Number(source.accountId) !== parsed.accountId
-  ) {
-    return null;
-  }
-
-  const accountId = sourceAccountId;
-  const apiId = uid ?? msgNo;
-  const folder = source.folder?.trim();
-  if (
-    !accountId ||
-    !folder ||
-    apiId === undefined ||
-    apiId === null ||
-    apiId === ""
-  ) {
-    return null;
-  }
-
-  return {
-    accountId,
-    apiId,
-    localId: source.identity,
-    folder,
-    msgNo,
-    identifierMode: uid !== undefined ? "uid" : "msg_no",
-  };
+  const ref = resolveMessageRef(source.identity);
+  if (!ref) return null;
+  const explicit = parseMessageIdentityRef({
+    ...ref,
+    accountId: source.accountId ?? ref.accountId,
+    folder: source.folder ?? ref.folder,
+    uid: source.uid ?? ref.uid,
+  });
+  return explicit &&
+    getMessageIdentityKey({ ...explicit, id: explicit.uid } as EmailMessage) ===
+      ref.localId
+    ? ref
+    : null;
 }
 
-function groupByMailboxContext(
-  messageIds: (string | number)[],
-  messages: EmailMessage[],
-  fallbackAccountId: string | number | null,
-  fallbackFolder: string,
-  folderForAccount?: (accountId: number) => string,
-): {
+function groupByMailboxContext(messageIds: (string | number)[]): {
   groups: GroupedMailboxMessageRefs[];
   unmatchedIds: (string | number)[];
 } {
   const grouped = new Map<string, GroupedMailboxMessageRefs>();
   const unmatchedIds: (string | number)[] = [];
-
+  const seen = new Set<string>();
   for (const id of messageIds) {
-    const ref = resolveMessageRef(
-      id,
-      messages,
-      fallbackAccountId,
-      fallbackFolder,
-      folderForAccount,
-    );
-    if (!ref.accountId) {
+    const ref = resolveMessageRef(id);
+    if (!ref || seen.has(ref.localId)) {
       unmatchedIds.push(id);
       continue;
     }
-
-    const key = `${String(ref.accountId)}::${ref.folder}::${ref.identifierMode}`;
+    seen.add(ref.localId);
+    const key = JSON.stringify([ref.accountId, ref.folder, ref.uidValidity]);
     const existing = grouped.get(key);
-    if (existing) {
-      existing.refs.push(ref);
-      continue;
-    }
-
-    grouped.set(key, {
-      accountId: ref.accountId,
-      folder: ref.folder,
-      identifierMode: ref.identifierMode,
-      refs: [ref],
-    });
+    if (existing) existing.refs.push(ref);
+    else
+      grouped.set(key, {
+        accountId: ref.accountId,
+        folder: ref.folder,
+        uidValidity: ref.uidValidity,
+        identifierMode: "uid",
+        refs: [ref],
+      });
   }
-
-  return {
-    groups: Array.from(grouped.values()),
-    unmatchedIds,
-  };
+  return { groups: [...grouped.values()], unmatchedIds };
 }
 
-/**
- * Per-account source-folder resolver for a merged consolidated folder: the
- * requested view path may be another account's physical path (e.g. Gmail
- * "[Gmail]/Trash" while this account uses "Deleted Items").
- */
-function makeAccountFolderResolver(
-  getFolderByPath: (path: string) => ImapFolder | undefined,
-  fallbackFolder: string,
-): (accountId: number) => string {
-  const record = getFolderByPath(fallbackFolder);
-  return (accountId: number): string =>
-    record?.sourceFolders?.find(
-      (source) => Number(source.accountId) === accountId,
-    )?.path ?? fallbackFolder;
+function validateBatchResult(
+  refs: GroupedMessageRef[],
+  result: BatchOperationResult,
+): BatchOperationResult {
+  const keys = new Set(refs.map((ref) => ref.localId));
+  const failed = Array.isArray(result.failedIds) ? result.failedIds : [];
+  if (
+    result.requiresRefresh ||
+    !Number.isInteger(result.successCount) ||
+    result.successCount < 0 ||
+    failed.some((id) => !keys.has(String(id))) ||
+    new Set(failed.map(String)).size !== failed.length ||
+    result.successCount + failed.length !== refs.length ||
+    result.success !== (failed.length === 0)
+  ) {
+    return {
+      success: false,
+      successCount: 0,
+      failedIds: refs.map((ref) => ref.localId),
+      totalCount: refs.length,
+      error:
+        result.error ??
+        "The mailbox operation did not confirm which messages changed. Refresh and try again.",
+      requiresRefresh: true,
+    };
+  }
+  return result;
+}
+
+interface SelectedDetailRequest {
+  accountId: string;
+  folder: string;
+  msgId: string;
+  updateId: string;
+  selectionEpoch: number;
+  requestGeneration: number;
+  viewScope: string;
 }
 
 /** Bare role tokens the server role-aliases per account. */
@@ -351,7 +302,7 @@ function getFailedLocalIds(
 
   const failedIdSet = new Set(failedIds.map((id) => String(id)));
   return refs
-    .filter((ref) => failedIdSet.has(String(ref.apiId)))
+    .filter((ref) => failedIdSet.has(ref.localId))
     .map((ref) => ref.localId);
 }
 
@@ -359,11 +310,11 @@ const SESSION_STARTED_AT_KEY = "pressedmail-session-started-at";
 // Metadata polling consolidated into useInboxSurfaceBoot's 60-second sync interval.
 
 function ensureSessionStartedAt(): number {
-  if (typeof window === "undefined" || !window.sessionStorage) {
+  if (typeof window === "undefined") {
     return Date.now();
   }
 
-  const existing = window.sessionStorage.getItem(SESSION_STARTED_AT_KEY);
+  const existing = getPrincipalStorageItem("session", SESSION_STARTED_AT_KEY);
   if (existing) {
     const parsed = Number(existing);
     if (Number.isFinite(parsed) && parsed > 0) {
@@ -372,7 +323,7 @@ function ensureSessionStartedAt(): number {
   }
 
   const startedAt = Date.now();
-  window.sessionStorage.setItem(SESSION_STARTED_AT_KEY, String(startedAt));
+  setPrincipalStorageItem("session", SESSION_STARTED_AT_KEY, String(startedAt));
   return startedAt;
 }
 
@@ -404,7 +355,7 @@ function resolveFolderCount(
 }
 
 function getMessageIdsFromMessages(messages: EmailMessage[]): string[] {
-  return messages.map(getMessageIdentityKey).filter((id) => id !== "");
+  return messages.map(getMessageIdentityKey);
 }
 
 /**
@@ -489,7 +440,7 @@ export interface InboxContextValue {
   /** Fetch the full raw RFC822 headers for a message (View headers dialog) */
   getRawHeaders: (
     messageId: string | number,
-  ) => Promise<{ success: boolean; headers?: string; error?: string }>;
+  ) => Promise<OperationResult & { headers?: string }>;
   /** Toggle user-controlled importance on a message */
   toggleImportant: (messageId: string | number) => Promise<OperationResult>;
   /** Delete a message */
@@ -908,12 +859,11 @@ export function InboxProvider({
   const [detailBodyError, setDetailBodyError] = useState(false);
   // The in-flight pending/failed detail request, so retryMessageDetail() (and the single automatic
   // re-poll) can re-run exactly the same fetch.
-  const pendingDetailRef = useRef<{
-    accountId: string;
-    folder: string;
-    msgId: string | number;
-    updateId: string | number;
-  } | null>(null);
+  const pendingDetailRef = useRef<SelectedDetailRequest | null>(null);
+  const selectionEpochRef = useRef(0);
+  const mountedRef = useRef(true);
+  const flagMutationVersions = useRef(new Map<string, number>());
+  const nextFlagMutationVersion = useRef(0);
   const detailRepollTimerRef = useRef<number | null>(null);
   const markAsReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -997,12 +947,28 @@ export function InboxProvider({
   const folderCountRefreshTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
+  const folderCountScopeRef = useRef({
+    isConsolidatedMode,
+    effectiveConsolidatedAccountIds,
+    selectedAccountId,
+  });
+  folderCountScopeRef.current = {
+    isConsolidatedMode,
+    effectiveConsolidatedAccountIds,
+    selectedAccountId,
+  };
   const scheduleFolderCountRefresh = useCallback(() => {
     if (folderCountRefreshTimerRef.current) {
       clearTimeout(folderCountRefreshTimerRef.current);
     }
     folderCountRefreshTimerRef.current = setTimeout(() => {
       folderCountRefreshTimerRef.current = null;
+      if (!mountedRef.current) return;
+      const {
+        isConsolidatedMode,
+        effectiveConsolidatedAccountIds,
+        selectedAccountId,
+      } = folderCountScopeRef.current;
       if (isConsolidatedMode) {
         if (effectiveConsolidatedAccountIds.length > 0) {
           void folderService.loadConsolidatedFolders(
@@ -1464,22 +1430,105 @@ export function InboxProvider({
     detailRepollTimerRef.current = null;
   }, []);
 
-  /**
-   * Run one on-demand detail fetch for the selected message and apply the tri-state outcome:
-   * detail ⇒ update + clear pending; pending ⇒ set pending (and, when `autoRepoll`, schedule a
-   * SINGLE ~4s re-poll); null ⇒ hard error, clear pending. `autoRepoll` is true for the initial
-   * selection and for a manual Retry, false for the automatic re-poll itself (so it never loops).
-   */
-  const runDetailFetch = useCallback(
+  const captureViewScope = useCallback(
+    () =>
+      JSON.stringify([
+        inboxService.getCurrentAccountId(),
+        folderService.selectedFolder,
+        inboxService.currentFolder,
+      ]),
+    [inboxService, folderService],
+  );
+
+  const findOperationMessage = useCallback(
+    (identity: string): EmailMessage | undefined =>
+      [
+        ...inboxService.getRawMessages(),
+        ...Object.values(inboxService.threadGroups ?? {}).flat(),
+        ...inboxService.groupedMessages.flatMap((group) => group.emails),
+        ...(inboxService.selectedMessage ? [inboxService.selectedMessage] : []),
+      ].find((message) => getMessageIdentityKey(message) === identity),
+    [inboxService],
+  );
+
+  const captureFlagMutation = useCallback(
+    (identity: string): (() => boolean) => {
+      const version = ++nextFlagMutationVersion.current;
+      flagMutationVersions.current.set(identity, version);
+      const viewScope = captureViewScope();
+      return () =>
+        mountedRef.current &&
+        flagMutationVersions.current.get(identity) === version &&
+        captureViewScope() === viewScope;
+    },
+    [captureViewScope],
+  );
+
+  const isCurrentDetail = useCallback(
+    (req: SelectedDetailRequest): boolean =>
+      mountedRef.current &&
+      selectionEpochRef.current === req.selectionEpoch &&
+      inboxService.getRequestGeneration() === req.requestGeneration &&
+      captureViewScope() === req.viewScope &&
+      getMessageIdentityKey(inboxService.selectedMessage) === req.updateId,
+    [captureViewScope, inboxService],
+  );
+
+  useLayoutEffect(() => {
+    selectionEpochRef.current += 1;
+    flagMutationVersions.current.clear();
+    clearDetailRepollTimer();
+    clearMarkAsReadTimer();
+    pendingDetailRef.current = null;
+    setIsDetailFetching(false);
+    setDetailBodyPending(false);
+    setDetailBodyError(false);
+  }, [
+    mailboxScopeKey,
+    folderService.selectedFolder,
+    clearDetailRepollTimer,
+    clearMarkAsReadTimer,
+  ]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      selectionEpochRef.current += 1;
+      clearDetailRepollTimer();
+      clearMarkAsReadTimer();
+    };
+  }, [clearDetailRepollTimer, clearMarkAsReadTimer]);
+
+  const reportIdentityConflict = useCallback(
     async (
-      req: {
-        accountId: string;
-        folder: string;
-        msgId: string | number;
-        updateId: string | number;
-      },
-      autoRepoll: boolean,
-    ): Promise<void> => {
+      error = IDENTITY_ERROR,
+      identity?: string,
+    ): Promise<OperationResult> => {
+      if (!mountedRef.current)
+        return { success: false, requiresRefresh: true, error };
+      appMessage(error, "error");
+      if (
+        identity &&
+        getMessageIdentityKey(inboxService.selectedMessage) === identity
+      ) {
+        selectionEpochRef.current += 1;
+        clearDetailRepollTimer();
+        clearMarkAsReadTimer();
+        pendingDetailRef.current = null;
+        setIsDetailFetching(false);
+        inboxService.clearSelection();
+      }
+      // Refresh the service's current view, not a stale render's account/folder.
+      await inboxService.refresh().catch(() => {});
+      return { success: false, requiresRefresh: true, error };
+    },
+    [inboxService, clearDetailRepollTimer, clearMarkAsReadTimer],
+  );
+
+  const runDetailFetch = useCallback(
+    async (req: SelectedDetailRequest, autoRepoll: boolean): Promise<void> => {
+      if (!isCurrentDetail(req)) return;
       setIsDetailFetching(true);
       try {
         const outcome = await prefetchService.fetchDetail(
@@ -1488,13 +1537,18 @@ export function InboxProvider({
           req.msgId,
           "user-selected",
         );
+        if (!isCurrentDetail(req)) return;
         if (outcome && "detail" in outcome) {
-          const detailUpdates: Partial<EmailMessage> = {
-            ...outcome.detail,
-          };
+          if (getMessageIdentityKey(outcome.detail) !== req.updateId) {
+            await reportIdentityConflict(IDENTITY_ERROR, req.updateId);
+            return;
+          }
+          const detailUpdates: Partial<EmailMessage> = { ...outcome.detail };
           const summaryOwnedKeys: Array<keyof EmailMessage> = [
             "id",
             "uid",
+            "uidValidity",
+            "uid_validity",
             "msg_no",
             "consolidatedUid",
             "accountId",
@@ -1521,9 +1575,8 @@ export function InboxProvider({
             "threadUnreadCount",
             "threadMessageIds",
           ];
-          for (const key of summaryOwnedKeys) {
+          for (const key of summaryOwnedKeys)
             Reflect.deleteProperty(detailUpdates, key);
-          }
           inboxService.updateMessage(req.updateId, detailUpdates);
           setDetailBodyPending(false);
           setDetailBodyError(false);
@@ -1541,166 +1594,162 @@ export function InboxProvider({
             }, 4000);
           }
         } else if (outcome && "failed" in outcome) {
-          // Hard failure (e.g. a config_error/auth_failed account): show a distinct error branch
-          // with Retry instead of a false "No content". Keep the request so retryMessageDetail()
-          // can re-run it, but do NOT auto re-poll, a hard error stays until the user retries.
+          if ("requiresRefresh" in outcome && outcome.requiresRefresh) {
+            await reportIdentityConflict(
+              outcome.reason ?? IDENTITY_ERROR,
+              req.updateId,
+            );
+            return;
+          }
           setDetailBodyPending(false);
           setDetailBodyError(true);
           pendingDetailRef.current = req;
           clearDetailRepollTimer();
         } else {
-          // null, a non-terminal miss (background priority never reaches here). Clear both states.
           setDetailBodyPending(false);
           setDetailBodyError(false);
           pendingDetailRef.current = null;
           clearDetailRepollTimer();
         }
+      } catch {
+        if (isCurrentDetail(req)) {
+          setDetailBodyPending(false);
+          setDetailBodyError(true);
+          pendingDetailRef.current = req;
+        }
       } finally {
-        setIsDetailFetching(false);
+        if (isCurrentDetail(req)) setIsDetailFetching(false);
       }
     },
-    [prefetchService, inboxService, clearDetailRepollTimer],
+    [
+      prefetchService,
+      inboxService,
+      clearDetailRepollTimer,
+      isCurrentDetail,
+      reportIdentityConflict,
+    ],
   );
 
-  /** Manual "Retry" for a pending or hard-failed message body (re-arms one automatic re-poll). */
   const retryMessageDetail = useCallback((): void => {
     const req = pendingDetailRef.current;
-    if (req) {
-      void runDetailFetch(req, true);
-    }
+    if (req) void runDetailFetch(req, true);
   }, [runDetailFetch]);
 
   const selectMessage = useCallback(
     async (message: EmailMessage | null): Promise<void> => {
-      // A new selection cancels any pending re-poll from the previous message.
+      const selectionEpoch = ++selectionEpochRef.current;
       clearDetailRepollTimer();
       clearMarkAsReadTimer();
       pendingDetailRef.current = null;
+      setIsDetailFetching(false);
       setDetailBodyPending(false);
       setDetailBodyError(false);
-
+      const ref = message ? getMessageIdentityRef(message) : null;
+      if (message && !ref) {
+        await inboxService.selectMessage(null);
+        await reportIdentityConflict();
+        return;
+      }
       await inboxService.selectMessage(message);
-
-      const fallbackFolder =
-        message?.folder ??
-        folderService.selectedFolder ??
-        inboxService.currentFolder ??
-        "INBOX";
-
-      // Resolve the correct accountId (use message's accountId in consolidated mode)
-      const effectiveAccountId = message
-        ? isConsolidatedMode && message.accountId
-          ? message.accountId
-          : selectedAccountId
-        : selectedAccountId;
-
-      // If cache miss (no body), fetch detail on-demand with user-selected priority
-      if (message && effectiveAccountId) {
-        const selected = inboxService.selectedMessage;
-        const hasBody =
-          selected?.htmlBody || selected?.plainBody || selected?.body;
-        const msgId = message.uid ?? message.id;
-
-        if (!hasBody && msgId) {
-          await runDetailFetch(
-            {
-              accountId: String(effectiveAccountId),
-              folder: fallbackFolder,
-              msgId,
-              updateId: message.consolidatedUid ?? msgId,
-            },
-            true,
-          );
-        }
-      }
-
-      // If selecting a message, mark it as read according to user preference.
-      if (message && effectiveAccountId && !message.read) {
-        const prefs = getUserPreferencesSnapshot();
-        const delayMs = markAsReadDelayMs(
-          prefs.mark_as_read_behavior,
-          prefs.mark_as_read_delay_seconds,
+      if (!message || !ref) return;
+      const identity = getMessageIdentityKey(message);
+      const req: SelectedDetailRequest = {
+        accountId: String(ref.accountId),
+        folder: ref.folder,
+        msgId: identity,
+        updateId: identity,
+        selectionEpoch,
+        requestGeneration: inboxService.getRequestGeneration(),
+        viewScope: captureViewScope(),
+      };
+      if (!isCurrentDetail(req)) return;
+      const selected = inboxService.selectedMessage;
+      const hasBody =
+        selected?.htmlBody ||
+        selected?.textBody ||
+        selected?.plainBody ||
+        selected?.body;
+      if (!hasBody) await runDetailFetch(req, true);
+      if (!isCurrentDetail(req) || message.read) return;
+      const prefs = getUserPreferencesSnapshot();
+      const delayMs = markAsReadDelayMs(
+        prefs.mark_as_read_behavior,
+        prefs.mark_as_read_delay_seconds,
+      );
+      if (delayMs === null) return;
+      const markRead = async () => {
+        if (!isCurrentDetail(req)) return;
+        const result = await messageService.markAsRead(
+          ref.accountId,
+          identity,
+          {
+            folder: ref.folder,
+            uidValidity: ref.uidValidity,
+            identifierMode: "uid",
+          },
         );
-        if (delayMs !== null) {
-          const localMessageId =
-            message.consolidatedUid ??
-            message.id ??
-            message.uid ??
-            message.msg_no;
-          const messageRef = resolveMessageRef(
-            localMessageId,
-            inboxService.messages,
-            effectiveAccountId,
-            fallbackFolder,
-          );
-          const updateId = message.consolidatedUid ?? localMessageId;
-          const markRead = async () => {
-            await messageService.markAsRead(
-              messageRef.accountId ?? effectiveAccountId,
-              messageRef.apiId,
-              {
-                folder: messageRef.folder,
-                msgNo: messageRef.msgNo,
-                identifierMode: messageRef.identifierMode,
-              },
-            );
-            inboxService.updateMessage(updateId, { read: true });
-            if (messageRef.folder) {
-              folderService.applyUnreadDelta(messageRef.folder, -1);
-            }
-            scheduleFolderCountRefresh();
-          };
-          if (delayMs === 0) {
-            await markRead();
-          } else {
-            markAsReadTimerRef.current = setTimeout(() => {
-              markAsReadTimerRef.current = null;
-              void markRead();
-            }, delayMs);
-          }
+        if (!isCurrentDetail(req)) return;
+        if (result.requiresRefresh) {
+          await reportIdentityConflict(result.error, identity);
+          return;
         }
-      }
+        if (!result.success) {
+          appMessage(
+            result.error ?? "Could not mark the message as read.",
+            "error",
+          );
+          return;
+        }
+        inboxService.updateMessage(identity, { read: true });
+        scheduleFolderCountRefresh();
+      };
+      if (delayMs === 0) await markRead();
+      else
+        markAsReadTimerRef.current = setTimeout(() => {
+          markAsReadTimerRef.current = null;
+          void markRead();
+        }, delayMs);
     },
     [
-      folderService,
-      folderService.selectedFolder,
-      scheduleFolderCountRefresh,
       inboxService,
-      isConsolidatedMode,
       messageService,
+      captureViewScope,
+      isCurrentDetail,
       runDetailFetch,
+      reportIdentityConflict,
       clearDetailRepollTimer,
       clearMarkAsReadTimer,
-      selectedAccountId,
+      scheduleFolderCountRefresh,
     ],
   );
 
   const clearSelection = useCallback((): void => {
+    selectionEpochRef.current += 1;
+    clearDetailRepollTimer();
     clearMarkAsReadTimer();
+    pendingDetailRef.current = null;
+    setIsDetailFetching(false);
+    setDetailBodyPending(false);
+    setDetailBodyError(false);
     inboxService.clearSelection();
-  }, [clearMarkAsReadTimer, inboxService]);
+  }, [clearDetailRepollTimer, clearMarkAsReadTimer, inboxService]);
 
   // ============== Message Operations ==============
   const markAsRead = useCallback(
     async (messageId: string | number): Promise<OperationResult> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
       const result = await messageService.markAsRead(
         messageRef.accountId,
         messageRef.apiId,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
       if (result.success) {
         inboxService.updateMessage(messageRef.localId, { read: true });
         scheduleFolderCountRefresh();
@@ -1714,29 +1763,25 @@ export function InboxProvider({
       messageService,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
   const markAsUnread = useCallback(
     async (messageId: string | number): Promise<OperationResult> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
       const result = await messageService.markAsUnread(
         messageRef.accountId,
         messageRef.apiId,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
       if (result.success) {
         inboxService.updateMessage(messageRef.localId, { read: false });
         scheduleFolderCountRefresh();
@@ -1750,43 +1795,44 @@ export function InboxProvider({
       messageService,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
   const toggleStar = useCallback(
     async (messageId: string | number): Promise<OperationResult> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
-      // Optimistically toggle star in the inbox message list
-      const currentMsg = inboxService.messages.find((m) =>
-        matchesMessageId(m, messageId),
-      );
-      const newStarred = !(currentMsg?.starred ?? false);
-      inboxService.updateMessage(messageRef.localId, { starred: newStarred });
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
+      const currentMsg = findOperationMessage(messageRef.localId);
+      const isCurrent = captureFlagMutation(`star:${messageRef.localId}`);
+      const newStarred = !currentMsg?.starred;
+      if (currentMsg)
+        inboxService.updateMessage(messageRef.localId, { starred: newStarred });
 
       const result = await messageService.toggleStar(
         messageRef.accountId,
         messageRef.apiId,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
 
+      if (result.requiresRefresh) {
+        if (isCurrent() && currentMsg)
+          inboxService.updateMessage(messageRef.localId, {
+            starred: currentMsg.starred,
+          });
+        return reportIdentityConflict(result.error, messageRef.localId);
+      }
+      if (!isCurrent()) return result;
       // If server returned a definitive state, use that instead
       if (result.success && result.message?.starred !== undefined) {
         inboxService.updateMessage(messageRef.localId, {
           starred: result.message.starred,
         });
-      } else if (!result.success) {
+      } else if (!result.success && currentMsg) {
         // Revert optimistic update on failure
         inboxService.updateMessage(messageRef.localId, {
           starred: !newStarred,
@@ -1800,85 +1846,81 @@ export function InboxProvider({
       return result;
     },
     [
+      findOperationMessage,
+      captureFlagMutation,
       folderService.selectedFolder,
       inboxService,
       isConsolidatedMode,
       messageService,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
   const getRawHeaders = useCallback(
     async (
       messageId: string | number,
-    ): Promise<{ success: boolean; headers?: string; error?: string }> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+    ): Promise<OperationResult & { headers?: string }> => {
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
 
-      return messageService.getRawHeaders(
+      const result = await messageService.getRawHeaders(
         messageRef.accountId,
         messageRef.apiId,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
+      return result;
     },
-    [
-      folderService.selectedFolder,
-      inboxService,
-      isConsolidatedMode,
-      messageService,
-      selectedAccountId,
-    ],
+    [inboxService, messageService, reportIdentityConflict],
   );
 
   const toggleImportant = useCallback(
     async (messageId: string | number): Promise<OperationResult> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
+      const messageRef = resolveMessageRef(messageId);
 
+      if (!messageRef) return reportIdentityConflict();
+      const currentMsg = findOperationMessage(messageRef.localId);
+      if (!currentMsg) return reportIdentityConflict();
+      const isCurrent = captureFlagMutation(`important:${messageRef.localId}`);
       // Optimistic toggle + revert on failure, persisted via the smart-inbox
       // priority API (importance has no IMAP flag).
       const result = await performToggleImportant({
-        getImportant: () =>
-          Boolean(
-            inboxService.messages.find((m) => matchesMessageId(m, messageId))
-              ?.important,
-          ),
-        setImportant: (important) =>
-          inboxService.updateMessage(messageRef.localId, { important }),
+        getImportant: () => Boolean(currentMsg.important),
+        setImportant: (important) => {
+          if (isCurrent())
+            inboxService.updateMessage(messageRef.localId, { important });
+        },
         persist: (important) =>
           markMessageImportant(messageRef.apiId, important, {
             accountId: messageRef.accountId,
             folder: messageRef.folder,
+            uidValidity: messageRef.uidValidity,
             identifierMode: messageRef.identifierMode,
           }),
       });
-      if (result.success) {
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
+      if (result.success && isCurrent()) {
         scheduleFolderCountRefresh();
       }
       return result;
     },
     [
+      findOperationMessage,
+      captureFlagMutation,
       folderService.selectedFolder,
       inboxService,
       isConsolidatedMode,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -1887,25 +1929,20 @@ export function InboxProvider({
       messageId: string | number,
       permanent = false,
     ): Promise<OperationResult> => {
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
       const result = await messageService.deleteMessage(
         messageRef.accountId,
         messageRef.apiId,
         permanent,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
       }
@@ -1917,6 +1954,7 @@ export function InboxProvider({
       isConsolidatedMode,
       messageService,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -1925,20 +1963,10 @@ export function InboxProvider({
       messageId: string | number,
       targetFolder: MutationTarget,
     ): Promise<OperationResult> => {
-      const fallbackFolder =
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX";
       const getFolderByPath = (path: string) =>
         folderService.getFolderByPath(path);
-      const messageRef = resolveMessageRef(
-        messageId,
-        inboxService.messages,
-        isConsolidatedMode ? null : selectedAccountId,
-        fallbackFolder,
-        makeAccountFolderResolver(getFolderByPath, fallbackFolder),
-      );
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+      const messageRef = resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
       // Same per-account resolution as the batch path: a merged folder's
       // literal path is another account's physical path more often than not.
       const resolved = resolveMutationTargetForAccount(
@@ -1958,6 +1986,7 @@ export function InboxProvider({
             resolved.target,
             {
               folder: messageRef.folder,
+              uidValidity: messageRef.uidValidity,
               identifierMode: messageRef.identifierMode,
             },
           )
@@ -1967,10 +1996,12 @@ export function InboxProvider({
             resolved.target,
             {
               folder: messageRef.folder,
-              msgNo: messageRef.msgNo,
+              uidValidity: messageRef.uidValidity,
               identifierMode: messageRef.identifierMode,
             },
           );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
       }
@@ -1982,6 +2013,7 @@ export function InboxProvider({
       isConsolidatedMode,
       messageService,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -1990,32 +2022,21 @@ export function InboxProvider({
       messageId: string | number,
       replySource?: ComposeReplySource,
     ): Promise<OperationResult> => {
-      const fallbackAccountId = isConsolidatedMode ? null : selectedAccountId;
-      const fallbackFolder =
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX";
       const messageRef = replySource
         ? resolveReplySourceRef(replySource)
-        : resolveMessageRef(
-            messageId,
-            inboxService.messages,
-            fallbackAccountId,
-            fallbackFolder,
-          );
-      if (!messageRef) {
-        return { success: false, error: "Invalid originating message" };
-      }
-      if (!messageRef.accountId) {
-        return { success: false, error: "No account selected" };
-      }
+        : resolveMessageRef(messageId);
+      if (!messageRef) return reportIdentityConflict();
       const result = await messageService.archiveMessage(
         messageRef.accountId,
         messageRef.apiId,
         {
           folder: messageRef.folder,
-          msgNo: messageRef.msgNo,
+          uidValidity: messageRef.uidValidity,
           identifierMode: messageRef.identifierMode,
         },
       );
+      if (result.requiresRefresh)
+        return reportIdentityConflict(result.error, messageRef.localId);
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
       }
@@ -2027,6 +2048,7 @@ export function InboxProvider({
       isConsolidatedMode,
       messageService,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -2035,39 +2057,51 @@ export function InboxProvider({
       sourceMessages: EmailMessage[],
       messageIds: (string | number)[],
     ): Promise<BatchOperationResult> => {
-      const { groups, unmatchedIds } = groupByMailboxContext(
-        messageIds,
-        sourceMessages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        makeAccountFolderResolver(
-          (path) => folderService.getFolderByPath(path),
-          folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        ),
-      );
-      if (!groups.length && unmatchedIds.length === messageIds.length) {
+      const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
+      if (unmatchedIds.length > 0) {
+        await reportIdentityConflict();
         return {
           success: false,
-          error: "No account selected",
+          requiresRefresh: true,
+          error: IDENTITY_ERROR,
           successCount: 0,
           failedIds: messageIds,
           totalCount: messageIds.length,
         };
       }
       let totalSuccess = 0;
-      let firstError: string | undefined =
-        unmatchedIds.length > 0 ? "No account selected" : undefined;
+      let firstError: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
-      for (const group of groups) {
+      for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
-        const result = await messageService.batchMarkRead(
+        const response = await messageService.batchMarkRead(
           group.accountId,
           apiIds,
           {
             folder: group.folder,
+            uidValidity: group.uidValidity,
             identifierMode: group.identifierMode,
           },
         );
+        const result = validateBatchResult(group.refs, response);
+        if (result.requiresRefresh) {
+          await reportIdentityConflict(result.error);
+          return {
+            success: false,
+            requiresRefresh: true,
+            error: result.error ?? IDENTITY_ERROR,
+            successCount: totalSuccess,
+            failedIds: [
+              ...allFailed,
+              ...groups
+                .slice(groupIndex)
+                .flatMap((remaining) =>
+                  remaining.refs.map((ref) => ref.localId),
+                ),
+            ],
+            totalCount: messageIds.length,
+          };
+        }
         totalSuccess += result.successCount;
         if (!result.success && !firstError) {
           firstError = result.error;
@@ -2110,6 +2144,7 @@ export function InboxProvider({
       messageService,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -2133,39 +2168,51 @@ export function InboxProvider({
       sourceMessages: EmailMessage[],
       messageIds: (string | number)[],
     ): Promise<BatchOperationResult> => {
-      const { groups, unmatchedIds } = groupByMailboxContext(
-        messageIds,
-        sourceMessages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        makeAccountFolderResolver(
-          (path) => folderService.getFolderByPath(path),
-          folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        ),
-      );
-      if (!groups.length && unmatchedIds.length === messageIds.length) {
+      const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
+      if (unmatchedIds.length > 0) {
+        await reportIdentityConflict();
         return {
           success: false,
-          error: "No account selected",
+          requiresRefresh: true,
+          error: IDENTITY_ERROR,
           successCount: 0,
           failedIds: messageIds,
           totalCount: messageIds.length,
         };
       }
       let totalSuccess = 0;
-      let firstError: string | undefined =
-        unmatchedIds.length > 0 ? "No account selected" : undefined;
+      let firstError: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
-      for (const group of groups) {
+      for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
-        const result = await messageService.batchMarkUnread(
+        const response = await messageService.batchMarkUnread(
           group.accountId,
           apiIds,
           {
             folder: group.folder,
+            uidValidity: group.uidValidity,
             identifierMode: group.identifierMode,
           },
         );
+        const result = validateBatchResult(group.refs, response);
+        if (result.requiresRefresh) {
+          await reportIdentityConflict(result.error);
+          return {
+            success: false,
+            requiresRefresh: true,
+            error: result.error ?? IDENTITY_ERROR,
+            successCount: totalSuccess,
+            failedIds: [
+              ...allFailed,
+              ...groups
+                .slice(groupIndex)
+                .flatMap((remaining) =>
+                  remaining.refs.map((ref) => ref.localId),
+                ),
+            ],
+            totalCount: messageIds.length,
+          };
+        }
         totalSuccess += result.successCount;
         if (!result.success && !firstError) {
           firstError = result.error;
@@ -2204,6 +2251,7 @@ export function InboxProvider({
       messageService,
       scheduleFolderCountRefresh,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -2228,41 +2276,53 @@ export function InboxProvider({
       messageIds: (string | number)[],
       permanent = false,
     ): Promise<BatchOperationResult> => {
-      const { groups, unmatchedIds } = groupByMailboxContext(
-        messageIds,
-        sourceMessages,
-        isConsolidatedMode ? null : selectedAccountId,
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        makeAccountFolderResolver(
-          (path) => folderService.getFolderByPath(path),
-          folderService.selectedFolder || inboxService.currentFolder || "INBOX",
-        ),
-      );
-      if (!groups.length && unmatchedIds.length === messageIds.length) {
+      const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
+      if (unmatchedIds.length > 0) {
+        await reportIdentityConflict();
         return {
           success: false,
-          error: "No account selected",
+          requiresRefresh: true,
+          error: IDENTITY_ERROR,
           successCount: 0,
           failedIds: messageIds,
           totalCount: messageIds.length,
         };
       }
       let totalSuccess = 0;
-      let firstError: string | undefined =
-        unmatchedIds.length > 0 ? "No account selected" : undefined;
+      let firstError: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const removedLocalIds = new Set<string>();
-      for (const group of groups) {
+      for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
-        const result = await messageService.batchDelete(
+        const response = await messageService.batchDelete(
           group.accountId,
           apiIds,
           permanent,
           {
             folder: group.folder,
+            uidValidity: group.uidValidity,
             identifierMode: group.identifierMode,
           },
         );
+        const result = validateBatchResult(group.refs, response);
+        if (result.requiresRefresh) {
+          await reportIdentityConflict(result.error);
+          return {
+            success: false,
+            requiresRefresh: true,
+            error: result.error ?? IDENTITY_ERROR,
+            successCount: totalSuccess,
+            failedIds: [
+              ...allFailed,
+              ...groups
+                .slice(groupIndex)
+                .flatMap((remaining) =>
+                  remaining.refs.map((ref) => ref.localId),
+                ),
+            ],
+            totalCount: messageIds.length,
+          };
+        }
         totalSuccess += result.successCount;
         if (!result.success && !firstError) {
           firstError = result.error;
@@ -2303,6 +2363,7 @@ export function InboxProvider({
       isConsolidatedMode,
       messageService,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 
@@ -2334,21 +2395,15 @@ export function InboxProvider({
       messageIds: (string | number)[],
       targetFolder: MutationTarget,
     ): Promise<BatchOperationResult> => {
-      const fallbackFolder =
-        folderService.selectedFolder || inboxService.currentFolder || "INBOX";
       const getFolderByPath = (path: string) =>
         folderService.getFolderByPath(path);
-      const { groups, unmatchedIds } = groupByMailboxContext(
-        messageIds,
-        sourceMessages,
-        isConsolidatedMode ? null : selectedAccountId,
-        fallbackFolder,
-        makeAccountFolderResolver(getFolderByPath, fallbackFolder),
-      );
-      if (!groups.length && unmatchedIds.length === messageIds.length) {
+      const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
+      if (unmatchedIds.length > 0) {
+        await reportIdentityConflict();
         return {
           success: false,
-          error: "No account selected",
+          requiresRefresh: true,
+          error: IDENTITY_ERROR,
           successCount: 0,
           failedIds: messageIds,
           totalCount: messageIds.length,
@@ -2356,12 +2411,11 @@ export function InboxProvider({
       }
 
       let totalSuccess = 0;
-      let firstError: string | undefined =
-        unmatchedIds.length > 0 ? "No account selected" : undefined;
+      let firstError: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const accountErrors: { accountId: string | number; error: string }[] = [];
       const createdFolders: { path: string; folderId?: number | null }[] = [];
-      for (const group of groups) {
+      for (const [groupIndex, group] of groups.entries()) {
         // Resolve the requested target for THIS account: merged folders remap
         // to the account's own path; missing counterparts fall back to a role
         // token or a per-account destination the server creates.
@@ -2380,15 +2434,35 @@ export function InboxProvider({
           continue;
         }
         const apiIds = group.refs.map((ref) => ref.apiId);
-        const result = await messageService.batchMove(
+        const response = await messageService.batchMove(
           group.accountId,
           apiIds,
           resolved.target,
           {
             folder: group.folder,
+            uidValidity: group.uidValidity,
             identifierMode: group.identifierMode,
           },
         );
+        const result = validateBatchResult(group.refs, response);
+        if (result.requiresRefresh) {
+          await reportIdentityConflict(result.error);
+          return {
+            success: false,
+            requiresRefresh: true,
+            error: result.error ?? IDENTITY_ERROR,
+            successCount: totalSuccess,
+            failedIds: [
+              ...allFailed,
+              ...groups
+                .slice(groupIndex)
+                .flatMap((remaining) =>
+                  remaining.refs.map((ref) => ref.localId),
+                ),
+            ],
+            totalCount: messageIds.length,
+          };
+        }
         totalSuccess += result.successCount;
         if (!result.success) {
           firstError ??= result.error;
@@ -2437,6 +2511,7 @@ export function InboxProvider({
       isConsolidatedMode,
       messageService,
       selectedAccountId,
+      reportIdentityConflict,
     ],
   );
 

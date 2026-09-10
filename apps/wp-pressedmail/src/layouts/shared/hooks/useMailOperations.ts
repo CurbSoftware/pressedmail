@@ -8,7 +8,7 @@
  * @updated 3.0.0 - Fully migrated to InboxContext + ComposerContext
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { __ } from "@wordpress/i18n";
 import { useAppContext } from "@/context/AppProvider";
 import {
@@ -18,13 +18,16 @@ import {
   useFilterOperations,
 } from "@/context/InboxContext";
 import { DEFAULT_COMPOSE_DATA, useComposer } from "@/context/composer";
-import { useFolderOperations } from "@/layouts/shared/hooks/useFolderOperations";
 import { appMessage } from "@/context/toast";
 import type { EmailMessage, ComposeData } from "@/types";
-import type { FolderTarget } from "@/services/interfaces";
 import type { MutationTarget } from "@/lib/folder-target";
 import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
+import {
+  getMessageIdentityKey,
+  getMessageIdentityRef,
+  parseAccountQualifiedToken,
+} from "@/lib/message-identity";
 
 /**
  * Compose mode type.
@@ -37,6 +40,7 @@ export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
 export interface MailOperationResult {
   success: boolean;
   error?: string;
+  requiresRefresh?: boolean;
 }
 
 /**
@@ -90,20 +94,75 @@ export interface UseMailOperationsReturn {
   clearFilters: () => void;
 }
 
+function snapshotMessageIds(ids: readonly string[]): string[] | null {
+  const result: string[] = [];
+  for (const id of ids) {
+    const ref = parseAccountQualifiedToken(id);
+    if (ref?.kind !== "message") return null;
+    result.push(
+      JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid]),
+    );
+  }
+  return new Set(result).size === result.length ? result : null;
+}
+
 /**
  * Hook providing shared mail operations for all layout components.
  */
 export function useMailOperations(): UseMailOperationsReturn {
-  const appContext = useAppContext();
+  const { accounts } = useAppContext();
   const inbox = useInbox();
   const inboxState = useInboxState();
   const serviceMessageOps = useServiceMessageOperations();
   const filterOps = useFilterOperations();
   const composer = useComposer();
 
-  // Folder count updates for optimistic UI
-  const { decrementUnseenCount, adjustFolderCounts, selectedFolder } =
-    useFolderOperations();
+  const current = useRef({ inbox, inboxState });
+  current.current = { inbox, inboxState };
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const identityFailure =
+    useCallback(async (): Promise<MailOperationResult> => {
+      const error =
+        "The message identity is incomplete or has changed. Refresh the mailbox and try again.";
+      if (mounted.current) {
+        appMessage(error, "error");
+        await current.current.inbox.refreshMessages().catch(() => {});
+      }
+      return { success: false, requiresRefresh: true, error };
+    }, []);
+
+  const refreshFolderCounts = useCallback(() => {
+    if (mounted.current)
+      void current.current.inbox.refreshCurrentFolders().catch(() => {});
+  }, []);
+
+  const captureRemoval = useCallback(
+    (ids: string[]) => ({
+      scope: JSON.stringify([
+        current.current.inboxState.selectedAccountId,
+        current.current.inbox.selectedFolder,
+      ]),
+      selectedId: getMessageIdentityKey(
+        current.current.inboxState.selectedMessage,
+      ),
+      nextId: getMessageIdentityKey(
+        nextVisibleMessageAfterRemoval(
+          current.current.inboxState.messages.filter(
+            (message) => getMessageIdentityKey(message) !== "",
+          ),
+          ids,
+        ),
+      ),
+    }),
+    [],
+  );
 
   // Message Selection: via InboxContext (sync effect updates AppProvider)
   const selectMessage = useCallback(
@@ -125,26 +184,28 @@ export function useMailOperations(): UseMailOperationsReturn {
 
   const markAsRead = useCallback(
     async (messageIds: string[]): Promise<MailOperationResult> => {
+      const ids = snapshotMessageIds(messageIds);
+      if (!ids) return identityFailure();
       try {
         let result: MailOperationResult;
-        if (messageIds.length === 1) {
-          const r = await serviceMessageOps.markAsRead(messageIds[0]!);
-          result = { success: r.success, error: r.error };
-        } else {
-          const r = await serviceMessageOps.batchMarkRead(messageIds);
+        if (ids.length === 1) {
+          const r = await serviceMessageOps.markAsRead(ids[0]!);
           result = {
             success: r.success,
+            error: r.error,
+            requiresRefresh: r.requiresRefresh,
+          };
+        } else {
+          const r = await serviceMessageOps.batchMarkRead(ids);
+          result = {
+            success: r.success,
+            requiresRefresh: r.requiresRefresh,
             error:
               r.error ||
               (r.failedIds.length > 0
                 ? `${r.failedIds.length} operations failed`
                 : undefined),
           };
-        }
-        if (result.success && selectedFolder) {
-          for (let i = 0; i < messageIds.length; i++) {
-            decrementUnseenCount(selectedFolder);
-          }
         }
         return result;
       } catch (err) {
@@ -154,19 +215,26 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, selectedFolder, decrementUnseenCount],
+    [serviceMessageOps, identityFailure],
   );
 
   const markAsUnread = useCallback(
     async (messageIds: string[]): Promise<MailOperationResult> => {
+      const ids = snapshotMessageIds(messageIds);
+      if (!ids) return identityFailure();
       try {
-        if (messageIds.length === 1) {
-          const result = await serviceMessageOps.markAsUnread(messageIds[0]!);
-          return { success: result.success, error: result.error };
-        } else {
-          const result = await serviceMessageOps.batchMarkUnread(messageIds);
+        if (ids.length === 1) {
+          const result = await serviceMessageOps.markAsUnread(ids[0]!);
           return {
             success: result.success,
+            error: result.error,
+            requiresRefresh: result.requiresRefresh,
+          };
+        } else {
+          const result = await serviceMessageOps.batchMarkUnread(ids);
+          return {
+            success: result.success,
+            requiresRefresh: result.requiresRefresh,
             error:
               result.error ||
               (result.failedIds.length > 0
@@ -182,17 +250,23 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps],
+    [serviceMessageOps, identityFailure],
   );
 
   const toggleRead = useCallback(
     async (message: EmailMessage): Promise<MailOperationResult> => {
+      const identity = getMessageIdentityKey(message);
+      if (!identity) return identityFailure();
       try {
         const isRead = message.read || message.is_read;
         const result = isRead
-          ? await serviceMessageOps.markAsUnread(message.id)
-          : await serviceMessageOps.markAsRead(message.id);
-        return { success: result.success, error: result.error };
+          ? await serviceMessageOps.markAsUnread(identity)
+          : await serviceMessageOps.markAsRead(identity);
+        return {
+          success: result.success,
+          error: result.error,
+          requiresRefresh: result.requiresRefresh,
+        };
       } catch (err) {
         return {
           success: false,
@@ -200,7 +274,7 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps],
+    [serviceMessageOps, identityFailure],
   );
 
   const moveToFolder = useCallback(
@@ -208,22 +282,28 @@ export function useMailOperations(): UseMailOperationsReturn {
       messageIds: string[],
       targetFolder: MutationTarget,
     ): Promise<MailOperationResult> => {
+      const ids = snapshotMessageIds(messageIds);
+      if (!ids) return identityFailure();
+      const destination =
+        typeof targetFolder === "string" ? targetFolder : { ...targetFolder };
       try {
         let result: MailOperationResult;
         // Count adjustments follow the messages that actually moved. A partial
         // failure previously adjusted NOTHING, drifting every badge.
         let movedCount = 0;
-        if (messageIds.length === 1) {
-          const r = await serviceMessageOps.moveMessage(
-            messageIds[0]!,
-            targetFolder,
-          );
-          result = { success: r.success, error: r.error };
-          movedCount = r.success ? 1 : 0;
-        } else {
-          const r = await serviceMessageOps.batchMove(messageIds, targetFolder);
+        if (ids.length === 1) {
+          const r = await serviceMessageOps.moveMessage(ids[0]!, destination);
           result = {
             success: r.success,
+            error: r.error,
+            requiresRefresh: r.requiresRefresh,
+          };
+          movedCount = r.success ? 1 : 0;
+        } else {
+          const r = await serviceMessageOps.batchMove(ids, destination);
+          result = {
+            success: r.success,
+            requiresRefresh: r.requiresRefresh,
             error:
               r.error ||
               (r.failedIds.length > 0
@@ -232,13 +312,7 @@ export function useMailOperations(): UseMailOperationsReturn {
           };
           movedCount = r.successCount ?? 0;
         }
-        if (movedCount > 0 && selectedFolder) {
-          const targetPath =
-            typeof targetFolder === "string" ? targetFolder : targetFolder.path;
-          for (let i = 0; i < movedCount; i++) {
-            adjustFolderCounts(selectedFolder, targetPath);
-          }
-        }
+        if (movedCount > 0) refreshFolderCounts();
         return result;
       } catch (err) {
         return {
@@ -247,39 +321,53 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, selectedFolder, adjustFolderCounts],
+    [serviceMessageOps, refreshFolderCounts, identityFailure],
   );
 
   const applyAfterRemoval = useCallback(
-    (action: "message_list" | "next_message", messageIds: string[]) => {
-      const selectedId = inboxState.selectedMessage
-        ? String(
-            inboxState.selectedMessage.uid ?? inboxState.selectedMessage.id,
-          )
-        : null;
-      if (selectedId && !messageIds.includes(selectedId)) {
+    (
+      action: "message_list" | "next_message",
+      ids: string[],
+      source: ReturnType<typeof captureRemoval>,
+    ) => {
+      const live = current.current;
+      const liveSelectedId = getMessageIdentityKey(
+        live.inboxState.selectedMessage,
+      );
+      if (
+        !mounted.current ||
+        !source.selectedId ||
+        !ids.includes(source.selectedId) ||
+        source.scope !==
+          JSON.stringify([
+            live.inboxState.selectedAccountId,
+            live.inbox.selectedFolder,
+          ]) ||
+        (liveSelectedId && liveSelectedId !== source.selectedId)
+      )
         return;
-      }
       if (action === "next_message") {
-        const next = nextVisibleMessageAfterRemoval(
-          inboxState.messages,
-          messageIds,
+        const next = live.inboxState.messages.find(
+          (message) => getMessageIdentityKey(message) === source.nextId,
         );
         if (next) {
-          serviceMessageOps.selectMessage(next);
+          void live.inbox.selectMessage(next);
           return;
         }
       }
-      serviceMessageOps.clearSelection();
+      live.inbox.clearSelection();
     },
-    [inboxState.messages, inboxState.selectedMessage, serviceMessageOps],
+    [],
   );
 
   const archiveMessages = useCallback(
     async (messageIds: string[]): Promise<MailOperationResult> => {
+      const ids = snapshotMessageIds(messageIds);
+      if (!ids) return identityFailure();
+      const source = captureRemoval(ids);
       try {
         const results = await Promise.allSettled(
-          messageIds.map((id) => serviceMessageOps.archiveMessage(id)),
+          ids.map((id) => serviceMessageOps.archiveMessage(id)),
         );
 
         const failed = results.filter(
@@ -296,15 +384,26 @@ export function useMailOperations(): UseMailOperationsReturn {
               : undefined;
 
         const success = failed.length === 0;
+        if (
+          results.some(
+            (result) => result.status === "fulfilled" && result.value.success,
+          )
+        )
+          refreshFolderCounts();
         if (success) {
           applyAfterRemoval(
             getUserPreferencesSnapshot().after_archive_action,
-            messageIds,
+            ids,
+            source,
           );
         }
 
         return {
           success,
+          requiresRefresh: results.some(
+            (result) =>
+              result.status === "fulfilled" && result.value.requiresRefresh,
+          ),
           error:
             failed.length > 0
               ? firstError || `${failed.length} archive operations failed`
@@ -318,11 +417,20 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, applyAfterRemoval],
+    [
+      serviceMessageOps,
+      applyAfterRemoval,
+      captureRemoval,
+      identityFailure,
+      refreshFolderCounts,
+    ],
   );
 
   const deleteMessages = useCallback(
     async (messageIds: string[]): Promise<MailOperationResult> => {
+      const ids = snapshotMessageIds(messageIds);
+      if (!ids) return identityFailure();
+      const source = captureRemoval(ids);
       try {
         if (getUserPreferencesSnapshot().confirm_delete) {
           const confirmed = window.confirm(
@@ -332,25 +440,34 @@ export function useMailOperations(): UseMailOperationsReturn {
             return { success: false };
           }
         }
-        if (messageIds.length === 1) {
-          const result = await serviceMessageOps.deleteMessage(messageIds[0]!);
+        if (ids.length === 1) {
+          const result = await serviceMessageOps.deleteMessage(ids[0]!);
           if (result.success) {
+            refreshFolderCounts();
             applyAfterRemoval(
               getUserPreferencesSnapshot().after_delete_action,
-              messageIds,
-            );
-          }
-          return { success: result.success, error: result.error };
-        } else {
-          const result = await serviceMessageOps.batchDelete(messageIds);
-          if (result.success) {
-            applyAfterRemoval(
-              getUserPreferencesSnapshot().after_delete_action,
-              messageIds,
+              ids,
+              source,
             );
           }
           return {
             success: result.success,
+            error: result.error,
+            requiresRefresh: result.requiresRefresh,
+          };
+        } else {
+          const result = await serviceMessageOps.batchDelete(ids);
+          if (result.successCount > 0) refreshFolderCounts();
+          if (result.success) {
+            applyAfterRemoval(
+              getUserPreferencesSnapshot().after_delete_action,
+              ids,
+              source,
+            );
+          }
+          return {
+            success: result.success,
+            requiresRefresh: result.requiresRefresh,
             error:
               result.error ||
               (result.failedIds.length > 0
@@ -366,14 +483,26 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, applyAfterRemoval],
+    [
+      serviceMessageOps,
+      applyAfterRemoval,
+      captureRemoval,
+      identityFailure,
+      refreshFolderCounts,
+    ],
   );
 
   const toggleStar = useCallback(
     async (message: EmailMessage): Promise<MailOperationResult> => {
+      const identity = getMessageIdentityKey(message);
+      if (!identity) return identityFailure();
       try {
-        const result = await serviceMessageOps.toggleStar(message.id);
-        return { success: result.success, error: result.error };
+        const result = await serviceMessageOps.toggleStar(identity);
+        return {
+          success: result.success,
+          error: result.error,
+          requiresRefresh: result.requiresRefresh,
+        };
       } catch (err) {
         return {
           success: false,
@@ -381,14 +510,20 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps],
+    [serviceMessageOps, identityFailure],
   );
 
   const toggleImportant = useCallback(
     async (message: EmailMessage): Promise<MailOperationResult> => {
+      const identity = getMessageIdentityKey(message);
+      if (!identity) return identityFailure();
       try {
-        const result = await serviceMessageOps.toggleImportant(message.id);
-        return { success: result.success, error: result.error };
+        const result = await serviceMessageOps.toggleImportant(identity);
+        return {
+          success: result.success,
+          error: result.error,
+          requiresRefresh: result.requiresRefresh,
+        };
       } catch (err) {
         return {
           success: false,
@@ -397,7 +532,7 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps],
+    [serviceMessageOps, identityFailure],
   );
 
   // ============== Compose Operations (via ComposerContext) ==============
@@ -410,10 +545,24 @@ export function useMailOperations(): UseMailOperationsReturn {
       }
 
       if (!message) return;
+      const ref = getMessageIdentityRef(message);
+      if (!ref) {
+        void identityFailure();
+        return;
+      }
+
+      const sourceAccount = accounts.find(
+        (account) => String(account.id) === String(ref.accountId),
+      );
+      if (!sourceAccount?.email) {
+        void identityFailure();
+        return;
+      }
 
       const newComposeData: ComposeData & { is_reply?: boolean } = {
         ...DEFAULT_COMPOSE_DATA,
         mode: mode === "replyAll" ? "reply-all" : mode,
+        fromAccount: sourceAccount.email,
       };
 
       if (mode === "reply" || mode === "replyAll") {
@@ -422,6 +571,14 @@ export function useMailOperations(): UseMailOperationsReturn {
           ? message.subject
           : `Re: ${message.subject}`;
         newComposeData.is_reply = true;
+        newComposeData.inReplyTo = message.messageId ?? message.message_id;
+        newComposeData.references = message.references;
+        newComposeData.replySource = {
+          identity: getMessageIdentityKey(message),
+          accountId: ref.accountId,
+          folder: ref.folder,
+          uid: ref.uid,
+        };
       }
 
       if (mode === "replyAll") {
@@ -437,7 +594,7 @@ export function useMailOperations(): UseMailOperationsReturn {
 
       composer.setComposeData(newComposeData);
     },
-    [composer],
+    [accounts, composer, identityFailure],
   );
 
   const getComposeData = useCallback(

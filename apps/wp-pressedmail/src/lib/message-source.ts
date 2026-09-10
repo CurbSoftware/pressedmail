@@ -1,15 +1,19 @@
 /**
- * Client-side reconstruction of a message's headers / .eml / reference.
+ * Message headers, references and complete EML downloads.
  *
- * These do NOT fetch the original raw RFC822 source from IMAP, they rebuild a
- * best-effort representation from the structured fields already loaded on the
- * EmailMessage (From/To/Cc/Bcc/Subject/Date/Message-ID/In-Reply-To/References +
- * body). Used by the reading-pane More menu (View headers / Download .eml /
- * Copy reference / Open in new window).
+ * Header previews and references use the loaded fields. EML downloads fetch
+ * the original headers and MIME body from the selected account and folder.
  */
 
+import { __ } from "@wordpress/i18n";
+import { getMessageIdentityRef } from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 import type { EmailMessage } from "@/types";
-import { resolveEmailBody } from "@/lib/email-content-normalization";
+import { apiForm } from "@/lib/api-client";
+import { routeApiPrefix } from "@/context/Strings";
 
 function headerLines(m: EmailMessage): string[] {
   const out: string[] = [];
@@ -35,21 +39,6 @@ export function buildReconstructedHeaders(m: EmailMessage): string {
   return headerLines(m).join("\n");
 }
 
-/** Reconstructed RFC822-ish .eml: headers, blank line, then the body. */
-export function buildReconstructedEml(m: EmailMessage): string {
-  const resolved = resolveEmailBody(m);
-  const contentType =
-    resolved.kind === "html"
-      ? "text/html; charset=UTF-8"
-      : "text/plain; charset=UTF-8";
-  const headers = [
-    ...headerLines(m),
-    "MIME-Version: 1.0",
-    `Content-Type: ${contentType}`,
-  ];
-  return `${headers.join("\r\n")}\r\n\r\n${resolved.content}`;
-}
-
 /** Short human-readable reference string for "Copy message reference". */
 export function buildMessageReference(m: EmailMessage): string {
   const sender = m.from ?? m.email;
@@ -71,20 +60,80 @@ function safeFilename(subject?: string): string {
   return `${base || "message"}.eml`;
 }
 
-/** Trigger a browser download of the reconstructed .eml. */
-export function downloadEmlFile(
+/** Download the complete MIME message without rebuilding its body parts. */
+export async function downloadEmlFile(
   m: EmailMessage,
   doc: Document = document,
-): void {
-  const blob = new Blob([buildReconstructedEml(m)], {
-    type: "message/rfc822",
-  });
-  const url = URL.createObjectURL(blob);
-  const anchor = doc.createElement("a");
-  anchor.href = url;
-  anchor.download = safeFilename(m.subject);
-  doc.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  canDownload: () => boolean = () => true,
+): Promise<void> {
+  const identity = getMessageIdentityRef(m);
+  if (!identity)
+    throw new Error(
+      __("The original message identity is unavailable.", "pressedmail"),
+    );
+  const principal = captureRequestPrincipal();
+  const current = () => isRequestPrincipalCurrent(principal) && canDownload();
+  const assertCurrent = () => {
+    if (!current())
+      throw new Error(
+        __(
+          "The selected message or signed-in user has changed. Reopen the message and try again.",
+          "pressedmail",
+        ),
+      );
+  };
+  assertCurrent();
+  const filename = safeFilename(m.subject);
+  const response = await apiForm<{ source_base64?: string }>(
+    routeApiPrefix + "/message/raw-source",
+    {
+      account_id: identity.accountId,
+      uid: identity.uid,
+      folder: identity.folder,
+      uid_validity: identity.uidValidity,
+    },
+  );
+  assertCurrent();
+  const source = response.data?.source_base64;
+  if (
+    response.status !== "success" ||
+    typeof source !== "string" ||
+    source.length === 0
+  ) {
+    throw new Error(
+      response.message ||
+        __("Could not download the complete message.", "pressedmail"),
+    );
+  }
+  // Match the server's 25 MiB original-message limit before decoding another copy.
+  if (
+    source.length > 4 * Math.ceil((25 * 1024 * 1024) / 3) ||
+    /[^A-Za-z0-9+/=]/.test(source)
+  ) {
+    throw new Error(
+      __("The original message source is invalid or too large.", "pressedmail"),
+    );
+  }
+  const bytes = Uint8Array.from(atob(source), (char) => char.charCodeAt(0));
+  if (bytes.length > 25 * 1024 * 1024)
+    throw new Error(
+      __("The original message source is too large.", "pressedmail"),
+    );
+  assertCurrent();
+  const url = URL.createObjectURL(
+    new Blob([bytes], { type: "message/rfc822" }),
+  );
+  let anchor: HTMLAnchorElement | null = null;
+  try {
+    assertCurrent();
+    anchor = doc.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    doc.body.appendChild(anchor);
+    assertCurrent();
+    anchor.click();
+  } finally {
+    anchor?.remove();
+    URL.revokeObjectURL(url);
+  }
 }

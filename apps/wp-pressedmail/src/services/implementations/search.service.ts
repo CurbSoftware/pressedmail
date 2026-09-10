@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Search Service Implementation
  *
@@ -592,10 +596,10 @@ export class SearchService implements ISearchService {
   // ============== Private Helpers ==============
 
   private loadRecentSearches(): void {
-    if (typeof window === "undefined" || !window.localStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
-      const stored = localStorage.getItem(RECENT_SEARCHES_KEY);
+      const stored = getPrincipalStorageItem("local", RECENT_SEARCHES_KEY);
       if (stored) {
         this._recentSearches = JSON.parse(stored);
       }
@@ -605,10 +609,11 @@ export class SearchService implements ISearchService {
   }
 
   private saveRecentSearches(): void {
-    if (typeof window === "undefined" || !window.localStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
-      localStorage.setItem(
+      setPrincipalStorageItem(
+        "local",
         RECENT_SEARCHES_KEY,
         JSON.stringify(this._recentSearches),
       );

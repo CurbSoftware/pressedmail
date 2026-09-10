@@ -143,7 +143,7 @@ export function useFilterRules(
     async (ruleIds: string[]): Promise<boolean> => {
       setError(null);
 
-      const result = await reorderFilterRules(accountId ?? 0, ruleIds);
+      const result = await reorderFilterRules(ruleIds);
       if (result.success) {
         // Reorder locally
         const orderedRules = ruleIds

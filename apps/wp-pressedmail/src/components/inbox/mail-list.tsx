@@ -256,9 +256,9 @@ const MailListItem = memo(
           tagAccountId ? (
             <InlineTagSelector
               accountId={tagAccountId}
-              messageUid={String(item.uid ?? item.id)}
-              messageId={item.consolidatedUid ?? item.id}
-              folder={item.folder ?? currentFolder ?? "INBOX"}
+              messageUid={String(item.uid ?? "")}
+              uidValidity={String(item.uidValidity ?? "")}
+              folder={item.folder ?? ""}
               messageTags={item.tags}
             />
           ) : null
@@ -415,8 +415,7 @@ export function MailList({
           : null;
         const showGroup = Boolean(groupKey) && groupKey !== previousKey;
         return (
-          <Fragment
-            key={messageRowKeys[index] ?? getMessageIdentityKey(item)}>
+          <Fragment key={messageRowKeys[index] ?? getMessageIdentityKey(item)}>
             {showGroup ? (
               <div
                 className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"

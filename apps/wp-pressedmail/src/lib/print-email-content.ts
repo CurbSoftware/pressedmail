@@ -10,6 +10,7 @@ export interface PrintEmailContentOptions {
   date?: string;
   html?: string;
   text?: string;
+  /** Remote images require explicit reveal; all other remote resources stay blocked. */
   showExternalImages?: boolean;
   bodyBackgroundColor?: string;
 }
@@ -35,7 +36,7 @@ function normalizeBodyHtml(options: PrintEmailContentOptions): string {
     (options.text ? normalizeTextBody(options.text) : "<p></p>");
   const sanitizedHtml = sanitizeEmailHtml(rawHtml);
 
-  if (options.showExternalImages === false) {
+  if (options.showExternalImages !== true) {
     return blockExternalImages(sanitizedHtml).html;
   }
 
@@ -85,13 +86,15 @@ export function buildPrintableEmailDocument(
     .filter(Boolean)
     .join("");
   const backgroundStyle = getBodyBackgroundStyle(options.bodyBackgroundColor);
+  const imageSources =
+    options.showExternalImages === true ? "data: cid: https:" : "data: cid:";
 
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid: http: https:; style-src 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imageSources}; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; media-src 'none'">
   <title>${escapeHtml(title)}</title>
   <style>
     @page { margin: 0.55in; }

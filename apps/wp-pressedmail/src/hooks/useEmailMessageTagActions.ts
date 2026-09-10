@@ -1,4 +1,12 @@
 import * as React from "react";
+import {
+  getMessageIdentityRef,
+  getMessageIdentityKey,
+} from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 
 import { useFilterOperations } from "@/context/InboxContext";
 import { useTags } from "@/context/tags";
@@ -11,23 +19,9 @@ interface RemoveMessageTagOptions {
   folder?: string;
 }
 
-function resolveLocalMessageId(message: EmailMessage): string | number {
-  return (
-    message.consolidatedUid ??
-    message.id ??
-    message.uid ??
-    message.msg_no ??
-    ""
-  );
-}
-
-function resolveMessageUid(message: EmailMessage): string {
-  return String(message.uid ?? message.msg_no ?? message.id ?? "");
-}
-
 export function useEmailMessageTagActions() {
   const { activeFilters, applyFilters } = useFilterOperations();
-  const { removeTag } = useTags();
+  const { removeTag, getMessageTags } = useTags();
 
   const filterByTag = React.useCallback(
     (tag: EmailMessageTag) => {
@@ -44,31 +38,35 @@ export function useEmailMessageTagActions() {
     async (
       message: EmailMessage,
       tag: EmailMessageTag,
-      options: RemoveMessageTagOptions = {},
+      _options: RemoveMessageTagOptions = {},
     ) => {
-      const accountId = Number(message.accountId ?? options.accountId);
-      const messageUid = resolveMessageUid(message);
-      const folder = message.folder ?? options.folder ?? "INBOX";
-      const localMessageId = resolveLocalMessageId(message);
-
-      if (!Number.isInteger(accountId) || accountId <= 0 || !messageUid) {
-        return;
-      }
-
-      const previousTags = message.tags ?? [];
-      const nextTags = previousTags.filter((item) => item.id !== tag.id);
-      const inboxService = getInboxService();
-
-      inboxService.updateMessage(localMessageId, { tags: nextTags });
-
+      const ref = getMessageIdentityRef(message);
+      const localMessageId = getMessageIdentityKey(message);
+      const principal = captureRequestPrincipal();
+      if (!ref || !localMessageId || !principal) return;
       try {
-        await removeTag(tag.id, accountId, messageUid, folder);
+        await removeTag(
+          tag.id,
+          ref.accountId,
+          ref.uid,
+          ref.folder,
+          ref.uidValidity,
+        );
+        if (!isRequestPrincipalCurrent(principal)) return;
+        const tags = await getMessageTags(
+          ref.accountId,
+          ref.uid,
+          ref.folder,
+          ref.uidValidity,
+        );
+        if (isRequestPrincipalCurrent(principal))
+          getInboxService().updateMessage(localMessageId, { tags });
       } catch (error) {
-        inboxService.updateMessage(localMessageId, { tags: previousTags });
-        console.error("Failed to remove message tag:", error);
+        if (isRequestPrincipalCurrent(principal))
+          console.error("Failed to remove message tag:", error);
       }
     },
-    [removeTag],
+    [removeTag, getMessageTags],
   );
 
   return {

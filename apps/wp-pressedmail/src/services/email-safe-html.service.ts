@@ -83,7 +83,7 @@ function serializeStyle(declarations: StyleDeclaration[]): string {
 // data-pm-decoration marker; the class selectors also strip content captured
 // during the old DOM-fallback serialization bug (which baked the label in as
 // real text without the marker).
-const EDITOR_DECORATION_SELECTOR =
+export const EDITOR_DECORATION_SELECTOR =
   "[data-pm-decoration], .pm-signature-label, .pm-quote-header";
 
 function stripEditorDecorations(root: HTMLElement): void {

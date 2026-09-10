@@ -11,6 +11,7 @@ import { PressedMailLaunchIcon } from "@/components/Icons/PressedMailLaunchIcon"
 import { useAppContext } from "@/context/AppProvider";
 import { usePaneCompose } from "@/context/composer";
 import { cn } from "@/lib/utils";
+import { FLOATING_NAVIGATION_Z_INDEX } from "@/components/ui/pane-layers";
 import type { SpeedDialPosition } from "@/hooks/useUserPreferences";
 
 export interface SpeedDialMenuSizeConfig {
@@ -75,7 +76,7 @@ function placementClasses(placement: SpeedDialMenuPlacement) {
   if (placement === "inline") return "relative";
   const fixed = placement.replace(/^fixed-/, "");
   return cn(
-    "fixed z-50",
+    "fixed",
     fixed.startsWith("top-") &&
       "top-[calc(var(--wp-admin-bar-height,32px)_+_4.75rem)]",
     fixed.startsWith("middle-") && "top-1/2 -translate-y-1/2",
@@ -133,6 +134,8 @@ export function SpeedDialMenu({
       className={cn(placementClasses(placement), className)}
       style={
         {
+          zIndex:
+            placement === "inline" ? undefined : FLOATING_NAVIGATION_Z_INDEX,
           width: resolvedSize.launcherDiameter,
           minHeight: resolvedSize.launcherDiameter,
         } as CSSProperties

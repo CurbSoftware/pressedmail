@@ -14,6 +14,7 @@ import { Button, ButtonGroup } from "@kit/ui/plugin";
 import { cn } from "@/lib/utils";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import {
+  ComposerReadReceiptButton,
   ComposerRemoveScheduleButton,
   ComposerScheduleSendButton,
 } from "@/components/inbox/compose/ComposerScheduleActions.active";
@@ -99,7 +100,11 @@ export function ComposerHeaderSendGroup({
   const returnToPaneLabel = __("Return to compose pane", "pressedmail");
   const fullViewLabel = __("Expand compose to full view", "pressedmail");
   const isDeliveryPending =
-    isSending || isScheduling || isDiscarding || pendingInlineImageUploads > 0;
+    isSending ||
+    isScheduling ||
+    isDiscarding ||
+    form.readReceipt?.pending ||
+    pendingInlineImageUploads > 0;
 
   if (variant === "ribbon") {
     const sendLabel = isSending
@@ -159,6 +164,11 @@ export function ComposerHeaderSendGroup({
           <span className={RIBBON_LABEL_CLASSES}>{saveLabel}</span>
         </Button>
 
+        <ComposerReadReceiptButton
+          form={form}
+          isDeliveryPending={isDeliveryPending}
+          variant="ribbon"
+        />
         <ComposerRemoveScheduleButton
           form={form}
           isDeliveryPending={isDeliveryPending}
@@ -294,6 +304,11 @@ export function ComposerHeaderSendGroup({
         </Button>
       </PressedTooltip>
 
+      <ComposerReadReceiptButton
+        form={form}
+        isDeliveryPending={isDeliveryPending}
+        variant="compact"
+      />
       <ComposerRemoveScheduleButton
         form={form}
         isDeliveryPending={isDeliveryPending}

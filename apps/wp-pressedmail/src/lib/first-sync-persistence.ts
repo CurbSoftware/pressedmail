@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Per-account/scope "first-ever sync completed" persistence in localStorage.
  *
@@ -18,7 +22,7 @@ export function markFirstSyncComplete(key: string): void {
   try {
     const data = readAll();
     data[key] = true;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    setPrincipalStorageItem("local", STORAGE_KEY, JSON.stringify(data));
   } catch {
     // localStorage may be full or unavailable.
   }
@@ -33,7 +37,7 @@ export function removeFirstSync(key: string): void {
     const data = readAll();
     if (key in data) {
       delete data[key];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      setPrincipalStorageItem("local", STORAGE_KEY, JSON.stringify(data));
     }
   } catch {
     // localStorage may be unavailable.
@@ -54,7 +58,7 @@ export function hasCompletedFirstSync(key: string): boolean {
 
 function readAll(): Record<string, boolean> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getPrincipalStorageItem("local", STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
   } catch {
     return {};

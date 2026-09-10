@@ -1,3 +1,4 @@
+import { safeLocalStorage } from "@/lib/preference-storage";
 import {
   createContext,
   useCallback,
@@ -68,7 +69,7 @@ const fallback: ThemeContextValue = {
 function storedTheme(initialTheme: string, persistTheme: boolean): string {
   if (typeof window === "undefined" || !persistTheme) return initialTheme;
   try {
-    const value = localStorage.getItem(STORAGE_KEY) ?? initialTheme;
+    const value = safeLocalStorage().getItem(STORAGE_KEY) ?? initialTheme;
     return isThemeAvailable(value) ? value : initialTheme;
   } catch {
     return initialTheme;
@@ -117,7 +118,7 @@ export function ThemeProvider({
       setCurrentTheme(themeId);
       if (persistTheme) {
         try {
-          localStorage.setItem(STORAGE_KEY, themeId);
+          safeLocalStorage().setItem(STORAGE_KEY, themeId);
         } catch {
           // A blocked storage API must not stop a theme change.
         }

@@ -172,10 +172,11 @@ const EMAIL_SANITIZE_CONFIG = {
   ],
   ALLOW_DATA_ATTR: false,
   ALLOW_UNKNOWN_PROTOCOLS: false,
+  // Keep leading stylesheets inside the fragment so DOMPurify checks them too.
+  FORCE_BODY: true,
 };
 
 const SAFE_STYLESHEET_URL = /^https:\/\//i;
-const CSS_PLACEHOLDER_PREFIX = "__PRESSEDMAIL_EMAIL_CSS_SOURCE_";
 
 export function sanitizeEmailCssText(css: string): string {
   if (!css) return "";
@@ -319,7 +320,10 @@ function normalizeEmailCss(html: string): string {
   root.querySelectorAll("link").forEach((link) => {
     const rel = (link.getAttribute("rel") || "").toLowerCase();
     const href = (link.getAttribute("href") || "").trim();
-    if (!rel.split(/\s+/).includes("stylesheet") || !SAFE_STYLESHEET_URL.test(href)) {
+    if (
+      !rel.split(/\s+/).includes("stylesheet") ||
+      !SAFE_STYLESHEET_URL.test(href)
+    ) {
       link.remove();
     }
   });
@@ -327,51 +331,20 @@ function normalizeEmailCss(html: string): string {
   return root.innerHTML;
 }
 
-function extractCssSources(html: string): {
-  html: string;
-  sources: string[];
-} {
-  const sources: string[] = [];
-  let next = html.replace(
-    /<style\b([^>]*)>([\s\S]*?)<\/style>/gi,
-    (_match, attrs: string, css: string) => {
-      const sanitized = sanitizeEmailCssText(css);
-      if (!sanitized) return "";
-      const token = `${CSS_PLACEHOLDER_PREFIX}${sources.length}__`;
-      sources.push(`<style${attrs}>${sanitized}</style>`);
-      return token;
-    },
+function sanitizeHtml(
+  html: string,
+  config: typeof EMAIL_SANITIZE_CONFIG,
+): string {
+  const sanitized = DOMPurify.sanitize(
+    stripEmailDocumentArtifacts(html),
+    config,
+  );
+  const normalized = stripLeadingHiddenPreviewArtifacts(
+    normalizeEmailCss(sanitized),
   );
 
-  next = next.replace(/<link\b([^>]*)>/gi, (_match, attrs: string) => {
-    const rel = /\brel\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-    const href = /\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-    const relValue = (rel?.[2] || rel?.[3] || rel?.[4] || "").toLowerCase();
-    const hrefValue = (href?.[2] || href?.[3] || href?.[4] || "").trim();
-
-    if (
-      !relValue.split(/\s+/).includes("stylesheet") ||
-      !SAFE_STYLESHEET_URL.test(hrefValue)
-    ) {
-      return "";
-    }
-
-    const token = `${CSS_PLACEHOLDER_PREFIX}${sources.length}__`;
-    sources.push(
-      `<link rel="stylesheet" href="${hrefValue.replace(/"/g, "&quot;")}">`,
-    );
-    return token;
-  });
-
-  return { html: next, sources };
-}
-
-function restoreCssSources(html: string, sources: string[]): string {
-  return sources.reduce(
-    (current, source, index) =>
-      current.replace(`${CSS_PLACEHOLDER_PREFIX}${index}__`, source),
-    html,
-  );
+  // CSS cleanup can form HTML delimiters. Sanitize after all transformations.
+  return DOMPurify.sanitize(normalized, config);
 }
 
 /**
@@ -382,29 +355,18 @@ function restoreCssSources(html: string, sources: string[]): string {
  * it even reaches the iframe.
  */
 export function sanitizeEmailHtml(html: string): string {
-  const extracted = extractCssSources(stripEmailDocumentArtifacts(html));
-  const sanitized = DOMPurify.sanitize(
-    extracted.html,
-    EMAIL_SANITIZE_CONFIG,
-  ) as unknown as string;
-  return stripLeadingHiddenPreviewArtifacts(
-    normalizeEmailCss(restoreCssSources(sanitized, extracted.sources)),
-  );
+  return sanitizeHtml(html, EMAIL_SANITIZE_CONFIG);
 }
 
 /**
  * Sanitize user-authored HTML for preview rendering (signatures, content
- * blocks, template previews). Reuses the same allowlist as email display.
+ * blocks, template previews). Stylesheets cannot affect the parent document.
  */
 export function sanitizePreviewHtml(html: string): string {
-  const extracted = extractCssSources(stripEmailDocumentArtifacts(html));
-  const sanitized = DOMPurify.sanitize(
-    extracted.html,
-    EMAIL_SANITIZE_CONFIG,
-  ) as unknown as string;
-  return stripLeadingHiddenPreviewArtifacts(
-    normalizeEmailCss(restoreCssSources(sanitized, extracted.sources)),
-  );
+  return sanitizeHtml(html, {
+    ...EMAIL_SANITIZE_CONFIG,
+    FORBID_TAGS: [...EMAIL_SANITIZE_CONFIG.FORBID_TAGS, "style", "link"],
+  });
 }
 
 /**
@@ -447,5 +409,3 @@ export function blockExternalImages(html: string): {
   const root = doc.getElementById("__root");
   return { html: root ? root.innerHTML : html, blockedCount };
 }
-
-

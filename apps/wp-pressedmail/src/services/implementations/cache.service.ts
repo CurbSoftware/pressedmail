@@ -1,3 +1,8 @@
+import {
+  getPrincipalStorageItem,
+  removePrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Cache Service Implementation
  *
@@ -7,6 +12,10 @@
  * @since 2.0.0
  */
 
+import {
+  getMessageIdentityKey,
+  parseAccountQualifiedToken,
+} from "@/lib/message-identity";
 import type { EmailMessage, GroupedMessage } from "@/types";
 import type {
   ICacheService,
@@ -32,8 +41,8 @@ interface CacheEntry<T> {
  * Session storage keys.
  */
 const STORAGE_KEYS = {
-  MESSAGE_CACHE: "pressedmail-message-cache",
-  DETAIL_CACHE: "pressedmail-detail-cache",
+  MESSAGE_CACHE: "pressedmail-message-cache-v2",
+  DETAIL_CACHE: "pressedmail-detail-cache-v2",
   FOLDER_CACHE: "pressedmail-folder-cache",
 } as const;
 
@@ -53,47 +62,62 @@ const STORAGE_BUDGETS = {
  * Build a cache key string from CacheKey object.
  */
 function buildCacheKeyString(key: CacheKey): string {
-  // Append the consolidated scope discriminator ONLY when present, so
-  // single-mailbox keys stay byte-identical to the legacy format.
-  const scope = key.consolidatedKey ? `:${key.consolidatedKey}` : "";
-  const base = `${key.accountId}:${key.folder}:${key.grouping ?? "list"}:${key.filterSignature ?? "nofilters"}${scope}`;
-  if (key.offset !== undefined && key.limit !== undefined) {
-    return `${base}:${key.offset}:${key.limit}`;
-  }
-  return base;
+  return JSON.stringify([
+    key.accountId,
+    key.folder,
+    key.grouping ?? "list",
+    key.filterSignature ?? "nofilters",
+    key.consolidatedKey ?? null,
+    key.offset ?? null,
+    key.limit ?? null,
+  ]);
 }
 
-/**
- * Build a detail cache key string.
- */
 function buildDetailKeyString(
   accountId: string,
   folder: string,
   messageId: string | number,
 ): string {
-  return `${accountId}:${folder}:${messageId}`;
+  const ref =
+    typeof messageId === "string"
+      ? parseAccountQualifiedToken(messageId)
+      : null;
+  return ref?.kind === "message" &&
+    String(ref.accountId) === accountId &&
+    ref.folder === folder
+    ? JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid])
+    : "";
 }
 
 function matchesMessageId(
   message: EmailMessage,
   messageId: string | number,
 ): boolean {
-  if (
-    message.consolidatedUid &&
-    message.consolidatedUid === String(messageId)
-  ) {
-    return true;
-  }
-
-  const candidateId = message.id ?? message.uid;
-  return candidateId === messageId || String(candidateId) === String(messageId);
+  const key = getMessageIdentityKey(message);
+  return key !== "" && key === messageId;
 }
 
-/**
- * Check if a cache entry is expired.
- */
+function completeList(data: CachedMessageList): boolean {
+  const rows = [
+    ...data.messages,
+    ...data.groupedMessages.flatMap((group) =>
+      Array.isArray(group.emails) ? group.emails : [group.emails],
+    ),
+    ...Object.values(data.threadGroups ?? {}).flat(),
+  ];
+  return rows.every((row) => getMessageIdentityKey(row) !== "");
+}
+
 function isExpired<T>(entry: CacheEntry<T>): boolean {
   return Date.now() - entry.timestamp > entry.ttl;
+}
+
+function hasCurrentAttachmentParts(message: EmailMessage): boolean {
+  return (message.attachments ?? []).every(
+    (attachment) =>
+      attachment.part_format === "imap-section-v1" &&
+      attachment.metadata_format === "decoded-attachment-v1",
+  );
 }
 
 function serializeBoundedCache<T>(
@@ -130,17 +154,15 @@ function serializeBoundedCache<T>(
  * Check if a key matches a pattern.
  */
 function matchesPattern(key: string, pattern: CacheKeyPattern): boolean {
-  const parts = key.split(":");
-  const accountId = parts[0];
-  const folder = parts[1];
-
-  if (pattern.accountId && pattern.accountId !== accountId) {
+  try {
+    const [accountId, folder] = JSON.parse(key) as string[];
+    return (
+      (!pattern.accountId || pattern.accountId === accountId) &&
+      (!pattern.folder || pattern.folder === folder)
+    );
+  } catch {
     return false;
   }
-  if (pattern.folder && pattern.folder !== folder) {
-    return false;
-  }
-  return true;
 }
 
 /**
@@ -158,6 +180,8 @@ export class CacheService implements ICacheService {
   private misses = 0;
 
   constructor() {
+    removePrincipalStorageItem("session", "pressedmail-message-cache");
+    removePrincipalStorageItem("session", "pressedmail-detail-cache");
     // Restore from session storage on initialization
     this.restoreFromStorage();
 
@@ -212,6 +236,7 @@ export class CacheService implements ICacheService {
     data: CachedMessageList,
     ttl = DEFAULT_CACHE_TTL.MESSAGE_LIST,
   ): void {
+    if (!completeList(data)) return;
     const cacheKey = buildCacheKeyString(key);
     this.messageCache.set(cacheKey, {
       data,
@@ -276,8 +301,8 @@ export class CacheService implements ICacheService {
     message: EmailMessage,
     ttl = DEFAULT_CACHE_TTL.MESSAGE_DETAIL,
   ): void {
-    const messageId = message.id ?? message.uid;
-    if (!messageId) return;
+    const messageId = getMessageIdentityKey(message);
+    if (!buildDetailKeyString(accountId, folder, messageId)) return;
 
     const cacheKey = buildDetailKeyString(accountId, folder, messageId);
     this.detailCache.set(cacheKey, {
@@ -287,7 +312,7 @@ export class CacheService implements ICacheService {
     });
 
     // Also update in any message lists
-    this.updateMessageInLists(accountId, messageId, message);
+    this.updateMessageInLists(accountId, messageId, message, folder);
 
     this.debouncedPersist();
   }
@@ -412,7 +437,7 @@ export class CacheService implements ICacheService {
   }
 
   persistToStorage(): void {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
       this.writeStorageSnapshot({
@@ -437,39 +462,57 @@ export class CacheService implements ICacheService {
   }
 
   restoreFromStorage(): void {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
       // Restore message cache
-      const messageData = sessionStorage.getItem(STORAGE_KEYS.MESSAGE_CACHE);
+      const messageData = getPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.MESSAGE_CACHE,
+      );
       if (messageData) {
         const parsed = JSON.parse(messageData) as Record<
           string,
           CacheEntry<CachedMessageList>
         >;
         for (const [key, entry] of Object.entries(parsed)) {
-          if (!isExpired(entry)) {
+          if (
+            !isExpired(entry) &&
+            completeList(entry.data) &&
+            entry.data.messages.every(hasCurrentAttachmentParts)
+          ) {
             this.messageCache.set(key, entry);
           }
         }
       }
 
       // Restore detail cache
-      const detailData = sessionStorage.getItem(STORAGE_KEYS.DETAIL_CACHE);
+      const detailData = getPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.DETAIL_CACHE,
+      );
       if (detailData) {
         const parsed = JSON.parse(detailData) as Record<
           string,
           CacheEntry<EmailMessage>
         >;
         for (const [key, entry] of Object.entries(parsed)) {
-          if (!isExpired(entry)) {
+          if (
+            !isExpired(entry) &&
+            key === getMessageIdentityKey(entry.data) &&
+            key !== "" &&
+            hasCurrentAttachmentParts(entry.data)
+          ) {
             this.detailCache.set(key, entry);
           }
         }
       }
 
       // Restore folder cache
-      const folderData = sessionStorage.getItem(STORAGE_KEYS.FOLDER_CACHE);
+      const folderData = getPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.FOLDER_CACHE,
+      );
       if (folderData) {
         const parsed = JSON.parse(folderData) as Record<
           string,
@@ -518,58 +561,77 @@ export class CacheService implements ICacheService {
     accountId: string,
     messageId: string | number,
     updates: Partial<EmailMessage>,
+    folder: string,
   ): void {
-    // Update in message lists
-    this.updateMessageInLists(accountId, messageId, updates);
-
-    // Update in detail cache
-    for (const [key, entry] of this.detailCache.entries()) {
-      if (key.startsWith(`${accountId}:`)) {
-        if (matchesMessageId(entry.data, messageId)) {
-          this.detailCache.set(key, {
-            ...entry,
-            data: { ...entry.data, ...updates },
-            timestamp: Date.now(),
-          });
-        }
-      }
+    const key = buildDetailKeyString(accountId, folder, messageId);
+    if (!key) return;
+    this.updateMessageInLists(accountId, key, updates, folder);
+    const entry = this.detailCache.get(key);
+    if (entry && getMessageIdentityKey({ ...entry.data, ...updates }) === key) {
+      this.detailCache.set(key, {
+        ...entry,
+        data: { ...entry.data, ...updates },
+        timestamp: Date.now(),
+      });
     }
-
     this.debouncedPersist();
   }
 
   removeMessage(accountId: string, messageId: string | number): void {
-    // Remove from message lists
+    const ref =
+      typeof messageId === "string"
+        ? parseAccountQualifiedToken(messageId)
+        : null;
+    if (ref?.kind !== "message") return;
+    const token = buildDetailKeyString(accountId, ref.folder, messageId);
+    if (!token) return;
     for (const [key, entry] of this.messageCache.entries()) {
-      if (key.startsWith(`${accountId}:`)) {
-        const updatedMessages = entry.data.messages.filter((msg) => {
-          return !matchesMessageId(msg, messageId);
+      const keep = (message: EmailMessage) => !matchesMessageId(message, token);
+      const messages = entry.data.messages.filter(keep);
+      let changed = messages.length !== entry.data.messages.length;
+      const groupedMessages = entry.data.groupedMessages.flatMap((group) => {
+        const before = Array.isArray(group.emails)
+          ? group.emails
+          : [group.emails];
+        const remaining = before.filter(keep);
+        if (remaining.length === before.length) return [group];
+        changed = true;
+        return remaining.length
+          ? [
+              {
+                ...group,
+                count: Math.max(
+                  0,
+                  group.count - (before.length - remaining.length),
+                ),
+                emails: Array.isArray(group.emails) ? remaining : remaining[0]!,
+              },
+            ]
+          : [];
+      });
+      const threadGroups = entry.data.threadGroups
+        ? Object.fromEntries(
+            Object.entries(entry.data.threadGroups).flatMap(([id, rows]) => {
+              const remaining = rows.filter(keep);
+              if (remaining.length !== rows.length) changed = true;
+              return remaining.length ? [[id, remaining]] : [];
+            }),
+          )
+        : undefined;
+      if (changed)
+        this.messageCache.set(key, {
+          ...entry,
+          timestamp: Date.now(),
+          data: {
+            ...entry.data,
+            messages,
+            groupedMessages,
+            threadGroups,
+            totalCount: Math.max(0, entry.data.totalCount - 1),
+          },
         });
-
-        if (updatedMessages.length !== entry.data.messages.length) {
-          this.messageCache.set(key, {
-            ...entry,
-            data: {
-              ...entry.data,
-              messages: updatedMessages,
-              totalCount: entry.data.totalCount - 1,
-            },
-            timestamp: Date.now(),
-          });
-        }
-      }
     }
-
-    // Remove from detail cache
-    for (const [key, entry] of this.detailCache.entries()) {
-      if (
-        key.startsWith(`${accountId}:`) &&
-        matchesMessageId(entry.data, messageId)
-      ) {
-        this.detailCache.delete(key);
-      }
-    }
-
+    this.detailCache.delete(token);
     this.debouncedPersist();
   }
 
@@ -582,29 +644,40 @@ export class CacheService implements ICacheService {
     accountId: string,
     messageId: string | number,
     updates: Partial<EmailMessage>,
+    folder: string,
   ): void {
+    const token = buildDetailKeyString(accountId, folder, messageId);
+    if (!token) return;
     for (const [key, entry] of this.messageCache.entries()) {
-      if (key.startsWith(`${accountId}:`)) {
-        let updated = false;
-        const updatedMessages = entry.data.messages.map((msg) => {
-          if (matchesMessageId(msg, messageId)) {
-            updated = true;
-            return { ...msg, ...updates };
-          }
-          return msg;
+      let updated = false;
+      const update = (message: EmailMessage): EmailMessage => {
+        if (!matchesMessageId(message, token)) return message;
+        const next = { ...message, ...updates };
+        if (getMessageIdentityKey(next) !== token) return message;
+        updated = true;
+        return next;
+      };
+      const messages = entry.data.messages.map(update);
+      const groupedMessages = entry.data.groupedMessages.map((group) => ({
+        ...group,
+        emails: Array.isArray(group.emails)
+          ? group.emails.map(update)
+          : update(group.emails),
+      }));
+      const threadGroups = entry.data.threadGroups
+        ? Object.fromEntries(
+            Object.entries(entry.data.threadGroups).map(([id, rows]) => [
+              id,
+              rows.map(update),
+            ]),
+          )
+        : undefined;
+      if (updated)
+        this.messageCache.set(key, {
+          ...entry,
+          timestamp: Date.now(),
+          data: { ...entry.data, messages, groupedMessages, threadGroups },
         });
-
-        if (updated) {
-          this.messageCache.set(key, {
-            ...entry,
-            data: {
-              ...entry.data,
-              messages: updatedMessages,
-            },
-            timestamp: Date.now(),
-          });
-        }
-      }
     }
   }
 
@@ -627,38 +700,45 @@ export class CacheService implements ICacheService {
     detailChars: number;
     folderChars: number;
   }): void {
-    sessionStorage.setItem(
-      STORAGE_KEYS.MESSAGE_CACHE,
-      serializeBoundedCache(this.messageCache, {
-        maxEntries: STORAGE_BUDGETS.MAX_MESSAGE_PAGES,
-        maxChars: budget.messageChars,
-      }),
-    );
-    sessionStorage.setItem(
-      STORAGE_KEYS.DETAIL_CACHE,
-      serializeBoundedCache(this.detailCache, {
-        maxEntries: STORAGE_BUDGETS.MAX_DETAIL_ENTRIES,
-        maxChars: budget.detailChars,
-      }),
-    );
-    sessionStorage.setItem(
-      STORAGE_KEYS.FOLDER_CACHE,
-      serializeBoundedCache(this.folderCache, {
-        maxEntries: STORAGE_BUDGETS.MAX_FOLDER_ENTRIES,
-        maxChars: budget.folderChars,
-      }),
-    );
+    const saved = [
+      setPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.MESSAGE_CACHE,
+        serializeBoundedCache(this.messageCache, {
+          maxEntries: STORAGE_BUDGETS.MAX_MESSAGE_PAGES,
+          maxChars: budget.messageChars,
+        }),
+      ),
+      setPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.DETAIL_CACHE,
+        serializeBoundedCache(this.detailCache, {
+          maxEntries: STORAGE_BUDGETS.MAX_DETAIL_ENTRIES,
+          maxChars: budget.detailChars,
+        }),
+      ),
+      setPrincipalStorageItem(
+        "session",
+        STORAGE_KEYS.FOLDER_CACHE,
+        serializeBoundedCache(this.folderCache, {
+          maxEntries: STORAGE_BUDGETS.MAX_FOLDER_ENTRIES,
+          maxChars: budget.folderChars,
+        }),
+      ),
+    ];
+    if (saved.some((result) => !result))
+      throw new Error("Mailbox cache could not be persisted.");
   }
 
   /**
    * Clear session storage.
    */
   private clearStorage(): void {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
-    sessionStorage.removeItem(STORAGE_KEYS.MESSAGE_CACHE);
-    sessionStorage.removeItem(STORAGE_KEYS.DETAIL_CACHE);
-    sessionStorage.removeItem(STORAGE_KEYS.FOLDER_CACHE);
+    removePrincipalStorageItem("session", STORAGE_KEYS.MESSAGE_CACHE);
+    removePrincipalStorageItem("session", STORAGE_KEYS.DETAIL_CACHE);
+    removePrincipalStorageItem("session", STORAGE_KEYS.FOLDER_CACHE);
   }
 }
 

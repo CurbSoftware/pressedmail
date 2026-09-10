@@ -117,6 +117,8 @@ export interface LocalCalendarEvent {
   all_day: boolean;
   /** Event location */
   location: string | null;
+  /** Imported ICS UID, when present. */
+  external_id?: string | null;
   /** Event timezone */
   timezone: string;
   /** Attendees (email list) */
@@ -315,58 +317,11 @@ export interface CalendarCapabilities {
 }
 
 /**
- * Data for creating a new event.
- */
-export interface CreateEventData {
-  title: string;
-  description?: string;
-  start_date: string;
-  end_date: string;
-  all_day?: boolean;
-  location?: string;
-  reminder?: ReminderType;
-  recurrence?: RecurrenceType;
-  email_id?: number;
-  color?: string;
-  tags?: string[];
-  account_id?: number | null;
-}
-
-/**
- * Data for updating an existing event.
- */
-export interface UpdateEventData {
-  title?: string;
-  description?: string | null;
-  start_date?: string;
-  end_date?: string;
-  all_day?: boolean;
-  location?: string | null;
-  reminder?: ReminderType;
-  recurrence?: RecurrenceType;
-  color?: string | null;
-  tags?: string[];
-  is_completed?: boolean;
-}
-
-/**
  * Date range for fetching events.
  */
 export interface DateRange {
   start: Date;
   end: Date;
-}
-
-/**
- * Extracted event from email.
- */
-export interface ExtractedEvent {
-  title: string;
-  start_date: string;
-  end_date: string;
-  location: string | null;
-  description: string | null;
-  email_id: number;
 }
 
 /**
@@ -389,12 +344,6 @@ export interface CalendarEventResponse {
 export interface CalendarOperationResponse {
   status: "success" | "error";
   event?: CalendarEvent;
-  message?: string;
-}
-
-export interface ExtractedEventsResponse {
-  status: "success" | "error";
-  events: ExtractedEvent[];
   message?: string;
 }
 
@@ -422,27 +371,6 @@ export interface CalendarContextValue {
   fetchEvents: (start: Date, end: Date) => Promise<void>;
   /** Get a single event */
   getEvent: (eventId: number) => Promise<CalendarEvent | null>;
-  /** Create a new event */
-  createEvent: (
-    data: CreateEventData,
-  ) => Promise<{ success: boolean; event?: CalendarEvent; error?: string }>;
-  /** Update an event */
-  updateEvent: (
-    eventId: number,
-    data: UpdateEventData,
-  ) => Promise<{ success: boolean; event?: CalendarEvent; error?: string }>;
-  /** Delete an event */
-  deleteEvent: (
-    eventId: number,
-  ) => Promise<{ success: boolean; error?: string }>;
-  /** Toggle event completion */
-  toggleComplete: (
-    eventId: number,
-  ) => Promise<{ success: boolean; error?: string }>;
-  /** Extract events from email */
-  extractEventsFromEmail: (
-    emailId: number,
-  ) => Promise<{ success: boolean; events?: ExtractedEvent[]; error?: string }>;
   /** Get events for a specific day */
   getEventsForDay: (date: Date) => CalendarEvent[];
   /** Get upcoming events */
@@ -551,6 +479,7 @@ export interface CalendarContextValue {
   connectProvider: (
     provider: CalendarSyncProvider,
     authCode: string,
+    state: string,
   ) => Promise<{
     success: boolean;
     calendars?: ConnectedCalendar[];
@@ -651,22 +580,20 @@ export interface CalendarSyncStatus {
  * Calendar sync result.
  */
 export interface CalendarSyncResult {
-  imported: number;
-  exported: number;
-  updated: number;
-  deleted: number;
-  errors: string[];
+  pulled: number;
+  pushed: number;
+  failed: number;
+  conflicts: number;
 }
 
 /**
  * Free/busy time slot.
  */
 export interface FreeBusySlot {
-  start: string;
-  end: string;
-  status: "free" | "busy" | "tentative";
-  calendar_id?: number;
-  calendar_name?: string;
+  calendar_id: number;
+  external_id: string;
+  provider: CalendarSyncProvider;
+  busy: Array<{ start: string; end: string }>;
 }
 
 // ============================================

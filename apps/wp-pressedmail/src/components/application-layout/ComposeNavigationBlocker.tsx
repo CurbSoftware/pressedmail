@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef } from "react";
 import * as ReactRouter from "react-router-dom";
 
 import { useComposer } from "@/context/composer/ComposerContext";
+import { consumeComposeRouteSearch } from "@/lib/mailto";
 
 const fallbackDataRouterContext = createContext<unknown>(null);
 
@@ -102,7 +103,21 @@ function ComposeRouteBlocker() {
   // compose form's dirty ref, no re-registration churn, and it coexists with
   // the settings-ui blocker (only one predicate is true at a time in
   // practice; both return false when their surface is clean).
-  const blocker = ReactRouter.useBlocker(() => isComposeDirty());
+  const blocker = ReactRouter.useBlocker(
+    ({ currentLocation, nextLocation, historyAction }) => {
+      // Consuming an incoming payload after Save, Discard or Keep Editing changes
+      // only its URL. It must not ask to discard the same draft a second time.
+      const isPayloadCleanup =
+        historyAction === "REPLACE" &&
+        currentLocation.pathname === "/compose" &&
+        nextLocation.pathname === currentLocation.pathname &&
+        nextLocation.hash === currentLocation.hash &&
+        nextLocation.state === currentLocation.state &&
+        nextLocation.search ===
+          consumeComposeRouteSearch(currentLocation.search);
+      return !isPayloadCleanup && isComposeDirty();
+    },
+  );
   const handledRef = useRef(false);
 
   useEffect(() => {

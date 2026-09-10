@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Per-account client-state reconciliation + cleanup.
  *
@@ -56,7 +60,9 @@ export function findRemovedAccountIdentities<T extends AccountIdentity>(
  */
 export function clearAccountClientState(identity: AccountIdentity): void {
   const email =
-    identity.email != null && identity.email !== "" ? identity.email : undefined;
+    identity.email != null && identity.email !== ""
+      ? identity.email
+      : undefined;
   const id = identity.id != null ? String(identity.id) : undefined;
 
   if (email) {
@@ -93,7 +99,7 @@ export function reconcileRemovedAccounts<T extends AccountIdentity>(
 
 function pruneSessionMapByIdPrefix(storageKey: string, id: string): void {
   try {
-    const raw = sessionStorage.getItem(storageKey);
+    const raw = getPrincipalStorageItem("session", storageKey);
     if (!raw) {
       return;
     }
@@ -107,7 +113,7 @@ function pruneSessionMapByIdPrefix(storageKey: string, id: string): void {
       }
     }
     if (changed) {
-      sessionStorage.setItem(storageKey, JSON.stringify(data));
+      setPrincipalStorageItem("session", storageKey, JSON.stringify(data));
     }
   } catch {
     // sessionStorage may be unavailable / malformed, best effort.

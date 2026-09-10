@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -144,7 +144,11 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
         (rule) => rule.enabled && ruleCanRunManually(rule),
       );
       setRules(enabled);
-      setSelectedRuleIds(new Set(enabled.map((rule) => rule.id)));
+      // Deliberately empty. Opened from Settings this picker has no account to
+      // scope to, so a run covers every connected mailbox and every enabled
+      // rule, including the ones a sweep generated. Preselecting them all made
+      // "Run rules now" one click away from a mass mutation nobody asked for.
+      setSelectedRuleIds(new Set());
     } catch (error) {
       // Without this the dialog claimed "No enabled rules available", which is
       // a different problem with a different fix.
@@ -165,8 +169,11 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
 
     setStopping(true);
     try {
-      applyRunUpdate(await cancelFilterRuleRun(activeRunId));
-      setLastMessage(__("Stopping the rule run", "pressedmail"));
+      const run = await cancelFilterRuleRun(activeRunId);
+      applyRunUpdate(run);
+      if (!FINAL_RUN_STATUSES.has(run.status)) {
+        setLastMessage(__("Stopping the rule run", "pressedmail"));
+      }
     } catch (error) {
       setLastMessage(
         error instanceof Error
@@ -219,13 +226,33 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
         setRunning(false);
         return;
       }
+      // A partial skip used to be invisible: pick three rules, one of them
+      // matching on body, and the run quietly applied two. The mirror holds a
+      // truncated snippet, not the body, so that rule can only run in the
+      // browser through Organize. Say which ones, and say where they do run.
+      const skipped = preview.unsupportedRules ?? [];
+      const startedMessage =
+        skipped.length > 0
+          ? sprintf(
+              /* translators: %s: comma-separated rule names. */
+              __(
+                "Rule run started. Skipped here, use Organize instead: %s",
+                "pressedmail",
+              ),
+              skipped.map((rule) => rule.name).join(", "),
+            )
+          : __("Rule run started", "pressedmail");
+
       const run = await startFilterRuleRun(request);
       setOpen(false);
       if (FINAL_RUN_STATUSES.has(run.status)) {
         applyRunUpdate(run);
+        if (skipped.length > 0) {
+          setLastMessage(startedMessage);
+        }
       } else {
         setActiveRunId(run.id);
-        setLastMessage(__("Rule run started", "pressedmail"));
+        setLastMessage(startedMessage);
         void pollRun(run.id);
       }
     } catch (error) {
@@ -436,6 +463,10 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
                 <ResultMetric
                   label={__("Failed", "pressedmail")}
                   value={`${runReport.failedCount ?? 0} ${__("failed", "pressedmail")}`}
+                />
+                <ResultMetric
+                  label={__("Skipped actions", "pressedmail")}
+                  value={runReport.skippedCount ?? 0}
                 />
                 <ResultMetric
                   label={__("Status", "pressedmail")}

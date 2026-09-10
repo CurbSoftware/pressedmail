@@ -36,6 +36,7 @@ import {
 } from "@/lib/folder-target";
 import type { FolderTarget } from "@/services/interfaces";
 import { SnoozePopover } from "@/components/snooze/snooze-popover";
+import { useSnooze } from "@/components/snooze/use-snooze";
 import {
   AddSenderContactIcon,
   EmailArchiveIcon,
@@ -65,7 +66,6 @@ import {
   toast,
 } from "@kit/ui/plugin";
 import { cn } from "@/lib/utils";
-import { useAppContext } from "@/context/AppProvider";
 import {
   useInbox,
   useMessageOperations,
@@ -76,14 +76,26 @@ import {
   useAutoTaggerToolAvailable,
 } from "@/context/auto-tagger/AutoTaggerContext";
 import { useEmailSummaries } from "@/context/email-summary";
-import { useFeatureAvailable } from "@/context/features/FeaturesContext";
+import {
+  useFeatureAvailable,
+  useFeatureEnabled,
+} from "@/context/features/FeaturesContext";
 import { useTags } from "@/context/tags";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useSelectedMessagePhishingScan } from "@/hooks/useSelectedMessagePhishingScan";
 import { PhishingSafetyButton } from "@/components/phishing/PhishingSafetyButton";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
-import { getInboxService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
+import {
+  getMessageIdentityKey,
+  getMessageIdentityRef,
+} from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+  type StoragePrincipal,
+} from "@/lib/principal-storage";
 import { MailTagActionDropdown } from "./MailTagActionDropdown";
 import {
   PRESSED_OUT_RIBBON_ICON_CLASS,
@@ -352,6 +364,19 @@ export function EmailActionBar({
   onToggleImages,
 }: EmailActionBarProps) {
   const [isClassifying, setIsClassifying] = useState(false);
+  const { unsnoozeEmail } = useSnooze();
+  const snoozeEnabled = useFeatureEnabled("snooze");
+  // Local rows carry their durable owner. Original UIDs collide across folders
+  // and can change during the parking move, so never resolve a snooze by UID.
+  const snoozeId =
+    message.snoozed === true &&
+    Number.isSafeInteger(message.snooze_id) &&
+    Number(message.snooze_id) > 0 &&
+    String(message.id) === `snoozed-${message.snooze_id}` &&
+    Number.isSafeInteger(message.accountId) &&
+    Number(message.accountId) > 0
+      ? message.snooze_id!
+      : null;
   const {
     phishingEnabled,
     isScanning,
@@ -369,59 +394,173 @@ export function EmailActionBar({
   const { summarizeMessages, isSummarizing } = useEmailSummaries();
   const aiSummarizeAvailable = useFeatureAvailable("ai_summarize");
   const { tags, assignTag, removeTag, getMessageTags } = useTags();
-  const { accounts, selectedAccount } = useAppContext();
   const { folders } = useInbox();
   const { moveMessage, getRawHeaders } = useMessageOperations();
   const { getMoveTargetFolders } = useFolderOperations();
-  const [headersOpen, setHeadersOpen] = useState(false);
   const [headersText, setHeadersText] = useState<string | null>(null);
   const [headersLoading, setHeadersLoading] = useState(false);
-  const [messageTagSelection, setMessageTagSelection] = useState<
-    EmailMessageTag[]
-  >(() => (message.tags ?? []).map(toEmailMessageTag));
-  const [messageTagsLoaded, setMessageTagsLoaded] = useState(
-    Boolean(message.tags),
+  const tagIdentity = getMessageIdentityRef(message);
+  const tagIdentityKey = getMessageIdentityKey(tagIdentity);
+  // Local snooze rows are identified by their durable row ID. Incomplete
+  // physical rows must never borrow identity from the currently selected account.
+  const scopeKey = JSON.stringify([
+    tagIdentityKey,
+    message.id,
+    snoozeId,
+    message.accountId,
+    message.folder,
+    message.uid,
+    message.uidValidity,
+    message.uid_validity,
+  ]);
+  const tagScopeRef = useRef({ key: scopeKey });
+  if (tagScopeRef.current.key !== scopeKey) {
+    tagScopeRef.current = { key: scopeKey };
+  }
+  const tagScope = tagScopeRef.current;
+  const [headersScope, setHeadersScope] = useState<typeof tagScope | null>(
+    null,
   );
-  const messageTagSyncKey = `${String(message.id ?? "")}:${String(
-    message.uid ?? "",
-  )}:${(message.tags ?? []).map((tag) => tag.id).join(",")}`;
-  const messageTagSyncKeyRef = useRef(messageTagSyncKey);
+  const headersOpen = headersScope === tagScope;
+  const [returnEarlyScope, setReturnEarlyScope] = useState<
+    typeof tagScope | null
+  >(null);
+  const returnEarlyPending = useRef<object | null>(null);
+  // The single-flight lock covers this mounted action bar until IMAP settles.
+  const isReturningEarly = returnEarlyScope !== null;
+  const tagMounted = useRef(true);
+  const tagMutation = useRef<typeof tagScope | null>(null);
+  const tagLookup = useRef<typeof tagScope | null>(null);
+  const tagReadVersion = useRef(0);
+  const tagSource = useRef({ scope: tagScope, tags: message.tags });
+  const [pendingTagScope, setPendingTagScope] = useState<
+    typeof tagScope | null
+  >(null);
+  const [messageTagState, setMessageTagState] = useState(() => ({
+    scope: tagScope,
+    tags: (message.tags ?? []).map(toEmailMessageTag),
+    loaded: Boolean(tagIdentity && message.tags),
+  }));
+  const messageTagSelection =
+    messageTagState.scope === tagScope
+      ? messageTagState.tags
+      : (message.tags ?? []).map(toEmailMessageTag);
+  const messageTagsLoaded =
+    messageTagState.scope === tagScope
+      ? messageTagState.loaded
+      : Boolean(tagIdentity && message.tags);
+  const isTagApplying = pendingTagScope === tagScope;
 
-  const messageId = message.uid ?? message.msg_no ?? message.id;
-  // Store mutations (star / move / mark-spam) must use the canonical message
-  // id, the same identity the working list path passes, NOT the raw IMAP
-  // uid. In unified/consolidated inbox mode uids are per-folder and collide
-  // across accounts, so resolving by uid can target the wrong account's
-  // message (the toggle silently lands elsewhere → "nothing happens").
-  const operationId = message.id;
-  const resolvedAccount = accounts.find((acc) => acc.email === selectedAccount);
-  const accountId =
-    message.accountId ??
-    (resolvedAccount?.id != null ? Number(resolvedAccount.id) : undefined);
-  const tagFolder = message.folder ?? "INBOX";
+  useEffect(() => {
+    tagMounted.current = true;
+    return () => {
+      tagMounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (
+      tagSource.current.scope === tagScope &&
+      tagSource.current.tags === message.tags
+    )
+      return;
+    tagSource.current = { scope: tagScope, tags: message.tags };
+    tagReadVersion.current++;
+    setMessageTagState({
+      scope: tagScope,
+      tags: (message.tags ?? []).map(toEmailMessageTag),
+      loaded: Boolean(tagIdentityKey && message.tags),
+    });
+  }, [tagScope, message.tags, tagIdentityKey]);
+
+  const isCurrentTagScope = useCallback(
+    (scope: typeof tagScope, principal: StoragePrincipal | null) =>
+      tagMounted.current &&
+      tagScopeRef.current === scope &&
+      isRequestPrincipalCurrent(principal),
+    [],
+  );
+
+  const invalidateTagCaches = useCallback(
+    (principal: StoragePrincipal | null) => {
+      if (!tagIdentity || !isRequestPrincipalCurrent(principal)) return;
+      const cache = getCacheService();
+      // Combined-account and filtered lists can contain this physical message.
+      cache.invalidateMessages({});
+      if (!isRequestPrincipalCurrent(principal)) return;
+      cache.invalidateMessageDetail(
+        String(tagIdentity.accountId),
+        tagIdentity.folder,
+        tagIdentityKey,
+      );
+    },
+    [tagIdentity, tagIdentityKey],
+  );
+
+  const reloadMessageTags = useCallback(
+    async (principal: StoragePrincipal | null) => {
+      if (!tagIdentity || !isCurrentTagScope(tagScope, principal)) return;
+      const readVersion = ++tagReadVersion.current;
+      const loadedTags = await getMessageTags(
+        tagIdentity.accountId,
+        tagIdentity.uid,
+        tagIdentity.folder,
+        tagIdentity.uidValidity,
+      );
+      if (
+        !isCurrentTagScope(tagScope, principal) ||
+        readVersion !== tagReadVersion.current
+      )
+        return;
+      const nextTags = loadedTags.map(toEmailMessageTag);
+      setMessageTagState({ scope: tagScope, tags: nextTags, loaded: true });
+      getInboxService().updateMessage(tagIdentityKey, { tags: nextTags });
+    },
+    [tagIdentity, tagIdentityKey, tagScope, getMessageTags, isCurrentTagScope],
+  );
+
+  const operationId = tagIdentityKey;
+  const requireMessageIdentity = useCallback(
+    (principal: StoragePrincipal | null) => {
+      if (!isCurrentTagScope(tagScope, principal)) return false;
+      if (tagIdentityKey) return true;
+      toast.error(
+        __(
+          "This message changed or is incomplete. Reload and try again.",
+          "pressedmail",
+        ),
+      );
+      void getInboxService()
+        .refresh()
+        .catch(() => {});
+      return false;
+    },
+    [tagIdentityKey, tagScope, isCurrentTagScope],
+  );
+
   const selectedTagIds = messageTagSelection.map((tag) => Number(tag.id));
 
   useEffect(() => {
-    if (messageTagSyncKeyRef.current === messageTagSyncKey) return;
-    messageTagSyncKeyRef.current = messageTagSyncKey;
-    setMessageTagSelection((message.tags ?? []).map(toEmailMessageTag));
-    setMessageTagsLoaded(Boolean(message.tags));
-  }, [message.tags, messageTagSyncKey]);
+    setIsClassifying(false);
+  }, [tagScope]);
 
   const handleAutoClassify = useCallback(async () => {
-    if (!message) return;
-
-    const account = accounts.find((acc) => acc.email === selectedAccount);
-    const accountId = account?.id ? Number(account.id) : null;
-    if (!accountId) return;
-
+    const principal = captureRequestPrincipal();
+    if (
+      !tagIdentity ||
+      tagMutation.current === tagScope ||
+      !isCurrentTagScope(tagScope, principal)
+    )
+      return;
+    tagMutation.current = tagScope;
+    tagReadVersion.current++;
+    setPendingTagScope(tagScope);
     setIsClassifying(true);
-
     try {
-      const result = await classifyEmails(accountId, [
+      const result = await classifyEmails(tagIdentity.accountId, [
         {
-          uid: message.uid || message.id,
-          folder: message.folder || "INBOX",
+          uid: tagIdentity.uid,
+          uidValidity: tagIdentity.uidValidity,
+          folder: tagIdentity.folder,
           subject: message.subject || "",
           from: message.from || message.email || "",
           to: message.to || "",
@@ -429,7 +568,9 @@ export function EmailActionBar({
           body: message.htmlBody || message.body || "",
         },
       ]);
-
+      invalidateTagCaches(principal);
+      await reloadMessageTags(principal);
+      if (!isCurrentTagScope(tagScope, principal)) return;
       if (result.status === "success" && result.results?.[0]?.tags?.length) {
         const tagNames = result.results[0].tags
           .map((t) => `${t.name} (${Math.round(t.confidence * 100)}%)`)
@@ -446,17 +587,30 @@ export function EmailActionBar({
         );
       }
     } catch (error) {
-      if (isApiAuthError(error)) {
-        return;
+      invalidateTagCaches(principal);
+      if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error)) {
+        console.error("Auto-classify error:", error);
+        toast.error(__("Classification failed", "pressedmail"));
       }
-      console.error("Auto-classify error:", error);
-      toast.error(__("Classification failed", "pressedmail"));
     } finally {
-      setIsClassifying(false);
+      if (tagMutation.current === tagScope) tagMutation.current = null;
+      if (isCurrentTagScope(tagScope, principal)) {
+        setPendingTagScope(null);
+        setIsClassifying(false);
+      } else invalidateTagCaches(principal);
     }
-  }, [message, classifyEmails, accounts, selectedAccount]);
+  }, [
+    message,
+    tagIdentity,
+    tagScope,
+    classifyEmails,
+    reloadMessageTags,
+    invalidateTagCaches,
+    isCurrentTagScope,
+  ]);
 
   const handlePrint = useCallback(() => {
+    if (!isCurrentTagScope(tagScope, captureRequestPrincipal())) return;
     const resolvedBody = resolveEmailBody(message);
     const printOptions: PrintEmailContentOptions = {
       date: message.receivedDate ?? message.date ?? "",
@@ -474,118 +628,224 @@ export function EmailActionBar({
     }
 
     printEmailContent(printOptions);
-  }, [message, showImages]);
+  }, [message, showImages, tagScope, isCurrentTagScope]);
 
   const handleMove = useCallback(
-    (targetFolder: MutationTarget) => {
-      if (operationId == null) return;
-      void moveMessage(operationId, targetFolder);
+    async (targetFolder: MutationTarget) => {
+      const principal = captureRequestPrincipal();
+      if (!requireMessageIdentity(principal)) return;
+      try {
+        const result = await moveMessage(operationId, targetFolder);
+        if (!isCurrentTagScope(tagScope, principal)) return;
+        if (!result.success && !result.requiresRefresh)
+          toast.error(
+            result.error ||
+              __("Could not move this message. Try again.", "pressedmail"),
+          );
+      } catch (error) {
+        if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error))
+          toast.error(
+            __("Could not move this message. Try again.", "pressedmail"),
+          );
+      }
     },
-    [operationId, moveMessage],
+    [
+      operationId,
+      moveMessage,
+      requireMessageIdentity,
+      tagScope,
+      isCurrentTagScope,
+    ],
   );
 
   const handleTagDropdownOpenChange = useCallback(
     async (open: boolean) => {
-      if (!open || accountId == null || messageTagsLoaded) return;
-
+      const principal = captureRequestPrincipal();
+      if (
+        !open ||
+        !tagIdentity ||
+        messageTagsLoaded ||
+        tagLookup.current === tagScope ||
+        !isCurrentTagScope(tagScope, principal)
+      )
+        return;
+      tagLookup.current = tagScope;
       try {
-        const loadedTags = await getMessageTags(
-          accountId,
-          String(messageId),
-          tagFolder,
-        );
-        setMessageTagSelection(loadedTags.map(toEmailMessageTag));
-        setMessageTagsLoaded(true);
+        await reloadMessageTags(principal);
       } catch (error) {
-        console.error("Failed to load message tags:", error);
+        if (isCurrentTagScope(tagScope, principal))
+          console.error("Failed to load message tags:", error);
+      } finally {
+        if (tagLookup.current === tagScope) tagLookup.current = null;
       }
     },
-    [accountId, getMessageTags, messageId, messageTagsLoaded, tagFolder],
+    [
+      tagIdentity,
+      messageTagsLoaded,
+      tagScope,
+      isCurrentTagScope,
+      reloadMessageTags,
+    ],
   );
 
   const handleApplyMessageTags = useCallback(
     async (nextTagIds: number[]) => {
-      if (accountId == null) return;
-
-      const previousTags = messageTagSelection;
-      const previousTagIds = new Set(previousTags.map((tag) => Number(tag.id)));
+      const principal = captureRequestPrincipal();
+      if (
+        !tagIdentity ||
+        tagMutation.current === tagScope ||
+        !isCurrentTagScope(tagScope, principal)
+      )
+        return;
+      // A tag diff cannot be computed from an unknown starting selection.
+      if (!messageTagsLoaded) {
+        await handleTagDropdownOpenChange(true);
+        return;
+      }
+      const previousTagIds = new Set(
+        messageTagSelection.map((tag) => Number(tag.id)),
+      );
       const nextTagIdSet = new Set(nextTagIds.map(Number));
-      const addedTagIds = nextTagIds.filter((id) => !previousTagIds.has(id));
+      const addedTagIds = Array.from(nextTagIdSet).filter(
+        (id) => !previousTagIds.has(id),
+      );
       const removedTagIds = Array.from(previousTagIds).filter(
         (id) => !nextTagIdSet.has(id),
       );
-
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
-      const knownTags = new Map<number, EmailMessageTag>();
-      for (const tag of previousTags) {
-        knownTags.set(Number(tag.id), toEmailMessageTag(tag));
-      }
-      for (const tag of tags) {
-        knownTags.set(Number(tag.id), toEmailMessageTag(tag));
-      }
-
-      const nextTags = nextTagIds
-        .map((id) => knownTags.get(Number(id)))
-        .filter((tag): tag is EmailMessageTag => Boolean(tag));
-
-      setMessageTagSelection(nextTags);
-      getInboxService().updateMessage(messageId, { tags: nextTags });
-
+      tagMutation.current = tagScope;
+      tagReadVersion.current++;
+      setPendingTagScope(tagScope);
       try {
-        await Promise.all([
-          ...addedTagIds.map((tagId) =>
-            assignTag(tagId, accountId, String(messageId), tagFolder),
-          ),
-          ...removedTagIds.map((tagId) =>
-            removeTag(tagId, accountId, String(messageId), tagFolder),
-          ),
-        ]);
-        setMessageTagsLoaded(true);
+        for (const tagId of addedTagIds) {
+          if (!isCurrentTagScope(tagScope, principal)) return;
+          await assignTag(
+            tagId,
+            tagIdentity.accountId,
+            tagIdentity.uid,
+            tagIdentity.folder,
+            tagIdentity.uidValidity,
+          );
+        }
+        for (const tagId of removedTagIds) {
+          if (!isCurrentTagScope(tagScope, principal)) return;
+          await removeTag(
+            tagId,
+            tagIdentity.accountId,
+            tagIdentity.uid,
+            tagIdentity.folder,
+            tagIdentity.uidValidity,
+          );
+        }
+        if (!isCurrentTagScope(tagScope, principal)) return;
+        await reloadMessageTags(principal);
       } catch (error) {
-        setMessageTagSelection(previousTags);
-        getInboxService().updateMessage(messageId, { tags: previousTags });
-        console.error("Failed to update message tags:", error);
+        invalidateTagCaches(principal);
+        if (!isCurrentTagScope(tagScope, principal)) return;
+        setMessageTagState((current) => ({ ...current, loaded: false }));
+        toast.error(
+          __(
+            "Some tags may have changed. Reloading the message tags.",
+            "pressedmail",
+          ),
+        );
+        try {
+          await reloadMessageTags(principal);
+        } catch {
+          if (isCurrentTagScope(tagScope, principal)) {
+            toast.error(
+              __(
+                "Reload this mailbox to check the message tags.",
+                "pressedmail",
+              ),
+            );
+            await getInboxService()
+              .refresh()
+              .catch((refreshError) => {
+                if (isCurrentTagScope(tagScope, principal))
+                  console.error(
+                    "Failed to refresh message tags:",
+                    refreshError,
+                  );
+              });
+          }
+        }
+        if (isCurrentTagScope(tagScope, principal))
+          console.error("Failed to update message tags:", error);
+      } finally {
+        if (tagMutation.current === tagScope) tagMutation.current = null;
+        if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
+        else invalidateTagCaches(principal);
       }
     },
     [
-      accountId,
-      assignTag,
-      messageId,
+      tagIdentity,
+      tagScope,
+      messageTagsLoaded,
       messageTagSelection,
+      assignTag,
       removeTag,
-      tagFolder,
-      tags,
+      isCurrentTagScope,
+      invalidateTagCaches,
+      reloadMessageTags,
+      handleTagDropdownOpenChange,
     ],
   );
 
   const handleCopyReference = useCallback(async () => {
+    const principal = captureRequestPrincipal();
+    if (!isCurrentTagScope(tagScope, principal)) return;
     try {
       await navigator.clipboard.writeText(buildMessageReference(message));
-      toast.success(__("Message reference copied", "pressedmail"));
+      if (isCurrentTagScope(tagScope, principal))
+        toast.success(__("Message reference copied", "pressedmail"));
     } catch {
-      toast.error(__("Failed to copy reference", "pressedmail"));
+      if (isCurrentTagScope(tagScope, principal))
+        toast.error(__("Failed to copy reference", "pressedmail"));
     }
-  }, [message]);
+  }, [message, tagScope, isCurrentTagScope]);
 
-  const handleDownloadEml = useCallback(() => {
-    downloadEmlFile(message);
-  }, [message]);
+  const handleDownloadEml = useCallback(async () => {
+    const principal = captureRequestPrincipal();
+    if (!requireMessageIdentity(principal)) return;
+    try {
+      await downloadEmlFile(message, document, () =>
+        isCurrentTagScope(tagScope, principal),
+      );
+    } catch {
+      if (!isCurrentTagScope(tagScope, principal)) return;
+      toast.error(
+        __(
+          "Could not download the complete message. Please try again.",
+          "pressedmail",
+        ),
+      );
+    }
+  }, [message, requireMessageIdentity, tagScope, isCurrentTagScope]);
 
   const handleSummarize = useCallback(async () => {
+    const principal = captureRequestPrincipal();
+    if (!requireMessageIdentity(principal)) return;
     try {
       const result = await summarizeMessages([message]);
+      if (!isCurrentTagScope(tagScope, principal)) return;
       if (result.successCount === 0 && result.failedCount > 0) {
         toast.error(__("Failed to summarize email", "pressedmail"));
       }
     } catch (error) {
-      if (isApiAuthError(error)) {
+      if (!isCurrentTagScope(tagScope, principal) || isApiAuthError(error))
         return;
-      }
       console.error("Failed to summarize email:", error);
       toast.error(__("Failed to summarize email", "pressedmail"));
     }
-  }, [message, summarizeMessages]);
+  }, [
+    message,
+    summarizeMessages,
+    requireMessageIdentity,
+    tagScope,
+    isCurrentTagScope,
+  ]);
 
   // Fetch the full raw RFC822 headers (incl. the Received server chain) when the
   // "View headers" dialog opens. Falls back to the client-side reconstruction
@@ -594,30 +854,56 @@ export function EmailActionBar({
     if (!headersOpen) {
       return;
     }
+    const principal = captureRequestPrincipal();
+    if (!requireMessageIdentity(principal)) return;
     let cancelled = false;
+    const current = () => !cancelled && isCurrentTagScope(tagScope, principal);
     setHeadersLoading(true);
     setHeadersText(null);
     void (async () => {
       const fallback = buildReconstructedHeaders(message);
       try {
         const result = await getRawHeaders(operationId);
-        if (cancelled) return;
+        if (!current()) return;
+        if (result.requiresRefresh) {
+          setHeadersScope(null);
+          return;
+        }
         setHeadersText(
           result.success && result.headers ? result.headers : fallback,
         );
       } catch {
-        if (!cancelled) setHeadersText(fallback);
+        if (current()) setHeadersText(fallback);
       } finally {
-        if (!cancelled) setHeadersLoading(false);
+        if (current()) setHeadersLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [headersOpen, getRawHeaders, operationId, message]);
+  }, [
+    headersOpen,
+    getRawHeaders,
+    operationId,
+    message,
+    requireMessageIdentity,
+    tagScope,
+    isCurrentTagScope,
+  ]);
+
+  const setHeadersOpen = (open: boolean) => {
+    if (!open) {
+      setHeadersScope(null);
+      return;
+    }
+    if (!requireMessageIdentity(captureRequestPrincipal())) return;
+    setHeadersText(null);
+    setHeadersLoading(true);
+    setHeadersScope(tagScope);
+  };
 
   const moveTargets = getMoveTargetFolders();
-  const tagsEnabled = __ENABLE_TAGS__ && accountId != null;
+  const tagsEnabled = __ENABLE_TAGS__ && tagIdentity !== null;
 
   type ActionTriggerStyle = "horizontal" | "vertical" | "pressedout-command";
   const isCommandTrigger = (triggerStyle: ActionTriggerStyle) =>
@@ -626,6 +912,7 @@ export function EmailActionBar({
     triggerStyle === "vertical";
   const moreMenu = (triggerStyle: ActionTriggerStyle, children?: ReactNode) => (
     <ReadingPaneMoreMenu
+      key={`more:${tagScope.key}`}
       disabled={isLoading}
       orientation={triggerStyle}
       onPrint={handlePrint}
@@ -683,7 +970,7 @@ export function EmailActionBar({
   const moveAction = (triggerStyle: ActionTriggerStyle) => (
     // Non-modal so the dropdown doesn't lock body pointer events / steal focus
     // (which flash-closes it); mirrors the working Popover-based controls.
-    <DropdownMenu modal={false}>
+    <DropdownMenu key={`move:${tagScope.key}`} modal={false}>
       <DropdownMenuTrigger asChild>
         {isCommandTrigger(triggerStyle) ? (
           <PressedOutRibbonButton
@@ -724,7 +1011,7 @@ export function EmailActionBar({
           moveTargets.map((folder) => (
             <DropdownMenuItem
               key={folderTargetKey(folder)}
-              onSelect={() => handleMove(folderMutationTarget(folder))}>
+              onSelect={() => void handleMove(folderMutationTarget(folder))}>
               {formatMoveTargetLabel(folder)}
             </DropdownMenuItem>
           ))
@@ -734,14 +1021,109 @@ export function EmailActionBar({
   );
 
   const snoozeAction = (triggerStyle: ActionTriggerStyle) => {
-    if (accountId == null) return null;
+    if (message.snoozed === true && snoozeId === null) return null;
 
+    if (snoozeId !== null) {
+      if (!snoozeEnabled) return null;
+      const label = __("Return early", "pressedmail");
+      const disabled = isLoading || isReturningEarly;
+      const returnEarly = async () => {
+        const principal = captureRequestPrincipal();
+        if (
+          disabled ||
+          returnEarlyPending.current ||
+          !isCurrentTagScope(tagScope, principal)
+        )
+          return;
+        const operation = {};
+        returnEarlyPending.current = operation;
+        setReturnEarlyScope(tagScope);
+        const service = getInboxService();
+        const generation = service.getRequestGeneration();
+        const rowId = message.id;
+        const rowAccount = message.accountId;
+        try {
+          const result = await unsnoozeEmail(snoozeId);
+          if (!isRequestPrincipalCurrent(principal)) return;
+          if (!result.success) {
+            if (!isCurrentTagScope(tagScope, principal)) return;
+            toast.error(
+              result.error ||
+                __("Could not return this message. Try again.", "pressedmail"),
+            );
+            return;
+          }
+          // A user may have selected another message/account while IMAP worked.
+          // Remove only the captured virtual row in the same loaded snapshot.
+          if (
+            service.getRequestGeneration() === generation &&
+            service.messages.some(
+              (row) => row.id === rowId && row.accountId === rowAccount,
+            )
+          ) {
+            service.removeMessage(rowId);
+          }
+          if (isCurrentTagScope(tagScope, principal))
+            toast.success(__("Message returned.", "pressedmail"));
+        } catch (error) {
+          if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error))
+            toast.error(
+              __("Could not return this message. Try again.", "pressedmail"),
+            );
+        } finally {
+          if (returnEarlyPending.current === operation) {
+            returnEarlyPending.current = null;
+            if (tagMounted.current && isRequestPrincipalCurrent(principal))
+              setReturnEarlyScope(null);
+          }
+        }
+      };
+      if (isCommandTrigger(triggerStyle))
+        return (
+          <PressedOutRibbonButton
+            label={label}
+            disabled={disabled}
+            ariaLabel={label}
+            dataTest="reading-pane-action-unsnooze"
+            onClick={() => void returnEarly()}
+            icon={<Clock className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
+          />
+        );
+      if (isVerticalTrigger(triggerStyle))
+        return (
+          <VerticalRibbonAction
+            icon={<Clock />}
+            label={label}
+            ariaLabel={label}
+            tooltip={__("Return this message now", "pressedmail")}
+            disabled={disabled}
+            dataTest="reading-pane-action-unsnooze"
+            onClick={() => void returnEarly()}
+          />
+        );
+      return (
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={disabled}
+          aria-label={label}
+          title={__("Return this message now", "pressedmail")}
+          data-test="reading-pane-action-unsnooze"
+          className="h-7 w-7"
+          onClick={() => void returnEarly()}>
+          <Clock className={MAIL_ACTION_ICON_CLASS} />
+        </Button>
+      );
+    }
+
+    if (!tagIdentity) return null;
     return (
       <SnoozePopover
-        accountId={accountId}
-        messageUid={message.uid != null ? String(message.uid) : undefined}
-        folder={message.folder}
-        sourceUidValidity={message.uidValidity ?? message.uid_validity}
+        key={`snooze:${tagScope.key}`}
+        accountId={tagIdentity.accountId}
+        messageUid={tagIdentity.uid}
+        folder={tagIdentity.folder}
+        sourceUidValidity={tagIdentity.uidValidity}
         sourceMessageId={message.messageId ?? message.message_id}
         subject={message.subject}
         from={message.from}
@@ -818,14 +1200,16 @@ export function EmailActionBar({
     }
     return (
       <MailTagActionDropdown
+        key={tagIdentityKey}
         availableTags={tags}
         selectedTagIds={selectedTagIds}
         onAutoTag={handleAutoClassify}
         onApplyTags={handleApplyMessageTags}
         onOpenChange={handleTagDropdownOpenChange}
         disabled={isLoading}
+        isApplying={isTagApplying || !messageTagsLoaded}
         aiEnabled={showAiClassify}
-        aiDisabled={isClassifying || isLoading}
+        aiDisabled={isClassifying || isLoading || isTagApplying}
         isAutoTagging={isClassifying}
         align="end"
         trigger={
@@ -968,6 +1352,7 @@ export function EmailActionBar({
   const senderContactDisabled =
     senderContact.pending || (!isSenderContact && !senderContact.canCreate);
   const handleSenderContact = () => {
+    if (!isCurrentTagScope(tagScope, captureRequestPrincipal())) return;
     if (isSenderContact) {
       senderContact.setConfirmRemoveOpen(true);
       return;

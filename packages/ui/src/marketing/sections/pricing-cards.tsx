@@ -1,5 +1,7 @@
 'use client';
 
+import { type ComponentType, Fragment, type PropsWithChildren } from 'react';
+
 import { cn } from '#utils';
 import { CheckCircle, Globe, MinusCircle, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -22,6 +24,8 @@ export interface PricingPlan {
   textColor?: string;
   highlighted?: boolean;
   buttonText: string;
+  buttonClassName?: string;
+  ButtonWrapper?: ComponentType<PropsWithChildren>;
   buttonVariant: 'ghost' | 'cyan' | 'gold' | 'purple';
   outcomes: string[];
   capabilities: string[];
@@ -111,6 +115,7 @@ function PricingCard({
     'checkout-mode': hasCustomCheckout ? 'bitcart' : 'link',
     interval: plan.isLifetime ? 'lifetime' : 'recurring',
   });
+  const ButtonWrapper = plan.ButtonWrapper ?? Fragment;
   const buttonClassName = cn(
     'min-h-11 w-full font-semibold transition-all',
     plan.buttonVariant === 'ghost' &&
@@ -119,6 +124,7 @@ function PricingCard({
       plan.buttonVariant === 'gold' ||
       plan.buttonVariant === 'purple') &&
       'bg-primary text-primary-foreground hover:bg-primary/90',
+    plan.buttonClassName,
   );
 
   return (
@@ -232,43 +238,45 @@ function PricingCard({
 
       {/* CTA Section */}
       <div className="mt-auto space-y-2">
-        {plan.disabled ? (
-          <Button
-            type="button"
-            size="lg"
-            className={buttonClassName}
-            variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
-            disabled
-          >
-            {plan.buttonText}
-          </Button>
-        ) : hasCustomCheckout ? (
-          <Button
-            type="button"
-            size="lg"
-            className={buttonClassName}
-            variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
-            onClick={() => onCheckoutPlan?.(plan)}
-            {...checkoutAnalytics}
-          >
-            {plan.buttonText}
-          </Button>
-        ) : (
-          <Button
-            asChild
-            size="lg"
-            className={buttonClassName}
-            variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
-          >
-            <a
-              href={plan.checkoutUrl}
-              {...getExternalLinkProps(plan.checkoutUrl)}
+        <ButtonWrapper>
+          {plan.disabled ? (
+            <Button
+              type="button"
+              size="lg"
+              className={buttonClassName}
+              variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
+              disabled
+            >
+              {plan.buttonText}
+            </Button>
+          ) : hasCustomCheckout ? (
+            <Button
+              type="button"
+              size="lg"
+              className={buttonClassName}
+              variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
+              onClick={() => onCheckoutPlan?.(plan)}
               {...checkoutAnalytics}
             >
               {plan.buttonText}
-            </a>
-          </Button>
-        )}
+            </Button>
+          ) : (
+            <Button
+              asChild
+              size="lg"
+              className={buttonClassName}
+              variant={plan.buttonVariant === 'ghost' ? 'outline' : 'default'}
+            >
+              <a
+                href={plan.checkoutUrl}
+                {...getExternalLinkProps(plan.checkoutUrl)}
+                {...checkoutAnalytics}
+              >
+                {plan.buttonText}
+              </a>
+            </Button>
+          )}
+        </ButtonWrapper>
         {plan.showGuarantee !== false && (
           <div className="flex items-center justify-center gap-1.5 text-xs">
             <ShieldCheck

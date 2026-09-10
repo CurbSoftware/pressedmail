@@ -14,6 +14,8 @@ import type { FolderTarget } from "./folder.interface";
  * Options for fetching a single message.
  */
 export interface GetMessageOptions {
+  /** Captured source mailbox generation. */
+  uidValidity?: string | number;
   /** Include full message body (HTML/text) */
   includeBody?: boolean;
   /** Include attachment data */
@@ -28,6 +30,8 @@ export interface GetMessageOptions {
  * Result of a single message operation.
  */
 export interface OperationResult {
+  /** The captured message reference no longer identifies a current mailbox row. */
+  requiresRefresh?: boolean;
   /** Whether the operation succeeded */
   success: boolean;
   /** Error message if operation failed */
@@ -69,6 +73,8 @@ export type MessageIdentifierMode = "uid" | "msg_no";
  * Shared options for mailbox mutation requests.
  */
 export interface MessageMutationOptions {
+  /** Captured source mailbox generation. */
+  uidValidity?: string | number;
   /** Source folder path used to scope the IMAP operation */
   folder?: string;
   /** Legacy message number compatibility fallback */
@@ -81,6 +87,8 @@ export interface MessageMutationOptions {
  * Batch mailbox mutation options.
  */
 export interface BatchMessageMutationOptions {
+  /** Captured source mailbox generation. */
+  uidValidity?: string | number;
   /** Source folder path used to scope the IMAP operation */
   folder?: string;
   /** Whether the batch identifiers are UIDs or message numbers */
@@ -181,7 +189,7 @@ export interface IMessageOperations {
     accountId: string | number,
     messageId: string | number,
     options?: MessageMutationOptions,
-  ): Promise<{ success: boolean; headers?: string; error?: string }>;
+  ): Promise<OperationResult & { headers?: string }>;
 
   /**
    * Delete a message (move to trash or permanent delete).
@@ -323,6 +331,7 @@ export interface IMessageOperations {
   batchArchive(
     accountId: string | number,
     messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
   ): Promise<BatchOperationResult>;
 
   /**
@@ -337,6 +346,7 @@ export interface IMessageOperations {
     accountId: string | number,
     messageIds: (string | number)[],
     starred: boolean,
+    options?: BatchMessageMutationOptions,
   ): Promise<BatchOperationResult>;
 
   /**

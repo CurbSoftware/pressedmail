@@ -34,7 +34,7 @@ export type FetchPriority = "user-selected" | "visible" | "background";
 export type PrefetchOutcome =
   | { detail: EmailMessage }
   | { pending: true }
-  | { failed: true; reason?: string }
+  | { failed: true; reason?: string; requiresRefresh?: boolean }
   | null;
 
 /**

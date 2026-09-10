@@ -1,5 +1,7 @@
 "use client";
 
+import { removePrincipalStorageItem } from "@/lib/principal-storage";
+
 import { __ } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 
@@ -35,6 +37,7 @@ import {
   getDraftComposeData,
   getDraftComposeIdentity,
   getDraftComposeSignature,
+  hasDraftComposeDetail,
   getScheduledEmailId,
   getScheduledEmailDraftIdentity,
   isDraftMessage,
@@ -61,6 +64,10 @@ import {
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 
 import type { ComposeData, EmailMessage } from "@/types";
+import {
+  getMessageIdentityKey,
+  getMessageIdentityRef,
+} from "@/lib/message-identity";
 import { ScheduledEmailReadingPane } from "@/components/scheduled/ScheduledEmailReadingPane";
 
 import {
@@ -84,6 +91,16 @@ import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
 import { appMessage } from "@/context/toast";
 
 type PaneMode = "reading" | "compose";
+interface PaneSelectionSnapshot {
+  identity: string;
+  scope: string;
+  nextId: string;
+}
+interface PendingDelete {
+  selection: PaneSelectionSnapshot;
+  permanent: boolean;
+  afterAction: "message_list" | "next_message";
+}
 
 export interface RightPaneContainerProps {
   /** Currently selected message */
@@ -131,13 +148,14 @@ export function RightPaneContainer({
   onScheduledEmailChanged,
   onScheduledEmailCleared,
 }: RightPaneContainerProps) {
-  const { selectedAccount } = useAppContext();
+  const { selectedAccount, accounts } = useAppContext();
   const {
     refreshMessages,
     invalidateFolderMessages,
     clearSelection,
     selectedFolder,
     selectedAccountId,
+    folders,
   } = useInbox();
   const { messages } = useInboxState();
   const {
@@ -149,13 +167,15 @@ export function RightPaneContainer({
     selectMessage,
   } = useMessageOperations();
   const composer = useComposer();
+  const paneCompose = usePaneCompose();
+  const paneComposeRequest = paneCompose?.paneComposeRequest ?? null;
+  const resumingComposeRef = React.useRef(false);
   const { preferences } = useUserPreferences();
   const preferredContentType =
     preferences.composer_default_format === "plain_text" ? "plain" : "html";
   const [isDeleting, setIsDeleting] = React.useState(false);
-  const [pendingDeleteMessageId, setPendingDeleteMessageId] = React.useState<
-    string | number | null
-  >(null);
+  const [pendingDelete, setPendingDelete] =
+    React.useState<PendingDelete | null>(null);
   const [isScheduledActionLoading, setIsScheduledActionLoading] =
     React.useState(false);
   // Expanded ("pop out") reading view, shows the message in a large in-app modal.
@@ -210,11 +230,34 @@ export function RightPaneContainer({
   }, [onPaneModeChange, paneMode]);
 
   const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
-  const folderRole = getFolderRole({
-    name: paneFolder,
-    path: paneFolder,
-    count: 0,
-  });
+  const physicalFolder = React.useMemo(() => {
+    const ref = getMessageIdentityRef(selectedMessage);
+    if (!ref) return undefined;
+    const queue = [...folders];
+    for (const folder of queue) {
+      if (folder.children) queue.push(...folder.children);
+      if (
+        folder.sourceFolders?.length
+          ? folder.sourceFolders.some(
+              (source) =>
+                source.accountId === ref.accountId &&
+                source.path === ref.folder,
+            )
+          : folder.accountId === ref.accountId && folder.path === ref.folder
+      )
+        return folder;
+    }
+    return undefined;
+  }, [folders, selectedMessage]);
+  const folderRole = physicalFolder
+    ? getFolderRole(physicalFolder)
+    : !selectedMessage
+      ? getFolderRole({ name: paneFolder, path: paneFolder, count: 0 })
+      : null;
+  const permanentlyDeletes =
+    String(
+      physicalFolder?.systemType ?? physicalFolder?.type ?? "",
+    ).toLowerCase() === "trash";
   const folderRecoveryAction =
     folderRole === "trash"
       ? "restore"
@@ -236,6 +279,107 @@ export function RightPaneContainer({
   // active compose yields to the reading pane when a different message is
   // selected.
   const composeFromUserActionRef = React.useRef(false);
+
+  const selectedIdentity = getMessageIdentityKey(selectedMessage);
+  const paneIdentity = scheduledEmail
+    ? JSON.stringify([
+        "scheduled",
+        scheduledEmail.id,
+        getScheduledEmailDraftIdentity(scheduledEmail),
+      ])
+    : selectedIdentity;
+  const operationScope = JSON.stringify([
+    selectedAccount,
+    selectedAccountId,
+    selectedFolder,
+  ]);
+  const livePane = React.useRef({
+    identity: paneIdentity,
+    scope: operationScope,
+    messages,
+    refreshMessages,
+    clearSelection,
+    selectMessage,
+  });
+  livePane.current = {
+    identity: paneIdentity,
+    scope: operationScope,
+    messages,
+    refreshMessages,
+    clearSelection,
+    selectMessage,
+  };
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  React.useEffect(() => {
+    setPendingDelete(null);
+    setIsDeleting(false);
+    setIsScheduledActionLoading(false);
+  }, [operationScope, paneIdentity]);
+  const captureSelection = React.useCallback((): PaneSelectionSnapshot => {
+    const live = livePane.current;
+    return {
+      identity: live.identity,
+      scope: live.scope,
+      nextId: getMessageIdentityKey(
+        nextVisibleMessageAfterRemoval(
+          live.messages.filter(
+            (message) => getMessageIdentityKey(message) !== "",
+          ),
+          [live.identity],
+        ),
+      ),
+    };
+  }, []);
+  const isCurrentSelection = React.useCallback(
+    (snapshot: PaneSelectionSnapshot, allowCleared = true) =>
+      mounted.current &&
+      livePane.current.scope === snapshot.scope &&
+      (livePane.current.identity === snapshot.identity ||
+        (allowCleared && livePane.current.identity === "")),
+    [],
+  );
+  const identityFailure = React.useCallback(() => {
+    if (!mounted.current) return;
+    appMessage(
+      "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+      "error",
+    );
+    void livePane.current.refreshMessages().catch(() => {});
+  }, []);
+  const replyContext = React.useCallback(
+    (threaded = true): Partial<ComposeData> | null => {
+      const ref = getMessageIdentityRef(selectedMessage);
+      const account = ref
+        ? accounts.find(
+            (candidate) => String(candidate.id) === String(ref.accountId),
+          )
+        : undefined;
+      if (!ref || !account?.email) {
+        identityFailure();
+        return null;
+      }
+      return {
+        fromAccount: account.email,
+        inReplyTo: threaded
+          ? (selectedMessage?.messageId ?? selectedMessage?.message_id)
+          : undefined,
+        references: threaded ? selectedMessage?.references : undefined,
+        replySource: {
+          identity: getMessageIdentityKey(selectedMessage),
+          accountId: ref.accountId,
+          folder: ref.folder,
+          uid: ref.uid,
+        },
+      };
+    },
+    [accounts, identityFailure, selectedMessage],
+  );
 
   // Reading-pane state, prefer external provider so layout-owned reading
   // surfaces can share blockedCount / image state.
@@ -285,7 +429,15 @@ export function RightPaneContainer({
 
   const openPaneCompose = React.useCallback(
     (nextComposeMode: ComposeMode, draft: Partial<ComposeData>) => {
+      resumingComposeRef.current = false;
       composer.setComposeData({
+        fromAccount: draft.fromAccount,
+        inReplyTo: draft.inReplyTo,
+        references: draft.references,
+        replySource:
+          nextComposeMode === "reply" || nextComposeMode === "reply-all"
+            ? draft.replySource
+            : undefined,
         to: draft.to ?? "",
         cc: draft.cc ?? "",
         bcc: draft.bcc ?? "",
@@ -317,6 +469,22 @@ export function RightPaneContainer({
   );
 
   React.useEffect(() => {
+    if (
+      paneComposeRequest?.type === "resume" ||
+      (resumingComposeRef.current && paneMode === "compose")
+    ) {
+      // A cached selection can populate before or after the resume request.
+      // Keep its details from replacing the already edited shared draft.
+      draftComposeSignatureRef.current =
+        selectedMessage && isDraftMessage(selectedMessage)
+          ? getDraftComposeSignature(
+              selectedMessage,
+              selectedFolder,
+              selectedAccountId,
+            )
+          : null;
+      return;
+    }
     if (!selectedMessage) {
       draftComposeSignatureRef.current = null;
       lastSelectedMessageIdRef.current = null;
@@ -327,9 +495,7 @@ export function RightPaneContainer({
     // openPaneCompose's identity changes (e.g. right after a reply, which
     // mutates the composer context) with the SAME message still selected; those
     // re-runs must not disturb the composer.
-    const rawSelectedMessageId = selectedMessage.uid || selectedMessage.id;
-    const selectedMessageId =
-      rawSelectedMessageId == null ? null : String(rawSelectedMessageId);
+    const selectedMessageId = getMessageIdentityKey(selectedMessage);
     const messageChanged =
       lastSelectedMessageIdRef.current !== selectedMessageId;
     lastSelectedMessageIdRef.current = selectedMessageId;
@@ -380,8 +546,6 @@ export function RightPaneContainer({
       return;
     }
 
-    draftComposeSignatureRef.current = draftSignature;
-
     // The signature covers the body, so a background detail fetch or a list
     // refresh changes it for the draft already open. Re-opening then replaces
     // composeData wholesale, which starts a new compose session and makes any
@@ -397,10 +561,21 @@ export function RightPaneContainer({
       return;
     }
 
+    // A list row can already carry the bound draft identity without its body
+    // or MIME attachments. Let the reading pane own loading/error/retry until
+    // full detail arrives, then start the editable session exactly once.
+    if (!hasDraftComposeDetail(selectedMessage)) {
+      draftComposeSignatureRef.current = null;
+      setPaneMode("reading");
+      return;
+    }
+
+    draftComposeSignatureRef.current = draftSignature;
     openPaneCompose("new", draft);
   }, [
     composer.composeData,
     openPaneCompose,
+    paneComposeRequest,
     paneMode,
     selectedAccountId,
     selectedFolder,
@@ -410,6 +585,8 @@ export function RightPaneContainer({
   // Handle Reply All
   const handleReplyAll = React.useCallback(() => {
     if (!selectedMessage) return;
+    const source = replyContext();
+    if (!source) return;
 
     const replyTo = selectedMessage.email || selectedMessage.from || "";
     const subject = selectedMessage.subject?.startsWith("Re:")
@@ -417,6 +594,7 @@ export function RightPaneContainer({
       : `Re: ${selectedMessage.subject || ""}`;
 
     openPaneCompose("reply-all", {
+      ...source,
       to: replyTo,
       cc: selectedMessage.cc ?? "",
       subject,
@@ -426,11 +604,13 @@ export function RightPaneContainer({
           : formatQuotedHtml(selectedMessage),
       contentType: preferredContentType,
     });
-  }, [openPaneCompose, preferredContentType, selectedMessage]);
+  }, [openPaneCompose, preferredContentType, selectedMessage, replyContext]);
 
   // Handle Reply
   const handleReply = React.useCallback(() => {
     if (!selectedMessage) return;
+    const source = replyContext();
+    if (!source) return;
 
     if (preferences.default_reply_action === "reply_all") {
       handleReplyAll();
@@ -443,6 +623,7 @@ export function RightPaneContainer({
       : `Re: ${selectedMessage.subject || ""}`;
 
     openPaneCompose("reply", {
+      ...source,
       to: replyTo,
       subject,
       body:
@@ -452,6 +633,7 @@ export function RightPaneContainer({
       contentType: preferredContentType,
     });
   }, [
+    replyContext,
     handleReplyAll,
     openPaneCompose,
     preferredContentType,
@@ -462,12 +644,15 @@ export function RightPaneContainer({
   // Handle Forward
   const handleForward = React.useCallback(() => {
     if (!selectedMessage) return;
+    const source = replyContext(false);
+    if (!source) return;
 
     const subject = selectedMessage.subject?.startsWith("Fwd:")
       ? selectedMessage.subject
       : `Fwd: ${selectedMessage.subject || ""}`;
 
     openPaneCompose("forward", {
+      ...source,
       subject,
       body:
         preferredContentType === "plain"
@@ -475,7 +660,7 @@ export function RightPaneContainer({
           : formatForwardedHtml(selectedMessage),
       contentType: preferredContentType,
     });
-  }, [openPaneCompose, preferredContentType, selectedMessage]);
+  }, [openPaneCompose, preferredContentType, selectedMessage, replyContext]);
 
   // Handle New Message
   const handleNewMessage = React.useCallback(() => {
@@ -490,12 +675,19 @@ export function RightPaneContainer({
   }, [openPaneCompose, preferredContentType]);
 
   // Subscribe to pane compose requests from GlobalNavBar (null when outside PaneComposeProvider)
-  const paneCompose = usePaneCompose();
-  const paneComposeRequest = paneCompose?.paneComposeRequest ?? null;
   React.useEffect(() => {
     if (!paneComposeRequest || !paneCompose) return;
 
     switch (paneComposeRequest.type) {
+      case "resume":
+        resumingComposeRef.current = true;
+        setComposeMode(
+          composer.composeData.mode ??
+            (composer.composeData.is_reply ? "reply" : "new"),
+        );
+        composeFromUserActionRef.current = false;
+        setPaneMode("compose");
+        break;
       case "new":
         handleNewMessage();
         break;
@@ -515,6 +707,8 @@ export function RightPaneContainer({
     paneCompose.clearPaneComposeRequest();
   }, [
     paneComposeRequest,
+    composer.composeData.mode,
+    composer.composeData.is_reply,
     handleNewMessage,
     handleReply,
     handleReplyAll,
@@ -524,61 +718,68 @@ export function RightPaneContainer({
   ]);
 
   const finishAfterRemoval = React.useCallback(
-    (action: "message_list" | "next_message", removedId: string | number) => {
-      if (action === "next_message") {
-        const next = nextVisibleMessageAfterRemoval(messages, [
-          String(removedId),
-        ]);
+    (
+      action: "message_list" | "next_message",
+      source: PaneSelectionSnapshot,
+    ) => {
+      if (!isCurrentSelection(source)) return;
+      const live = livePane.current;
+      if (action === "next_message" && source.nextId) {
+        const next = live.messages.find(
+          (message) => getMessageIdentityKey(message) === source.nextId,
+        );
         if (next) {
-          void selectMessage(next);
+          void live.selectMessage(next);
           return;
         }
       }
-      clearSelection();
+      live.clearSelection();
     },
-    [clearSelection, messages, selectMessage],
+    [isCurrentSelection],
   );
 
-  // Handle Archive (move to archive folder)
   const handleArchive = React.useCallback(() => {
-    if (!selectedMessage) return;
-
-    const messageId =
-      selectedMessage.uid ?? selectedMessage.msg_no ?? selectedMessage.id;
-    if (!messageId) return;
-
-    void archiveMessage(messageId).then((result) => {
-      if (result?.success !== false) {
-        finishAfterRemoval(preferences.after_archive_action, messageId);
-      }
+    if (!selectedIdentity) {
+      identityFailure();
+      return;
+    }
+    const source = captureSelection();
+    void archiveMessage(selectedIdentity).then((result) => {
+      if (result.success && !result.requiresRefresh)
+        finishAfterRemoval(preferences.after_archive_action, source);
     });
   }, [
-    selectedMessage,
+    selectedIdentity,
+    identityFailure,
+    captureSelection,
     archiveMessage,
     finishAfterRemoval,
     preferences.after_archive_action,
   ]);
 
-  // Handle Trash
   const handleTrash = React.useCallback(() => {
-    if (!selectedMessage) return;
-
-    const messageId =
-      selectedMessage.uid ?? selectedMessage.msg_no ?? selectedMessage.id;
-    if (!messageId) return;
-
-    if (preferences.confirm_delete) {
-      setPendingDeleteMessageId(messageId);
+    if (!selectedIdentity) {
+      identityFailure();
       return;
     }
-
-    void deleteMessage(messageId).then((result) => {
-      if (result?.success) {
-        finishAfterRemoval(preferences.after_delete_action, messageId);
-      }
+    const source = captureSelection();
+    if (permanentlyDeletes || preferences.confirm_delete) {
+      setPendingDelete({
+        selection: source,
+        permanent: permanentlyDeletes,
+        afterAction: preferences.after_delete_action,
+      });
+      return;
+    }
+    void deleteMessage(selectedIdentity, false).then((result) => {
+      if (result.success && !result.requiresRefresh)
+        finishAfterRemoval(preferences.after_delete_action, source);
     });
   }, [
-    selectedMessage,
+    selectedIdentity,
+    identityFailure,
+    captureSelection,
+    permanentlyDeletes,
     preferences.confirm_delete,
     preferences.after_delete_action,
     deleteMessage,
@@ -586,75 +787,96 @@ export function RightPaneContainer({
   ]);
 
   const handleConfirmTrash = React.useCallback(async () => {
-    if (pendingDeleteMessageId == null) return;
-
+    const pending = pendingDelete;
+    if (!pending) return;
+    if (!isCurrentSelection(pending.selection, false)) {
+      setPendingDelete(null);
+      identityFailure();
+      return;
+    }
     setIsDeleting(true);
     try {
-      const result = await deleteMessage(pendingDeleteMessageId);
-      if (result.success) {
-        const removedId = pendingDeleteMessageId;
-        setPendingDeleteMessageId(null);
-        finishAfterRemoval(preferences.after_delete_action, removedId);
+      const result = await deleteMessage(
+        pending.selection.identity,
+        pending.permanent,
+      );
+      if (
+        result.success &&
+        !result.requiresRefresh &&
+        isCurrentSelection(pending.selection)
+      ) {
+        setPendingDelete(null);
+        finishAfterRemoval(pending.afterAction, pending.selection);
       }
     } finally {
-      setIsDeleting(false);
+      if (isCurrentSelection(pending.selection)) setIsDeleting(false);
     }
   }, [
+    pendingDelete,
+    isCurrentSelection,
+    identityFailure,
     deleteMessage,
     finishAfterRemoval,
-    pendingDeleteMessageId,
-    preferences.after_delete_action,
   ]);
 
-  // Handle Mark Unread
   const handleMarkUnread = React.useCallback(() => {
-    if (!selectedMessage) return;
-
-    const messageId =
-      selectedMessage.uid ?? selectedMessage.msg_no ?? selectedMessage.id;
-    if (!messageId) return;
-
-    void markAsUnread(messageId);
-  }, [selectedMessage, markAsUnread]);
+    if (!selectedIdentity) {
+      identityFailure();
+      return;
+    }
+    void markAsUnread(selectedIdentity);
+  }, [selectedIdentity, identityFailure, markAsUnread]);
 
   const handleToggleStar = React.useCallback(() => {
-    const messageId = selectedMessage?.id;
-    if (messageId == null) return;
-
-    void toggleStar(messageId);
-  }, [selectedMessage?.id, toggleStar]);
+    if (!selectedIdentity) {
+      identityFailure();
+      return;
+    }
+    void toggleStar(selectedIdentity);
+  }, [selectedIdentity, identityFailure, toggleStar]);
 
   const handleFolderRecovery = React.useCallback(() => {
-    if (!selectedMessage) return;
-
-    const messageId =
-      selectedMessage.uid ?? selectedMessage.msg_no ?? selectedMessage.id;
-    if (!messageId) return;
-
+    if (!selectedIdentity) {
+      identityFailure();
+      return;
+    }
+    const source = captureSelection();
     void (async () => {
       setIsDeleting(true);
       try {
-        const result = await moveMessage(messageId, "INBOX");
-        if (result.success) {
-          clearSelection();
-          await refreshMessages?.();
+        const result = await moveMessage(selectedIdentity, "INBOX");
+        if (
+          result.success &&
+          !result.requiresRefresh &&
+          isCurrentSelection(source)
+        ) {
+          finishAfterRemoval("message_list", source);
+          await livePane.current.refreshMessages();
         }
       } finally {
-        setIsDeleting(false);
+        if (isCurrentSelection(source)) setIsDeleting(false);
       }
     })();
-  }, [selectedMessage, moveMessage, clearSelection, refreshMessages]);
+  }, [
+    selectedIdentity,
+    identityFailure,
+    captureSelection,
+    moveMessage,
+    isCurrentSelection,
+    finishAfterRemoval,
+  ]);
 
   // Close compose and return to reading. Also clear the shared composer state
   // and any cached draft so a subsequent email selection is not treated as a
   // still-dirty compose by the navigation guard (which would auto-save + toast
   // on every following click).
   const handleCloseCompose = React.useCallback(() => {
+    resumingComposeRef.current = false;
     setPaneMode("reading");
     composer.resetComposeData();
     try {
-      localStorage.removeItem("pressedmail-compose-draft");
-      localStorage.removeItem("compose-draft");
+      removePrincipalStorageItem("local", "pressedmail-compose-draft");
+      removePrincipalStorageItem("local", "compose-draft");
     } catch {
       // Ignore storage access errors.
     }
@@ -668,26 +890,27 @@ export function RightPaneContainer({
     setPaneMode((mode) => (mode === "compose" ? "reading" : mode));
   }, []);
 
-  // Handle send success
+  // The send callback retains the composed reply source even if selection changed.
+  const replySource = composer.composeData.replySource;
   const handleSendSuccess = React.useCallback(() => {
-    refreshMessages?.();
+    if (!mounted.current) return;
+    void livePane.current.refreshMessages();
     if (
       preferences.auto_archive &&
-      selectedMessage &&
       (composeMode === "reply" || composeMode === "reply-all")
     ) {
-      const messageId =
-        selectedMessage.uid ?? selectedMessage.msg_no ?? selectedMessage.id;
-      if (messageId) {
-        void archiveMessage(messageId);
+      if (!replySource?.identity) {
+        identityFailure();
+        return;
       }
+      void archiveMessage(replySource.identity, replySource);
     }
   }, [
     archiveMessage,
     composeMode,
+    identityFailure,
     preferences.auto_archive,
-    refreshMessages,
-    selectedMessage,
+    replySource,
   ]);
 
   // After a manual draft save: drop the Drafts folder's cached pages so opening
@@ -728,6 +951,7 @@ export function RightPaneContainer({
     async (action: "cancel" | "send-now") => {
       if (!scheduledEmail || !scheduledCtx) return;
 
+      const source = captureSelection();
       setIsScheduledActionLoading(true);
       try {
         const result = await (action === "cancel"
@@ -735,6 +959,7 @@ export function RightPaneContainer({
           : scheduledCtx.sendNow(scheduledEmail.id));
 
         if (result.status === "success") {
+          if (!isCurrentSelection(source)) return;
           clearSelection();
           void refreshMessages?.();
           onScheduledEmailCleared?.();
@@ -747,10 +972,12 @@ export function RightPaneContainer({
           );
         }
       } finally {
-        setIsScheduledActionLoading(false);
+        if (isCurrentSelection(source)) setIsScheduledActionLoading(false);
       }
     },
     [
+      captureSelection,
+      isCurrentSelection,
       clearSelection,
       onScheduledEmailChanged,
       onScheduledEmailCleared,
@@ -869,6 +1096,7 @@ export function RightPaneContainer({
         );
         return;
       }
+      const source = captureSelection();
       setIsScheduledActionLoading(true);
       try {
         const result = await scheduledCtx.updateEmail(scheduledEmail.id, {
@@ -887,16 +1115,23 @@ export function RightPaneContainer({
           );
           return;
         }
-        onScheduledEmailChanged?.();
+        if (isCurrentSelection(source)) onScheduledEmailChanged?.();
       } finally {
-        setIsScheduledActionLoading(false);
+        if (isCurrentSelection(source)) setIsScheduledActionLoading(false);
       }
     },
-    [onScheduledEmailChanged, scheduledCtx, scheduledEmail],
+    [
+      onScheduledEmailChanged,
+      scheduledCtx,
+      scheduledEmail,
+      captureSelection,
+      isCurrentSelection,
+    ],
   );
 
   const handleScheduledDelete = React.useCallback(async () => {
     if (!scheduledEmail || !scheduledCtx) return;
+    const source = captureSelection();
     setIsScheduledActionLoading(true);
     try {
       const result = await scheduledCtx.deleteEmail(scheduledEmail.id);
@@ -908,14 +1143,17 @@ export function RightPaneContainer({
         );
         return;
       }
+      if (!isCurrentSelection(source)) return;
       clearSelection();
       void refreshMessages?.();
       onScheduledEmailCleared?.();
       onScheduledEmailChanged?.();
     } finally {
-      setIsScheduledActionLoading(false);
+      if (isCurrentSelection(source)) setIsScheduledActionLoading(false);
     }
   }, [
+    captureSelection,
+    isCurrentSelection,
     clearSelection,
     onScheduledEmailChanged,
     onScheduledEmailCleared,
@@ -1081,14 +1319,22 @@ export function RightPaneContainer({
         </div>
       </div>
       <ConfirmationPanel
-        open={pendingDeleteMessageId != null}
+        open={pendingDelete != null}
         onOpenChange={(open) => {
           if (!open) {
-            setPendingDeleteMessageId(null);
+            setPendingDelete(null);
           }
         }}
-        title={__("Delete email?", "pressedmail")}
-        description={__("This email will be moved to Trash.", "pressedmail")}
+        title={
+          pendingDelete?.permanent
+            ? __("Delete email permanently?", "pressedmail")
+            : __("Delete email?", "pressedmail")
+        }
+        description={
+          pendingDelete?.permanent
+            ? __("This cannot be undone.", "pressedmail")
+            : __("This email will be moved to Trash.", "pressedmail")
+        }
         confirmText={__("Delete", "pressedmail")}
         cancelText={__("Cancel", "pressedmail")}
         variant="destructive"

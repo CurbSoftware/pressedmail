@@ -42,7 +42,15 @@ import {
 } from "@/components/icons/MailActionIcons";
 import { cn } from "@/lib/utils";
 import { surfaceApiAuthError } from "@/lib/api-auth-errors";
-import { getMessageIdentityKey } from "@/lib/message-identity";
+import {
+  getMessageIdentityKey,
+  getMessageIdentityRef,
+} from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
+import { getMessageFilterSignature } from "@/lib/message-filter-signature";
 import { mergeThreadCandidates } from "@/lib/message-grouping";
 import {
   buildMessageTagUpdate,
@@ -68,7 +76,7 @@ import {
   useFeatureEnabled,
 } from "@/context/features/FeaturesContext";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
-import { getInboxService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getEffectiveConsolidatedAccountIdsForLayout } from "@/lib/consolidated-account-scope";
 import { useLayout } from "@/components/layouts";
@@ -364,6 +372,95 @@ export function BulkActionBar({
     : ChevronLeft;
   const NextActionOverflowIcon = isActionScrollRtl ? ChevronLeft : ChevronRight;
 
+  const selectionSnapshot = getSelectionSnapshot();
+  const selectionScopeKey = JSON.stringify([
+    selectedAccount,
+    currentLayout,
+    selectedAccount === CONSOLIDATED_INBOX_VALUE
+      ? accounts.map((account) => String(account.id)).sort()
+      : [],
+    [...selectedConsolidatedAccountIds].sort((a, b) => a - b),
+    selectedFolder,
+    getMessageFilterSignature(activeFilters),
+    selectionSnapshot.mode,
+    selectionSnapshot.mode === "explicit"
+      ? [...selectionSnapshot.selectedIds].sort()
+      : [
+          selectionSnapshot.scopeKey,
+          selectionSnapshot.totalCount,
+          [...selectionSnapshot.excludedIds].sort(),
+        ],
+  ]);
+  // Replace the token at every observed transition, including A -> B -> A.
+  const selectionScopeRef = useRef({ key: selectionScopeKey });
+  if (selectionScopeRef.current.key !== selectionScopeKey)
+    selectionScopeRef.current = { key: selectionScopeKey };
+  const selectionScope = selectionScopeRef.current;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const captureBulkScope = useCallback(() => {
+    const scope = selectionScopeRef.current;
+    const principal = captureRequestPrincipal();
+    return {
+      isCurrent: () =>
+        mountedRef.current &&
+        scope === selectionScopeRef.current &&
+        isRequestPrincipalCurrent(principal),
+      isPrincipalCurrent: () => isRequestPrincipalCurrent(principal),
+    };
+  }, []);
+
+  const selectedMessages = useMemo(() => {
+    // Include rendered thread-child rows (served via threadGroups): a checked
+    // thread child was otherwise dropped from every bulk op and sweep seed.
+    const candidates = mergeThreadCandidates(messages, threadGroups);
+    const snapshot = getSelectionSnapshot();
+    if (snapshot.mode === "current-view") {
+      return candidates.filter(
+        (message) => !snapshot.excludedIds.has(getMessageIdentityKey(message)),
+      );
+    }
+
+    return candidates.filter((m) =>
+      snapshot.selectedIds.has(getMessageIdentityKey(m)),
+    );
+  }, [messages, threadGroups, getSelectionSnapshot]);
+
+  const validateSelectedMessages = useCallback(() => {
+    const snapshot = getSelectionSnapshot();
+    const count =
+      snapshot.mode === "explicit"
+        ? snapshot.selectedIds.size
+        : Math.max(0, snapshot.totalCount - snapshot.excludedIds.size);
+    if (
+      count !== selectedMessages.length ||
+      selectedMessages.some((message) => !getMessageIdentityRef(message))
+    ) {
+      toast.error(
+        __(
+          "Reload the mailbox before changing selected messages.",
+          "pressedmail",
+        ),
+      );
+      return false;
+    }
+    return count > 0;
+  }, [getSelectionSnapshot, selectedMessages]);
+
+  useEffect(() => {
+    setPendingBulkAi(null);
+    setPendingOrganizeRule(null);
+    setOrganizeOpen(false);
+    setSweepOpen(false);
+    stopAiQueueRequestedRef.current = true;
+    bulkAiAbortRef.current?.abort();
+  }, [selectionScope]);
+
   const runCurrentViewMessageBatches = useCallback(
     async (
       snapshot: Extract<
@@ -371,7 +468,7 @@ export function BulkActionBar({
         { mode: "current-view" }
       >,
       op: (messages: EmailMessage[]) => Promise<BatchOperationResult>,
-      options: { refetchFromStart?: boolean } = {},
+      options: { refetchFromStart?: boolean; isCurrent: () => boolean },
     ): Promise<BatchOperationResult> => {
       const targetCount = Math.max(
         0,
@@ -394,11 +491,13 @@ export function BulkActionBar({
       const processedIds = new Set(snapshot.excludedIds);
 
       while (attemptedCount < targetCount) {
+        if (!options.isCurrent()) break;
         const page = await loadMessagesSnapshot({
           offset,
           limit: BULK_CURRENT_VIEW_PAGE_SIZE,
           forceRefresh: true,
         });
+        if (!options.isCurrent()) break;
         if (!page.success) {
           return {
             success: false,
@@ -476,6 +575,8 @@ export function BulkActionBar({
         return;
       }
 
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
       setIsLoading(true);
       try {
         const result =
@@ -486,6 +587,7 @@ export function BulkActionBar({
                   options.messageOp,
                   {
                     refetchFromStart: options.refetchFromStart,
+                    isCurrent: captured.isCurrent,
                   },
                 )
               : {
@@ -499,6 +601,7 @@ export function BulkActionBar({
                   totalCount: 0,
                 }
             : await op(Array.from(snapshot.selectedIds));
+        if (!captured.isCurrent()) return;
         if (result.success) {
           toast.success(successMsg);
           clearSelection();
@@ -512,14 +615,21 @@ export function BulkActionBar({
           );
         }
       } catch {
+        if (!captured.isCurrent()) return;
         toast.error(
           options.failureMsg || __("Operation failed", "pressedmail"),
         );
       } finally {
-        setIsLoading(false);
+        if (mountedRef.current && captured.isPrincipalCurrent())
+          setIsLoading(false);
       }
     },
-    [getSelectionSnapshot, runCurrentViewMessageBatches, clearSelection],
+    [
+      getSelectionSnapshot,
+      runCurrentViewMessageBatches,
+      clearSelection,
+      captureBulkScope,
+    ],
   );
 
   const handleMarkRead = useCallback(
@@ -550,29 +660,15 @@ export function BulkActionBar({
     ],
   );
 
-  const selectedMessages = useMemo(() => {
-    // Include rendered thread-child rows (served via threadGroups): a checked
-    // thread child was otherwise dropped from every bulk op and sweep seed.
-    const candidates = mergeThreadCandidates(messages, threadGroups);
-    const snapshot = getSelectionSnapshot();
-    if (snapshot.mode === "current-view") {
-      return candidates.filter(
-        (message) => !snapshot.excludedIds.has(getMessageIdentityKey(message)),
-      );
-    }
-
-    return candidates.filter((m) =>
-      snapshot.selectedIds.has(getMessageIdentityKey(m)),
-    );
-  }, [messages, threadGroups, getSelectionSnapshot]);
-
   const deleteScheduledMessages = useCallback(
     async (sourceMessages: EmailMessage[]): Promise<BatchOperationResult> => {
+      const captured = captureBulkScope();
       const failedIds: (string | number)[] = [];
       let successCount = 0;
       let firstError: string | undefined;
 
       for (const message of sourceMessages) {
+        if (!captured.isCurrent()) break;
         const localId = getMessageIdentityKey(message);
         const scheduledId = Number(message.scheduledEmailId);
         if (
@@ -589,6 +685,7 @@ export function BulkActionBar({
         }
 
         const result = await scheduledEmails.deleteEmail(scheduledId);
+        if (!captured.isPrincipalCurrent()) break;
         if (result.status === "success") {
           successCount += 1;
           getInboxService().removeMessage(localId);
@@ -606,7 +703,7 @@ export function BulkActionBar({
         error: firstError,
       };
     },
-    [scheduledEmails],
+    [scheduledEmails, captureBulkScope],
   );
 
   const handleDelete = useCallback(() => {
@@ -737,7 +834,6 @@ export function BulkActionBar({
   // Snapshot the live selection for the sweep dialog: the count drives the
   // default scope choice (selected-only vs entire view); a select-all snapshot
   // contributes its exclusions to the entire-view scope.
-  const selectionSnapshot = getSelectionSnapshot();
   const sweepSelection: EmailSweepSelection =
     selectionSnapshot.mode === "current-view"
       ? {
@@ -752,6 +848,9 @@ export function BulkActionBar({
 
   const handleOneOffSweepRun = useCallback(
     async (request: StartOneOffSweepRequest) => {
+      const captured = captureBulkScope();
+      if (!captured.isCurrent())
+        throw new Error("The selection changed. Reopen Sweep and retry.");
       // Route the sweep through the process / activity queue so the work shows
       // up in the activity panel + footer and drains in the background.
       const result = await enqueueSweepQueue({
@@ -766,6 +865,7 @@ export function BulkActionBar({
         create_rule: request.create_rule ?? false,
         excluded_message_ids: request.excluded_message_ids,
       });
+      if (!captured.isCurrent()) return result;
       toast.success(
         result.deduplicated
           ? __("That sweep is already running", "pressedmail")
@@ -775,7 +875,7 @@ export function BulkActionBar({
       clearSelection();
       return result;
     },
-    [clearSelection],
+    [clearSelection, captureBulkScope],
   );
   const isTrashFolder = currentFolderRole === "trash";
   const isJunkFolder =
@@ -785,6 +885,8 @@ export function BulkActionBar({
   // then start a server-side rule run against either the explicit selection or
   // the whole current view. Whole-view runs sync the mailbox mirror first.
   const loadOrganizeRules = useCallback(async () => {
+    const captured = captureBulkScope();
+    if (!captured.isCurrent()) return;
     setOrganizeLoading(true);
     try {
       // Combined view: account-scoped rules live under each account id, so a
@@ -797,6 +899,7 @@ export function BulkActionBar({
           fetchFilterRules(accountId).catch(() => [] as FilterRule[]),
         ),
       );
+      if (!captured.isCurrent()) return;
       const byId = new Map<string | number, FilterRule>();
       for (const rule of lists.flat()) {
         if (rule.enabled && ruleCanRunManually(rule)) {
@@ -805,11 +908,17 @@ export function BulkActionBar({
       }
       setOrganizeRules([...byId.values()]);
     } catch {
-      setOrganizeRules([]);
+      if (captured.isCurrent()) setOrganizeRules([]);
     } finally {
-      setOrganizeLoading(false);
+      if (mountedRef.current && captured.isPrincipalCurrent())
+        setOrganizeLoading(false);
     }
-  }, [accountIdForCreate, consolidatedRuleAccountIds, isConsolidatedRuleScope]);
+  }, [
+    accountIdForCreate,
+    consolidatedRuleAccountIds,
+    isConsolidatedRuleScope,
+    captureBulkScope,
+  ]);
 
   const handleOrganizeOpenChange = useCallback(
     (open: boolean) => {
@@ -821,19 +930,20 @@ export function BulkActionBar({
 
   const selectedRuleRefs = useMemo(
     () =>
-      selectedMessages
-        .map((message) => {
-          const accountId =
-            resolveMessageAccountId(message, accounts, selectedAccount) ??
-            accountIdForCreate ??
-            0;
-          return {
-            accountId,
-            uid: message.uid != null ? String(message.uid) : String(message.id),
-            folder: message.folder || selectedFolder || "INBOX",
-          };
-        })
-        .filter((ref) => ref.accountId > 0 && ref.uid !== ""),
+      selectedMessages.map((message) => {
+        const accountId =
+          resolveMessageAccountId(message, accounts, selectedAccount) ??
+          accountIdForCreate ??
+          0;
+        return {
+          accountId,
+          uid: message.uid == null ? "" : String(message.uid),
+          uidValidity: String(
+            message.uidValidity ?? message.uid_validity ?? "",
+          ),
+          folder: typeof message.folder === "string" ? message.folder : "",
+        };
+      }),
     [
       selectedMessages,
       accounts,
@@ -851,6 +961,9 @@ export function BulkActionBar({
   const runPendingRule = useCallback(
     async (mode: "selection" | "view") => {
       if (!pendingOrganizeRule) return;
+      if (mode === "selection" && !validateSelectedMessages()) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
 
       if (mode === "selection" && selectedRuleRefs.length === 0) {
         toast.info(__("No selected emails can be organized", "pressedmail"));
@@ -882,6 +995,7 @@ export function BulkActionBar({
       try {
         if (mode === "view") {
           const preview = await previewFilterRuleRun(request);
+          if (!captured.isCurrent()) return;
           if (preview.supportedRuleIds.length === 0) {
             toast.info(
               __(
@@ -897,7 +1011,9 @@ export function BulkActionBar({
           }
         }
 
+        if (!captured.isCurrent()) return;
         await startFilterRuleRun(request);
+        if (!captured.isCurrent()) return;
         toast.success(
           mode === "view"
             ? __("Rule run started for the current view", "pressedmail")
@@ -906,17 +1022,21 @@ export function BulkActionBar({
         clearSelection();
         setPendingOrganizeRule(null);
       } catch (err) {
+        if (!captured.isCurrent()) return;
         toast.error(
           err instanceof Error
             ? err.message
             : __("Could not start the rule run", "pressedmail"),
         );
       } finally {
-        setRuleRunLoading(false);
+        if (mountedRef.current && captured.isPrincipalCurrent())
+          setRuleRunLoading(false);
       }
     },
     [
       pendingOrganizeRule,
+      captureBulkScope,
+      validateSelectedMessages,
       selectedRuleRefs,
       accountIdForCreate,
       isConsolidatedRuleScope,
@@ -953,6 +1073,8 @@ export function BulkActionBar({
 
   const handleSnoozed = useCallback(
     (succeeded: SnoozeTarget[]) => {
+      const principal = captureRequestPrincipal();
+      if (!isRequestPrincipalCurrent(principal)) return;
       // Remove ONLY the rows whose snooze actually succeeded.
       const okKeys = new Set(succeeded.map(getSnoozeTargetIdentityKey));
       const inboxService = getInboxService();
@@ -964,6 +1086,8 @@ export function BulkActionBar({
           removed++;
         }
       });
+      if (!mountedRef.current || selectionScope !== selectionScopeRef.current)
+        return;
       toast.success(
         sprintf(
           /* translators: %d: number of emails snoozed. */
@@ -975,7 +1099,7 @@ export function BulkActionBar({
         clearSelection();
       }
     },
-    [selectedMessages, snoozeTargets, clearSelection],
+    [selectedMessages, snoozeTargets, clearSelection, selectionScope],
   );
 
   const handleMoveToJunk = useCallback(async () => {
@@ -1073,8 +1197,11 @@ export function BulkActionBar({
       activity: BulkActivityReporter,
       controller: AbortController,
       captured: EmailMessage[],
+      isCurrent: () => boolean,
     ): Promise<EmailMessage[] | null> => {
+      if (!isCurrent()) return null;
       const gate = await activity.waitUntilRunning(controller.signal);
+      if (!isCurrent()) return null;
       if (gate === "cancelled") {
         stopAiQueueRequestedRef.current = true;
         return null;
@@ -1084,6 +1211,7 @@ export function BulkActionBar({
       }
 
       const targets = await revalidateSelectionAfterWait(captured);
+      if (!isCurrent()) return null;
       if (targets.length === 0) {
         toast.info(
           __("Selected emails were moved by the sweep", "pressedmail"),
@@ -1102,7 +1230,9 @@ export function BulkActionBar({
   // be stopped from the toolbar and each returned result updates its row icon.
   const handleBulkPhishingCheck = useCallback(
     async (force = false) => {
-      if (selectedMessages.length === 0 || bulkAiJob) return;
+      if (bulkAiJob || !validateSelectedMessages()) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
 
       const controller = new AbortController();
       stopAiQueueRequestedRef.current = false;
@@ -1129,11 +1259,13 @@ export function BulkActionBar({
           activity,
           controller,
           selectedMessages,
+          captured.isCurrent,
         );
-        if (!targets) {
+        if (!captured.isCurrent() || !targets) {
           return;
         }
         for (const msg of targets) {
+          if (!captured.isCurrent()) return;
           if (
             stopAiQueueRequestedRef.current ||
             controller.signal.aborted ||
@@ -1164,6 +1296,7 @@ export function BulkActionBar({
             { signal: controller.signal, force },
           );
 
+          if (!captured.isCurrent()) return;
           if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
             break;
           }
@@ -1179,6 +1312,7 @@ export function BulkActionBar({
           void activity.advance(analyzed);
         }
 
+        if (!captured.isCurrent()) return;
         if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
           toast.info(
             sprintf(
@@ -1200,6 +1334,7 @@ export function BulkActionBar({
         );
         clearSelection();
       } catch (err) {
+        if (!captured.isCurrent()) return;
         if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
           return;
         }
@@ -1213,22 +1348,27 @@ export function BulkActionBar({
             : __("Phishing check failed", "pressedmail");
         toast.error(activityError);
       } finally {
-        await activity?.finish(
-          activityError
-            ? "failed"
-            : stopAiQueueRequestedRef.current || controller.signal.aborted
-              ? "cancelled"
-              : "done",
-          activityError,
-        );
-        setIsPhishingChecking(false);
-        setBulkAiJob(null);
-        setBulkAiAbortController(null);
-        stopAiQueueRequestedRef.current = false;
+        if (captured.isPrincipalCurrent())
+          await activity?.finish(
+            activityError
+              ? "failed"
+              : stopAiQueueRequestedRef.current || controller.signal.aborted
+                ? "cancelled"
+                : "done",
+            activityError,
+          );
+        if (mountedRef.current && captured.isPrincipalCurrent()) {
+          setIsPhishingChecking(false);
+          setBulkAiJob(null);
+          setBulkAiAbortController(null);
+          stopAiQueueRequestedRef.current = false;
+        }
       }
     },
     [
       selectedMessages,
+      validateSelectedMessages,
+      captureBulkScope,
       accounts,
       selectedAccount,
       selectedFolder,
@@ -1243,7 +1383,9 @@ export function BulkActionBar({
   // interruptible while persisted results light up each card as they return.
   const handleBulkSummarize = useCallback(
     async (force = false) => {
-      if (selectedMessages.length === 0 || bulkAiJob) return;
+      if (bulkAiJob || !validateSelectedMessages()) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
 
       const controller = new AbortController();
       stopAiQueueRequestedRef.current = false;
@@ -1269,11 +1411,13 @@ export function BulkActionBar({
           activity,
           controller,
           selectedMessages,
+          captured.isCurrent,
         );
-        if (!targets) {
+        if (!captured.isCurrent() || !targets) {
           return;
         }
         for (const message of targets) {
+          if (!captured.isCurrent()) return;
           if (
             stopAiQueueRequestedRef.current ||
             controller.signal.aborted ||
@@ -1288,6 +1432,7 @@ export function BulkActionBar({
             force,
           });
 
+          if (!captured.isCurrent()) return;
           if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
             break;
           }
@@ -1297,6 +1442,7 @@ export function BulkActionBar({
           void activity.advance(successCount + failedCount);
         }
 
+        if (!captured.isCurrent()) return;
         if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
           toast.info(
             sprintf(
@@ -1323,6 +1469,7 @@ export function BulkActionBar({
         );
         clearSelection();
       } catch (err) {
+        if (!captured.isCurrent()) return;
         if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
           toast.info(
             sprintf(
@@ -1345,21 +1492,26 @@ export function BulkActionBar({
             : __("Failed to summarize selected emails", "pressedmail");
         toast.error(activityError);
       } finally {
-        await activity?.finish(
-          activityError
-            ? "failed"
-            : stopAiQueueRequestedRef.current || controller.signal.aborted
-              ? "cancelled"
-              : "done",
-          activityError,
-        );
-        setBulkAiJob(null);
-        setBulkAiAbortController(null);
-        stopAiQueueRequestedRef.current = false;
+        if (captured.isPrincipalCurrent())
+          await activity?.finish(
+            activityError
+              ? "failed"
+              : stopAiQueueRequestedRef.current || controller.signal.aborted
+                ? "cancelled"
+                : "done",
+            activityError,
+          );
+        if (mountedRef.current && captured.isPrincipalCurrent()) {
+          setBulkAiJob(null);
+          setBulkAiAbortController(null);
+          stopAiQueueRequestedRef.current = false;
+        }
       }
     },
     [
       selectedMessages,
+      validateSelectedMessages,
+      captureBulkScope,
       summarizeMessages,
       awaitBulkAiTurn,
       bulkAiJob,
@@ -1370,7 +1522,9 @@ export function BulkActionBar({
   // Bulk auto-tag: classify one email per request so the long LLM work can be
   // stopped from the toolbar and never runs as one unbounded server-side loop.
   const handleBulkAutoTag = useCallback(async () => {
-    if (selectedMessages.length === 0 || bulkAiJob) return;
+    if (bulkAiJob || !validateSelectedMessages()) return;
+    const captured = captureBulkScope();
+    if (!captured.isCurrent()) return;
     if (!autoTaggerAvailable) {
       toast.info(
         __(
@@ -1406,11 +1560,13 @@ export function BulkActionBar({
         activity,
         controller,
         selectedMessages,
+        captured.isCurrent,
       );
-      if (!targets) {
+      if (!captured.isCurrent() || !targets) {
         return;
       }
       for (const msg of targets) {
+        if (!captured.isCurrent()) return;
         if (
           stopAiQueueRequestedRef.current ||
           controller.signal.aborted ||
@@ -1431,8 +1587,10 @@ export function BulkActionBar({
           accountId,
           [
             {
-              uid: msg.uid != null ? String(msg.uid) : String(msg.id),
-              folder: msg.folder || selectedFolder || "INBOX",
+              uid: msg.uid,
+
+              uidValidity: msg.uidValidity ?? msg.uid_validity,
+              folder: msg.folder || "",
               subject: msg.subject ?? "",
               from: msg.from ?? "",
               date: msg.date ?? "",
@@ -1442,11 +1600,10 @@ export function BulkActionBar({
           { signal: controller.signal },
         );
 
-        if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
-          break;
-        }
+        if (!captured.isPrincipalCurrent()) return;
 
         if (result.status === "error") {
+          if (!captured.isCurrent()) return;
           toast.error(
             result.message ?? __("Failed to auto-tag emails", "pressedmail"),
           );
@@ -1455,7 +1612,6 @@ export function BulkActionBar({
 
         processed += 1;
         applied += Number(result.tags_applied ?? 0);
-        void activity.advance(processed);
 
         const returnedTags = result.results?.flatMap((item) => item.tags) ?? [];
         if (returnedTags.length > 0) {
@@ -1466,8 +1622,11 @@ export function BulkActionBar({
             });
           }
         }
+        if (!captured.isCurrent()) return;
+        void activity.advance(processed);
       }
 
+      if (!captured.isCurrent()) return;
       if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
         toast.info(
           sprintf(
@@ -1499,6 +1658,7 @@ export function BulkActionBar({
         toast.info(__("No matching tags found", "pressedmail"));
       }
     } catch (err) {
+      if (!captured.isCurrent()) return;
       if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
         toast.info(
           sprintf(
@@ -1521,21 +1681,26 @@ export function BulkActionBar({
           : __("Failed to auto-tag emails", "pressedmail");
       toast.error(activityError);
     } finally {
-      await activity?.finish(
-        activityError
-          ? "failed"
-          : stopAiQueueRequestedRef.current || controller.signal.aborted
-            ? "cancelled"
-            : "done",
-        activityError,
-      );
-      setIsAutoTagging(false);
-      setBulkAiJob(null);
-      setBulkAiAbortController(null);
-      stopAiQueueRequestedRef.current = false;
+      if (captured.isPrincipalCurrent())
+        await activity?.finish(
+          activityError
+            ? "failed"
+            : stopAiQueueRequestedRef.current || controller.signal.aborted
+              ? "cancelled"
+              : "done",
+          activityError,
+        );
+      if (mountedRef.current && captured.isPrincipalCurrent()) {
+        setIsAutoTagging(false);
+        setBulkAiJob(null);
+        setBulkAiAbortController(null);
+        stopAiQueueRequestedRef.current = false;
+      }
     }
   }, [
     selectedMessages,
+    validateSelectedMessages,
+    captureBulkScope,
     accounts,
     selectedAccount,
     selectedFolder,
@@ -1566,8 +1731,8 @@ export function BulkActionBar({
 
   const requestBulkAi = useCallback(
     (op: BulkAiOperation) => {
+      if (bulkAiJob || !validateSelectedMessages()) return;
       const count = selectedMessages.length;
-      if (count === 0 || bulkAiJob) return;
 
       const cap =
         op === "phishing"
@@ -1597,7 +1762,7 @@ export function BulkActionBar({
             ).length
           : op === "phishing"
             ? selectedMessages.filter((message) =>
-                Boolean(getAnalysisResult(getMessageRequestId(message))),
+                Boolean(getAnalysisResult(getMessageIdentityKey(message))),
               ).length
             : 0;
       const longRun = count > aiBulkLimits.warnThreshold;
@@ -1615,6 +1780,7 @@ export function BulkActionBar({
     },
     [
       selectedMessages,
+      validateSelectedMessages,
       bulkAiJob,
       aiBulkLimits,
       getSummary,
@@ -1639,6 +1805,17 @@ export function BulkActionBar({
   // selected message. Available in all builds (manual tagging is Free).
   const handleBulkApplyTags = useCallback(
     async (nextTagIds: number[]) => {
+      const snapshot = getSelectionSnapshot();
+      const expectedCount =
+        snapshot.mode === "explicit"
+          ? snapshot.selectedIds.size
+          : snapshot.totalCount - snapshot.excludedIds.size;
+      if (expectedCount !== selectedMessages.length) {
+        toast.error(
+          __("Reload the mailbox before changing tags.", "pressedmail"),
+        );
+        return;
+      }
       if (selectedMessages.length === 0) return;
 
       const previousTagIds = new Set(bulkSelectedTagIds);
@@ -1650,24 +1827,71 @@ export function BulkActionBar({
 
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
-      const refs = selectedMessages.map((msg) => ({
-        account_id:
-          resolveMessageAccountId(msg, accounts, selectedAccount) ??
-          accountIdForCreate ??
-          0,
-        message_uid: msg.uid != null ? String(msg.uid) : String(msg.id),
-        folder: msg.folder || selectedFolder || "INBOX",
-      }));
-      const validRefs = refs.filter((ref) => ref.account_id > 0);
-      if (validRefs.length === 0) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
+      const principal = captureRequestPrincipal();
+      const identities = selectedMessages.map((message) =>
+        getMessageIdentityRef(message),
+      );
+      if (!principal || identities.some((ref) => !ref)) {
+        toast.error(
+          __("Reload the mailbox before changing tags.", "pressedmail"),
+        );
+        return;
+      }
+      const validRefs = identities.flatMap((ref) =>
+        ref
+          ? [
+              {
+                account_id: ref.accountId,
+                message_uid: ref.uid,
+                folder: ref.folder,
+                uid_validity: ref.uidValidity,
+              },
+            ]
+          : [],
+      );
 
+      const invalidateTagCaches = () => {
+        const cache = getCacheService();
+        cache.invalidateMessages({});
+        for (const ref of validRefs)
+          cache.invalidateMessageDetail(
+            String(ref.account_id),
+            ref.folder,
+            getMessageIdentityKey({
+              accountId: ref.account_id,
+              folder: ref.folder,
+              uidValidity: ref.uid_validity,
+              uid: ref.message_uid,
+            }),
+          );
+      };
       setIsTagging(true);
       try {
         for (const tagId of addedTagIds) {
-          await batchAssignTag(tagId, validRefs);
+          if (!captured.isCurrent()) return;
+          const result = await batchAssignTag(tagId, validRefs);
+          if (!isRequestPrincipalCurrent(principal)) return;
+          if (result.failed > 0)
+            throw new Error(
+              __(
+                "Some tags could not be saved. Refresh the mailbox and retry.",
+                "pressedmail",
+              ),
+            );
         }
         for (const tagId of removedTagIds) {
-          await batchRemoveTag(tagId, validRefs);
+          if (!captured.isCurrent()) return;
+          const result = await batchRemoveTag(tagId, validRefs);
+          if (!isRequestPrincipalCurrent(principal)) return;
+          if (result.failed > 0)
+            throw new Error(
+              __(
+                "Some tags could not be removed. Refresh the mailbox and retry.",
+                "pressedmail",
+              ),
+            );
         }
 
         const inboxService = getInboxService();
@@ -1700,6 +1924,7 @@ export function BulkActionBar({
           }
         });
 
+        if (!captured.isCurrent()) return;
         const filteredByTag =
           Array.isArray(activeFilters.tags) && activeFilters.tags.length > 0;
         if (filteredByTag) {
@@ -1715,23 +1940,28 @@ export function BulkActionBar({
         );
         clearSelection();
       } catch (err) {
+        if (!isRequestPrincipalCurrent(principal)) return;
+        invalidateTagCaches();
+        if (!captured.isCurrent()) return;
+        applyFilters(activeFilters);
         toast.error(
           err instanceof Error
             ? err.message
             : __("Failed to tag emails", "pressedmail"),
         );
       } finally {
-        setIsTagging(false);
+        if (captured.isPrincipalCurrent()) {
+          if (!captured.isCurrent()) invalidateTagCaches();
+          if (mountedRef.current) setIsTagging(false);
+        }
       }
     },
     [
       selectedMessages,
-      accounts,
-      selectedAccount,
-      selectedFolder,
-      accountIdForCreate,
+      captureBulkScope,
       tags,
       bulkSelectedTagIds,
+      getSelectionSnapshot,
       batchAssignTag,
       batchRemoveTag,
       activeFilters,

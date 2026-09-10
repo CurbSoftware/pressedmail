@@ -164,8 +164,16 @@ export function ComposerColorPalette({
   const isManager = effectiveMode === "manager";
   const isPicker = effectiveMode === "picker";
   const isBackgroundEditor = customEditorLayout === "background";
+  // COMPOSER_CUSTOM_COLOR_MAX is derived from the full 11-shade grid (22), but
+  // every composer popover renders the reduced 7-shade one, which only draws 14
+  // slots. Colours past the rendered slot count can be stored from the settings
+  // page and then have nowhere to appear, so the cap follows the grid that is
+  // actually on screen. 22 stays the server-side ceiling.
+  const customSlotCount = activeShades.length * COMPOSER_CUSTOM_COLOR_COLUMNS;
   const canAddCustom =
-    !isPreview && customColors.length < COMPOSER_CUSTOM_COLOR_MAX;
+    !isPreview &&
+    customColors.length <
+      Math.min(customSlotCount, COMPOSER_CUSTOM_COLOR_MAX);
   const showCustomEditor = !isPreview && draftOpen;
 
   const handleSwatch = useCallback(
@@ -181,13 +189,17 @@ export function ComposerColorPalette({
   const duplicateIndex = customColors.findIndex(
     (entry) => entry === normalizedDraft,
   );
+  const draftIsDuplicate =
+    duplicateIndex !== -1 && duplicateIndex !== editingIndex;
   const draftValid =
     (isBackgroundEditor
       ? Boolean(normalizedBackgroundDraft)
       : VALID_HEX.test(normalizedDraft)) &&
-    (isBackgroundEditor ||
-      duplicateIndex === -1 ||
-      duplicateIndex === editingIndex);
+    // The settings manager curates the list, so a duplicate there is a real
+    // mistake worth refusing. A picker is being asked for a colour: if the user
+    // lands on one already saved, apply it rather than disabling Save with no
+    // explanation, which is indistinguishable from the button being broken.
+    (isBackgroundEditor || isPicker || !draftIsDuplicate);
 
   function captureSwapWidth() {
     const measured = swatchAreaRef.current?.offsetWidth ?? 0;
@@ -197,7 +209,7 @@ export function ComposerColorPalette({
   function commitDraft() {
     if (!draftValid) return;
     const nextColors =
-      isBackgroundEditor && duplicateIndex !== -1
+      draftIsDuplicate
         ? [...customColors]
         : editingIndex === null
           ? [...customColors, normalizedDraft]
@@ -228,7 +240,16 @@ export function ComposerColorPalette({
           palette_custom_colors: nextColors,
         }),
       ).then((didSave) => {
-        if (didSave && isManager) {
+        if (!didSave) {
+          // A rejected save rolls the optimistic state back, so without this
+          // the new colour just disappeared and the palette looked unchanged.
+          appMessage(
+            __("Could not save that color", "pressedmail"),
+            "error",
+          );
+          return;
+        }
+        if (isManager) {
           appMessage(__("Custom colors updated", "pressedmail"), "success");
         }
       });
@@ -516,6 +537,7 @@ export function ComposerColorPalette({
                 {__("Enter a 6 or 8 digit hex color.", "pressedmail")}
               </p>
             ) : null}
+
             <div className="flex gap-2">
               <Button
                 type="button"

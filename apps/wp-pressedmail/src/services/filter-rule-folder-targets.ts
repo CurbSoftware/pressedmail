@@ -42,6 +42,30 @@ export function folderPathsEqual(
   return canonical(left) === canonical(right);
 }
 
+/**
+ * Resolve a rule's move target to a live folder path.
+ *
+ * A target stores { accountId, folderId, lastKnownPath }. lastKnownPath is a
+ * fallback, not an address: it is stale the moment the folder is renamed. Walk
+ * the live tree by id first, and let the caller decide what to do when the
+ * folder is gone.
+ */
+export function resolveRuleFolderPath(
+  folders: ImapFolder[],
+  target: FilterRuleFolderTarget,
+): string | undefined {
+  const stack = [...folders];
+  while (stack.length > 0) {
+    const folder = stack.shift();
+    if (!folder) continue;
+    if (folder.id === target.folderId && folder.accountId === target.accountId) {
+      return folder.path;
+    }
+    stack.push(...(folder.children ?? []));
+  }
+  return undefined;
+}
+
 export function isResolvedFilterRuleFolderTarget(
   value: unknown,
 ): value is FilterRuleFolderTarget & { folderId: number } {

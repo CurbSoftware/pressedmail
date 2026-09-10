@@ -22,6 +22,8 @@ export const DEFAULT_COMPOSE_DATA: ComposeData & { is_reply?: boolean } = {
   draftAccountId: undefined,
   draftUidValidity: undefined,
   draftMessageId: undefined,
+  inReplyTo: undefined,
+  references: undefined,
   draftAttachmentManifestComplete: undefined,
   scheduledEmailId: undefined,
   scheduledAccountId: undefined,
@@ -141,6 +143,7 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
     ComposeData & { is_reply?: boolean }
   >("compose-draft", DEFAULT_COMPOSE_DATA, {
     ...COMPOSE_DRAFT_STORAGE,
+    principalScoped: true,
     onExternalChange: advanceExternalComposeSession,
   });
   const setComposeData = useCallback<

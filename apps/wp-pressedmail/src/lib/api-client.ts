@@ -1,3 +1,9 @@
+import {
+  captureRequestPrincipal,
+  invalidatePrincipalStorage,
+  isRequestPrincipalCurrent,
+  type StoragePrincipal,
+} from "./principal-storage";
 /**
  * Single HTTP layer for every authenticated PressedMail plugin REST call.
  *
@@ -13,8 +19,8 @@
  *    cookie is gone) surfaces as `SessionExpiredError`. Neither is ever swallowed.
  *  - Timeout + relative-URL fallback (absorbed from the three former private
  *    `fetchWithFallback` copies in sync/folder/inbox services): each request is bounded by
- *    a 20s timeout, and a network `TypeError` against an absolute URL is retried once
- *    against the relative path (WP sites behind proxies/protocol mismatches).
+ *    a 20s timeout. GET/HEAD network failures against an absolute URL retry once against
+ *    the relative path. Mutations never replay after an ambiguous network failure.
  *
  * There is intentionally NO `window.fetch` monkey-patch. Healing is explicit here so it is
  * testable, applies uniformly to every verb, and never double-wraps.
@@ -34,8 +40,14 @@ import {
 export { CREDENTIALS_REQUIRED_EVENT } from "@/lib/credentials-required-events";
 export type { CredentialsRequiredDetail } from "@/lib/credentials-required-events";
 
-/** Default per-request timeout (matches the former service-level `fetchWithFallback`). */
-export const REQUEST_TIMEOUT_MS = 20_000;
+/**
+ * Default per-request timeout. Shared hosts queue plain admin reads behind the
+ * SPA's boot burst: the Pro test ring took over 20 s to answer four settings
+ * reads while idle-ish, and the old 20 s limit aborted them client-side into
+ * "could not be loaded" cards that a Retry then fixed (PM48). Cloudflare cuts
+ * an origin at 100 s, so 60 s still returns the plugin's own error first.
+ */
+export const REQUEST_TIMEOUT_MS = 60_000;
 
 /** WP REST error code returned when the nonce is stale/expired. */
 const INVALID_NONCE_CODE = "rest_cookie_invalid_nonce";
@@ -80,6 +92,101 @@ export class SessionExpiredError extends Error {
   }
 }
 
+const responsePrincipals = new WeakMap<Response, StoragePrincipal>();
+
+function assertCurrentPrincipal(
+  principal: StoragePrincipal | null,
+): asserts principal is StoragePrincipal {
+  if (!isRequestPrincipalCurrent(principal)) throw new SessionExpiredError();
+}
+
+function assertResponsePrincipal(response: Response): void {
+  assertCurrentPrincipal(responsePrincipals.get(response) ?? null);
+}
+
+/**
+ * Headers may arrive before a user switch while the private body is still downloading.
+ * Keep the native Response and fence every whole-body reader, including cloned readers.
+ * Raw `body` streams are intentionally outside this contract: no API caller consumes
+ * them. A future streaming caller must fence each chunk before exposing or storing it.
+ */
+function fenceResponse(
+  response: Response,
+  principal: StoragePrincipal,
+): Response {
+  assertCurrentPrincipal(principal);
+  if (responsePrincipals.has(response)) {
+    if (responsePrincipals.get(response) !== principal) {
+      throw new SessionExpiredError();
+    }
+    return response;
+  }
+  try {
+    if (!(response instanceof Response) || !Object.isExtensible(response)) {
+      throw new TypeError("A native, extensible Response is required.");
+    }
+    // The native getter rejects objects that only imitate the Response prototype.
+    const bodyUsed = Object.getOwnPropertyDescriptor(
+      Response.prototype,
+      "bodyUsed",
+    )?.get;
+    if (!bodyUsed)
+      throw new TypeError("Response body verification is unavailable.");
+    Reflect.apply(bodyUsed, response, []);
+    const descriptors: PropertyDescriptorMap = {};
+    for (const name of [
+      "json",
+      "text",
+      "blob",
+      "arrayBuffer",
+      "formData",
+      "bytes",
+    ]) {
+      const reader = Reflect.get(Response.prototype, name);
+      if (name === "bytes" && typeof reader === "undefined") continue;
+      if (typeof reader !== "function")
+        throw new TypeError("Response reader is unavailable.");
+      descriptors[name] = {
+        value: async function (this: Response, ...args: unknown[]) {
+          assertCurrentPrincipal(principal);
+          if (this !== response) throw new TypeError("Illegal invocation");
+          try {
+            const result: unknown = await Reflect.apply(reader, this, args);
+            assertCurrentPrincipal(principal);
+            return result;
+          } catch (error) {
+            // A revoked body must not become a parser error or an empty error DTO.
+            assertCurrentPrincipal(principal);
+            throw error;
+          }
+        },
+      };
+    }
+    const clone = Response.prototype.clone;
+    descriptors.clone = {
+      value: function (this: Response) {
+        assertCurrentPrincipal(principal);
+        if (this !== response) throw new TypeError("Illegal invocation");
+        return fenceResponse(Reflect.apply(clone, this, []), principal);
+      },
+    };
+    Object.defineProperties(response, descriptors);
+    responsePrincipals.set(response, principal);
+    return response;
+  } catch (error) {
+    if (error instanceof SessionExpiredError) throw error;
+    // Unsupported/frozen response implementations cannot bypass the body fence.
+    throw new SessionExpiredError(
+      "The response could not be verified. Reload the page before trying again.",
+    );
+  }
+}
+
+function ignoreMalformedJson(error: unknown): null {
+  if (error instanceof SessionExpiredError) throw error;
+  return null;
+}
+
 /**
  * The mailbox is locked by the user's PressedMail Lock passphrase (HTTP 423 with code
  * `pressedmail_mailbox_locked`). NOT a session/auth failure: the LockGate handles it by
@@ -95,7 +202,6 @@ export class MailboxLockedError extends Error {
     this.name = "MailboxLockedError";
   }
 }
-
 
 /**
  * Window event dispatched whenever any plugin REST call answers 423. The mailbox-lock store
@@ -114,7 +220,8 @@ async function isMailboxLocked423(response: Response): Promise<boolean> {
   try {
     const body = (await response.clone().json()) as { code?: unknown } | null;
     return body?.code === MAILBOX_LOCKED_CODE;
-  } catch {
+  } catch (error) {
+    ignoreMalformedJson(error);
     return false;
   }
 }
@@ -159,7 +266,8 @@ async function readCredentialsRequired409(
           ? fields.message
           : CREDENTIALS_REQUIRED_FALLBACK_MESSAGE,
     };
-  } catch {
+  } catch (error) {
+    ignoreMalformedJson(error);
     return null;
   }
 }
@@ -316,8 +424,8 @@ function withNonce(init: RequestInit): RequestInit {
 }
 
 /**
- * Perform one fetch with a timeout and a relative-URL fallback on network errors. Does NOT
- * inject the nonce or heal, callers pass an already-prepared init.
+ * Perform one fetch with a timeout and a GET/HEAD relative-URL fallback on network errors.
+ * Does NOT inject the nonce or heal, callers pass an already-prepared init.
  */
 async function fetchWithFallback(
   url: string,
@@ -373,6 +481,13 @@ async function fetchWithFallback(
       throw error;
     }
 
+    // The server may have committed a write before the connection failed.
+    // Only reads can recover by issuing the same request to a relative URL.
+    const method = (init.method ?? "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD") {
+      throw buildNetworkFetchError(error, url);
+    }
+
     const fallbackUrl = toRelativeUrl(url);
     if (!fallbackUrl || fallbackUrl === url) {
       throw buildNetworkFetchError(error, url, fallbackUrl);
@@ -396,8 +511,24 @@ async function isInvalidNonce403(response: Response): Promise<boolean> {
   try {
     const body = (await response.clone().json()) as { code?: unknown } | null;
     return body?.code === INVALID_NONCE_CODE;
-  } catch {
+  } catch (error) {
+    ignoreMalformedJson(error);
     return false;
+  }
+}
+
+async function rejectConfirmedLogout(response: Response): Promise<void> {
+  if (response.status !== 401) return;
+  const body = await response.clone().json().catch(ignoreMalformedJson);
+  assertResponsePrincipal(response);
+  const code = body && normalizeErrorFields(body).code;
+  if (
+    code === "rest_not_logged_in" ||
+    code === "not_logged_in" ||
+    code === "rest_forbidden"
+  ) {
+    invalidatePrincipalStorage("session-ended");
+    throw new SessionExpiredError();
   }
 }
 
@@ -411,48 +542,71 @@ export interface ApiFetchOptions {
 /**
  * Core fetch: attaches the nonce, applies timeout + relative-URL fallback, and self-heals a
  * stale nonce exactly once. Returns the `Response` for every non-heal status (including a
- * non-nonce 403, callers decide how to treat it). Throws `SessionExpiredError` only when a
- * stale-nonce heal is impossible. A drop-in replacement for `fetch()` on plugin REST calls.
+ * non-nonce 403, callers decide how to treat it). Throws `SessionExpiredError` when a
+ * stale-nonce heal is impossible or the captured principal changes. Native whole-body
+ * readers and clones remain bound to that principal through body completion.
  */
 export async function apiFetch(
   input: string | URL,
   init: RequestInit = {},
   opts: ApiFetchOptions = {},
 ): Promise<Response> {
+  const principal = captureRequestPrincipal();
+  assertCurrentPrincipal(principal);
   const url = coerceUrl(input);
   const { timeoutMs = REQUEST_TIMEOUT_MS, heal = true } = opts;
 
-  const response = await fetchWithFallback(url, withNonce(init), timeoutMs);
+  const response = fenceResponse(
+    await fetchWithFallback(url, withNonce(init), timeoutMs),
+    principal,
+  );
 
-  if (await isMailboxLocked423(response)) {
+  await rejectConfirmedLogout(response);
+  assertCurrentPrincipal(principal);
+
+  const mailboxLocked = await isMailboxLocked423(response);
+  assertCurrentPrincipal(principal);
+  if (mailboxLocked) {
     // Mailbox lock engaged mid-session (inactivity expiry, lock-all from
     // another browser). Announce so the LockGate flips; return the response
     // so callers' normal error paths still run.
     announceMailboxLocked();
+    assertCurrentPrincipal(principal);
     return response;
   }
 
   const credentialsRequired = await readCredentialsRequired409(response);
+  assertCurrentPrincipal(principal);
   if (credentialsRequired) {
     // The account has no usable stored secret; a retry cannot succeed until
     // the user re-enters it. Announce so the connection banner surfaces the
     // reconnect prompt; return the response so callers' error paths still run.
     dispatchCredentialsRequired(credentialsRequired);
+    assertCurrentPrincipal(principal);
     return response;
   }
 
-  if (!heal || !(await isInvalidNonce403(response))) {
+  const invalidNonce = heal && (await isInvalidNonce403(response));
+  assertCurrentPrincipal(principal);
+  if (!invalidNonce) {
     return response;
   }
 
   // Stale nonce → mint a fresh one (single-flight) and retry once.
   const fresh = await refreshRestNonce();
-  if (!fresh) {
+  if (!fresh || !isRequestPrincipalCurrent(principal)) {
     throw new SessionExpiredError();
   }
 
-  const retried = await fetchWithFallback(url, withNonce(init), timeoutMs);
-  if (await isInvalidNonce403(retried)) {
+  const retried = fenceResponse(
+    await fetchWithFallback(url, withNonce(init), timeoutMs),
+    principal,
+  );
+  await rejectConfirmedLogout(retried);
+  assertCurrentPrincipal(principal);
+  const retryInvalidNonce = await isInvalidNonce403(retried);
+  assertCurrentPrincipal(principal);
+  if (retryInvalidNonce) {
     // Fresh nonce still rejected → the login cookie itself is gone.
     throw new SessionExpiredError();
   }
@@ -471,10 +625,8 @@ export async function apiJson<T = unknown>(
 ): Promise<T> {
   const res = await apiFetch(input, init, opts);
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
+    const body = (await res.json().catch(ignoreMalformedJson)) ?? {};
+    assertResponsePrincipal(res);
     const fields = normalizeErrorFields(body);
     const message =
       typeof fields.message === "string"
@@ -502,7 +654,9 @@ export async function apiJson<T = unknown>(
     err.details = fields.details;
     throw err;
   }
-  return (await res.json()) as T;
+  const body = (await res.json()) as T;
+  assertResponsePrincipal(res);
+  return body;
 }
 
 /**
@@ -531,9 +685,11 @@ async function toEnvelope<T>(res: Response): Promise<ApiResponse<T>> {
   let body: Record<string, unknown>;
   try {
     body = (await res.json()) as Record<string, unknown>;
-  } catch {
+  } catch (error) {
+    ignoreMalformedJson(error);
     body = {};
   }
+  assertResponsePrincipal(res);
   if (res.ok) {
     return body as ApiResponse<T>;
   }

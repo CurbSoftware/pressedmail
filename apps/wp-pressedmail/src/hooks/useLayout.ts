@@ -1,3 +1,4 @@
+import { safeLocalStorage } from "@/lib/preference-storage";
 /**
  * Layout Management Hook
  *
@@ -120,11 +121,11 @@ export function useLayout(): UseLayoutReturn {
 
   const storedLayoutValue =
     typeof window !== "undefined"
-      ? localStorage.getItem(`pressedmail-${LAYOUT_STORAGE_KEY}`)
+      ? safeLocalStorage().getItem(`pressedmail-${LAYOUT_STORAGE_KEY}`)
       : null;
   const storedAdminDefault =
     typeof window !== "undefined"
-      ? localStorage.getItem(WHITELABEL_DEFAULT_LAYOUT_STORAGE_KEY)
+      ? safeLocalStorage().getItem(WHITELABEL_DEFAULT_LAYOUT_STORAGE_KEY)
       : null;
   const hasUserLayoutPreference =
     storedLayoutValue !== null &&
@@ -185,7 +186,7 @@ export function useLayout(): UseLayoutReturn {
         setStoredLayout(resolvedDefaultLayout);
       }
       if (!hasUserLayoutPreference) {
-        localStorage.setItem(
+        safeLocalStorage().setItem(
           WHITELABEL_DEFAULT_LAYOUT_STORAGE_KEY,
           resolvedDefaultLayout,
         );
@@ -222,7 +223,7 @@ export function useLayout(): UseLayoutReturn {
         return false;
       }
       if (typeof window !== "undefined") {
-        localStorage.removeItem(WHITELABEL_DEFAULT_LAYOUT_STORAGE_KEY);
+        safeLocalStorage().removeItem(WHITELABEL_DEFAULT_LAYOUT_STORAGE_KEY);
       }
       setStoredLayout(layoutId);
       return true;

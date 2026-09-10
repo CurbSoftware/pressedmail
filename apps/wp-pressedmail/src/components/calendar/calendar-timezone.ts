@@ -236,16 +236,65 @@ export function utcIsoToZonedInput(value: string, timeZone: string): string {
   return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${pad(parts.hour)}:${pad(parts.minute)}`;
 }
 
+/** All-day calendar values are wall dates, never browser-timezone instants. */
+export function parseCalendarDate(value: string, allDay = false): Date {
+  return allDay
+    ? new Date(
+        value.length === 10
+          ? `${value}T00:00:00`
+          : value.replace(/(?:Z|[+-]\d{2}:?\d{2})$/i, ""),
+      )
+    : new Date(value);
+}
+
+export function getLocalEventTimezone(event: LocalCalendarEvent): string {
+  // ICS DATE values are stored as UTC midnight regardless of the site's zone.
+  // Keep older imports correct too; ordinary all-day events were stored using
+  // the event timezone and may have an inclusive 23:59 end.
+  if (event.all_day && event.external_id) return "UTC";
+  return normalizeTimeZone(
+    event.timezone,
+    event.all_day ? "UTC" : getDefaultTimezone(),
+  );
+}
+
+export function getLocalEventDate(
+  event: LocalCalendarEvent,
+  field: "start_datetime" | "end_datetime" = "start_datetime",
+): Date {
+  return event.all_day
+    ? parseCalendarDate(
+        utcIsoToZonedInput(event[field], getLocalEventTimezone(event)),
+        true,
+      )
+    : new Date(event[field]);
+}
+
+/** Inclusive display end; RFC 5545 midnight DTEND remains exclusive in storage. */
+export function getAllDayDisplayEnd(start: Date, end: Date): Date {
+  if (
+    end > start &&
+    end.getHours() === 0 &&
+    end.getMinutes() === 0 &&
+    end.getSeconds() === 0
+  ) {
+    return new Date(end.getTime() - 1);
+  }
+  return end;
+}
+
 export function formatEventDateRange(event: LocalCalendarEvent): string {
-  const timeZone = normalizeTimeZone(event.timezone, getDefaultTimezone());
-  const start = parseUtcDate(event.start_datetime);
+  const timeZone = getLocalEventTimezone(event);
+  const start = event.all_day
+    ? getLocalEventDate(event)
+    : parseUtcDate(event.start_datetime);
   const end = parseUtcDate(event.end_datetime);
   const dateText = new Intl.DateTimeFormat(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone,
+    timeZone: event.all_day ? undefined : timeZone,
   }).format(start);
 
   if (event.all_day) {
@@ -262,18 +311,22 @@ export function formatEventDateRange(event: LocalCalendarEvent): string {
 }
 
 export function getEventDateText(event: LocalCalendarEvent): string {
-  const timeZone = normalizeTimeZone(event.timezone, getDefaultTimezone());
+  const timeZone = getLocalEventTimezone(event);
   return new Intl.DateTimeFormat(undefined, {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone,
-  }).format(parseUtcDate(event.start_datetime));
+    timeZone: event.all_day ? undefined : timeZone,
+  }).format(
+    event.all_day
+      ? getLocalEventDate(event)
+      : parseUtcDate(event.start_datetime),
+  );
 }
 
 export function getEventTimeText(event: LocalCalendarEvent): string {
-  const timeZone = normalizeTimeZone(event.timezone, getDefaultTimezone());
+  const timeZone = getLocalEventTimezone(event);
   if (event.all_day) {
     return `All day (${timeZone})`;
   }

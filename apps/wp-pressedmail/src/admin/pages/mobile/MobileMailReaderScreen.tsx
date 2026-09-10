@@ -27,23 +27,23 @@ import {
   formatQuotedHtml,
 } from "@/components/inbox/compose/compose-utils";
 import { useComposer } from "@/context/composer";
+import { useAppContext } from "@/context/AppProvider";
 import {
   useFolderOperations,
+  useInbox,
   useInboxState,
   useMessageOperations,
 } from "@/context/InboxContext";
-import { useAppContext } from "@/context/AppProvider";
-import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
-import { matchesMessageById } from "@/lib/consolidated-message-match";
 import {
-  getAccountQualifiedMessageToken,
+  getMessageIdentityRef,
+  parseAccountQualifiedToken,
   getMessageIdentityKey,
 } from "@/lib/message-identity";
-import { getFolderRole } from "@/lib/bulk-mail-actions";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 import type { EmailMessage } from "@/types";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { appMessage } from "@/context/toast";
 
 function prefixedSubject(prefix: "Re" | "Fwd", subject?: string): string {
   const value = subject || "";
@@ -65,10 +65,16 @@ export function MobileMailReaderScreen() {
   useHideTabBar(true);
   const navigate = useNavigate();
   const params = useParams();
-  const routeId = params.id ? decodeURIComponent(params.id) : null;
-  const { selectedAccountId, selectedMessage, messages, isLoading } =
-    useInboxState();
-  const { folders, selectedFolder } = useFolderOperations();
+  const routeId = React.useMemo(() => {
+    const ref = params.id ? parseAccountQualifiedToken(params.id) : null;
+    return ref?.kind === "message"
+      ? JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid])
+      : null;
+  }, [params.id]);
+  const { accounts } = useAppContext();
+  const inbox = useInbox();
+  const { selectedMessage, messages, isLoading } = useInboxState();
+  const { folders } = useFolderOperations();
   const {
     selectMessage,
     toggleStar,
@@ -79,9 +85,7 @@ export function MobileMailReaderScreen() {
     clearSelection,
   } = useMessageOperations();
   const { setComposeData } = useComposer();
-  const { selectedAccount } = useAppContext();
   const { preferences } = useUserPreferences();
-  const isConsolidatedMode = selectedAccount === CONSOLIDATED_INBOX_VALUE;
   const preferredContentType =
     preferences.composer_default_format === "plain_text" ? "plain" : "html";
   const preferredReplyMode: "reply" | "reply-all" =
@@ -90,45 +94,63 @@ export function MobileMailReaderScreen() {
     preferredReplyMode === "reply-all" ? "reply" : "reply-all";
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
 
-  // Trash is the one folder where delete is permanent rather than a move.
-  const isTrashFolder = React.useMemo(() => {
-    const target = String(selectedFolder ?? "")
-      .trim()
-      .toLowerCase();
-    if (!target) return false;
-    const matched = folders.find(
-      (folder) =>
-        String(folder.path ?? "")
-          .trim()
-          .toLowerCase() === target ||
-        String(folder.name ?? "")
-          .trim()
-          .toLowerCase() === target,
-    );
-    return (
-      getFolderRole(
-        matched ?? { name: target, path: target, count: 0 },
-      ) === "trash"
-    );
-  }, [folders, selectedFolder]);
-
   const routeMessage = React.useMemo(() => {
     if (!routeId) return null;
     return (
-      messages.find((message) => matchesMessageById(message, routeId)) ?? null
+      messages.find((message) => getMessageIdentityKey(message) === routeId) ??
+      null
     );
   }, [messages, routeId]);
 
-  const displayMessage = selectedMessage ?? routeMessage;
+  const selectedIdentity = getMessageIdentityKey(selectedMessage);
+  const displayMessage =
+    routeId && selectedIdentity === routeId ? selectedMessage : routeMessage;
+  const displayedIdentity = getMessageIdentityKey(displayMessage);
+  const liveReader = React.useRef({
+    routeId,
+    displayedIdentity,
+    messages,
+    inbox,
+  });
+  liveReader.current = { routeId, displayedIdentity, messages, inbox };
+  const mounted = React.useRef(true);
+
+  // Permanent deletion follows the message's physical mailbox, including
+  // consolidated folders with different provider paths.
+  const isTrashFolder = React.useMemo(() => {
+    const ref = getMessageIdentityRef(displayMessage);
+    if (!ref) return false;
+    const folder = folders.find((candidate) =>
+      candidate.sourceFolders?.length
+        ? candidate.sourceFolders.some(
+            (source) =>
+              source.accountId === ref.accountId && source.path === ref.folder,
+          )
+        : candidate.accountId === ref.accountId &&
+          candidate.path === ref.folder,
+    );
+    return folder?.systemType === "trash" || folder?.type === "trash";
+  }, [displayMessage, folders]);
+
+  const identityFailure = React.useCallback(() => {
+    appMessage(
+      "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+      "error",
+    );
+    if (mounted.current)
+      void liveReader.current.inbox.refreshMessages().catch(() => {});
+  }, []);
 
   React.useEffect(() => {
-    if (!selectedMessage && routeMessage) {
+    if (routeMessage && selectedIdentity !== routeId) {
       void selectMessage(routeMessage);
     }
-  }, [routeMessage, selectMessage, selectedMessage]);
+  }, [routeMessage, routeId, selectMessage, selectedIdentity]);
 
   React.useEffect(() => {
+    mounted.current = true;
     return () => {
+      mounted.current = false;
       clearSelection();
     };
   }, [clearSelection]);
@@ -138,21 +160,27 @@ export function MobileMailReaderScreen() {
 
   const handleStar = React.useCallback(() => {
     if (!displayMessage) return;
-    toggleStar(displayMessage.id);
+    void toggleStar(getMessageIdentityKey(displayMessage));
   }, [displayMessage, toggleStar]);
 
   const openCompose = React.useCallback(
     (mode: "reply" | "reply-all" | "forward") => {
       if (!displayMessage) return;
-      const parsedAccountId = Number(
-        displayMessage.accountId ?? selectedAccountId ?? 0,
+      const ref = getMessageIdentityRef(displayMessage);
+      if (!ref) {
+        identityFailure();
+        return;
+      }
+      const sourceAccount = accounts.find(
+        (account) => String(account.id) === String(ref.accountId),
       );
-      const replyAccountId =
-        Number.isInteger(parsedAccountId) && parsedAccountId > 0
-          ? parsedAccountId
-          : undefined;
+      if (!sourceAccount?.email) {
+        identityFailure();
+        return;
+      }
       if (mode === "forward") {
         setComposeData({
+          fromAccount: sourceAccount.email,
           to: "",
           cc: "",
           bcc: "",
@@ -168,6 +196,7 @@ export function MobileMailReaderScreen() {
         });
       } else {
         setComposeData({
+          fromAccount: sourceAccount.email,
           to: replyAddress(displayMessage),
           cc: mode === "reply-all" ? (displayMessage.cc ?? "") : "",
           bcc: "",
@@ -180,64 +209,83 @@ export function MobileMailReaderScreen() {
           attachments: [],
           mode,
           is_reply: true,
+          inReplyTo: displayMessage.messageId ?? displayMessage.message_id,
+          references: displayMessage.references,
           replySource: {
-            identity: getAccountQualifiedMessageToken(
-              displayMessage,
-              replyAccountId,
-            ),
-            accountId: replyAccountId,
-            folder: displayMessage.folder,
-            uid: displayMessage.uid,
-            msgNo: displayMessage.msg_no,
+            identity: getMessageIdentityKey(displayMessage),
+            accountId: ref.accountId,
+            folder: ref.folder,
+            uid: ref.uid,
           },
         });
       }
       navigate("/compose");
     },
     [
+      accounts,
       displayMessage,
       navigate,
       preferredContentType,
-      selectedAccountId,
+      identityFailure,
       setComposeData,
     ],
   );
 
   const finishAfterRemoval = React.useCallback(
-    (action: "message_list" | "next_message", removedId: string | number) => {
-      if (action === "next_message") {
-        const next = nextVisibleMessageAfterRemoval(messages, [
-          String(removedId),
-        ]);
+    (
+      action: "message_list" | "next_message",
+      removedId: string,
+      nextId: string,
+    ) => {
+      const live = liveReader.current;
+      if (
+        !mounted.current ||
+        live.routeId !== removedId ||
+        (live.displayedIdentity && live.displayedIdentity !== removedId)
+      )
+        return;
+      if (action === "next_message" && nextId) {
+        const next = live.messages.find(
+          (message) => getMessageIdentityKey(message) === nextId,
+        );
         if (next) {
-          void selectMessage(next);
-          const nextId = isConsolidatedMode
-            ? getAccountQualifiedMessageToken(next)
-            : getMessageIdentityKey(next);
+          void live.inbox.selectMessage(next);
           navigate(`/inbox/m/${encodeURIComponent(nextId)}`);
           return;
         }
       }
       navigate("/inbox");
     },
-    [isConsolidatedMode, messages, navigate, selectMessage],
+    [navigate],
   );
+
+  const captureRemoval = React.useCallback(() => {
+    const identity = getMessageIdentityKey(displayMessage);
+    const next = nextVisibleMessageAfterRemoval(
+      messages.filter((message) => getMessageIdentityKey(message) !== ""),
+      [identity],
+    );
+    return { identity, nextId: getMessageIdentityKey(next) };
+  }, [displayMessage, messages]);
 
   const handleArchive = React.useCallback(() => {
     if (!displayMessage) return;
-    const messageId = isConsolidatedMode
-      ? getAccountQualifiedMessageToken(displayMessage)
-      : (displayMessage.uid ?? displayMessage.msg_no ?? displayMessage.id);
+    const { identity: messageId, nextId } = captureRemoval();
+    if (!messageId) {
+      identityFailure();
+      return;
+    }
     void archiveMessage(messageId).then((result) => {
-      if (result.success !== false) {
-        finishAfterRemoval(preferences.after_archive_action, messageId);
+      if (result.success && !result.requiresRefresh) {
+        finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
       }
     });
   }, [
     archiveMessage,
     displayMessage,
     finishAfterRemoval,
-    isConsolidatedMode,
+    captureRemoval,
+    identityFailure,
     preferences.after_archive_action,
   ]);
 
@@ -247,9 +295,7 @@ export function MobileMailReaderScreen() {
     // asks first, whatever the confirm-delete preference says.
     if (isTrashFolder) {
       if (
-        !window.confirm(
-          "Delete this email permanently? This cannot be undone.",
-        )
+        !window.confirm("Delete this email permanently? This cannot be undone.")
       ) {
         return;
       }
@@ -259,19 +305,22 @@ export function MobileMailReaderScreen() {
     ) {
       return;
     }
-    const messageId = isConsolidatedMode
-      ? getAccountQualifiedMessageToken(displayMessage)
-      : (displayMessage.uid ?? displayMessage.msg_no ?? displayMessage.id);
-    void deleteMessage(messageId).then((result) => {
-      if (result.success !== false) {
-        finishAfterRemoval(preferences.after_delete_action, messageId);
+    const { identity: messageId, nextId } = captureRemoval();
+    if (!messageId) {
+      identityFailure();
+      return;
+    }
+    void deleteMessage(messageId, isTrashFolder).then((result) => {
+      if (result.success && !result.requiresRefresh) {
+        finishAfterRemoval(preferences.after_delete_action, messageId, nextId);
       }
     });
   }, [
     deleteMessage,
     displayMessage,
     finishAfterRemoval,
-    isConsolidatedMode,
+    captureRemoval,
+    identityFailure,
     isTrashFolder,
     preferences.after_delete_action,
     preferences.confirm_delete,
@@ -280,9 +329,9 @@ export function MobileMailReaderScreen() {
   const handleToggleRead = React.useCallback(() => {
     if (!displayMessage) return;
     if (displayMessage.read) {
-      void markAsUnread(displayMessage.id);
+      void markAsUnread(getMessageIdentityKey(displayMessage));
     } else {
-      void markAsRead(displayMessage.id);
+      void markAsRead(getMessageIdentityKey(displayMessage));
     }
   }, [displayMessage, markAsRead, markAsUnread]);
 

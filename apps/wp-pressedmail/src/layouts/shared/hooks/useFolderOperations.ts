@@ -48,11 +48,7 @@ export type { ImapFolder };
  */
 export type EmailProvider = "gmail" | "outlook" | "generic";
 
-const VIRTUAL_FOLDERS = new Set([
-  "starred",
-  "important",
-  "scheduled",
-]);
+const VIRTUAL_FOLDERS = new Set(["starred", "important", "scheduled"]);
 const LIVE_SYNC_SYSTEM_FOLDERS = new Set<SystemFolderType>([
   "spam",
   "junk",
@@ -302,12 +298,8 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   const filterOps = useFilterOperations();
   const { isPagination, pageSize } = useEmailListMode();
 
-  const {
-    accounts,
-    selectedAccount,
-    setSelectedAccount,
-    numberOfMessages,
-  } = useAppContext();
+  const { accounts, selectedAccount, setSelectedAccount, numberOfMessages } =
+    useAppContext();
   const { scope } = useMailboxScope();
   const isConsolidatedMode = scope.type === "combined_inbox";
   const effectiveConsolidatedAccountIds = isConsolidatedMode
@@ -415,6 +407,13 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   }, [selectedFolderPersistenceKey, serviceFolderOps.selectedFolder]);
 
   useEffect(() => {
+    // Another mounted consumer may have selected a virtual view and persisted
+    // it before this render. Let the restoration above finish; otherwise its
+    // Drafts backing folder overwrites Scheduled and clears the shared filter.
+    const persistedNav = selectedFolderPersistenceKey
+      ? getSelectedFolder(selectedFolderPersistenceKey)
+      : null;
+    if (persistedNav && persistedNav !== selectedNav) return;
     if (
       !serviceFolderOps.selectedFolder ||
       VIRTUAL_FOLDERS.has(selectedNav.toLowerCase()) ||
@@ -424,7 +423,11 @@ export function useFolderOperations(): UseFolderOperationsReturn {
     }
 
     setSelectedNav(serviceFolderOps.selectedFolder);
-  }, [selectedNav, serviceFolderOps.selectedFolder]);
+  }, [
+    selectedNav,
+    selectedFolderPersistenceKey,
+    serviceFolderOps.selectedFolder,
+  ]);
 
   // Clear count overrides when folder data refreshes from server
   const folderDataVersion = useMemo(
@@ -863,8 +866,8 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         );
 
         if (syncResult.success && syncResult.delta) {
-          inboxService.applyDiff(syncResult.delta, generation);
-          return;
+          if (inboxService.applyDiff(syncResult.delta, generation)) return;
+          syncResult.requiresFullSync = true;
         }
 
         if (syncResult.requiresFullSync) {
@@ -1004,7 +1007,8 @@ export function useFolderOperations(): UseFolderOperationsReturn {
             selectedFolderTarget.folderId === target.folderId &&
             selectedFolderTarget.path === target.path
           : folderId === selectedNavRef.current && selectedFolderTarget === null
-      ) return;
+      )
+        return;
 
       if (selectFolderTimeoutRef.current) {
         clearTimeout(selectFolderTimeoutRef.current);
@@ -1024,7 +1028,8 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         const intendedAccount = accounts.find(
           (candidate) => Number(candidate.id) === target.accountId,
         );
-        if (intendedAccount?.email) setSelectedAccount(String(intendedAccount.email));
+        if (intendedAccount?.email)
+          setSelectedAccount(String(intendedAccount.email));
       }
       setSelectedNav(navFolder);
       if (selectedFolderPersistenceKey) {

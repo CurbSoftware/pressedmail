@@ -141,20 +141,26 @@ interface AppProviderProps {
 }
 
 export default function AppProvider({ children }: AppProviderProps) {
-  const [user, setUser] = useLocalStorage<AppUser | null>("user", null);
+  const [user, setUser] = useLocalStorage<AppUser | null>("user", null, {
+    principalScoped: true,
+  });
   const [accounts, setAccounts] = useLocalStorage<EmailAccount[]>(
     "accounts",
     [],
+    { principalScoped: true },
   );
   const [selectedAccount, setSelectedAccount] = useLocalStorage<string | null>(
     "selectedAccount",
     null,
+    { principalScoped: true },
   );
   const [selectedConsolidatedAccountIds, setSelectedConsolidatedAccountIds] =
-    useLocalStorage<number[]>("selectedConsolidatedAccountIds", []);
+    useLocalStorage<number[]>("selectedConsolidatedAccountIds", [], {
+      principalScoped: true,
+    });
   const [defaultAccountId, setDefaultAccountId] = useLocalStorage<
     number | null
-  >("defaultAccountId", null);
+  >("defaultAccountId", null, { principalScoped: true });
   const [isLoading, setIsLoading] = React.useState<boolean>(false);
   const [error, setError] = React.useState<string | null>(null);
   const [isAddAccount, setIsAddAccount] = React.useState<boolean>(false);

@@ -8,6 +8,11 @@
  */
 
 import type { EmailMessage } from "@/types";
+import {
+  parseAccountQualifiedToken,
+  getMessageIdentityKey,
+  type MessageIdentityRef,
+} from "@/lib/message-identity";
 import type { IPrefetchService, FetchPriority } from "../interfaces";
 import type { PrefetchOutcome } from "../interfaces/prefetch.interface";
 import type { ICacheService } from "../interfaces";
@@ -61,12 +66,29 @@ const MAX_BATCH_SIZE = 15;
 /**
  * Build a deduplication key.
  */
+function resolveReference(
+  accountId: string,
+  folder: string,
+  messageId: string | number,
+): MessageIdentityRef | null {
+  const ref =
+    typeof messageId === "string"
+      ? parseAccountQualifiedToken(messageId)
+      : null;
+  return ref?.kind === "message" &&
+    String(ref.accountId) === accountId &&
+    ref.folder === folder
+    ? ref
+    : null;
+}
+
 function buildKey(
   accountId: string,
   folder: string,
   messageId: string | number,
 ): string {
-  return `${accountId}:${folder}:${messageId}`;
+  const ref = resolveReference(accountId, folder, messageId);
+  return ref ? getMessageIdentityKey(ref as EmailMessage) : "";
 }
 
 /**
@@ -140,6 +162,12 @@ export class PrefetchService implements IPrefetchService {
     priority: FetchPriority,
   ): Promise<PrefetchOutcome> {
     if (this.destroyed) return Promise.resolve(null);
+    if (!resolveReference(accountId, folder, messageId))
+      return Promise.resolve({
+        failed: true,
+        requiresRefresh: true,
+        reason: "The message identity is incomplete. Reload the mailbox.",
+      });
 
     // Skip fetch for unhealthy accounts (except user-selected which is explicit)
     if (
@@ -150,13 +178,17 @@ export class PrefetchService implements IPrefetchService {
       return Promise.resolve(null);
     }
 
+    const key = buildKey(accountId, folder, messageId);
+
     // Cache-first: check cache immediately
     const cached = this.cache.getMessageDetail(accountId, folder, messageId);
-    if (cached && hasMessageBody(cached)) {
+    if (
+      cached &&
+      getMessageIdentityKey(cached) === key &&
+      hasMessageBody(cached)
+    ) {
       return Promise.resolve({ detail: normalizeDetail(cached) });
     }
-
-    const key = buildKey(accountId, folder, messageId);
 
     // Deduplication: if already in-flight, return the same promise
     const existing = this.inFlight.get(key);
@@ -217,21 +249,22 @@ export class PrefetchService implements IPrefetchService {
       return;
     }
 
-    // Filter out already-cached messages
-    const uncached = messageIds.filter(
-      (id) => !this.cache.hasDetail(accountId, folder, id),
-    );
-
-    if (uncached.length === 0) return;
-
-    // For background prefetch, use the batch API directly
-    // instead of queueing individual fetches
-    const batches: Array<Array<string | number>> = [];
-    for (let i = 0; i < uncached.length; i += MAX_BATCH_SIZE) {
-      batches.push(uncached.slice(i, i + MAX_BATCH_SIZE));
+    const groups = new Map<string, string[]>();
+    for (const id of messageIds) {
+      const ref = resolveReference(accountId, folder, id);
+      if (!ref) continue;
+      const key = getMessageIdentityKey(ref as EmailMessage);
+      if (this.cache.hasDetail(accountId, folder, key)) continue;
+      const group = groups.get(ref.uidValidity) ?? [];
+      if (!group.includes(key)) group.push(key);
+      groups.set(ref.uidValidity, group);
     }
-
-    this.executeBatchesSequentially(accountId, folder, batches);
+    const batches: string[][] = [];
+    for (const group of groups.values()) {
+      for (let i = 0; i < group.length; i += MAX_BATCH_SIZE)
+        batches.push(group.slice(i, i + MAX_BATCH_SIZE));
+    }
+    void this.executeBatchesSequentially(accountId, folder, batches);
   }
 
   hasDetail(
@@ -239,7 +272,10 @@ export class PrefetchService implements IPrefetchService {
     folder: string,
     messageId: string | number,
   ): boolean {
-    return this.cache.hasDetail(accountId, folder, messageId);
+    return (
+      Boolean(resolveReference(accountId, folder, messageId)) &&
+      this.cache.hasDetail(accountId, folder, messageId)
+    );
   }
 
   cancelBackground(): void {
@@ -302,7 +338,11 @@ export class PrefetchService implements IPrefetchService {
         item.folder,
         item.messageId,
       );
-      if (cached && hasMessageBody(cached)) {
+      if (
+        cached &&
+        getMessageIdentityKey(cached) === key &&
+        hasMessageBody(cached)
+      ) {
         item.resolve({ detail: normalizeDetail(cached) });
         continue;
       }
@@ -336,10 +376,18 @@ export class PrefetchService implements IPrefetchService {
     priority: FetchPriority,
   ): Promise<PrefetchOutcome> {
     const isUserSelected = priority === "user-selected";
+    const ref = resolveReference(accountId, folder, messageId);
+    if (!ref)
+      return {
+        failed: true,
+        requiresRefresh: true,
+        reason: "Reload the mailbox before opening this message.",
+      };
     try {
       const apiUrl = buildApiUrl(`${messageDetailRouteApi}${accountId}`, {
         folder,
-        uid: String(messageId),
+        uid: ref.uid,
+        uid_validity: ref.uidValidity,
         ...getMailboxSourceRequestParams(),
       });
 
@@ -357,10 +405,20 @@ export class PrefetchService implements IPrefetchService {
       );
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        return isUserSelected
+          ? {
+              failed: true,
+              requiresRefresh: response.status === 409,
+              reason:
+                response.status === 409
+                  ? "The mailbox changed. Reload it before opening the message."
+                  : `HTTP error! status: ${response.status}`,
+            }
+          : null;
       }
 
       const data = await response.json();
+      if (this.destroyed) return null;
 
       // The server still assembling the body reports bodyState:'pending' with only a header
       // stub. Surface it as pending and NEVER cache (a re-poll must re-fetch to complete it).
@@ -390,10 +448,21 @@ export class PrefetchService implements IPrefetchService {
         ...(bodyState ? { bodyState } : {}),
       });
 
+      if (
+        getMessageIdentityKey(detail) !==
+        getMessageIdentityKey(ref as EmailMessage)
+      ) {
+        return {
+          failed: true,
+          requiresRefresh: true,
+          reason: "The message identity changed. Reload the mailbox.",
+        };
+      }
+
       // Cache the result, but NEVER a partial (budget/deadline-truncated) body, or a reopen
       // would serve the incomplete copy instead of re-fetching to complete it.
       if (data?.bodyState !== "partial") {
-        this.cache.setMessageDetail(accountId, detail.folder || folder, detail);
+        this.cache.setMessageDetail(accountId, ref.folder, detail);
       }
 
       return { detail };
@@ -433,6 +502,18 @@ export class PrefetchService implements IPrefetchService {
     folder: string,
     uids: Array<string | number>,
   ): Promise<void> {
+    const references = uids.map((id) =>
+      resolveReference(accountId, folder, id),
+    );
+    const first = references[0];
+    if (
+      !first ||
+      references.some((ref) => !ref || ref.uidValidity !== first.uidValidity)
+    )
+      return;
+    const requested = new Set(
+      references.map((ref) => getMessageIdentityKey(ref as EmailMessage)),
+    );
     try {
       const response = await apiFetch(
         buildApiUrl(
@@ -447,7 +528,8 @@ export class PrefetchService implements IPrefetchService {
           body: JSON.stringify({
             account_id: accountId,
             folder,
-            uids,
+            uids: references.map((ref) => ref!.uid),
+            uid_validity: first.uidValidity,
             ...getMailboxSourceRequestParams(),
           }),
         },
@@ -470,19 +552,22 @@ export class PrefetchService implements IPrefetchService {
         return;
       }
 
+      if (this.destroyed) return;
       const results = data.data as Record<string, EmailMessage>;
 
       for (const [uid, detail] of Object.entries(results)) {
         if (!detail) continue;
+        const identity = getMessageIdentityKey(detail);
+        if (
+          !requested.has(identity) ||
+          (uid !== String(detail.uid) && uid !== identity)
+        )
+          continue;
         const normalized = normalizeDetail(detail);
-        this.cache.setMessageDetail(
-          accountId,
-          normalized.folder || folder,
-          normalized,
-        );
+        this.cache.setMessageDetail(accountId, first.folder, normalized);
 
         // If there's a pending queue item for this UID, resolve it
-        const key = buildKey(accountId, folder, uid);
+        const key = identity;
         const queueIdx = this.queue.findIndex(
           (item) =>
             buildKey(item.accountId, item.folder, item.messageId) === key,

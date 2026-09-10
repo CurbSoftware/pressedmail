@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 import type { EmailMessage } from "@/types";
 import type { ComposeMode } from "@/components/inbox/compose/compose-utils";
 
@@ -25,7 +29,7 @@ function readAllStates(): PersistedPaneMap {
   }
 
   try {
-    const raw = window.sessionStorage.getItem(STORAGE_KEY);
+    const raw = getPrincipalStorageItem("session", STORAGE_KEY);
     return raw ? (JSON.parse(raw) as PersistedPaneMap) : {};
   } catch {
     return {};
@@ -38,7 +42,7 @@ function writeAllStates(states: PersistedPaneMap): void {
   }
 
   try {
-    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+    setPrincipalStorageItem("session", STORAGE_KEY, JSON.stringify(states));
   } catch {
     // Ignore sessionStorage quota/unavailability failures.
   }

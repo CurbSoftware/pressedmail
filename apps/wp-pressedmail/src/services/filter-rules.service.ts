@@ -193,8 +193,16 @@ export async function toggleFilterRule(
 /**
  * Reorder filter rules by priority.
  */
+/**
+ * Reorder the user's rules.
+ *
+ * Priority is global across accounts: the server assigns it straight from this
+ * list. It never read the account_id this used to post, so the parameter only
+ * made the contract look account-scoped when it never was. Reordering inside a
+ * filtered tab is folded back into the full order by mergeFilteredReorder
+ * before it gets here.
+ */
 export async function reorderFilterRules(
-  accountId: number,
   ruleIds: string[],
 ): Promise<{ success: boolean; error?: string }> {
   const url = buildApiUrl(`${routeApiPrefix}/filter-rules/reorder`);
@@ -203,7 +211,7 @@ export async function reorderFilterRules(
     method: "POST",
     credentials: "include",
     headers: getApiHeaders(),
-    body: JSON.stringify({ account_id: accountId, rule_ids: ruleIds }),
+    body: JSON.stringify({ rule_ids: ruleIds }),
   });
 
   if (!response.ok) {
@@ -290,6 +298,7 @@ function normalizeRun(data: Record<string, unknown>): FilterRuleRunJob {
     processedCount: Number(run.processedCount ?? run.processed_count ?? 0),
     changedCount: Number(run.changedCount ?? run.changed_count ?? 0),
     failedCount: Number(run.failedCount ?? run.failed_count ?? 0),
+    skippedCount: Number(run.skippedCount ?? run.skipped_count ?? 0),
     requiresSync: Boolean(run.requiresSync ?? run.requires_sync),
     cancelRequested: Boolean(run.cancelRequested ?? run.cancel_requested),
     errorMessage: String(run.errorMessage ?? run.error_message ?? ""),
@@ -562,11 +571,40 @@ function matchRuleConditions(
 ): boolean {
   if (conditions.length === 0) return false;
 
-  if (logic === "and") {
-    return conditions.every((c) => matchCondition(message, c));
-  } else {
+  // Anything that is not exactly "or" is AND, matching
+  // FilterRuleMatcher::match_rule_conditions. Treating an unknown value as OR
+  // here made the two engines disagree on a hand-edited rule: the browser
+  // matched on any condition, the server needed all of them.
+  if (logic === "or") {
     return conditions.some((c) => matchCondition(message, c));
   }
+
+  return conditions.every((c) => matchCondition(message, c));
+}
+
+/**
+ * Whether a rule may act on a message, by account.
+ *
+ * Mirrors FilterRuleRunService::rules_for_message on the server: accountId 0
+ * means every account, anything else has to match the message's own account.
+ * Without this a list that spans accounts - the unified inbox, a consolidated
+ * folder, search results - let a rule bound to one account move, star or
+ * permanently delete another account's mail.
+ *
+ * EmailMessage.accountId is only populated in the consolidated views. When it
+ * is absent the list is single-account, so there is no mismatch to catch and
+ * the rule stays eligible.
+ */
+export function ruleAppliesToMessageAccount(
+  rule: Pick<FilterRule, "accountId">,
+  message: Pick<EmailMessage, "accountId">,
+): boolean {
+  const ruleAccountId = Number(rule.accountId ?? 0);
+  if (ruleAccountId === 0) return true;
+
+  return (
+    typeof message.accountId !== "number" || ruleAccountId === message.accountId
+  );
 }
 
 /**
@@ -577,7 +615,7 @@ export function matchMessageAgainstRules(
   rules: FilterRule[],
 ): FilterMatchResult {
   const enabledRules = rules
-    .filter((r) => r.enabled)
+    .filter((r) => r.enabled && ruleAppliesToMessageAccount(r, message))
     .sort((a, b) => a.priority - b.priority);
 
   const matchedRules: FilterRule[] = [];

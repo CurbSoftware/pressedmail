@@ -11,6 +11,7 @@ import {
 
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
 import { appMessage } from "@/context/toast";
+import { buildMailtoHandlerUrl } from "@/lib/mailto";
 import { cn } from "@/lib/utils";
 
 import { useInstallPrompt } from "./useInstallPrompt";
@@ -45,7 +46,7 @@ export function MobileInstallScreen() {
     try {
       registerProtocolHandler(
         "mailto",
-        `${window.location.origin}${window.location.pathname}?pm_mailto=%s#/compose`,
+        buildMailtoHandlerUrl(window.location.href),
       );
       setMailtoStatus("registered");
       appMessage(

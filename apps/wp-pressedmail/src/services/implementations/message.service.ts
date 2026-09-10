@@ -14,7 +14,6 @@ import type {
   OperationResult,
   BatchOperationResult,
   MessageFlag,
-  MessageIdentifierMode,
   MessageMutationOptions,
   BatchMessageMutationOptions,
   FolderTarget,
@@ -45,6 +44,73 @@ import {
 import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
 import { isDestinationMutationTarget } from "@/lib/folder-destination";
 import type { MutationTarget } from "@/lib/folder-target";
+import {
+  getMessageIdentityKey,
+  parseAccountQualifiedToken,
+  parseMessageIdentityRef,
+  type MessageIdentityRef,
+} from "@/lib/message-identity";
+
+const IDENTITY_CONFLICT =
+  "The mailbox reference is incomplete or has changed. Refresh the mailbox and try again.";
+const IDENTITY_CONFLICT_CODES = new Set([
+  "mailbox_generation_unavailable",
+  "mailbox_generation_changed",
+  "message_identity_conflict",
+  "uid_validity_changed",
+]);
+
+type IdentityOptions = Pick<
+  MessageMutationOptions,
+  "folder" | "uidValidity" | "identifierMode"
+>;
+
+function resolveIdentity(
+  accountId: string | number,
+  messageId: string | number,
+  options?: IdentityOptions,
+): MessageIdentityRef | null {
+  if (options?.identifierMode !== undefined && options.identifierMode !== "uid")
+    return null;
+  const parsed = parseAccountQualifiedToken(String(messageId));
+  if (parsed && parsed.kind !== "message") return null;
+  const ref = parseMessageIdentityRef({
+    accountId,
+    uid: parsed?.uid ?? messageId,
+    folder: options?.folder !== undefined ? options.folder : parsed?.folder,
+    uidValidity:
+      options?.uidValidity !== undefined
+        ? options.uidValidity
+        : parsed?.uidValidity,
+  });
+  if (!ref || (parsed && identityToken(ref) !== identityToken(parsed)))
+    return null;
+  return ref;
+}
+
+function identityToken(ref: MessageIdentityRef): string {
+  return getMessageIdentityKey({ ...ref, id: ref.uid } as EmailMessage);
+}
+
+function requiresIdentityRefresh(response: unknown): boolean {
+  const error = response as { code?: string; data?: { code?: string } } | null;
+  return (
+    IDENTITY_CONFLICT_CODES.has(error?.code ?? "") ||
+    IDENTITY_CONFLICT_CODES.has(error?.data?.code ?? "")
+  );
+}
+
+function operationFailure(response: ApiErrorResponse | Error): OperationResult {
+  return {
+    success: false,
+    error: getErrorMessage(response),
+    ...(requiresIdentityRefresh(response) ? { requiresRefresh: true } : {}),
+  };
+}
+
+function identityFailure(): OperationResult {
+  return { success: false, error: IDENTITY_CONFLICT, requiresRefresh: true };
+}
 
 /**
  * Check if response is an error.
@@ -124,51 +190,51 @@ export class MessageService implements IMessageOperations {
     return operation();
   }
 
-  private getMutationFolder(options?: { folder?: string }): string {
-    const folder = options?.folder?.trim();
-    return folder && folder.length > 0 ? folder : "INBOX";
-  }
-
-  private getIdentifierMode(options?: {
-    identifierMode?: MessageIdentifierMode;
-  }): MessageIdentifierMode {
-    return options?.identifierMode === "msg_no" ? "msg_no" : "uid";
-  }
-
   private buildMessageMutationPayload(
-    accountId: string | number,
-    messageId: string | number,
-    options?: MessageMutationOptions,
+    ref: MessageIdentityRef,
   ): Record<string, string | number> {
-    const payload: Record<string, string | number> = {
-      account_id: accountId,
-      folder: this.getMutationFolder(options),
+    return {
+      account_id: ref.accountId,
+      folder: ref.folder,
+      uid: ref.uid,
+      uid_validity: ref.uidValidity,
     };
-    const identifierMode = this.getIdentifierMode(options);
-
-    if (identifierMode === "msg_no") {
-      payload.msg_no = messageId;
-      return payload;
-    }
-
-    payload.uid = messageId;
-    if (options?.msgNo !== undefined && options.msgNo !== null) {
-      payload.msg_no = options.msgNo;
-    }
-
-    return payload;
   }
 
-  private buildBatchMutationPayload(
+  private resolveBatchIdentity(
     accountId: string | number,
     messageIds: (string | number)[],
     options?: BatchMessageMutationOptions,
-  ): Record<string, string | number | boolean | (string | number)[]> {
+  ): MessageIdentityRef[] | null {
+    const refs = messageIds.map((id) =>
+      resolveIdentity(accountId, id, options),
+    );
+    if (refs.some((ref) => !ref)) return null;
+    const first = refs[0];
+    if (
+      refs.some(
+        (ref) =>
+          ref?.folder !== first?.folder ||
+          ref?.uidValidity !== first?.uidValidity,
+      )
+    )
+      return null;
+    const complete = refs as MessageIdentityRef[];
+    return new Set(complete.map(identityToken)).size === complete.length
+      ? complete
+      : null;
+  }
+
+  private buildBatchMutationPayload(
+    refs: MessageIdentityRef[],
+  ): Record<string, string | number | boolean | string[]> {
+    const first = refs[0]!;
     return {
-      account_id: accountId,
-      folder: this.getMutationFolder(options),
-      message_ids: messageIds,
-      is_uid: this.getIdentifierMode(options) === "uid",
+      account_id: first.accountId,
+      folder: first.folder,
+      uid_validity: first.uidValidity,
+      message_ids: refs.map((ref) => ref.uid),
+      is_uid: true,
     };
   }
 
@@ -218,6 +284,17 @@ export class MessageService implements IMessageOperations {
       );
     }
 
+    const requestedIds = new Set(messageIds.map(String));
+    if (
+      failedIds.some((id) => !requestedIds.has(String(id))) ||
+      new Set(failedIds.map(String)).size !== failedIds.length
+    ) {
+      return this.createBatchFailureResult(
+        messageIds,
+        "Invalid batch mailbox response: failed_ids must identify distinct requested messages",
+      );
+    }
+
     if (
       batchResponse.processed_count !== undefined &&
       typeof batchResponse.processed_count !== "number"
@@ -233,7 +310,11 @@ export class MessageService implements IMessageOperations {
         ? batchResponse.processed_count
         : Math.max(0, messageIds.length - failedIds.length);
 
-    if (processedCount < 0 || processedCount > messageIds.length) {
+    if (
+      !Number.isInteger(processedCount) ||
+      processedCount < 0 ||
+      processedCount > messageIds.length
+    ) {
       return this.createBatchFailureResult(
         messageIds,
         "Invalid batch mailbox response: processed_count is out of range",
@@ -295,6 +376,26 @@ export class MessageService implements IMessageOperations {
     options?: BatchMessageMutationOptions,
     extraPayload?: Record<string, unknown>,
   ): Promise<BatchOperationResult> {
+    messageIds = [...messageIds];
+    const capturedRefs = this.resolveBatchIdentity(
+      accountId,
+      messageIds,
+      options,
+    );
+    if (!capturedRefs) {
+      return {
+        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        requiresRefresh: true,
+      };
+    }
+    const first = capturedRefs[0];
+    options = first
+      ? {
+          folder: first.folder,
+          uidValidity: first.uidValidity,
+          identifierMode: "uid",
+        }
+      : undefined;
     const chunkSize = MessageService.BATCH_CHUNK_SIZE;
     if (messageIds.length <= chunkSize) {
       return this.executeBatchChunk(
@@ -341,6 +442,7 @@ export class MessageService implements IMessageOperations {
       if (result.rateLimited) {
         aggregate.rateLimited = true;
       }
+      if (result.requiresRefresh) aggregate.requiresRefresh = true;
       if (!result.success) {
         const unattemptedIds = messageIds.slice(i + chunkIds.length);
         if (unattemptedIds.length > 0) {
@@ -400,10 +502,16 @@ export class MessageService implements IMessageOperations {
       };
     }
 
+    const refs = this.resolveBatchIdentity(accountId, messageIds, options);
+    if (!refs)
+      return {
+        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        requiresRefresh: true,
+      };
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(route, {
-          ...this.buildBatchMutationPayload(accountId, messageIds, options),
+          ...this.buildBatchMutationPayload(refs),
           ...extraPayload,
         }),
       );
@@ -435,10 +543,23 @@ export class MessageService implements IMessageOperations {
             getErrorMessage(response as ApiErrorResponse),
           ),
           ...(retryAfter !== null ? { rateLimited: true } : {}),
+          ...(requiresIdentityRefresh(response)
+            ? { requiresRefresh: true }
+            : {}),
         };
       }
 
-      return this.parseBatchResponse(response, messageIds);
+      const result = this.parseBatchResponse(
+        response,
+        refs.map((ref) => ref.uid),
+      );
+      const originalIds = new Map(
+        refs.map((ref, index) => [ref.uid, messageIds[index]!]),
+      );
+      return {
+        ...result,
+        failedIds: result.failedIds.map((id) => originalIds.get(String(id))!),
+      };
     } catch (error) {
       return this.createBatchFailureResult(
         messageIds,
@@ -456,16 +577,20 @@ export class MessageService implements IMessageOperations {
     messageId: string | number,
     options?: GetMessageOptions,
   ): Promise<EmailMessage | null> {
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return null;
+    const token = identityToken(ref);
+    const folder = ref.folder;
     // Check cache first (unless forcing refresh)
-    const folder = options?.folder ?? "INBOX";
     if (!options?.forceRefresh && this.cache) {
       const cached = this.cache.getMessageDetail(
         String(accountId),
         folder,
-        messageId,
+        token,
       );
       if (
         cached &&
+        getMessageIdentityKey(cached) === token &&
         (cached.htmlBody || cached.textBody || !options?.includeBody)
       ) {
         return cached;
@@ -474,14 +599,14 @@ export class MessageService implements IMessageOperations {
 
     try {
       const url = buildApiUrl(`${messageDetailRouteApi}${accountId}`, {
-        uid: String(messageId),
+        uid: ref.uid,
+        uid_validity: ref.uidValidity,
         folder,
         ...getMailboxSourceRequestParams(),
       });
 
       const response = await apiPost<EmailMessage>(url, {
-        uid: messageId,
-        account_id: accountId,
+        ...this.buildMessageMutationPayload(ref),
         ...getMailboxSourceRequestParams(),
       });
 
@@ -494,14 +619,11 @@ export class MessageService implements IMessageOperations {
       }
 
       const message = (response as ApiResponse<EmailMessage>).data ?? null;
+      if (!message || getMessageIdentityKey(message) !== token) return null;
 
       // Cache the detail
       if (message && this.cache) {
-        this.cache.setMessageDetail(
-          String(accountId),
-          message.folder ?? "INBOX",
-          message,
-        );
+        this.cache.setMessageDetail(String(accountId), ref.folder, message);
       }
 
       return message;
@@ -516,38 +638,24 @@ export class MessageService implements IMessageOperations {
     messageId: string | number,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
-    // Optimistic update
-    if (this.cache) {
-      this.cache.updateMessage(String(accountId), messageId, { read: true });
-    }
-
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
     try {
       const response = await this.withBreaker(accountId, () =>
-        apiForm(
-          markEmailAsReadRouteApi,
-          this.buildMessageMutationPayload(accountId, messageId, options),
-        ),
+        apiForm(markEmailAsReadRouteApi, this.buildMessageMutationPayload(ref)),
       );
-
-      if (isError(response)) {
-        // Rollback optimistic update
-        if (this.cache) {
-          this.cache.updateMessage(String(accountId), messageId, {
-            read: false,
-          });
-        }
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
-      }
-
+      if (isError(response))
+        return operationFailure(response as ApiErrorResponse);
+      // The caller owns optimistic UI. A failed request must not overwrite a
+      // newer confirmed cache value with an assumed opposite flag.
+      this.cache?.updateMessage(
+        String(ref.accountId),
+        identityToken(ref),
+        { read: true },
+        ref.folder,
+      );
       return { success: true };
     } catch (error) {
-      // Rollback
-      if (this.cache) {
-        this.cache.updateMessage(String(accountId), messageId, { read: false });
-      }
       return {
         success: false,
         error:
@@ -561,38 +669,27 @@ export class MessageService implements IMessageOperations {
     messageId: string | number,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
-    // Optimistic update
-    if (this.cache) {
-      this.cache.updateMessage(String(accountId), messageId, { read: false });
-    }
-
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(
           markEmailAsUnreadRouteApi,
-          this.buildMessageMutationPayload(accountId, messageId, options),
+          this.buildMessageMutationPayload(ref),
         ),
       );
-
-      if (isError(response)) {
-        // Rollback
-        if (this.cache) {
-          this.cache.updateMessage(String(accountId), messageId, {
-            read: true,
-          });
-        }
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
-      }
-
+      if (isError(response))
+        return operationFailure(response as ApiErrorResponse);
+      // The caller owns optimistic UI. A failed request must not overwrite a
+      // newer confirmed cache value with an assumed opposite flag.
+      this.cache?.updateMessage(
+        String(ref.accountId),
+        identityToken(ref),
+        { read: false },
+        ref.folder,
+      );
       return { success: true };
     } catch (error) {
-      // Rollback
-      if (this.cache) {
-        this.cache.updateMessage(String(accountId), messageId, { read: true });
-      }
       return {
         success: false,
         error:
@@ -606,20 +703,20 @@ export class MessageService implements IMessageOperations {
     messageId: string | number,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
+    const token = identityToken(ref);
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(flagEmailRouteApi, {
-          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          ...this.buildMessageMutationPayload(ref),
           flag: "\\Flagged",
           action: "toggle",
         }),
       );
 
       if (isError(response)) {
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
+        return operationFailure(response as ApiErrorResponse);
       }
 
       // Get the new starred state from response if available
@@ -628,9 +725,14 @@ export class MessageService implements IMessageOperations {
 
       // Update cache with new state
       if (this.cache && newStarred !== undefined) {
-        this.cache.updateMessage(String(accountId), messageId, {
-          starred: newStarred,
-        });
+        this.cache.updateMessage(
+          String(accountId),
+          token,
+          {
+            starred: newStarred,
+          },
+          ref.folder,
+        );
       }
 
       return {
@@ -649,20 +751,19 @@ export class MessageService implements IMessageOperations {
     accountId: string | number,
     messageId: string | number,
     options?: MessageMutationOptions,
-  ): Promise<{ success: boolean; headers?: string; error?: string }> {
+  ): Promise<OperationResult & { headers?: string }> {
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(
           messageRawHeadersRouteApi,
-          this.buildMessageMutationPayload(accountId, messageId, options),
+          this.buildMessageMutationPayload(ref),
         ),
       );
 
       if (isError(response)) {
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
+        return operationFailure(response as ApiErrorResponse);
       }
 
       const data = (response as ApiResponse).data as
@@ -687,17 +788,20 @@ export class MessageService implements IMessageOperations {
     permanent = false,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
-    const folder = this.getMutationFolder(options);
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
+    const token = identityToken(ref);
+    const folder = ref.folder;
 
     // Optimistic removal from cache
     if (this.cache) {
-      this.cache.removeMessage(String(accountId), messageId);
+      this.cache.removeMessage(String(ref.accountId), token);
     }
 
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(deleteEmailFromImapRouteApi, {
-          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          ...this.buildMessageMutationPayload(ref),
           permanent: permanent ? 1 : 0,
         }),
       );
@@ -711,10 +815,7 @@ export class MessageService implements IMessageOperations {
             folder,
           });
         }
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
+        return operationFailure(response as ApiErrorResponse);
       }
 
       return { success: true };
@@ -740,19 +841,28 @@ export class MessageService implements IMessageOperations {
     targetFolder: string | FolderTarget,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
-    const sourceFolder = this.getMutationFolder(options);
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
+    if (
+      typeof targetFolder !== "string" &&
+      targetFolder.accountId !== ref.accountId
+    ) {
+      return identityFailure();
+    }
+    const token = identityToken(ref);
+    const sourceFolder = ref.folder;
     const targetPath =
       typeof targetFolder === "string" ? targetFolder : targetFolder.path;
 
     // Optimistic removal from current folder cache
     if (this.cache) {
-      this.cache.removeMessage(String(accountId), messageId);
+      this.cache.removeMessage(String(ref.accountId), token);
     }
 
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(moveEmailRouteApi, {
-          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          ...this.buildMessageMutationPayload(ref),
           target_folder: targetPath,
           ...(typeof targetFolder === "string" || targetFolder.folderId === null
             ? {}
@@ -771,10 +881,7 @@ export class MessageService implements IMessageOperations {
             folder: sourceFolder,
           });
         }
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
+        return operationFailure(response as ApiErrorResponse);
       }
 
       // Invalidate target folder cache too
@@ -784,7 +891,7 @@ export class MessageService implements IMessageOperations {
           folder: sourceFolder,
         });
         this.cache.invalidateMessages({
-          accountId: String(accountId),
+          accountId: String(ref.accountId),
           folder: targetPath,
         });
       }
@@ -821,20 +928,20 @@ export class MessageService implements IMessageOperations {
     value: boolean,
     options?: MessageMutationOptions,
   ): Promise<OperationResult> {
+    const ref = resolveIdentity(accountId, messageId, options);
+    if (!ref) return identityFailure();
+    const token = identityToken(ref);
     try {
       const response = await this.withBreaker(accountId, () =>
         apiForm(flagEmailRouteApi, {
-          ...this.buildMessageMutationPayload(accountId, messageId, options),
+          ...this.buildMessageMutationPayload(ref),
           flag,
           action: value ? "add" : "remove",
         }),
       );
 
       if (isError(response)) {
-        return {
-          success: false,
-          error: getErrorMessage(response as ApiErrorResponse),
-        };
+        return operationFailure(response as ApiErrorResponse);
       }
 
       // Update cache based on flag
@@ -850,7 +957,12 @@ export class MessageService implements IMessageOperations {
           // Other flags don't have direct EmailMessage mappings
         }
         if (Object.keys(updates).length > 0) {
-          this.cache.updateMessage(String(accountId), messageId, updates);
+          this.cache.updateMessage(
+            String(accountId),
+            token,
+            updates,
+            ref.folder,
+          );
         }
       }
 
@@ -932,6 +1044,16 @@ export class MessageService implements IMessageOperations {
       );
     }
 
+    if (
+      typeof targetFolder !== "string" &&
+      targetFolder.accountId !== Number(accountId)
+    ) {
+      return {
+        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        requiresRefresh: true,
+      };
+    }
+
     return this.executeBatchRequest(
       accountId,
       batchMoveRouteApi,
@@ -956,7 +1078,7 @@ export class MessageService implements IMessageOperations {
   ): Promise<BatchOperationResult> {
     // The server empties Trash in bounded batches (capped per request to stay under the
     // gateway timeout) and reports `remaining`. Keep calling until it's drained, or a
-    // safety cap, so a large Trash empties fully in a single user action.
+    // safety cap, then report partial progress so the user can retry.
     const MAX_PASSES = 50;
     const aggregate: BatchOperationResult = {
       success: true,
@@ -986,13 +1108,16 @@ export class MessageService implements IMessageOperations {
       if (!result.success) {
         aggregate.success = false;
         aggregate.error = result.error;
-        break;
+        return aggregate;
       }
       if (remaining <= 0) {
-        break;
+        return aggregate;
       }
     }
 
+    aggregate.success = false;
+    aggregate.error =
+      "Trash is not empty yet. Run Empty Trash again to continue.";
     return aggregate;
   }
 
@@ -1004,7 +1129,7 @@ export class MessageService implements IMessageOperations {
       const response = await this.withBreaker(accountId, () =>
         apiForm(emptyTrashRouteApi, {
           account_id: accountId,
-          folder: this.getMutationFolder({ folder }),
+          folder,
         }),
       );
 
@@ -1089,17 +1214,35 @@ export class MessageService implements IMessageOperations {
   async batchArchive(
     accountId: string | number,
     messageIds: (string | number)[],
+    options?: BatchMessageMutationOptions,
   ): Promise<BatchOperationResult> {
-    return this.batchMove(accountId, messageIds, "Archive");
+    return this.batchMove(accountId, messageIds, "Archive", options);
   }
 
   async batchToggleStar(
     accountId: string | number,
     messageIds: (string | number)[],
     starred: boolean,
+    options?: BatchMessageMutationOptions,
   ): Promise<BatchOperationResult> {
+    messageIds = [...messageIds];
+    const refs = this.resolveBatchIdentity(accountId, messageIds, options);
+    if (!refs) {
+      return {
+        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        requiresRefresh: true,
+      };
+    }
+    const first = refs[0];
+    options = first
+      ? {
+          folder: first.folder,
+          uidValidity: first.uidValidity,
+          identifierMode: "uid",
+        }
+      : undefined;
     return this.executeBatch(messageIds, (id) =>
-      this.setFlag(accountId, id, "\\Flagged", starred),
+      this.setFlag(accountId, id, "\\Flagged", starred, options),
     );
   }
 
@@ -1149,11 +1292,14 @@ export class MessageService implements IMessageOperations {
     const failedIds: (string | number)[] = [];
     let successCount = 0;
     let firstError: string | undefined;
+    let requiresRefresh = false;
 
     results.forEach((result, index) => {
       if (result.status === "fulfilled" && result.value.success) {
         successCount++;
       } else {
+        if (result.status === "fulfilled" && result.value.requiresRefresh)
+          requiresRefresh = true;
         failedIds.push(ids[index]!);
         const error =
           result.status === "fulfilled"
@@ -1172,6 +1318,7 @@ export class MessageService implements IMessageOperations {
       successCount,
       failedIds,
       totalCount: ids.length,
+      ...(requiresRefresh ? { requiresRefresh: true } : {}),
       error:
         failedIds.length > 0
           ? (firstError ??

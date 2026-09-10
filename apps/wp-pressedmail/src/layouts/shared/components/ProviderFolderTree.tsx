@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
+
 import * as React from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { Folder, FolderOpen } from "lucide-react";
@@ -236,7 +241,7 @@ function readExpanded(accountId: number, defaults: number[]): Set<string> {
   if (typeof window === "undefined") return new Set(defaultKeys);
   try {
     const stored = JSON.parse(
-      window.localStorage.getItem(storageKey(accountId)) ?? "[]",
+      getPrincipalStorageItem("local", storageKey(accountId)) ?? "[]",
     );
     return new Set([
       ...defaultKeys,
@@ -325,7 +330,8 @@ export function ProviderFolderTree({
     (next: Set<string>) => {
       setExpanded(next);
       if (typeof window !== "undefined")
-        window.localStorage.setItem(
+        setPrincipalStorageItem(
+          "local",
           storageKey(accountId),
           JSON.stringify([...next]),
         );

@@ -1,3 +1,8 @@
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+  removePrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * useComposeForm: unified compose business logic hook (v2 location).
  *
@@ -19,7 +24,6 @@ import { apiFetch, apiForm } from "@/lib/api-client";
 import {
   deleteEmailFromImapRouteApi,
   saveDraftRouteApi,
-  sendEmailRouteApi,
   routeApiPrefix,
 } from "@/context/Strings";
 import { useAppContext } from "@/context/AppProvider";
@@ -27,6 +31,7 @@ import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getAccountNumericId } from "@/lib/consolidated-account-scope";
 import { appMessage } from "@/context/toast";
 import { useUndoSend } from "@/context/undo-send";
+import { useReadReceipt } from "@/components/inbox/compose/ComposerScheduleActions.active";
 import { useSignatures } from "@/context/signatures/SignaturesContext";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
 import {
@@ -70,6 +75,11 @@ import {
 } from "@/components/inbox/compose/compose-utils";
 import { getCacheService } from "@/services/implementations";
 import { refreshAccountSync } from "@/services/sync-driver.service";
+import {
+  acknowledgeNormalSend,
+  sendNormalEmail,
+  type NormalSendReceipt,
+} from "@/services/normal-send.service";
 import {
   applyPlainTextSignature,
   getPlainTextAuthoredContent,
@@ -124,6 +134,9 @@ export interface UseComposeFormOptions {
   prefillBcc?: Recipient[];
   prefillSubject?: string;
   prefillBody?: string;
+  /** Structured outgoing RFC headers. The server validates and bounds them. */
+  prefillInReplyTo?: string;
+  prefillReferences?: string;
   /** Fresh-compose preference. Explicit persisted/draft MIME wins. */
   defaultContentType?: EmailContentType;
   quotedText?: string;
@@ -165,7 +178,18 @@ export interface UseComposeFormOptions {
   onScheduledChanged?: () => void;
 }
 
+export interface ComposeConfirmation {
+  title: string;
+  description: string;
+  confirmText: string;
+  cancelText: string;
+}
+
 export interface UseComposeFormReturn {
+  readReceipt: ReturnType<typeof useReadReceipt> & {
+    available: boolean;
+    requested: boolean;
+  };
   // State
   toRecipients: Recipient[];
   ccRecipients: Recipient[];
@@ -180,6 +204,8 @@ export interface UseComposeFormReturn {
   showCc: boolean;
   showBcc: boolean;
   isSending: boolean;
+  confirmation: ComposeConfirmation | null;
+  resolveConfirmation: (confirmed: boolean) => void;
   isScheduling: boolean;
   isSavingDraft: boolean;
   isDiscarding: boolean;
@@ -329,7 +355,7 @@ function describeAttachmentForDraftSnapshot(
 /**
  * Serialize the composer's attachments into durable descriptors for scheduling.
  * Only Media Library items (with a persistent wpAttachmentId) survive until the
- * scheduled send time; raw File uploads are dropped (the caller warns).
+ * scheduled send time; raw File uploads must be staged before serialization.
  */
 interface ScheduledAttachmentPayload {
   id: number;
@@ -339,6 +365,7 @@ interface ScheduledAttachmentPayload {
   size: number;
   url?: string;
   source: "media-library";
+  sha256?: string;
 }
 
 function serializeScheduledAttachments(
@@ -347,12 +374,25 @@ function serializeScheduledAttachments(
   const out: ScheduledAttachmentPayload[] = [];
   for (const attachment of attachments) {
     if (typeof File !== "undefined" && attachment instanceof File) {
-      continue;
+      throw new Error(
+        __("Save uploaded files before scheduling.", "pressedmail"),
+      );
     }
     const att = attachment as EmailAttachment;
     const wpId = att.wpAttachmentId;
-    if (typeof wpId !== "number" || wpId <= 0) {
-      continue;
+    if (
+      !Number.isSafeInteger(wpId) ||
+      !wpId ||
+      wpId <= 0 ||
+      att.source !== "media-library" ||
+      (att.sha256 !== undefined && !/^[a-f0-9]{64}$/.test(att.sha256))
+    ) {
+      throw new Error(
+        __(
+          "Select these attachments from your Media Library before scheduling.",
+          "pressedmail",
+        ),
+      );
     }
     out.push({
       id: wpId,
@@ -362,6 +402,7 @@ function serializeScheduledAttachments(
       size: att.size ?? 0,
       url: att.url,
       source: "media-library",
+      ...(att.sha256 !== undefined ? { sha256: att.sha256 } : {}),
     });
   }
   return out;
@@ -443,6 +484,8 @@ interface SaveDraftOptions {
   bcc?: string;
   contactListIds?: number[];
   contentType?: EmailContentType;
+  inReplyTo?: string;
+  references?: string;
   accountId?: number;
   attachments?: Array<File | EmailAttachment>;
   draftAttachmentManifestComplete?: boolean;
@@ -466,6 +509,9 @@ interface ActiveSendSnapshot {
   subject: string;
   body: string;
   contentType: EmailContentType;
+  readReceipt: { requested: boolean; revision: string };
+  inReplyTo: string;
+  references: string;
   isImportant: boolean;
   mode: ComposeMode;
   attachments: Array<File | EmailAttachment>;
@@ -508,6 +554,8 @@ export function useComposeForm({
   prefillBcc,
   prefillSubject,
   prefillBody,
+  prefillInReplyTo,
+  prefillReferences,
   defaultContentType = "html",
   quotedText: quotedTextInput = "",
   editorRef,
@@ -542,6 +590,8 @@ export function useComposeForm({
   const canUseMediaLibraryAttachments = useCanUseMediaLibraryAttachments();
   const maxAttachmentSizeMb = useMaxAttachmentSizeMb();
   const contactListsEnabled = useFeatureAvailable("contact_lists");
+  const trackingFeatureEnabled = useFeatureAvailable("email_tracking");
+  const trackingAvailable = __IS_PRO__ && trackingFeatureEnabled;
   const contextScheduledAccountId =
     composerContext?.composeData.scheduledAccountId;
   const rawContextDraftAccountId = composerContext?.composeData.draftAccountId;
@@ -564,6 +614,10 @@ export function useComposeForm({
   const [localBcc, setLocalBcc] = useState<Recipient[]>(prefillBcc ?? []);
   const [localSubject, setLocalSubject] = useState(prefillSubject ?? "");
   const [localBody, setLocalBody] = useState(prefillBody ?? "");
+  const [localInReplyTo, setLocalInReplyTo] = useState(prefillInReplyTo ?? "");
+  const [localReferences, setLocalReferences] = useState(
+    prefillReferences ?? "",
+  );
   const [localContentType, setLocalContentType] =
     useState<EmailContentType>(defaultContentType);
   const [localBodyBackgroundColor, setLocalBodyBackgroundColor] = useState<
@@ -572,28 +626,57 @@ export function useComposeForm({
   const [localCanvasBackgroundColor, setLocalCanvasBackgroundColor] = useState<
     string | undefined
   >(undefined);
+  const [localReadReceipt, setLocalReadReceipt] = useState({
+    requested: false,
+    revision: "",
+  });
   const [localAttachments, setLocalAttachments] = useState<
     Array<File | EmailAttachment>
   >([]);
 
   // UI state
-  const [showCc, setShowCc] = useState((prefillCc?.length ?? 0) > 0);
-  const [showBcc, setShowBcc] = useState((prefillBcc?.length ?? 0) > 0);
+  const [showCc, setShowCc] = useState(
+    Boolean(composerContext?.composeData.cc || prefillCc?.length),
+  );
+  const [showBcc, setShowBcc] = useState(
+    Boolean(composerContext?.composeData.bcc || prefillBcc?.length),
+  );
   const [showQuotedText, setShowQuotedText] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [confirmation, setConfirmation] = useState<ComposeConfirmation | null>(
+    null,
+  );
+  const pendingConfirmationRef = useRef<{
+    session: number | null;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
   const [isImportant, setIsImportant] = useState(false);
   const [isScheduling, setIsScheduling] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [pendingInlineImageUploads, setPendingInlineImageUploads] = useState(0);
   const [isDraftSaved, setIsDraftSaved] = useState(false);
-  const [fromAccount, setFromAccount] = useState(() => {
-    // In consolidated mode, default to first account's email
-    if (selectedAccount === CONSOLIDATED_INBOX_VALUE) {
-      return accounts[0]?.email || "";
-    }
-    return selectedAccount || "";
-  });
+  const defaultFromAccount =
+    selectedAccount === CONSOLIDATED_INBOX_VALUE
+      ? accounts[0]?.email || ""
+      : selectedAccount || "";
+  const [localFromAccount, setLocalFromAccount] = useState(defaultFromAccount);
+  const fromAccount = composerContext
+    ? (composerContext.composeData.fromAccount ?? defaultFromAccount)
+    : localFromAccount;
+  const setFromAccount = useCallback(
+    (account: string) => {
+      if (composerContext) {
+        composerContext.setComposeData((previous) => ({
+          ...previous,
+          fromAccount: account,
+        }));
+      } else {
+        setLocalFromAccount(account);
+      }
+    },
+    [composerContext],
+  );
   const sigInsertedRef = useRef(false);
   // Tracks whether the composed body has been flushed into the editor once it
   // became ready (the cached-signatures race fix).
@@ -685,18 +768,34 @@ export function useComposeForm({
     }
 
     setFromAccount(accounts[0]?.email || "");
-  }, [accounts, contextBoundAccountId, fromAccount, selectedAccount]);
+  }, [
+    accounts,
+    contextBoundAccountId,
+    fromAccount,
+    selectedAccount,
+    setFromAccount,
+  ]);
 
   // ---------------------------------------------------------------------------
   // Bridging: If composerContext is provided, derive state from it
   // ---------------------------------------------------------------------------
 
   const isContextMode = !!composerContext;
+  // Explicit outgoing headers survive reopened reply drafts even when their UI
+  // mode is "new". The draft's own Message-ID and local UID are never parents.
+  const inReplyTo = isContextMode
+    ? (composerContext!.composeData.inReplyTo ?? "")
+    : localInReplyTo;
+  const references = isContextMode
+    ? (composerContext!.composeData.references ?? "")
+    : localReferences;
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      pendingConfirmationRef.current?.resolve(false);
+      pendingConfirmationRef.current = null;
     };
   }, []);
   const getComposeSessionVersion = useCallback(
@@ -708,6 +807,31 @@ export function useComposeForm({
       mountedRef.current &&
       (!isContextMode || getComposeSessionVersion() === composeSessionVersion),
     [getComposeSessionVersion, isContextMode],
+  );
+  const resolveConfirmation = useCallback(
+    (confirmed: boolean) => {
+      const pending = pendingConfirmationRef.current;
+      pendingConfirmationRef.current = null;
+      if (mountedRef.current) setConfirmation(null);
+      pending?.resolve(
+        confirmed === true && ownsComposeSession(pending.session),
+      );
+    },
+    [ownsComposeSession],
+  );
+  const requestConfirmation = useCallback(
+    (
+      details: ComposeConfirmation,
+      session: number | null,
+    ): Promise<boolean> => {
+      if (!ownsComposeSession(session) || pendingConfirmationRef.current)
+        return Promise.resolve(false);
+      return new Promise((resolve) => {
+        pendingConfirmationRef.current = { session, resolve };
+        setConfirmation(details);
+      });
+    },
+    [ownsComposeSession],
   );
   const scheduledEmailId =
     __IS_PRO__ && isContextMode
@@ -806,6 +930,21 @@ export function useComposeForm({
       ? (prefillBcc ?? [])
       : parseEmailString(composerContext!.composeData.bcc || "")
     : localBcc;
+  const composeSessionVersion = getComposeSessionVersion();
+  useEffect(() => {
+    const pending = pendingConfirmationRef.current;
+    if (pending && pending.session !== composeSessionVersion)
+      resolveConfirmation(false);
+  }, [composeSessionVersion, resolveConfirmation]);
+  const recipientVisibilitySession = useRef(composeSessionVersion);
+  useEffect(() => {
+    if (recipientVisibilitySession.current === composeSessionVersion) return;
+    recipientVisibilitySession.current = composeSessionVersion;
+    // A replacement draft owns its address rows. Ordinary edits keep the user's
+    // current show/hide choice within that session.
+    setShowCc(ccRecipients.length > 0);
+    setShowBcc(bccRecipients.length > 0);
+  }, [composeSessionVersion, ccRecipients.length, bccRecipients.length]);
   const uniqueRecipientGroups = useMemo(
     () =>
       dedupeRecipientGroupsByEmail({
@@ -833,6 +972,39 @@ export function useComposeForm({
         ? "html"
         : defaultContentType))
     : localContentType;
+  const receiptValue = isContextMode
+    ? (composerContext!.composeData.readReceipt ?? {
+        requested: false,
+        revision: "",
+      })
+    : localReadReceipt;
+  const receiptRequested =
+    trackingAvailable &&
+    contentType === "html" &&
+    receiptValue.requested === true;
+  const updateReadReceipt = useCallback(
+    (
+      next: { requested: boolean; revision: string },
+      session: number | null,
+    ) => {
+      if (!ownsComposeSession(session)) return;
+      if (isContextMode)
+        composerContext!.setComposeData((previous) => ({
+          ...previous,
+          readReceipt: next,
+        }));
+      else setLocalReadReceipt(next);
+    },
+    [composerContext, isContextMode, ownsComposeSession],
+  );
+  const receiptActions = useReadReceipt({
+    available: trackingAvailable,
+    contentType,
+    value: receiptValue,
+    onChange: updateReadReceipt,
+    getComposeSessionVersion,
+    requestConfirmation,
+  });
   // Mirror the latest composed body so the editor-ready catch-up can flush it
   // without re-creating the callback on every keystroke.
   const latestBodyRef = useRef(body);
@@ -1192,6 +1364,8 @@ export function useComposeForm({
         subject: "",
         body: "",
         contentType: undefined,
+        inReplyTo: undefined,
+        references: undefined,
         mode: "new",
         bodyBackgroundColor: undefined,
         canvasBackgroundColor: undefined,
@@ -1212,7 +1386,10 @@ export function useComposeForm({
       setLocalBcc([]);
       setLocalSubject("");
       setLocalBody("");
+      setLocalInReplyTo("");
+      setLocalReferences("");
       setLocalContentType(defaultContentType);
+      setLocalReadReceipt({ requested: false, revision: "" });
       setLocalBodyBackgroundColor(undefined);
       setLocalCanvasBackgroundColor(undefined);
       setLocalAttachments([]);
@@ -1238,7 +1415,12 @@ export function useComposeForm({
   );
 
   const getDraftSnapshot = useCallback(
-    (overrides?: { subject?: string; body?: string }): string =>
+    (overrides?: {
+      subject?: string;
+      body?: string;
+      inReplyTo?: string;
+      references?: string;
+    }): string =>
       JSON.stringify({
         accountId: getSendingAccountId(),
         to: recipientsToString(uniqueRecipientGroups.to),
@@ -1250,6 +1432,8 @@ export function useComposeForm({
         subject: overrides?.subject ?? subject,
         body: resolveOutgoingBody(overrides?.body),
         contentType,
+        inReplyTo: overrides?.inReplyTo ?? inReplyTo,
+        references: overrides?.references ?? references,
         bodyBackgroundColor: bodyBackgroundColor ?? "",
         attachments: attachments.map(describeAttachmentForDraftSnapshot),
       }),
@@ -1261,6 +1445,8 @@ export function useComposeForm({
       uniqueRecipientGroups,
       resolveOutgoingBody,
       contentType,
+      inReplyTo,
+      references,
       getSendingAccountId,
       subject,
       toRecipients,
@@ -1446,6 +1632,8 @@ export function useComposeForm({
       formData.append("subject", opts?.subject ?? subject);
       formData.append("body", resolvedDraftBody);
       formData.append("content_type", opts?.contentType ?? contentType);
+      formData.append("in_reply_to", opts?.inReplyTo ?? inReplyTo);
+      formData.append("references", opts?.references ?? references);
       formData.append("account_id", String(accountId));
       const draftAttachmentManifestComplete =
         opts?.draftAttachmentManifestComplete ??
@@ -1531,6 +1719,8 @@ export function useComposeForm({
           savedSnapshot: getDraftSnapshot({
             subject: opts?.subject ?? subject,
             body: resolvedDraftBody,
+            inReplyTo: opts?.inReplyTo ?? inReplyTo,
+            references: opts?.references ?? references,
           }),
         };
         applySavedDraftResult(
@@ -1555,6 +1745,8 @@ export function useComposeForm({
       getSendingAccountId,
       resolveOutgoingBody,
       contentType,
+      inReplyTo,
+      references,
       getDraftSnapshot,
       applySavedDraftResult,
       toRecipients,
@@ -1651,6 +1843,11 @@ export function useComposeForm({
       }
       const composeSessionVersion =
         composerContext?.getComposeSessionVersion() ?? null;
+      const capturedOptions = {
+        ...opts,
+        inReplyTo: opts?.inReplyTo ?? inReplyTo,
+        references: opts?.references ?? references,
+      };
       if (composerContext && composeSessionVersion !== null) {
         return composerContext.queueDraftSave(
           composeSessionVersion,
@@ -1668,7 +1865,7 @@ export function useComposeForm({
             ) {
               return { ok: false, draft: null };
             }
-            return performSaveDraft(opts, composeSessionVersion);
+            return performSaveDraft(capturedOptions, composeSessionVersion);
           },
         );
       }
@@ -1677,8 +1874,10 @@ export function useComposeForm({
       const pending = prior
         ? prior
             .catch(() => null)
-            .then(() => performSaveDraft(opts, composeSessionVersion))
-        : performSaveDraft(opts, composeSessionVersion);
+            .then(() =>
+              performSaveDraft(capturedOptions, composeSessionVersion),
+            )
+        : performSaveDraft(capturedOptions, composeSessionVersion);
       inFlightSaveRef.current = pending;
       void pending
         .catch(() => null)
@@ -1694,6 +1893,8 @@ export function useComposeForm({
       composerContext,
       ownsComposeSession,
       performSaveDraft,
+      inReplyTo,
+      references,
     ],
   );
 
@@ -1742,6 +1943,7 @@ export function useComposeForm({
   );
 
   const handleSend = useCallback(async () => {
+    if (receiptActions.pending) return;
     if (toRecipients.length === 0) {
       appMessage(
         __("Please enter at least one recipient", "pressedmail"),
@@ -1778,17 +1980,10 @@ export function useComposeForm({
     ]
       .map((recipient) => recipient.email)
       .filter(Boolean);
-    if (
-      shouldConfirmSend(
-        composerPreferences.send_safety_confirmation,
-        hasExternalRecipient(recipientEmails, sendingAccount.email ?? ""),
-      )
-    ) {
-      const confirmed = window.confirm(__("Send this message?", "pressedmail"));
-      if (!confirmed) {
-        return;
-      }
-    }
+    const needsSendConfirmation = shouldConfirmSend(
+      composerPreferences.send_safety_confirmation,
+      hasExternalRecipient(recipientEmails, sendingAccount.email ?? ""),
+    );
 
     if (!claimComposeOperation("delivery")) {
       return;
@@ -1814,6 +2009,12 @@ export function useComposeForm({
           ? resolvedBody
           : prepareEmailHtmlForSend(resolvedBody, { bodyBackgroundColor }),
       contentType,
+      readReceipt: {
+        requested: receiptRequested,
+        revision: receiptRequested ? receiptValue.revision : "",
+      },
+      inReplyTo,
+      references,
       isImportant,
       mode,
       attachments: attachmentsRef.current.map((attachment) =>
@@ -1829,6 +2030,23 @@ export function useComposeForm({
     activeSendSnapshotRef.current = sendSnapshot;
     setIsSending(true);
     try {
+      if (
+        needsSendConfirmation &&
+        !(await requestConfirmation(
+          {
+            title: __("Send this message?", "pressedmail"),
+            description: __(
+              "Check the recipients and message before sending.",
+              "pressedmail",
+            ),
+            confirmText: __("Send message", "pressedmail"),
+            cancelText: __("Keep editing", "pressedmail"),
+          },
+          composeSessionVersion,
+        ))
+      )
+        return;
+      if (!ownsComposeSession(composeSessionVersion)) return;
       // A save establishes the authoritative identity of the server draft.
       // Sending before it settles can leave that draft behind after the
       // message is sent, so consume the same promise instead of saving again.
@@ -1878,6 +2096,17 @@ export function useComposeForm({
       formData.append("subject", activeSendSnapshot.subject);
       formData.append("body", activeSendSnapshot.body);
       formData.append("content_type", activeSendSnapshot.contentType);
+      formData.append(
+        "tracking_requested",
+        String(activeSendSnapshot.readReceipt.requested),
+      );
+      if (activeSendSnapshot.readReceipt.requested)
+        formData.append(
+          "tracking_consent_revision",
+          activeSendSnapshot.readReceipt.revision,
+        );
+      formData.append("in_reply_to", activeSendSnapshot.inReplyTo);
+      formData.append("references", activeSendSnapshot.references);
       formData.append("account_id", String(activeSendSnapshot.accountId));
       // Sender-set importance: stamp the cross-provider priority headers on send.
       if (activeSendSnapshot.isImportant) {
@@ -1949,6 +2178,8 @@ export function useComposeForm({
             bcc: activeSendSnapshot.bcc,
             contactListIds: activeSendSnapshot.contactListIds,
             contentType: activeSendSnapshot.contentType,
+            inReplyTo: activeSendSnapshot.inReplyTo,
+            references: activeSendSnapshot.references,
             accountId: activeSendSnapshot.accountId,
             attachments: activeSendSnapshot.attachments,
             draftAttachmentManifestComplete:
@@ -2001,28 +2232,75 @@ export function useComposeForm({
 
         if (ownsComposeSession(composeSessionVersion)) {
           clearForm();
-          localStorage.removeItem("compose-draft");
-          localStorage.removeItem("pressedmail-compose-draft");
+          removePrincipalStorageItem("local", "compose-draft");
+          removePrincipalStorageItem("local", "pressedmail-compose-draft");
           onSendSuccess?.();
           onClose?.();
         }
         return;
       }
 
-      const response = await apiForm(sendEmailRouteApi, formData);
+      let response: NormalSendReceipt;
+      try {
+        response = await sendNormalEmail(formData, {
+          confirmNewAttempt: async (receipt) => {
+            if (
+              !ownsComposeSession(composeSessionVersion) ||
+              !["uncertain", "failed", "missing"].includes(receipt.outcome)
+            )
+              return false;
+            return requestConfirmation(
+              {
+                title: __("Start another send?", "pressedmail"),
+                description:
+                  receipt.outcome === "failed"
+                    ? __(
+                        "The previous message was not accepted for delivery. Start a new send attempt?",
+                        "pressedmail",
+                      )
+                    : __(
+                        "The previous send may already have delivered this message. Check Sent and the recipient before sending again. Another send could create a duplicate.",
+                        "pressedmail",
+                      ),
+                confirmText: __("Start another send", "pressedmail"),
+                cancelText: __("Keep draft", "pressedmail"),
+              },
+              composeSessionVersion,
+            );
+          },
+        });
+      } catch (error) {
+        if (ownsComposeSession(composeSessionVersion))
+          appMessage(
+            error instanceof Error
+              ? error.message
+              : __(
+                  "Delivery status is unavailable. Keep this draft and check again before sending.",
+                  "pressedmail",
+                ),
+            "error",
+          );
+        return;
+      }
+      if (!ownsComposeSession(composeSessionVersion)) return;
 
-      if (response.status !== 200) {
+      if (response.outcome !== "accepted") {
         appMessage(
           response?.message ||
-            __("Unable to send the message right now.", "pressedmail"),
-          "error",
+            __(
+              "Delivery could not be confirmed. Keep this draft and check its status before sending again.",
+              "pressedmail",
+            ),
+          response.outcome === "pending" ? "info" : "error",
         );
-        throw new Error(response?.message || "Failed to send email");
+        return;
       }
 
       appMessage(
-        response?.message || __("Message sent successfully!", "pressedmail"),
-        "success",
+        response.warning ||
+          response.message ||
+          __("Message sent successfully!", "pressedmail"),
+        response.warning ? "warning" : "success",
       );
 
       // Invalidate all message caches for this account so the Sent folder
@@ -2038,10 +2316,13 @@ export function useComposeForm({
 
       if (ownsComposeSession(composeSessionVersion)) {
         clearForm();
-        localStorage.removeItem("compose-draft");
-        localStorage.removeItem("pressedmail-compose-draft");
+        removePrincipalStorageItem("local", "compose-draft");
+        removePrincipalStorageItem("local", "pressedmail-compose-draft");
         onSendSuccess?.();
-        onClose?.();
+        if (onClose) {
+          onClose();
+          await acknowledgeNormalSend(response.attempt_key);
+        }
       }
     } catch (error) {
       console.error("[useComposeForm] send failed", error);
@@ -2066,6 +2347,11 @@ export function useComposeForm({
     body,
     bodyBackgroundColor,
     contentType,
+    receiptActions.pending,
+    receiptRequested,
+    receiptValue.revision,
+    inReplyTo,
+    references,
     isImportant,
     hasIncompleteDraftIdentity,
     composerContext,
@@ -2088,6 +2374,7 @@ export function useComposeForm({
     claimComposeOperation,
     releaseComposeOperation,
     waitForPendingSaves,
+    requestConfirmation,
   ]);
 
   // Commit the composer to a scheduled-email row. Shared by the Schedule button
@@ -2103,7 +2390,7 @@ export function useComposeForm({
         allowDuringOperation?: boolean;
       } = {},
     ): Promise<boolean> => {
-      if (__IS_FREE__) return false;
+      if (__IS_FREE__ || receiptActions.pending) return false;
       const silent = submitOptions.silent === true;
       const allowDuringOperation = submitOptions.allowDuringOperation === true;
       const hasRecipient =
@@ -2136,28 +2423,12 @@ export function useComposeForm({
         return false;
       }
 
-      // Only durable Media Library attachments survive to send time. Dropping
-      // the rest is irreversible once the composer closes, so ask first rather
-      // than posting a notice the user cannot act on.
-      const scheduledAttachments = serializeScheduledAttachments(attachments);
-      const droppedAttachments =
-        attachments.length - scheduledAttachments.length;
-      if (droppedAttachments > 0) {
-        const confirmed = window.confirm(
-          sprintf(
-            /* translators: %d: number of uploaded files that cannot be scheduled. */
-            __(
-              "Uploaded files cannot be scheduled, so %d of them will not go out with this message. Add them to the Media Library to include them. Schedule it anyway?",
-              "pressedmail",
-            ),
-            droppedAttachments,
-          ),
-        );
-        if (!confirmed) {
-          return false;
-        }
-      }
-
+      const principal = captureRequestPrincipal();
+      if (!principal) return false;
+      const scheduledSources = [...attachments];
+      const newUploads = scheduledSources.filter(
+        (attachment) => attachment instanceof File,
+      );
       if (!allowDuringOperation && !claimComposeOperation("delivery")) {
         return false;
       }
@@ -2170,6 +2441,23 @@ export function useComposeForm({
             });
       setIsScheduling(true);
       try {
+        if (
+          newUploads.length > 0 &&
+          !(await requestConfirmation(
+            {
+              title: __("Save files for scheduled delivery?", "pressedmail"),
+              description: __(
+                "Uploaded files will be saved to your WordPress Media Library. They stay there if you cancel this email. Media Library file URLs may be publicly accessible.",
+                "pressedmail",
+              ),
+              confirmText: __("Save files and schedule", "pressedmail"),
+              cancelText: __("Keep editing", "pressedmail"),
+            },
+            composeSessionVersion,
+          ))
+        )
+          return false;
+        if (!ownsComposeSession(composeSessionVersion)) return false;
         if (!(await waitForPendingSaves(composeSessionVersion))) {
           return false;
         }
@@ -2199,6 +2487,82 @@ export function useComposeForm({
           return false;
         }
 
+        // Refuse unsupported received-part descriptors before creating any uploads.
+        serializeScheduledAttachments(
+          scheduledSources.filter(
+            (attachment) => !(attachment instanceof File),
+          ),
+        );
+        for (const file of newUploads) {
+          if (
+            !isRequestPrincipalCurrent(principal) ||
+            !ownsComposeSession(composeSessionVersion)
+          )
+            return false;
+          const upload = new FormData();
+          upload.append("account_id", String(sendingAccountId));
+          upload.append("attachments[]", file);
+          const uploaded = await apiFetch(
+            `${routeApiPrefix}/scheduled-emails/attachments`,
+            { method: "POST", body: upload },
+          );
+          const result = await uploaded.json();
+          if (
+            !isRequestPrincipalCurrent(principal) ||
+            !ownsComposeSession(composeSessionVersion)
+          )
+            return false;
+          const descriptor = result?.data?.attachment;
+          if (
+            !uploaded.ok ||
+            result?.status !== "success" ||
+            !descriptor ||
+            !Number.isSafeInteger(descriptor.wpAttachmentId) ||
+            descriptor.wpAttachmentId <= 0 ||
+            descriptor.source !== "media-library" ||
+            typeof descriptor.filename !== "string" ||
+            typeof descriptor.mimeType !== "string" ||
+            descriptor.size !== file.size ||
+            typeof descriptor.sha256 !== "string" ||
+            !/^[a-f0-9]{64}$/.test(descriptor.sha256)
+          ) {
+            throw new Error(
+              result?.message ||
+                __(
+                  "The file could not be saved. Check your Media Library before trying again.",
+                  "pressedmail",
+                ),
+            );
+          }
+          const durable: EmailAttachment = {
+            id: `wp-media-${descriptor.wpAttachmentId}`,
+            wpAttachmentId: descriptor.wpAttachmentId,
+            filename: descriptor.filename,
+            mimeType: descriptor.mimeType,
+            size: descriptor.size,
+            sha256: descriptor.sha256,
+            source: "media-library",
+          };
+          scheduledSources[scheduledSources.indexOf(file)] = durable;
+          const replaceFile = (items: Array<File | EmailAttachment>) =>
+            items.map((item) => (item === file ? durable : item));
+          attachmentsRef.current = replaceFile(attachmentsRef.current);
+          if (isContextMode) {
+            composerContext!.setComposeData((previous) => ({
+              ...previous,
+              attachments: replaceFile(previous.attachments ?? []),
+            }));
+          } else {
+            setLocalAttachments(replaceFile);
+          }
+        }
+        if (
+          !isRequestPrincipalCurrent(principal) ||
+          !ownsComposeSession(composeSessionVersion)
+        )
+          return false;
+        const scheduledAttachments =
+          serializeScheduledAttachments(scheduledSources);
         const apiUrl = window.pressedmailPlugin?.apiUrl || "";
 
         const endpoint = isScheduledEdit
@@ -2225,6 +2589,12 @@ export function useComposeForm({
               ? { body_background_color: bodyBackgroundColor }
               : {}),
             content_type: contentType,
+            tracking_requested: receiptRequested,
+            tracking_consent_revision: receiptRequested
+              ? receiptValue.revision
+              : undefined,
+            in_reply_to: inReplyTo,
+            references,
             attachments: scheduledAttachments,
             scheduled_at:
               typeof scheduledAt === "string"
@@ -2244,8 +2614,13 @@ export function useComposeForm({
         });
 
         const result = await response.json();
+        if (
+          !isRequestPrincipalCurrent(principal) ||
+          !ownsComposeSession(composeSessionVersion)
+        )
+          return false;
 
-        if (result.status !== "success") {
+        if (!response.ok || result.status !== "success") {
           // A mailbox with no stored secret answers the DTO 409 shape, which
           // nests its message under `data`. apiFetch has already raised the
           // reconnect banner by then; this just keeps the toast from saying
@@ -2281,9 +2656,16 @@ export function useComposeForm({
         onScheduledChanged?.();
         return true;
       } catch (error) {
+        if (
+          !isRequestPrincipalCurrent(principal) ||
+          !ownsComposeSession(composeSessionVersion)
+        )
+          return false;
         console.error("[useComposeForm] schedule failed", error);
         appMessage(
-          __("Failed to schedule email. Please try again.", "pressedmail"),
+          error instanceof Error
+            ? error.message
+            : __("Failed to schedule email. Please try again.", "pressedmail"),
           "error",
         );
         return false;
@@ -2307,7 +2689,14 @@ export function useComposeForm({
       body,
       bodyBackgroundColor,
       contentType,
+      receiptActions.pending,
+      receiptRequested,
+      receiptValue.revision,
+      inReplyTo,
+      references,
       attachments,
+      isContextMode,
+      composerContext,
       isImportant,
       hasIncompleteDraftIdentity,
       getSendingAccountId,
@@ -2320,6 +2709,7 @@ export function useComposeForm({
       ownsComposeSession,
       releaseComposeOperation,
       waitForPendingSaves,
+      requestConfirmation,
     ],
   );
 
@@ -2816,8 +3206,8 @@ export function useComposeForm({
         if (!(await discardComposeTarget())) {
           return;
         }
-        localStorage.removeItem("pressedmail-compose-draft");
-        localStorage.removeItem("compose-draft");
+        removePrincipalStorageItem("local", "pressedmail-compose-draft");
+        removePrincipalStorageItem("local", "compose-draft");
         dirtyRef.current = false;
         clearForm();
         onClose?.();
@@ -2832,8 +3222,8 @@ export function useComposeForm({
     if (!hasDirtyContent && !(await discardComposeTarget())) {
       return;
     }
-    localStorage.removeItem("pressedmail-compose-draft");
-    localStorage.removeItem("compose-draft");
+    removePrincipalStorageItem("local", "pressedmail-compose-draft");
+    removePrincipalStorageItem("local", "compose-draft");
     clearForm();
     onClose?.();
   }, [
@@ -2884,8 +3274,8 @@ export function useComposeForm({
       abandonPendingNavigation();
       return;
     }
-    localStorage.removeItem("pressedmail-compose-draft");
-    localStorage.removeItem("compose-draft");
+    removePrincipalStorageItem("local", "pressedmail-compose-draft");
+    removePrincipalStorageItem("local", "compose-draft");
     // Clear dirtiness synchronously: onClose/consumePendingNavigation may
     // navigate before the dirty-tracking effect re-runs, and a stale dirty
     // flag would re-trigger the route blocker on that navigation.
@@ -2994,8 +3384,8 @@ export function useComposeForm({
         return;
       }
       if (!dirtyRef.current && pendingInlineImageUploadsRef.current === 0) {
-        localStorage.removeItem("pressedmail-compose-draft");
-        localStorage.removeItem("compose-draft");
+        removePrincipalStorageItem("local", "pressedmail-compose-draft");
+        removePrincipalStorageItem("local", "compose-draft");
         clearFormRef.current();
         onCloseRef.current?.();
         action();
@@ -3250,6 +3640,11 @@ export function useComposeForm({
   const modeTitle = getModeTitle(mode);
 
   return {
+    readReceipt: {
+      ...receiptActions,
+      available: trackingAvailable,
+      requested: receiptRequested,
+    },
     toRecipients,
     ccRecipients,
     bccRecipients,
@@ -3262,6 +3657,8 @@ export function useComposeForm({
     showCc,
     showBcc,
     isSending,
+    confirmation,
+    resolveConfirmation,
     isImportant,
     isScheduling,
     isSavingDraft,

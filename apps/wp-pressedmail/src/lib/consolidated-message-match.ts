@@ -1,100 +1,77 @@
 import type { EmailMessage } from "@/types";
+import {
+  getMessageIdentityRef,
+  parseAccountQualifiedToken,
+  parseMessageIdentityRef,
+  type MessageIdentityRef,
+} from "./message-identity";
 
-export interface ConsolidatedKey {
-  accountId: string | null;
-  folder: string | null;
-  uid: string | null;
-}
+export type ConsolidatedKey = MessageIdentityRef;
 
-type KeyableMessage = Pick<
-  EmailMessage,
-  "accountId" | "folder" | "uid" | "consolidatedUid" | "id"
+export type LegacyMessageMatchScope = Pick<
+  MessageIdentityRef,
+  "accountId" | "folder" | "uidValidity"
 >;
 
-function toStr(value: string | number | null | undefined): string | null {
-  if (value === null || value === undefined || value === "") return null;
-  return String(value);
+/** Incomplete rows cannot provide a safe mailbox identity. */
+export function deriveConsolidatedKey(
+  message: EmailMessage,
+): ConsolidatedKey | null {
+  return getMessageIdentityRef(message);
 }
 
-export function deriveConsolidatedKey(msg: KeyableMessage): ConsolidatedKey {
-  const accountId = toStr(msg.accountId ?? null);
-  const folder = toStr(msg.folder ?? null);
-  const uid = toStr(msg.uid ?? null);
-
-  if (uid) {
-    return { accountId, folder, uid };
-  }
-
-  if (msg.consolidatedUid) {
-    const raw = String(msg.consolidatedUid);
-    const colonIdx = raw.indexOf(":");
-    if (colonIdx > 0) {
-      const head = raw.slice(0, colonIdx);
-      const tail = raw.slice(colonIdx + 1);
-      if (head && tail) {
-        return { accountId: head, folder, uid: tail };
-      }
-    }
-  }
-
-  return { accountId: null, folder, uid: toStr(msg.id ?? null) };
-}
-
-export function consolidatedKeysMatch(
-  a: ConsolidatedKey,
-  b: ConsolidatedKey,
-): boolean {
-  if (!a.uid || !b.uid) return false;
-  if (a.uid !== b.uid) return false;
-  if (a.accountId && b.accountId && a.accountId !== b.accountId) return false;
-  if (a.folder && b.folder && a.folder !== b.folder) return false;
-  return true;
-}
-
-function parseCandidateKey(candidate: string): ConsolidatedKey | null {
-  const rowKey = candidate.match(
-    /^account:(.*?)\|folder:(.*?)\|message:(.*?)(?:\|row:\d+)?$/,
+export function consolidatedKeysMatch(a: unknown, b: unknown): boolean {
+  const first = parseMessageIdentityRef(a);
+  const second = parseMessageIdentityRef(b);
+  return Boolean(
+    first &&
+    second &&
+    first.accountId === second.accountId &&
+    first.folder === second.folder &&
+    first.uidValidity === second.uidValidity &&
+    first.uid === second.uid,
   );
-  if (rowKey) {
-    return {
-      accountId: rowKey[1] ? rowKey[1] : null,
-      folder: rowKey[2] ? rowKey[2] : null,
-      uid: rowKey[3] ? rowKey[3] : null,
-    };
-  }
-
-  const colonIdx = candidate.indexOf(":");
-  if (colonIdx <= 0) return null;
-  const head = candidate.slice(0, colonIdx);
-  const tail = candidate.slice(colonIdx + 1);
-  if (!head || !tail) return null;
-  return { accountId: head, folder: null, uid: tail };
 }
 
+/**
+ * Full tokens match all four mailbox identity fields. Legacy lookups require
+ * explicit scope captured with the candidate, never guessed from the row or
+ * current view. Bare numbers are UIDs; mirror IDs require account:id:rowId.
+ */
 export function matchesMessageById(
   message: EmailMessage,
   candidateId: string | number,
+  legacyScope?: LegacyMessageMatchScope,
 ): boolean {
-  const candidate = String(candidateId);
-  const msgKey = deriveConsolidatedKey(message);
+  const messageRef = deriveConsolidatedKey(message);
+  if (!messageRef) return false;
 
-  const parsed = parseCandidateKey(candidate);
-  if (parsed) {
-    if (!msgKey.accountId) return false;
-    return consolidatedKeysMatch(msgKey, parsed);
+  const parsed = parseAccountQualifiedToken(String(candidateId));
+  if (parsed?.kind === "message") {
+    return consolidatedKeysMatch(messageRef, parsed);
   }
 
-  if (msgKey.uid && msgKey.uid === candidate) {
-    return true;
+  if (!legacyScope) return false;
+  if (parsed && parsed.accountId !== messageRef.accountId) return false;
+
+  if (parsed?.kind === "legacy-row") {
+    const scopedMessage = parseMessageIdentityRef({
+      ...legacyScope,
+      uid: messageRef.uid,
+    });
+    const rowId = parseMessageIdentityRef({
+      ...legacyScope,
+      uid: message.id,
+    })?.uid;
+    return (
+      consolidatedKeysMatch(messageRef, scopedMessage) &&
+      rowId === parsed.legacyRowId
+    );
   }
 
-  if (message.msg_no !== undefined && message.msg_no !== null) {
-    if (String(message.msg_no) === candidate) return true;
-  }
-
-  if (message.id !== undefined && message.id !== null) {
-    if (String(message.id) === candidate) return true;
-  }
-
-  return false;
+  const candidateRef = parseMessageIdentityRef({
+    ...legacyScope,
+    uid: parsed?.kind === "legacy-uid" ? parsed.legacyUid : candidateId,
+  });
+  return consolidatedKeysMatch(messageRef, candidateRef);
 }

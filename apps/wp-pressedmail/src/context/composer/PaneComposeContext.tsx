@@ -26,6 +26,7 @@ import type { ComposeData } from "@/types";
 
 export type PaneComposeRequest =
   | { type: "new" }
+  | { type: "resume" }
   | { type: "prefill"; data: ComposeData }
   | { type: "reply" }
   | { type: "reply-all" }
@@ -35,6 +36,7 @@ export type PaneComposeRequest =
 interface PaneComposeContextType {
   paneComposeRequest: PaneComposeRequest;
   requestPaneCompose: () => void;
+  resumePaneCompose: () => void;
   requestPaneComposeWithData: (data: ComposeData) => void;
   requestPaneReply: () => void;
   requestPaneReplyAll: () => void;
@@ -50,6 +52,10 @@ export function PaneComposeProvider({ children }: { children: ReactNode }) {
 
   const requestPaneCompose = useCallback(() => {
     setPaneComposeRequest({ type: "new" });
+  }, []);
+
+  const resumePaneCompose = useCallback(() => {
+    setPaneComposeRequest({ type: "resume" });
   }, []);
 
   const requestPaneComposeWithData = useCallback((data: ComposeData) => {
@@ -77,6 +83,7 @@ export function PaneComposeProvider({ children }: { children: ReactNode }) {
       value={{
         paneComposeRequest,
         requestPaneCompose,
+        resumePaneCompose,
         requestPaneComposeWithData,
         requestPaneReply,
         requestPaneReplyAll,

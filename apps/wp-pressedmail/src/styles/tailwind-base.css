@@ -2797,11 +2797,6 @@ html.dark [data-radix-portal] {
   line-height: 1.25 !important;
 }
 
-#pressedmail-plugin .pm-composer-editor [data-pm-block="quote"][data-collapsed="true"] {
-  max-height: 4.5em;
-  overflow: hidden;
-}
-
 #pressedmail-plugin .pm-composer-editor [data-slate-editor] ul,
 #pressedmail-plugin .pm-composer-editor [data-slate-editor] ol {
   margin-bottom: 0;

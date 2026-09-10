@@ -1,6 +1,7 @@
 'use client';
 
 import type React from 'react';
+import { __, sprintf } from '@wordpress/i18n';
 import { type TElement } from '@kit/plate';
 import { PlateElement } from '@kit/plate/react';
 
@@ -31,13 +32,23 @@ export function SignatureNode({
       element={element}
       {...props}
     >
+      {/*
+        contentEditable={false} is load-bearing, not cosmetic: without it the
+        browser puts the caret inside this label, Slate cannot resolve a point
+        from a DOM node it does not own, and whatever gets typed is wiped on the
+        next render.
+      */}
       <div
         className="pm-signature-label text-xs text-muted-foreground mb-1 select-none"
+        contentEditable={false}
         data-pm-decoration="true">
-        Signature
         {sigElement.accountId != null
-          ? ` (Account #${sigElement.accountId})`
-          : ''}
+          ? sprintf(
+              /* translators: %d: email account number. */
+              __( 'Signature (Account #%d)', 'pressedmail' ),
+              sigElement.accountId,
+            )
+          : __( 'Signature', 'pressedmail' )}
       </div>
       {children}
     </PlateElement>

@@ -255,7 +255,6 @@ export interface UserPreferences {
   email_list_remember_folder: boolean;
   // Sweep: senders auto-routed to trash / spam (lowercased email addresses)
   // v2 composer preferences (Area 2J)
-  composer_quote_collapsed_by_default: boolean;
   composer_typography_auto_format: boolean;
   composer_ai_default_tone: "professional" | "casual" | "friendly" | "formal";
   composer_default_format: ComposerDefaultFormat;
@@ -336,7 +335,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   email_list_date_grouping: "none",
   email_list_grouping: "list",
   email_list_remember_folder: true,
-  composer_quote_collapsed_by_default: false,
   composer_typography_auto_format: true,
   composer_ai_default_tone: "professional",
   composer_default_format: "rich_text",

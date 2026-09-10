@@ -154,7 +154,6 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
     category: "composer",
     minTier: "free",
     keys: [
-      "composer_quote_collapsed_by_default",
       "composer_typography_auto_format",
       "composer_confirm_unsaved_close",
       "composer_toolbar_preset",

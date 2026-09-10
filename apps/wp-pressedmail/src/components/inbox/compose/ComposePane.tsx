@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import { DOCKED_EDITOR_STYLE } from "@/components/ui/pane-layers";
 import { useComposer } from "@/context/composer";
 import {
   frameCenterStyle,
@@ -218,7 +219,7 @@ export function ComposePane({
           !isOverlayMode && "h-full",
           !isOverlayMode && className,
         )}
-        style={panelStyle}>
+        style={isOverlayMode ? panelStyle : DOCKED_EDITOR_STYLE}>
         <ComposerContent
           form={form}
           editorRef={editorRef}

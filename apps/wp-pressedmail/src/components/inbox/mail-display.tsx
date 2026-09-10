@@ -1,3 +1,5 @@
+import { appMessage } from "@/context/toast";
+import { parseMessageIdentityRef } from "@/lib/message-identity";
 import React from "react";
 import { __, sprintf } from "@wordpress/i18n";
 import { format } from "date-fns";
@@ -38,12 +40,19 @@ import { useMessagePhishingAutoScan } from "@/hooks/useMessagePhishingAutoScan";
 import { useSenderContact } from "@/hooks/useSenderContact";
 import {
   getMessageRequestId,
+  getMessageIdentityKey,
+  getMessageIdentityRef,
   resolveMessageAccountId,
 } from "@/lib/message-identity";
 import { useEmailMessageTagActions } from "@/hooks/useEmailMessageTagActions";
 import { cn } from "@/lib/utils";
 import { isAiSummarizeBuildEnabled } from "@/lib/build-variant";
-import { getInboxService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+  type StoragePrincipal,
+} from "@/lib/principal-storage";
 import { formatFileSize } from "./compose/compose-utils";
 import { EmailSandbox } from "./EmailSandbox";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
@@ -174,16 +183,6 @@ function toEmailMessageTag(tag: Tag | EmailMessageTag): EmailMessageTag {
   };
 }
 
-function resolveLocalMessageId(message: EmailMessage): string | number {
-  return (
-    message.consolidatedUid ?? message.id ?? message.uid ?? message.msg_no ?? ""
-  );
-}
-
-function resolveMessageUid(message: EmailMessage): string {
-  return String(message.uid ?? message.msg_no ?? message.id ?? "");
-}
-
 function getAutoTagBody(message: EmailMessage, body: string): string {
   return (
     message.htmlBody ||
@@ -194,35 +193,6 @@ function getAutoTagBody(message: EmailMessage, body: string): string {
     body ||
     ""
   );
-}
-
-function normalizeTagName(value: string): string {
-  return value.trim().toLowerCase();
-}
-
-function mergeAiReturnedTags(
-  currentTags: EmailMessageTag[],
-  returnedTags: Array<{ id?: number; name?: string }>,
-  availableTags: Tag[],
-): EmailMessageTag[] {
-  const next = [...currentTags];
-  const seen = new Set(next.map((tag) => Number(tag.id)));
-
-  for (const returned of returnedTags) {
-    const matched =
-      availableTags.find((tag) => Number(tag.id) === Number(returned.id)) ??
-      availableTags.find(
-        (tag) =>
-          returned.name &&
-          normalizeTagName(tag.name) === normalizeTagName(returned.name),
-      );
-
-    if (!matched || seen.has(Number(matched.id))) continue;
-    seen.add(Number(matched.id));
-    next.push(toEmailMessageTag(matched));
-  }
-
-  return next;
 }
 
 export function decodeMimeWords(str: string) {
@@ -303,17 +273,102 @@ export function MailDisplay({
   const hasCachedAISummary =
     summaryRecord?.status === "success" && Boolean(summaryRecord.summary);
   const mailId = React.useMemo(() => getMessageRequestId(mail), [mail]);
-  const [messageTagSelection, setMessageTagSelection] = React.useState<
-    EmailMessageTag[]
-  >(() => (mail?.tags ?? []).map(toEmailMessageTag));
-  const [messageTagsLoaded, setMessageTagsLoaded] = React.useState(
-    Boolean(mail?.tags),
-  );
+  const tagIdentity = getMessageIdentityRef(mail);
+  const tagIdentityKey = getMessageIdentityKey(tagIdentity);
+  const tagScopeRef = React.useRef({ key: tagIdentityKey });
+  if (tagScopeRef.current.key !== tagIdentityKey) {
+    tagScopeRef.current = { key: tagIdentityKey };
+  }
+  const tagScope = tagScopeRef.current;
+  const tagMounted = React.useRef(true);
+  const tagMutation = React.useRef<typeof tagScope | null>(null);
+  const tagLookup = React.useRef<typeof tagScope | null>(null);
+  const tagReadVersion = React.useRef(0);
+  const tagSource = React.useRef({ scope: tagScope, tags: mail?.tags });
+  const [pendingTagScope, setPendingTagScope] = React.useState<
+    typeof tagScope | null
+  >(null);
+  const [messageTagState, setMessageTagState] = React.useState(() => ({
+    scope: tagScope,
+    tags: (mail?.tags ?? []).map(toEmailMessageTag),
+    loaded: Boolean(tagIdentity && mail?.tags),
+  }));
+  const messageTagSelection =
+    messageTagState.scope === tagScope
+      ? messageTagState.tags
+      : (mail?.tags ?? []).map(toEmailMessageTag);
+  const messageTagsLoaded =
+    messageTagState.scope === tagScope
+      ? messageTagState.loaded
+      : Boolean(tagIdentity && mail?.tags);
+  const isTagApplying = pendingTagScope === tagScope;
 
   React.useEffect(() => {
-    setMessageTagSelection((mail?.tags ?? []).map(toEmailMessageTag));
-    setMessageTagsLoaded(Boolean(mail?.tags));
-  }, [mailId, mail?.tags]);
+    tagMounted.current = true;
+    return () => {
+      tagMounted.current = false;
+    };
+  }, []);
+  React.useEffect(() => {
+    if (
+      tagSource.current.scope === tagScope &&
+      tagSource.current.tags === mail?.tags
+    )
+      return;
+    tagSource.current = { scope: tagScope, tags: mail?.tags };
+    tagReadVersion.current++;
+    setMessageTagState({
+      scope: tagScope,
+      tags: (mail?.tags ?? []).map(toEmailMessageTag),
+      loaded: Boolean(tagScope.key && mail?.tags),
+    });
+  }, [tagScope, mail?.tags]);
+
+  const isCurrentTagScope = React.useCallback(
+    (scope: typeof tagScope, principal: StoragePrincipal | null) =>
+      tagMounted.current &&
+      tagScopeRef.current === scope &&
+      isRequestPrincipalCurrent(principal),
+    [],
+  );
+
+  const invalidateTagCaches = React.useCallback(
+    (principal: StoragePrincipal | null) => {
+      if (!tagIdentity || !isRequestPrincipalCurrent(principal)) return;
+      const cache = getCacheService();
+      // Combined-account and filtered lists can contain this physical message.
+      cache.invalidateMessages({});
+      if (!isRequestPrincipalCurrent(principal)) return;
+      cache.invalidateMessageDetail(
+        String(tagIdentity.accountId),
+        tagIdentity.folder,
+        tagIdentityKey,
+      );
+    },
+    [tagIdentity, tagIdentityKey],
+  );
+
+  const reloadMessageTags = React.useCallback(
+    async (principal: StoragePrincipal | null) => {
+      if (!tagIdentity || !isCurrentTagScope(tagScope, principal)) return;
+      const readVersion = ++tagReadVersion.current;
+      const loadedTags = await getMessageTags(
+        tagIdentity.accountId,
+        tagIdentity.uid,
+        tagIdentity.folder,
+        tagIdentity.uidValidity,
+      );
+      if (
+        !isCurrentTagScope(tagScope, principal) ||
+        readVersion !== tagReadVersion.current
+      )
+        return;
+      const nextTags = loadedTags.map(toEmailMessageTag);
+      setMessageTagState({ scope: tagScope, tags: nextTags, loaded: true });
+      getInboxService().updateMessage(tagIdentityKey, { tags: nextTags });
+    },
+    [tagIdentity, tagIdentityKey, tagScope, getMessageTags, isCurrentTagScope],
+  );
 
   React.useEffect(() => {
     setShowAISummary(false);
@@ -423,20 +478,44 @@ export function MailDisplay({
   );
   const canReferenceCalendarMessage = buildCalendarAttachmentRef("1") !== null;
   const handleTagRemove = React.useCallback(
-    (tag: EmailMessageTag) => {
-      if (!mail) return;
-
-      setMessageTagSelection((current) =>
-        current.filter((item) => Number(item.id) !== Number(tag.id)),
-      );
-      void removeMessageTag(mail, tag, {
-        accountId,
-        folder: mail.folder,
-      });
+    async (tag: EmailMessageTag) => {
+      const principal = captureRequestPrincipal();
+      if (
+        !mail ||
+        !tagIdentity ||
+        tagMutation.current === tagScope ||
+        !isCurrentTagScope(tagScope, principal)
+      )
+        return;
+      tagMutation.current = tagScope;
+      tagReadVersion.current++;
+      setPendingTagScope(tagScope);
+      try {
+        // The shared hook owns the confirmed cache update. Never remove a chip
+        // locally before the server has accepted the operation.
+        await removeMessageTag(mail, tag);
+        await reloadMessageTags(principal);
+      } catch (error) {
+        invalidateTagCaches(principal);
+        if (isCurrentTagScope(tagScope, principal))
+          console.error("Failed to remove message tag:", error);
+      } finally {
+        if (tagMutation.current === tagScope) tagMutation.current = null;
+        if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
+        else invalidateTagCaches(principal);
+      }
     },
-    [accountId, mail, removeMessageTag],
+    [
+      mail,
+      tagIdentity,
+      tagScope,
+      removeMessageTag,
+      reloadMessageTags,
+      invalidateTagCaches,
+      isCurrentTagScope,
+    ],
   );
-  const tagsEnabled = __ENABLE_TAGS__ && accountId !== null;
+  const tagsEnabled = __ENABLE_TAGS__ && tagIdentity !== null;
   const showAutoTagAction =
     !__IS_FREE__ &&
     __ENABLE_AUTO_TAGGER__ &&
@@ -446,73 +525,139 @@ export function MailDisplay({
 
   const handleTagDropdownOpenChange = React.useCallback(
     async (open: boolean) => {
-      if (!open || !mail || accountId === null || messageTagsLoaded) return;
-
+      const principal = captureRequestPrincipal();
+      if (
+        !open ||
+        !tagIdentity ||
+        messageTagsLoaded ||
+        tagLookup.current === tagScope ||
+        !isCurrentTagScope(tagScope, principal)
+      )
+        return;
+      tagLookup.current = tagScope;
       try {
-        const loadedTags = await getMessageTags(
-          accountId,
-          resolveMessageUid(mail),
-          mail.folder ?? "INBOX",
-        );
-        setMessageTagSelection(loadedTags.map(toEmailMessageTag));
-        setMessageTagsLoaded(true);
+        await reloadMessageTags(principal);
       } catch (error) {
-        console.error("Failed to load message tags:", error);
+        if (isCurrentTagScope(tagScope, principal))
+          console.error("Failed to load message tags:", error);
+      } finally {
+        if (tagLookup.current === tagScope) tagLookup.current = null;
       }
     },
-    [accountId, getMessageTags, mail, messageTagsLoaded],
+    [
+      tagIdentity,
+      messageTagsLoaded,
+      tagScope,
+      isCurrentTagScope,
+      reloadMessageTags,
+    ],
   );
 
   const handleApplyMessageTags = React.useCallback(
     async (nextTagIds: number[]) => {
-      if (!mail || accountId === null) return;
-
-      const previousTags = messageTagSelection;
-      const previousTagIds = new Set(previousTags.map((tag) => Number(tag.id)));
+      const principal = captureRequestPrincipal();
+      if (
+        !tagIdentity ||
+        tagMutation.current === tagScope ||
+        !isCurrentTagScope(tagScope, principal)
+      )
+        return;
+      // A tag diff cannot be computed from an unknown starting selection.
+      if (!messageTagsLoaded) {
+        await handleTagDropdownOpenChange(true);
+        return;
+      }
+      const previousTagIds = new Set(
+        messageTagSelection.map((tag) => Number(tag.id)),
+      );
       const nextTagIdSet = new Set(nextTagIds.map(Number));
-      const addedTagIds = nextTagIds.filter((id) => !previousTagIds.has(id));
+      const addedTagIds = Array.from(nextTagIdSet).filter(
+        (id) => !previousTagIds.has(id),
+      );
       const removedTagIds = Array.from(previousTagIds).filter(
         (id) => !nextTagIdSet.has(id),
       );
-
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
-      const knownTags = new Map<number, EmailMessageTag>();
-      for (const tag of previousTags) {
-        knownTags.set(Number(tag.id), toEmailMessageTag(tag));
-      }
-      for (const tag of tags) {
-        knownTags.set(Number(tag.id), toEmailMessageTag(tag));
-      }
-
-      const nextTags = nextTagIds
-        .map((id) => knownTags.get(Number(id)))
-        .filter((tag): tag is EmailMessageTag => Boolean(tag));
-
-      setMessageTagSelection(nextTags);
-      getInboxService().updateMessage(resolveLocalMessageId(mail), {
-        tags: nextTags,
-      });
-
+      tagMutation.current = tagScope;
+      tagReadVersion.current++;
+      setPendingTagScope(tagScope);
       try {
-        await Promise.all([
-          ...addedTagIds.map((tagId) =>
-            assignTag(tagId, accountId, resolveMessageUid(mail), mail.folder),
-          ),
-          ...removedTagIds.map((tagId) =>
-            removeTag(tagId, accountId, resolveMessageUid(mail), mail.folder),
-          ),
-        ]);
-        setMessageTagsLoaded(true);
+        for (const tagId of addedTagIds) {
+          if (!isCurrentTagScope(tagScope, principal)) return;
+          await assignTag(
+            tagId,
+            tagIdentity.accountId,
+            tagIdentity.uid,
+            tagIdentity.folder,
+            tagIdentity.uidValidity,
+          );
+        }
+        for (const tagId of removedTagIds) {
+          if (!isCurrentTagScope(tagScope, principal)) return;
+          await removeTag(
+            tagId,
+            tagIdentity.accountId,
+            tagIdentity.uid,
+            tagIdentity.folder,
+            tagIdentity.uidValidity,
+          );
+        }
+        if (!isCurrentTagScope(tagScope, principal)) return;
+        await reloadMessageTags(principal);
       } catch (error) {
-        setMessageTagSelection(previousTags);
-        getInboxService().updateMessage(resolveLocalMessageId(mail), {
-          tags: previousTags,
-        });
-        console.error("Failed to update message tags:", error);
+        invalidateTagCaches(principal);
+        if (!isCurrentTagScope(tagScope, principal)) return;
+        setMessageTagState((current) => ({ ...current, loaded: false }));
+        appMessage(
+          __(
+            "Some tags may have changed. Reloading the message tags.",
+            "pressedmail",
+          ),
+          "error",
+        );
+        try {
+          await reloadMessageTags(principal);
+        } catch {
+          if (isCurrentTagScope(tagScope, principal)) {
+            appMessage(
+              __(
+                "Reload this mailbox to check the message tags.",
+                "pressedmail",
+              ),
+              "error",
+            );
+            await getInboxService()
+              .refresh()
+              .catch((refreshError) => {
+                if (isCurrentTagScope(tagScope, principal))
+                  console.error(
+                    "Failed to refresh message tags:",
+                    refreshError,
+                  );
+              });
+          }
+        }
+        if (isCurrentTagScope(tagScope, principal))
+          console.error("Failed to update message tags:", error);
+      } finally {
+        if (tagMutation.current === tagScope) tagMutation.current = null;
+        if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
+        else invalidateTagCaches(principal);
       }
     },
-    [accountId, assignTag, mail, messageTagSelection, removeTag, tags],
+    [
+      tagIdentity,
+      tagScope,
+      messageTagsLoaded,
+      messageTagSelection,
+      assignTag,
+      removeTag,
+      isCurrentTagScope,
+      invalidateTagCaches,
+      reloadMessageTags,
+      handleTagDropdownOpenChange,
+    ],
   );
 
   // All useMemo hooks must be called unconditionally (before any early returns)
@@ -600,14 +745,23 @@ export function MailDisplay({
   // light/dark theme (R1). HTML content stays on the fixed-light sandbox.
   const textBodySurfaceClass = "pm-email-text-surface";
   const handleAutoTag = React.useCallback(async () => {
-    if (!mail || accountId === null) return;
-
-    let result;
+    const principal = captureRequestPrincipal();
+    if (
+      !mail ||
+      !tagIdentity ||
+      tagMutation.current === tagScope ||
+      !isCurrentTagScope(tagScope, principal)
+    )
+      return;
+    tagMutation.current = tagScope;
+    tagReadVersion.current++;
+    setPendingTagScope(tagScope);
     try {
-      result = await classifyEmails(accountId, [
+      await classifyEmails(tagIdentity.accountId, [
         {
-          uid: resolveMessageUid(mail),
-          folder: mail.folder || "INBOX",
+          uid: tagIdentity.uid,
+          uidValidity: tagIdentity.uidValidity,
+          folder: tagIdentity.folder,
           subject: mail.subject || "",
           from: mail.from || mail.email || "",
           to: mail.to || "",
@@ -615,37 +769,33 @@ export function MailDisplay({
           body: getAutoTagBody(mail, body),
         },
       ]);
+      // Provider results describe classification, not necessarily every accepted
+      // tag write. Read the actual tags for this captured mailbox reference.
+      invalidateTagCaches(principal);
+      await reloadMessageTags(principal);
     } catch (error) {
-      if (isApiAuthError(error)) {
-        return;
+      invalidateTagCaches(principal);
+      if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error)) {
+        appMessage(
+          __("Reload this mailbox to check the message tags.", "pressedmail"),
+          "error",
+        );
       }
-      throw error;
+    } finally {
+      if (tagMutation.current === tagScope) tagMutation.current = null;
+      if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
+      else invalidateTagCaches(principal);
     }
-
-    if (result.status !== "success") {
-      return;
-    }
-
-    const returnedTags = result.results?.flatMap((item) => item.tags) ?? [];
-    if (returnedTags.length === 0) {
-      return;
-    }
-
-    const nextTags = mergeAiReturnedTags(
-      messageTagSelection,
-      returnedTags,
-      tags,
-    );
-    if (nextTags.length === messageTagSelection.length) {
-      return;
-    }
-
-    setMessageTagSelection(nextTags);
-    setMessageTagsLoaded(true);
-    getInboxService().updateMessage(resolveLocalMessageId(mail), {
-      tags: nextTags,
-    });
-  }, [accountId, body, classifyEmails, mail, messageTagSelection, tags]);
+  }, [
+    mail,
+    tagIdentity,
+    tagScope,
+    body,
+    classifyEmails,
+    reloadMessageTags,
+    invalidateTagCaches,
+    isCurrentTagScope,
+  ]);
 
   if (!mail) {
     return (
@@ -711,6 +861,14 @@ export function MailDisplay({
           "flex flex-col gap-4 p-4",
           isMobileLayout ? "" : "min-h-0 flex-1 overflow-auto",
         )}>
+        {mail.bodyOmitted ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            {__(
+              "Some message content exceeds the reading limit and could not be displayed. Attachments can still be downloaded individually.",
+              "pressedmail",
+            )}
+          </p>
+        ) : null}
         {mail?.itip ? (
           <ITipBanner
             event={mail.itip}
@@ -893,12 +1051,15 @@ export function MailDisplay({
                     ) : null}
                     {tagsEnabled ? (
                       <MailTagActionDropdown
+                        key={tagIdentityKey}
+                        isApplying={isTagApplying || !messageTagsLoaded}
                         availableTags={tags}
                         selectedTagIds={selectedTagIds}
                         onApplyTags={handleApplyMessageTags}
                         onAutoTag={handleAutoTag}
                         onOpenChange={handleTagDropdownOpenChange}
                         aiEnabled={showAutoTagAction}
+                        aiDisabled={isTagApplying}
                         disabled={false}
                         align="end"
                         trigger={
@@ -1065,11 +1226,12 @@ export function MailDisplay({
                   downloadContext={{
                     accountId,
                     uid: (mail.uid ?? null) as string | number | null,
+                    uidValidity: mail.uidValidity ?? mail.uid_validity,
                     msgNo: (mail.msg_no ?? mail.id ?? null) as
                       | string
                       | number
                       | null,
-                    folder: (mail.folder ?? "INBOX") as string,
+                    folder: mail.folder ?? "",
                   }}
                   onAddToCalendar={
                     canReferenceCalendarMessage
@@ -1172,8 +1334,9 @@ export function MailDisplay({
         ) : isHtml ? (
           <EmailSandbox
             accountId={accountId}
-            uid={(mail.uid ?? mail.msg_no ?? mail.id) as string | number | null}
-            folder={(mail.folder ?? "INBOX") as string}
+            uid={mail.uid ?? null}
+            uidValidity={mail.uidValidity ?? mail.uid_validity}
+            folder={mail.folder ?? ""}
             html={body}
             className="email-html-container pm-email-sandbox-frame"
             showExternalImages={effectiveShowImages}
@@ -1264,6 +1427,7 @@ export function MailDisplay({
 interface AttachmentDownloadContext {
   accountId: number | null;
   uid: string | number | null;
+  uidValidity?: string | number;
   msgNo: string | number | null;
   folder: string;
 }
@@ -1272,20 +1436,21 @@ export function buildAttachmentDownloadUrl(
   ctx: AttachmentDownloadContext,
   index: number,
 ): string {
-  const base = getPluginRestBase();
-  const nonce = getRuntimeWpNonce();
+  const ref = parseMessageIdentityRef({
+    accountId: ctx.accountId,
+    uid: ctx.uid,
+    uidValidity: ctx.uidValidity,
+    folder: ctx.folder,
+  });
+  if (!ref || !Number.isInteger(index) || index < 0 || index > 200) return "";
   const params = new URLSearchParams({
     index: String(index),
-    folder: ctx.folder || "INBOX",
-    _wpnonce: nonce,
+    folder: ref.folder,
+    uid: ref.uid,
+    uid_validity: ref.uidValidity,
+    _wpnonce: getRuntimeWpNonce(),
   });
-  if (ctx.uid != null && String(ctx.uid) !== "") {
-    params.set("uid", String(ctx.uid));
-  }
-  if (ctx.msgNo != null && String(ctx.msgNo) !== "") {
-    params.set("msg_no", String(ctx.msgNo));
-  }
-  return `${base}messages/attachment/${ctx.accountId}?${params.toString()}`;
+  return `${getPluginRestBase()}messages/attachment/${ref.accountId}?${params.toString()}`;
 }
 
 function downloadAttachment(
@@ -1298,6 +1463,16 @@ function downloadAttachment(
   if (ctx && ctx.accountId != null) {
     // Stream from the server endpoint, safer headers + no base64 round-trip.
     const url = buildAttachmentDownloadUrl(ctx, index);
+    if (!url) {
+      appMessage(
+        __(
+          "Reload this message before downloading its attachment.",
+          "pressedmail",
+        ),
+        "error",
+      );
+      return;
+    }
     const link = document.createElement("a");
     link.href = url;
     link.download = filename;
@@ -1327,7 +1502,7 @@ function downloadAttachment(
   else if (typeof att.content === "string") objectUrl = fromBase64(att.content);
 
   if (!objectUrl) {
-    alert(__("Unable to download attachment.", "pressedmail"));
+    appMessage(__("Unable to download attachment.", "pressedmail"), "error");
     return;
   }
   const link = document.createElement("a");

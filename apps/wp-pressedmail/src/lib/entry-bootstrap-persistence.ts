@@ -1,3 +1,8 @@
+import {
+  getPrincipalStorageItem,
+  removePrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Per-session "entry bootstrap completed" persistence in sessionStorage.
  *
@@ -21,7 +26,7 @@ export function markEntryBootstrapComplete(key: string): void {
   try {
     const data = readAll();
     data[key] = true;
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    setPrincipalStorageItem("session", STORAGE_KEY, JSON.stringify(data));
   } catch {
     // sessionStorage may be full or unavailable.
   }
@@ -34,7 +39,7 @@ export function markEntryBootstrapComplete(key: string): void {
  */
 export function clearAllEntryBootstrap(): void {
   try {
-    sessionStorage.removeItem(STORAGE_KEY);
+    removePrincipalStorageItem("session", STORAGE_KEY);
   } catch {
     // sessionStorage may be unavailable.
   }
@@ -54,7 +59,7 @@ export function hasCompletedEntryBootstrap(key: string): boolean {
 
 function readAll(): Record<string, boolean> {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = getPrincipalStorageItem("session", STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
   } catch {
     return {};

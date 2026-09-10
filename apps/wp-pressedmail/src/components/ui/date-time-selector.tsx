@@ -410,6 +410,7 @@ export function DateTimeSelector({
           {mode !== "time" && (
             <Calendar
               mode="single"
+              required
               selected={selectedDate}
               onSelect={handleDateChange}
               disabled={(date) => isDateDisabled(date, min, max)}

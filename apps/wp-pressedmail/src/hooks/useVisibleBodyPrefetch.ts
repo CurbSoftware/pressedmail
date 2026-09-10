@@ -1,3 +1,4 @@
+import { getMessageIdentityKey } from "@/lib/message-identity";
 import { useEffect, useRef } from "react";
 
 import { useInbox, useInboxState } from "@/context/InboxContext";
@@ -72,14 +73,14 @@ export function useVisibleBodyPrefetch(): void {
       >();
 
       for (const message of messages) {
-        const messageId = message.uid ?? message.id;
+        const messageId = getMessageIdentityKey(message);
         if (!messageId) continue;
 
         const accountId = String(message.accountId ?? selectedAccountId ?? "");
         if (!accountId) continue;
 
-        const folder = message.folder || selectedFolder || "INBOX";
-        const key = `${accountId}::${folder}`;
+        const folder = message.folder!;
+        const key = JSON.stringify([accountId, folder]);
         const bucket = byMailbox.get(key) ?? {
           accountId,
           folder,

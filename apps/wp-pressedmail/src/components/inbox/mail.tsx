@@ -34,7 +34,6 @@ import {
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { useLayout } from "@/hooks/useLayout";
 import { useFolderOperations as useSharedFolderOperations } from "@/layouts/shared/hooks/useFolderOperations";
-import { useEmailRulesEnforcement } from "@/hooks/useEmailRulesEnforcement";
 
 import type { MailProps } from "@/types";
 import type { LayoutId } from "@/types/features";
@@ -83,7 +82,6 @@ function MailCompInner({
 
   const numberOfMessages = filteredMessages.length;
   const fallbackInboxCount = filteredMessages.length;
-  useEmailRulesEnforcement(filteredMessages);
   const isConsolidatedMode = selectedAccount === CONSOLIDATED_INBOX_VALUE;
 
   // Deduplicate IMAP folders by name (case-insensitive) to prevent duplicate entries

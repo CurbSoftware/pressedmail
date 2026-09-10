@@ -191,8 +191,6 @@ function serializeNode(node: ComposerNode): string {
       return `${children}\n`;
     case "signature":
       return `<div data-pm-block="signature"${optionalAttribute("data-account-id", node.accountId)}${optionalAttribute("data-signature-id", node.signatureId)}>${children}</div>`;
-    case "quote":
-      return `<blockquote data-pm-block="quote"${optionalAttribute("data-collapsed", node.collapsed)}${optionalAttribute("data-source-from", node.sourceFrom)}${optionalAttribute("data-source-date", node.sourceDate)}>${children}</blockquote>`;
     case "attachment": {
       const filename = String(node.filename ?? "Attachment");
       return `<span data-pm-block="attachment"${optionalAttribute("data-filename", filename)}${optionalAttribute("data-size", node.size)}${optionalAttribute("data-attachment-id", node.id)}>${escapeHtml(filename)}</span>`;
@@ -399,7 +397,10 @@ function domNodeToComposerNodes(
     ];
   }
   if (pmBlock === "quote") {
-    return [{ type: "quote", children }];
+    // Legacy drafts only. Replies have emitted a plain <blockquote> since the
+    // bespoke quote node was removed; this keeps an old saved draft opening as
+    // an ordinary, editable blockquote instead of an unknown element.
+    return [{ type: "blockquote", children }];
   }
   if (pmBlock === "attachment") {
     return [

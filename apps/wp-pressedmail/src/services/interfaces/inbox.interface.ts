@@ -287,5 +287,5 @@ export interface IInboxOperations {
    * @param generation - Request generation captured before the sync call.
    *   If provided and older than the current generation, the delta is dropped.
    */
-  applyDiff(delta: MessageSyncDelta, generation?: number): void;
+  applyDiff(delta: MessageSyncDelta, generation?: number): boolean;
 }

@@ -15,35 +15,40 @@ import {
   useOptionalMobileLayout,
 } from "@/components/mobile-shell";
 import { useAppContext } from "@/context/AppProvider";
-import { useComposer } from "@/context/composer";
+import { DEFAULT_COMPOSE_DATA, useComposer } from "@/context/composer";
 import { useOptionalScheduledEmails } from "@/context/scheduled/ScheduledEmailsContext";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
-import { useMessageOperations } from "@/context/InboxContext";
+import {
+  useFolderOperations,
+  useInboxState,
+  useMessageOperations,
+} from "@/context/InboxContext";
 import { useOptionalBackStack } from "@/hooks/useBackStack";
 import { useComposeForm } from "@/hooks/compose/v2/useComposeForm";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
-  parseMailtoComposeUrl,
-  parseShareTargetComposeParams,
+  consumeComposeRouteSearch,
+  parseComposeRouteFields,
 } from "@/lib/mailto";
 import { cn } from "@/lib/utils";
+import { savePaneMode } from "@/lib/open-pane-persistence";
 import { parseEmailString } from "@/types/recipients";
+import { ComposerReadReceiptButton } from "@/components/inbox/compose/ComposerScheduleActions.active";
 import { MobileScheduleActions } from "@/admin/pages/mobile/MobileScheduleActions.active";
 
-function getWordPressMailtoParam(): string {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return new URLSearchParams(window.location.search).get("pm_mailto") ?? "";
-}
-
-function getWordPressSearchParams(): URLSearchParams {
-  if (typeof window === "undefined") {
-    return new URLSearchParams();
-  }
-
-  return new URLSearchParams(window.location.search);
+function consumeIncomingPayload() {
+  const url = new URL(window.location.href);
+  const shareKeys = [
+    "pm_share_target",
+    "pm_share_title",
+    "pm_share_text",
+    "pm_share_url",
+  ];
+  for (const key of ["pm_mailto", ...shareKeys]) url.searchParams.delete(key);
+  const queryIndex = url.hash.indexOf("?");
+  const path = queryIndex < 0 ? url.hash : url.hash.slice(0, queryIndex);
+  url.hash = `${path}${consumeComposeRouteSearch(queryIndex < 0 ? "" : url.hash.slice(queryIndex + 1))}`;
+  window.history.replaceState(window.history.state, "", url);
 }
 
 /**
@@ -79,32 +84,28 @@ export function MobileComposeScreen({
   );
   const editorRef = React.useRef<EmailEditorRef>(null);
   const composerCtx = useComposer();
+  const pendingIncoming = React.useRef(false);
+  const handledIncoming = React.useRef<typeof location | null>(null);
   const { archiveMessage } = useMessageOperations();
-  const { accounts } = useAppContext();
+  const { accounts, selectedAccount } = useAppContext();
+  const { selectedFolder } = useFolderOperations();
+  const { selectedMessage } = useInboxState();
+  const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
   const { preferences } = useUserPreferences();
   const undoSendAvailable = useFeatureAvailable("undo_send");
 
-  const mailtoValue = React.useMemo(() => {
-    const routeParam = new URLSearchParams(location.search).get("mailto");
-    return routeParam || getWordPressMailtoParam();
-  }, [location.search]);
-
-  const mailtoFields = React.useMemo(
-    () => parseMailtoComposeUrl(mailtoValue),
-    [mailtoValue],
+  const routeFields = React.useMemo(
+    () =>
+      parseComposeRouteFields(
+        location.search,
+        typeof window === "undefined" ? "" : window.location.search,
+      ),
+    [location],
   );
-  const shareFields = React.useMemo(() => {
-    const params = getWordPressSearchParams();
-    new URLSearchParams(location.search).forEach((value, key) => {
-      params.set(key, value);
-    });
-
-    return parseShareTargetComposeParams(params);
-  }, [location.search]);
-  const routeFields = mailtoValue ? mailtoFields : shareFields;
-  const incomingFields = Object.values(routeFields).some(Boolean)
-    ? routeFields
-    : (initialFields ?? routeFields);
+  const hasIncomingRoute = Object.values(routeFields).some(Boolean);
+  // The mounted form first owns any restored draft. External payloads start a
+  // separate session through its save/discard guard instead of mixing prefills.
+  const incomingFields = hasIncomingRoute ? {} : (initialFields ?? routeFields);
 
   const composeData = composerCtx.composeData;
   const toRecipients = React.useMemo(
@@ -121,6 +122,10 @@ export function MobileComposeScreen({
   );
 
   const closeCompose = React.useCallback(() => {
+    if (pendingIncoming.current) return;
+    if (selectedAccount) {
+      savePaneMode(selectedAccount, paneFolder, "reading");
+    }
     composerCtx.setComposeData({
       to: "",
       cc: "",
@@ -137,7 +142,7 @@ export function MobileComposeScreen({
       return;
     }
     back.pop();
-  }, [back, composerCtx, onClose]);
+  }, [back, composerCtx, onClose, selectedAccount, paneFolder]);
 
   const composeMode =
     composeData.mode ?? (composeData.is_reply ? "reply" : "new");
@@ -189,8 +194,45 @@ export function MobileComposeScreen({
     composerContext: composerCtx,
     onScheduledChanged: refreshScheduledEmails,
   });
+
+  // useComposeForm registers its navigation guard before this effect runs.
+  React.useEffect(() => {
+    if (!hasIncomingRoute || pendingIncoming.current) return;
+    // Consume each route entry once. The same external payload is a new request
+    // when opened again, including after Keep Editing.
+    if (handledIncoming.current === location) return;
+    handledIncoming.current = location;
+    pendingIncoming.current = true;
+    const finish = () => {
+      pendingIncoming.current = false;
+      consumeIncomingPayload();
+      // Keep router state in step with browser URL cleanup. This replacement
+      // only removes payload keys, so the route blocker keeps the current draft.
+      navigate(
+        {
+          pathname: location.pathname,
+          search: consumeComposeRouteSearch(location.search),
+          hash: location.hash,
+        },
+        { replace: true, state: location.state },
+      );
+    };
+    composerCtx.requestNavigation(
+      () => {
+        composerCtx.setComposeData({
+          ...DEFAULT_COMPOSE_DATA,
+          ...routeFields,
+          contentType: "plain",
+        });
+        finish();
+      },
+      { onCancel: finish },
+    );
+  }, [composerCtx, hasIncomingRoute, location, navigate, routeFields]);
+
   const isDeliveryPending =
     form.isSending ||
+    form.readReceipt?.pending ||
     form.isScheduling ||
     form.isDiscarding ||
     form.pendingInlineImageUploads > 0;
@@ -219,6 +261,8 @@ export function MobileComposeScreen({
       header={
         <MobileScreenHeader
           title={form.modeTitle || "New message"}
+          hideTitle
+          onBack={form.handleDiscard}
           onCancel={form.handleDiscard}
           trailing={
             <div className="flex items-center gap-0.5">
@@ -245,6 +289,11 @@ export function MobileComposeScreen({
                   <Save className="h-4 w-4" aria-hidden="true" />
                 )}
               </button>
+              <ComposerReadReceiptButton
+                form={form}
+                isDeliveryPending={isDeliveryPending}
+                variant="compact"
+              />
               <MobileScheduleActions
                 form={form}
                 isDeliveryPending={isDeliveryPending}

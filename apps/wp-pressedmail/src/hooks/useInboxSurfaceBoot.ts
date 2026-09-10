@@ -1,3 +1,4 @@
+import { getMessageIdentityKey } from "@/lib/message-identity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppContext } from "@/context/AppProvider";
@@ -705,14 +706,14 @@ export function useInboxSurfaceBoot({
       >();
 
       for (const message of prefetchMessages) {
-        const messageId = message.uid ?? message.id;
+        const messageId = getMessageIdentityKey(message);
         if (!messageId) {
           continue;
         }
 
         const accountId = String(message.accountId ?? fallbackAccountId);
-        const folder = message.folder || activeFolderRef.current;
-        const key = `${accountId}::${folder}`;
+        const folder = message.folder!;
+        const key = JSON.stringify([accountId, folder]);
         let bucket = byMailbox.get(key);
         if (!bucket) {
           bucket = {
@@ -903,9 +904,11 @@ export function useInboxSurfaceBoot({
       const delta = syncRequestAccountIds
         ? { ...syncResult.delta, consolidatedAccountIds: syncRequestAccountIds }
         : syncResult.delta;
-      inboxService.applyDiff(delta, generation);
-      await completeSuccessfulSync(syncResult.delta.total);
-      return;
+      if (inboxService.applyDiff(delta, generation)) {
+        await completeSuccessfulSync(syncResult.delta.total);
+        return;
+      }
+      syncResult.requiresFullSync = true;
     }
 
     if (!isAborted() && syncResult.requiresFullSync) {

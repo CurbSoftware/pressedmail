@@ -575,9 +575,9 @@ const MailListPaginatedRow = React.memo(
             {tagAccountId ? (
               <InlineTagSelector
                 accountId={tagAccountId}
-                messageUid={String(item.uid ?? item.id)}
-                messageId={item.consolidatedUid ?? item.id}
-                folder={item.folder ?? "INBOX"}
+                messageUid={String(item.uid ?? "")}
+                uidValidity={String(item.uidValidity ?? "")}
+                folder={item.folder ?? ""}
                 messageTags={item.tags}
               />
             ) : null}

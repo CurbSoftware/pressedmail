@@ -23,17 +23,14 @@ export {
 
 export {
   SignatureBlockPlugin,
-  QuoteBlockPlugin,
   AttachmentCardPlugin,
   AISuggestionPlugin,
   SignatureNode,
-  QuoteNode,
   AttachmentCardNode,
   AISuggestionNode,
 } from "./nodes";
 export type {
   SignatureElement,
-  QuoteElement,
   AttachmentCardElement,
   AISuggestionElement,
 } from "./nodes";

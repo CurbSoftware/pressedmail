@@ -17,9 +17,19 @@ import { Tag as TagIcon, Plus, Check, Search } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useTags } from "../../context/tags";
 import { TagBadge } from "./TagBadge";
-import { getInboxService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
 import type { EmailMessageTag } from "@/types";
 import type { Tag } from "../../types/tags";
+import {
+  getMessageIdentityKey,
+  parseMessageIdentityRef,
+  type MessageIdentityRef,
+} from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+  type StoragePrincipal,
+} from "@/lib/principal-storage";
 
 interface TagSelectorProps {
   selectedTags: Tag[];
@@ -98,7 +108,8 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               size={14}
             />
-            <input autoComplete="off"
+            <input
+              autoComplete="off"
               type="text"
               placeholder="Search tags..."
               value={searchQuery}
@@ -170,7 +181,6 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
           </div>
         )}
 
-
         <PopoverArrow className="fill-popover" />
       </PopoverContent>
     </Popover>
@@ -183,8 +193,8 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
 interface InlineTagSelectorProps {
   accountId: number;
   messageUid: string;
-  messageId?: string | number;
-  folder?: string;
+  folder: string;
+  uidValidity: string;
   messageTags?: EmailMessageTag[];
   onTagsChange?: (tags: EmailMessageTag[]) => void;
   className?: string;
@@ -221,91 +231,152 @@ function toFullTag(tag: Tag | EmailMessageTag): Tag {
   };
 }
 
-export const InlineTagSelector: React.FC<InlineTagSelectorProps> = ({
-  accountId,
-  messageUid,
-  messageId,
-  folder = "INBOX",
-  messageTags,
-  onTagsChange,
-  className,
-  trigger,
-}) => {
+const InlineMessageTagSelector: React.FC<
+  InlineTagSelectorProps & { identity: MessageIdentityRef | null }
+> = ({ identity, messageTags, onTagsChange, className, trigger }) => {
   const { tags, assignTag, removeTag, getMessageTags } = useTags();
   const [selectedTags, setSelectedTags] = useState<Tag[]>(() =>
-    (messageTags ?? []).map(toFullTag),
+    (identity ? (messageTags ?? []) : []).map(toFullTag),
   );
-  const [loaded, setLoaded] = useState(Boolean(messageTags));
-  const localMessageId = messageId ?? messageUid;
+  const [loaded, setLoaded] = useState(Boolean(identity && messageTags));
+  const [pending, setPending] = useState(false);
+  const loading = React.useRef(false);
+  const mutating = React.useRef(false);
+  const mounted = React.useRef(true);
+  const localMessageId = getMessageIdentityKey(identity);
+
+  React.useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const isCurrent = useCallback(
+    (principal: StoragePrincipal | null) =>
+      mounted.current && isRequestPrincipalCurrent(principal),
+    [],
+  );
 
   React.useEffect(() => {
-    if (messageTags) {
-      setSelectedTags(messageTags.map(toFullTag));
-      setLoaded(true);
-    }
-  }, [messageTags]);
+    setSelectedTags((localMessageId ? (messageTags ?? []) : []).map(toFullTag));
+    setLoaded(Boolean(localMessageId && messageTags));
+  }, [localMessageId, messageTags]);
 
   const updateLocalMessageTags = useCallback(
-    (nextTags: Tag[]) => {
+    (nextTags: Tag[], principal: StoragePrincipal | null) => {
+      if (!localMessageId || !isCurrent(principal)) return;
       const messageTagProjection = nextTags.map(toMessageTag);
       onTagsChange?.(messageTagProjection);
+      if (!isCurrent(principal)) return;
       getInboxService().updateMessage(localMessageId, {
         tags: messageTagProjection,
       });
     },
-    [localMessageId, onTagsChange],
+    [localMessageId, onTagsChange, isCurrent],
   );
 
   // Load message tags when popover opens
   const handleOpenChange = useCallback(
     async (open: boolean) => {
-      if (open && !loaded) {
+      const principal = captureRequestPrincipal();
+      if (
+        open &&
+        identity &&
+        !loaded &&
+        !loading.current &&
+        isCurrent(principal)
+      ) {
+        loading.current = true;
         try {
           const messageTags = await getMessageTags(
-            accountId,
-            messageUid,
-            folder,
+            identity.accountId,
+            identity.uid,
+            identity.folder,
+            identity.uidValidity,
           );
+          if (!isCurrent(principal)) return;
           setSelectedTags(messageTags);
           setLoaded(true);
         } catch (error) {
-          console.error("Failed to load message tags:", error);
+          if (isCurrent(principal))
+            console.error("Failed to load message tags:", error);
+        } finally {
+          loading.current = false;
         }
       }
     },
-    [accountId, messageUid, folder, getMessageTags, loaded],
+    [identity, getMessageTags, loaded, isCurrent],
   );
 
   const handleTagToggle = useCallback(
     async (tag: Tag, shouldSelect: boolean) => {
+      const principal = captureRequestPrincipal();
+      if (!identity || !loaded || mutating.current || !isCurrent(principal))
+        return;
+      mutating.current = true;
+      setPending(true);
       const previousTags = selectedTags;
       const nextTags = shouldSelect
         ? [...selectedTags.filter((item) => item.id !== tag.id), tag]
         : selectedTags.filter((t) => t.id !== tag.id);
 
       setSelectedTags(nextTags);
-      updateLocalMessageTags(nextTags);
 
       try {
+        updateLocalMessageTags(nextTags, principal);
+        if (!isCurrent(principal)) return;
         if (shouldSelect) {
-          await assignTag(tag.id, accountId, messageUid, folder);
+          await assignTag(
+            tag.id,
+            identity.accountId,
+            identity.uid,
+            identity.folder,
+            identity.uidValidity,
+          );
         } else {
-          await removeTag(tag.id, accountId, messageUid, folder);
+          await removeTag(
+            tag.id,
+            identity.accountId,
+            identity.uid,
+            identity.folder,
+            identity.uidValidity,
+          );
         }
       } catch (error) {
+        if (!isCurrent(principal)) return;
         setSelectedTags(previousTags);
-        updateLocalMessageTags(previousTags);
+        updateLocalMessageTags(previousTags, principal);
         console.error("Failed to toggle tag:", error);
+      } finally {
+        mutating.current = false;
+        if (isCurrent(principal)) {
+          setPending(false);
+        } else if (isRequestPrincipalCurrent(principal)) {
+          // The old row may still have an optimistic projection. Do not restore
+          // its snapshot over a newer edit; reload it when next read instead.
+          // List scopes also include combined accounts and filtered virtual views.
+          const cache = getCacheService();
+          cache.invalidateMessages({});
+          if (isRequestPrincipalCurrent(principal)) {
+            cache.invalidateMessageDetail(
+              String(identity.accountId),
+              identity.folder,
+              localMessageId,
+            );
+          }
+        }
       }
     },
     [
-      accountId,
-      messageUid,
-      folder,
+      identity,
+      loaded,
       assignTag,
       removeTag,
       selectedTags,
       updateLocalMessageTags,
+      isCurrent,
+      localMessageId,
     ],
   );
 
@@ -315,6 +386,7 @@ export const InlineTagSelector: React.FC<InlineTagSelectorProps> = ({
         {trigger ?? (
           <button
             type="button"
+            disabled={!identity}
             className={cn(
               "p-1.5 rounded-md transition-colors",
               "text-muted-foreground hover:text-foreground hover:bg-accent",
@@ -360,6 +432,7 @@ export const InlineTagSelector: React.FC<InlineTagSelectorProps> = ({
                 <button
                   key={tag.id}
                   type="button"
+                  disabled={!identity || !loaded || pending}
                   onClick={(event) => {
                     event.stopPropagation();
                     void handleTagToggle(tag, true);
@@ -382,6 +455,23 @@ export const InlineTagSelector: React.FC<InlineTagSelectorProps> = ({
         <PopoverArrow className="fill-popover" />
       </PopoverContent>
     </Popover>
+  );
+};
+
+export const InlineTagSelector: React.FC<InlineTagSelectorProps> = (props) => {
+  const identity = parseMessageIdentityRef({
+    accountId: props.accountId,
+    uid: props.messageUid,
+    folder: props.folder,
+    uidValidity: props.uidValidity,
+  });
+  // A row reused for another mailbox must not reuse loaded tags or pending work.
+  return (
+    <InlineMessageTagSelector
+      key={getMessageIdentityKey(identity)}
+      {...props}
+      identity={identity}
+    />
   );
 };
 

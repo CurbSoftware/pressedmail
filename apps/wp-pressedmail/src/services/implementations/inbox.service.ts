@@ -53,6 +53,11 @@ import { normalizeEmailDate, parseEmailDate } from "@/lib/email-date";
 import type { EmailListGroupingMode } from "@/lib/message-grouping";
 import { getEffectiveEmailListGrouping } from "@/lib/effective-email-list-grouping";
 import { matchesMessageById } from "@/lib/consolidated-message-match";
+import {
+  getMessageIdentityKey,
+  getMessageIdentityRef,
+  parseAccountQualifiedToken,
+} from "@/lib/message-identity";
 
 /**
  * Default pagination settings.
@@ -139,21 +144,36 @@ function isSameRequestScope(
 }
 
 function isSameFolderPath(left: string | null, right: string | null): boolean {
+  const leftPath = String(left ?? "INBOX");
+  const rightPath = String(right ?? "INBOX");
+  // Only the reserved IMAP INBOX name is case-insensitive.
   return (
-    String(left ?? "INBOX").toLowerCase() ===
-    String(right ?? "INBOX").toLowerCase()
+    leftPath === rightPath ||
+    (leftPath.toUpperCase() === "INBOX" && rightPath.toUpperCase() === "INBOX")
   );
 }
 
-function getMessageLocalId(
-  message: EmailMessage,
-  consolidated = false,
-): string {
-  if (consolidated && message.consolidatedUid) {
-    return String(message.consolidatedUid);
-  }
+function canonicalMessageToken(messageId: string | number): string | null {
+  const ref = parseAccountQualifiedToken(String(messageId));
+  return ref?.kind === "message"
+    ? JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid])
+    : null;
+}
 
-  return String(message.uid ?? message.id);
+function updatesPreserveIdentity(
+  token: string,
+  updates: Partial<EmailMessage>,
+): boolean {
+  const ref = parseAccountQualifiedToken(token);
+  if (ref?.kind !== "message") return false;
+  // Validate against the captured reference, never the current view's folder.
+  return (
+    getMessageIdentityKey({
+      id: ref.uid,
+      ...ref,
+      ...updates,
+    } as EmailMessage) === token
+  );
 }
 
 function sortMessagesNewestFirst(messages: EmailMessage[]): EmailMessage[] {
@@ -925,13 +945,13 @@ export class InboxService implements IInboxOperations {
       return;
     }
 
-    const selectedId = getMessageLocalId(
-      this._selectedMessage,
-      this._isConsolidated,
-    );
+    const selectedId = getMessageIdentityKey(this._selectedMessage);
+    if (!selectedId) {
+      this._selectedMessage = null;
+      return;
+    }
     const nextSelected = messages.find(
-      (message) =>
-        getMessageLocalId(message, this._isConsolidated) === selectedId,
+      (message) => getMessageIdentityKey(message) === selectedId,
     );
 
     if (nextSelected) {
@@ -1680,8 +1700,16 @@ export class InboxService implements IInboxOperations {
     // generation), a stale request's error must not be surfaced or mark the
     // account unhealthy.
     const startGeneration = this._requestGeneration;
+    const filtersChanged = () =>
+      activeFilterSignature !==
+      buildListCacheSignature(
+        this._activeFilters,
+        this._tagIds,
+        this._currentSort,
+      );
     const isSuperseded = () =>
       startGeneration !== this._requestGeneration ||
+      filtersChanged() ||
       !isSameFolderPath(folder, this._currentFolder) ||
       consolidated !== this._isConsolidated ||
       sort !== this._currentSort ||
@@ -1847,6 +1875,7 @@ export class InboxService implements IInboxOperations {
       );
       const contextChanged =
         generationSuperseded ||
+        filtersChanged() ||
         folderChanged ||
         consolidationChanged ||
         sortChanged ||
@@ -2403,14 +2432,20 @@ export class InboxService implements IInboxOperations {
     this._selectedMessage = message;
 
     // If selecting a message and we have cache service, try to get full detail
-    if (message && this.cache) {
+    const ref = getMessageIdentityRef(message);
+    if (message && ref && this.cache) {
+      const token = getMessageIdentityKey(message);
       const detail = this.cache.getMessageDetail(
-        String(this._currentAccountId),
-        this._currentFolder,
-        message.id ?? message.uid,
+        String(ref.accountId),
+        ref.folder,
+        token,
       );
 
-      if (detail && (detail.htmlBody || detail.textBody)) {
+      if (
+        detail &&
+        getMessageIdentityKey(detail) === token &&
+        (detail.htmlBody || detail.textBody)
+      ) {
         this._selectedMessage = {
           ...message,
           ...detail,
@@ -2511,8 +2546,7 @@ export class InboxService implements IInboxOperations {
   // ============== Message Updates ==============
 
   /**
-   * Check if a message matches the given ID, accounting for consolidated mode
-   * where consolidatedUid is used to avoid cross-account UID collisions.
+   * Match a complete mailbox reference in both individual and combined views.
    */
   private matchesMessageId(
     msg: EmailMessage,
@@ -2525,6 +2559,11 @@ export class InboxService implements IInboxOperations {
     messageId: string | number,
     updates: Partial<EmailMessage>,
   ): void {
+    const token = canonicalMessageToken(messageId);
+    if (!token || !updatesPreserveIdentity(token, updates)) return;
+    const ref = parseAccountQualifiedToken(token);
+    if (ref?.kind !== "message") return;
+
     // Update in messages array
     this._messages = this._messages.map((msg) =>
       this.matchesMessageId(msg, messageId) ? { ...msg, ...updates } : msg,
@@ -2556,12 +2595,23 @@ export class InboxService implements IInboxOperations {
       };
     });
 
+    // Thread rows also feed selection and the persisted folder snapshot.
+    this._threadGroups = Object.fromEntries(
+      Object.entries(this._threadGroups).map(([threadId, rows]) => [
+        threadId,
+        rows.map((msg) =>
+          this.matchesMessageId(msg, messageId) ? { ...msg, ...updates } : msg,
+        ),
+      ]),
+    );
+
     // Update cache
-    if (this.cache && this._currentAccountId) {
+    if (this.cache) {
       this.cache.updateMessage(
-        String(this._currentAccountId),
-        messageId,
+        String(ref.accountId),
+        token,
         updates,
+        ref.folder,
       );
     }
 
@@ -2570,6 +2620,19 @@ export class InboxService implements IInboxOperations {
   }
 
   removeMessage(messageId: string | number): void {
+    const token = canonicalMessageToken(messageId);
+    if (!token) return;
+    const ref = parseAccountQualifiedToken(token);
+    if (ref?.kind !== "message") return;
+    const knownMessages = [
+      ...this._messages,
+      ...Object.values(this._threadGroups).flat(),
+      ...this._groupedMessages.flatMap((group) => group.emails),
+      ...(this._selectedMessage ? [this._selectedMessage] : []),
+    ];
+    const removedKnownMessage = knownMessages.some((msg) =>
+      this.matchesMessageId(msg, token),
+    );
     // Remove from messages array
     this._messages = this._messages.filter(
       (msg) => !this.matchesMessageId(msg, messageId),
@@ -2614,7 +2677,7 @@ export class InboxService implements IInboxOperations {
     // ghost thread-child row until a full reload.
     if (this._threadGroups && Object.keys(this._threadGroups).length > 0) {
       let changed = false;
-      const nextGroups: typeof this._threadGroups = {};
+      const nextGroups: EmailThreadGroupMap = {};
       for (const [threadId, rows] of Object.entries(this._threadGroups)) {
         const remaining = rows.filter(
           (msg: EmailMessage) => !this.matchesMessageId(msg, messageId),
@@ -2632,13 +2695,15 @@ export class InboxService implements IInboxOperations {
     }
 
     // Update total count
-    this._totalCount = Math.max(0, this._totalCount - 1);
+    if (removedKnownMessage) {
+      this._totalCount = Math.max(0, this._totalCount - 1);
+    }
     this._offset = this._messages.length;
     this._hasMore = this._messages.length < this._totalCount;
 
     // Update cache
-    if (this.cache && this._currentAccountId) {
-      this.cache.removeMessage(String(this._currentAccountId), messageId);
+    if (this.cache) {
+      this.cache.removeMessage(String(ref.accountId), token);
     }
 
     this.cacheSnapshot();
@@ -2649,14 +2714,14 @@ export class InboxService implements IInboxOperations {
     return this._requestGeneration;
   }
 
-  applyDiff(delta: MessageSyncDelta, generation?: number): void {
+  applyDiff(delta: MessageSyncDelta, generation?: number): boolean {
     if (!delta || delta.folder !== this._currentFolder) {
-      return;
+      return false;
     }
 
     // Reject stale deltas from before the last context switch/reset.
     if (generation !== undefined && generation < this._requestGeneration) {
-      return;
+      return false;
     }
 
     // Consolidated scope guard: reject delta if the account set it was built
@@ -2680,38 +2745,53 @@ export class InboxService implements IInboxOperations {
         currentIds.length !== deltaIds.length ||
         currentIds.some((id, i) => id !== deltaIds[i])
       ) {
-        return;
+        return false;
       }
+    }
+
+    const deletedTokens = delta.deleted.map(canonicalMessageToken);
+    const updatedTokens = delta.updated.map((update) =>
+      canonicalMessageToken(update.localId),
+    );
+    if (
+      this._messages.some((message) => !getMessageIdentityKey(message)) ||
+      delta.added.some(
+        (message) => !getMessageIdentityKey(message as EmailMessage),
+      ) ||
+      deletedTokens.some((token) => token === null) ||
+      delta.updated.some((update, index) => {
+        const token = updatedTokens[index];
+        return !token || !updatesPreserveIdentity(token, update.changes);
+      })
+    ) {
+      // The caller must reload instead of applying a partially identified delta.
+      return false;
     }
 
     const messageMap = new Map<string, EmailMessage>();
     for (const message of this._messages) {
-      messageMap.set(
-        getMessageLocalId(message, this._isConsolidated),
-        normalizeMessage(message),
-      );
+      messageMap.set(getMessageIdentityKey(message), normalizeMessage(message));
     }
 
-    for (const deletedId of delta.deleted) {
-      messageMap.delete(String(deletedId));
+    for (const deletedId of deletedTokens) {
+      if (deletedId) messageMap.delete(deletedId);
     }
 
     for (const message of delta.added as EmailMessage[]) {
       const normalized = normalizeMessage(message);
-      messageMap.set(
-        getMessageLocalId(normalized, this._isConsolidated),
-        normalized,
-      );
+      messageMap.set(getMessageIdentityKey(normalized), normalized);
     }
 
-    for (const update of delta.updated) {
-      const existing = messageMap.get(String(update.localId));
+    for (const [index, update] of delta.updated.entries()) {
+      const token = updatedTokens[index];
+      if (!token) continue;
+      const existing = messageMap.get(token);
       if (!existing) {
         continue;
       }
 
       messageMap.set(
-        String(update.localId),
+        token,
         normalizeMessage({
           ...existing,
           ...update.changes,
@@ -2720,7 +2800,34 @@ export class InboxService implements IInboxOperations {
     }
 
     this._messages = sortMessagesNewestFirst(Array.from(messageMap.values()));
-    this._threadGroups = {};
+    const changesByToken = new Map(
+      delta.updated.map((update, index) => [
+        updatedTokens[index],
+        update.changes,
+      ]),
+    );
+    this._threadGroups = Object.fromEntries(
+      Object.entries(this._threadGroups)
+        .map(
+          ([threadId, rows]) =>
+            [
+              threadId,
+              rows
+                .filter(
+                  (row) => !deletedTokens.includes(getMessageIdentityKey(row)),
+                )
+                .map((row) => {
+                  const changes = changesByToken.get(
+                    getMessageIdentityKey(row),
+                  );
+                  return changes
+                    ? normalizeMessage({ ...row, ...changes })
+                    : row;
+                }),
+            ] as const,
+        )
+        .filter(([, rows]) => rows.length > 0),
+    );
     this._filteredMessages = filterMessages(
       this._messages,
       this._activeFilters,
@@ -2738,12 +2845,22 @@ export class InboxService implements IInboxOperations {
     this._lastSyncedAt = Date.now();
 
     const selectedId = this._selectedMessage
-      ? getMessageLocalId(this._selectedMessage, this._isConsolidated)
+      ? getMessageIdentityKey(this._selectedMessage)
       : null;
-    if (selectedId && delta.deleted.includes(selectedId)) {
+    if (selectedId && deletedTokens.includes(selectedId)) {
       this._selectedMessage = null;
     } else {
-      this.reconcileSelectedMessage(this._messages, false);
+      const changes = selectedId ? changesByToken.get(selectedId) : undefined;
+      if (this._selectedMessage && changes) {
+        this._selectedMessage = normalizeMessage({
+          ...this._selectedMessage,
+          ...changes,
+        });
+      }
+      this.reconcileSelectedMessage(
+        [...this._messages, ...Object.values(this._threadGroups).flat()],
+        false,
+      );
     }
 
     // Combined-inbox readiness can change mid-session (e.g. a mailbox auth-fails
@@ -2756,6 +2873,7 @@ export class InboxService implements IInboxOperations {
 
     this.cacheSnapshot();
     this.notify();
+    return true;
   }
 
   // ============== Additional Utilities ==============

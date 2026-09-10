@@ -124,8 +124,11 @@ export function useInternalReadingPaneState(
     try {
       const result = await classifyEmails(accountId, [
         {
-          uid: selectedMessage.uid || selectedMessage.id,
-          folder: selectedMessage.folder || "INBOX",
+          uid: selectedMessage.uid,
+
+          uidValidity:
+            selectedMessage.uidValidity ?? selectedMessage.uid_validity,
+          folder: selectedMessage.folder || "",
           subject: selectedMessage.subject || "",
           from: selectedMessage.from || selectedMessage.email || "",
           to: selectedMessage.to || "",

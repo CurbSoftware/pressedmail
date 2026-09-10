@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useLocation, useNavigate, Outlet } from "react-router-dom";
 import {
   CircleHelp,
@@ -49,6 +55,7 @@ import { useAutoSyncDisabled } from "@/context/admin-settings";
 import { restoreWordPressChrome } from "@/hooks/useImmersiveMode";
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { useWpAdminChrome } from "@/hooks/useWpAdminChrome";
+import { getPersistedPaneState } from "@/lib/open-pane-persistence";
 import {
   MobileActionSheet,
   MobileAppShell,
@@ -86,6 +93,7 @@ const ApplicationLayout = () => {
   const { adminBarHeight } = useWpAdminChrome();
   const {
     accounts,
+    selectedAccount,
     numberOfMessages,
     hasCompletedSetup,
     isAddAccount,
@@ -96,13 +104,14 @@ const ApplicationLayout = () => {
     totalCount: inboxTotalCount,
     isLoading: inboxIsLoading,
     error: inboxError,
+    selectedMessage,
   } = useInboxState();
   // Footer sync counters are derived CHEAPLY (pure) from the folder list the
   // inbox context already holds, NO polling and NO heavy folder hook at the
   // root (that caused a render storm / freeze). The folder list refreshes via
   // the boot hook's strategic, bounded settling refresh; the footer just reads
   // whatever is current.
-  const { folders: contextFolders } = useFolderOperations();
+  const { folders: contextFolders, selectedFolder } = useFolderOperations();
   const syncProgress = useMemo(
     () => computeSyncProgress(contextFolders ?? []),
     [contextFolders],
@@ -249,6 +258,28 @@ const ApplicationLayout = () => {
 
   const mobileShellEnabled = useMobileShellFlag();
   const compactShellEnabled = isMobileOrTablet && mobileShellEnabled;
+  const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
+  const wasCompact = useRef(compactShellEnabled);
+  useEffect(() => {
+    const becameCompact = compactShellEnabled && !wasCompact.current;
+    wasCompact.current = compactShellEnabled;
+    if (
+      becameCompact &&
+      location.pathname === "/inbox" &&
+      selectedAccount &&
+      getPersistedPaneState(selectedAccount, paneFolder)?.mode === "compose"
+    ) {
+      // Desktop compose lives in the Inbox pane; compact compose needs its
+      // route. A bare route resumes the same shared draft without new fields.
+      navigate("/compose");
+    }
+  }, [
+    compactShellEnabled,
+    location.pathname,
+    navigate,
+    selectedAccount,
+    paneFolder,
+  ]);
   const statusItemCount =
     numberOfMessages || inboxTotalCount || statusMessages.length;
   const statusUnreadCount = statusMessages.filter(

@@ -96,6 +96,7 @@ import { getReadableMessagePreview } from "@/lib/email-content-normalization";
 import {
   getAccountQualifiedMessageToken,
   getMessageIdentityKey,
+  getMessageIdentityRef,
   getMessageListRowKeys,
 } from "@/lib/message-identity";
 import { getAccountBadgeLabel } from "@/lib/account-label";
@@ -111,6 +112,7 @@ import { getMessageFilterSignature } from "@/lib/message-filter-signature";
 import {
   draftComposeIdentitiesMatch,
   getDraftComposeData,
+  hasDraftComposeDetail,
   getDraftComposeIdentity,
   getScheduledEmailDraftIdentity,
   getScheduledEmailId,
@@ -131,7 +133,11 @@ import {
   parseScheduledDraftHandoff,
 } from "@/types/scheduled-emails";
 import type { FolderTarget, MessageFilters } from "@/services/interfaces";
-import { getInboxService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 import { usePhishing } from "@/context/phishing/PhishingContext";
 import { useEmailSummaries } from "@/context/email-summary";
 import {
@@ -494,6 +500,7 @@ export function MobileInboxScreen() {
     loadMore,
     loadPage,
     selectedAccountId,
+    prefetch,
     threadGroups,
   } = useInbox();
   const { messages, isLoading, isLoadingMore, hasMore, totalCount } =
@@ -584,17 +591,75 @@ export function MobileInboxScreen() {
     null,
   );
   const [isBulkActionRunning, setIsBulkActionRunning] = React.useState(false);
+  const selectionScopeKey = JSON.stringify([
+    selectedAccount,
+    currentLayout,
+    isConsolidatedInbox
+      ? accounts.map((account) => String(account.id)).sort()
+      : [],
+    [...selectedConsolidatedAccountIds].sort((a, b) => a - b),
+    selectedFolder,
+    getMessageFilterSignature(activeFilters),
+    [...selectedIds].sort(),
+  ]);
+  const selectionScopeRef = React.useRef({ key: selectionScopeKey });
+  if (selectionScopeRef.current.key !== selectionScopeKey)
+    selectionScopeRef.current = { key: selectionScopeKey };
+  const selectionScope = selectionScopeRef.current;
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const captureBulkScope = React.useCallback(() => {
+    const scope = selectionScopeRef.current;
+    const principal = captureRequestPrincipal();
+    return {
+      isCurrent: () =>
+        mountedRef.current &&
+        scope === selectionScopeRef.current &&
+        isRequestPrincipalCurrent(principal),
+      isPrincipalCurrent: () => isRequestPrincipalCurrent(principal),
+    };
+  }, []);
+  React.useEffect(() => {
+    setActionSheetOpen(false);
+    setMoveSheetOpen(false);
+    setTagSheetOpen(false);
+    setSnoozeSheetOpen(false);
+    setSnoozeCustomOpen(false);
+    setSweepOpen(false);
+    setRulesSheetOpen(false);
+    setPendingRule(null);
+    setConfirmPermanentOpen(false);
+    setPendingDeleteId(null);
+  }, [selectionScope]);
+
   const messageRowsRef = React.useRef(messages);
   messageRowsRef.current = messages;
   const scheduledEmailsRef = React.useRef(scheduledEmails);
   scheduledEmailsRef.current = scheduledEmails;
   const scheduledEditRequestRef = React.useRef(0);
   const scheduledEditPendingRef = React.useRef(false);
+  const draftOpenRequestRef = React.useRef(0);
+  const draftScopeRef = React.useRef({
+    selectedAccountId,
+    selectedAccount,
+    selectedFolder,
+  });
+  draftScopeRef.current = {
+    selectedAccountId,
+    selectedAccount,
+    selectedFolder,
+  };
 
   React.useEffect(
     () => () => {
       scheduledEditRequestRef.current += 1;
       scheduledEditPendingRef.current = false;
+      draftOpenRequestRef.current += 1;
     },
     [],
   );
@@ -616,9 +681,10 @@ export function MobileInboxScreen() {
     setPendingDeleteId(null);
   }, []);
 
-  const enterBulkMode = React.useCallback((id: string) => {
+  const enterBulkMode = React.useCallback((id?: string) => {
+    draftOpenRequestRef.current += 1;
     setBulkMode(true);
-    setSelectedIds(new Set([id]));
+    setSelectedIds(new Set(id ? [id] : []));
   }, []);
 
   const toggleSelected = React.useCallback((id: string) => {
@@ -647,6 +713,8 @@ export function MobileInboxScreen() {
         draftAccountId: draft.draftAccountId,
         draftUidValidity: draft.draftUidValidity,
         draftMessageId: draft.draftMessageId,
+        inReplyTo: draft.inReplyTo,
+        references: draft.references,
         draftAttachmentManifestComplete: draft.draftAttachmentManifestComplete,
         scheduledEmailId: draft.scheduledEmailId,
         scheduledAccountId: draft.scheduledAccountId,
@@ -737,8 +805,102 @@ export function MobileInboxScreen() {
     [composer, openMobileCompose, scheduledEmails],
   );
 
+  const handleDraftRowTap = React.useCallback(
+    async (mail: EmailMessage, requestId: number) => {
+      const draft = getDraftComposeData(
+        mail,
+        selectedFolder,
+        selectedAccountId,
+      );
+      const identity = getDraftComposeIdentity(draft);
+      if (!identity) {
+        toast.error("Reload this draft before editing it.");
+        return;
+      }
+      if (hasDraftComposeDetail(mail)) {
+        openMobileCompose(draft);
+        return;
+      }
+
+      const composeSessionVersion = composer.getComposeSessionVersion();
+      const ownsRequest = () =>
+        draftOpenRequestRef.current === requestId &&
+        draftScopeRef.current.selectedAccountId === selectedAccountId &&
+        draftScopeRef.current.selectedAccount === selectedAccount &&
+        draftScopeRef.current.selectedFolder === selectedFolder &&
+        composer.getComposeSessionVersion() === composeSessionVersion &&
+        messageRowsRef.current.some((row) =>
+          draftComposeIdentitiesMatch(
+            getDraftComposeIdentity(
+              getDraftComposeData(row, selectedFolder, selectedAccountId),
+            ),
+            identity,
+          ),
+        );
+
+      try {
+        const outcome = await prefetch.fetchDetail(
+          String(identity.accountId),
+          identity.folder,
+          getAccountQualifiedMessageToken(mail),
+          "user-selected",
+        );
+        if (!ownsRequest()) return;
+        if (outcome && "failed" in outcome && outcome.requiresRefresh) {
+          toast.error("The draft identity changed. Refreshing the mailbox.");
+          await refreshMessages();
+          return;
+        }
+        if (
+          !outcome ||
+          !("detail" in outcome) ||
+          !hasDraftComposeDetail(outcome.detail)
+        ) {
+          if (
+            outcome &&
+            ("pending" in outcome ||
+              ("detail" in outcome && outcome.detail.bodyState === "partial"))
+          ) {
+            toast.info("This draft is still loading. Tap it again to retry.");
+          } else {
+            toast.error("We could not load this draft. Tap it again to retry.");
+          }
+          return;
+        }
+        const loaded = getDraftComposeData(
+          { ...mail, ...outcome.detail },
+          selectedFolder,
+          selectedAccountId,
+        );
+        if (
+          !draftComposeIdentitiesMatch(
+            getDraftComposeIdentity(loaded),
+            identity,
+          )
+        ) {
+          toast.error("Reload this draft before editing it.");
+          return;
+        }
+        openMobileCompose(loaded);
+      } catch (error) {
+        if (ownsRequest() && !surfaceApiAuthError(error)) {
+          toast.error("We could not load this draft. Tap it again to retry.");
+        }
+      }
+    },
+    [
+      composer,
+      openMobileCompose,
+      prefetch,
+      selectedAccountId,
+      selectedAccount,
+      selectedFolder,
+    ],
+  );
+
   const handleRowTap = React.useCallback(
     (mail: EmailMessage) => {
+      const requestId = ++draftOpenRequestRef.current;
       const id = getMobileMessageIdentity(mail);
       if (bulkMode) {
         toggleSelected(id);
@@ -751,16 +913,7 @@ export function MobileInboxScreen() {
       }
 
       if (isDraftMessage(mail)) {
-        const draft = getDraftComposeData(
-          mail,
-          selectedFolder,
-          selectedAccountId,
-        );
-        if (!getDraftComposeIdentity(draft)) {
-          toast.error("Reload this draft before editing it.");
-          return;
-        }
-        openMobileCompose(draft);
+        void handleDraftRowTap(mail, requestId);
         return;
       }
 
@@ -772,10 +925,8 @@ export function MobileInboxScreen() {
       getMobileMessageIdentity,
       handleScheduledRowTap,
       navigate,
-      openMobileCompose,
+      handleDraftRowTap,
       selectMessage,
-      selectedAccountId,
-      selectedFolder,
       toggleSelected,
     ],
   );
@@ -908,15 +1059,14 @@ export function MobileInboxScreen() {
 
   const selectedRuleRefs = React.useMemo(
     () =>
-      selectedMessages
-        .map((message) => ({
-          accountId:
-            resolveMessageAccountId(message, accounts, selectedAccount) ??
-            accountIdForActions,
-          uid: message.uid != null ? String(message.uid) : String(message.id),
-          folder: message.folder || selectedFolder || "INBOX",
-        }))
-        .filter((ref) => ref.accountId > 0 && ref.uid !== ""),
+      selectedMessages.map((message) => ({
+        accountId:
+          resolveMessageAccountId(message, accounts, selectedAccount) ??
+          accountIdForActions,
+        uid: message.uid == null ? "" : String(message.uid),
+        uidValidity: String(message.uidValidity ?? message.uid_validity ?? ""),
+        folder: typeof message.folder === "string" ? message.folder : "",
+      })),
     [
       accountIdForActions,
       accounts,
@@ -938,9 +1088,20 @@ export function MobileInboxScreen() {
     void fetchCapabilities();
   }, [fetchCapabilities, fetchPresets, snoozeSheetOpen]);
 
+  const validateSelectedMessages = React.useCallback(() => {
+    if (
+      selectedCount !== selectedMessages.length ||
+      selectedMessages.some((message) => !getMessageIdentityRef(message))
+    ) {
+      toast.error("Reload the mailbox before changing selected messages.");
+      return false;
+    }
+    return selectedCount > 0;
+  }, [selectedCount, selectedMessages]);
+
   const runBulkOperation = React.useCallback(
     async (
-      operation: () => Promise<{
+      operation: (captured: ReturnType<typeof captureBulkScope>) => Promise<{
         success?: boolean;
         error?: string;
         failedIds?: (string | number)[];
@@ -948,11 +1109,14 @@ export function MobileInboxScreen() {
       successMessage: string,
       failureMessage = "Operation failed",
     ) => {
-      if (selectedMessageIds.length === 0) return;
+      if (!validateSelectedMessages()) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
 
       setIsBulkActionRunning(true);
       try {
-        const result = await operation();
+        const result = await operation(captured);
+        if (!captured.isCurrent()) return;
         if (result && result.success === false) {
           if (Array.isArray(result.failedIds)) {
             setSelectedIds(new Set(result.failedIds.map(String)));
@@ -963,15 +1127,17 @@ export function MobileInboxScreen() {
         toast.success(successMessage);
         exitBulkMode();
       } catch (error) {
+        if (!captured.isCurrent()) return;
         if (surfaceApiAuthError(error)) {
           return;
         }
         toast.error(error instanceof Error ? error.message : failureMessage);
       } finally {
-        setIsBulkActionRunning(false);
+        if (mountedRef.current && captured.isPrincipalCurrent())
+          setIsBulkActionRunning(false);
       }
     },
-    [exitBulkMode, selectedMessageIds],
+    [exitBulkMode, validateSelectedMessages, captureBulkScope],
   );
 
   const handleBulkArchive = React.useCallback(
@@ -1003,12 +1169,13 @@ export function MobileInboxScreen() {
   const handleDraftLikeDelete = React.useCallback(() => {
     if (currentFolderRole === "scheduled") {
       void runBulkOperation(
-        async () => {
+        async (captured) => {
           const failedIds: string[] = [];
           let successCount = 0;
           let firstError: string | undefined;
 
           for (const message of selectedMessages) {
+            if (!captured.isCurrent()) return;
             const localId = getMessageIdentityKey(message);
             const scheduledId = Number(message.scheduledEmailId);
             if (
@@ -1022,6 +1189,7 @@ export function MobileInboxScreen() {
             }
 
             const result = await scheduledEmails.deleteEmail(scheduledId);
+            if (!captured.isPrincipalCurrent()) return;
             if (result.status === "success") {
               successCount += 1;
               getInboxService().removeMessage(localId);
@@ -1170,15 +1338,16 @@ export function MobileInboxScreen() {
   const handleToggleStarForSelection = React.useCallback(
     (targetStarred: boolean) => {
       void runBulkOperation(
-        async () => {
+        async (captured) => {
           const targets = selectedMessages.filter(
             (message) => Boolean(message.starred) !== targetStarred,
           );
-          await Promise.all(
-            targets.map((message) =>
-              toggleStar(getMessageIdentityKey(message)),
-            ),
-          );
+          for (const message of targets) {
+            if (!captured.isCurrent()) return;
+            const result = await toggleStar(getMessageIdentityKey(message));
+            if (result?.success === false)
+              throw new Error(result.error || "Message update failed");
+          }
           return { success: true };
         },
         targetStarred
@@ -1193,15 +1362,18 @@ export function MobileInboxScreen() {
   const handleToggleImportantForSelection = React.useCallback(
     (targetImportant: boolean) => {
       void runBulkOperation(
-        async () => {
+        async (captured) => {
           const targets = selectedMessages.filter(
             (message) => Boolean(message.important) !== targetImportant,
           );
-          await Promise.all(
-            targets.map((message) =>
-              toggleImportant(getMessageIdentityKey(message)),
-            ),
-          );
+          for (const message of targets) {
+            if (!captured.isCurrent()) return;
+            const result = await toggleImportant(
+              getMessageIdentityKey(message),
+            );
+            if (result?.success === false)
+              throw new Error(result.error || "Message update failed");
+          }
           return { success: true };
         },
         targetImportant
@@ -1216,22 +1388,34 @@ export function MobileInboxScreen() {
   const handleBulkApplyTag = React.useCallback(
     async (tagId: number) => {
       const tag = tags.find((item) => Number(item.id) === Number(tagId));
-      if (!tag || selectedMessages.length === 0) return;
-
-      const refs = selectedMessages
-        .map((message) => ({
-          account_id:
-            resolveMessageAccountId(message, accounts, selectedAccount) ??
-            accountIdForActions,
-          message_uid:
-            message.uid != null ? String(message.uid) : String(message.id),
-          folder: message.folder || selectedFolder || "INBOX",
-        }))
-        .filter((ref) => ref.account_id > 0 && ref.message_uid !== "");
-      if (refs.length === 0) {
-        toast.error("No selected messages can be tagged");
+      if (selectedCount !== selectedMessages.length) {
+        toast.error("Reload the mailbox before changing tags.");
         return;
       }
+      if (!tag || selectedMessages.length === 0) return;
+
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
+      const principal = captureRequestPrincipal();
+      const identities = selectedMessages.map((message) =>
+        getMessageIdentityRef(message),
+      );
+      if (!principal || identities.some((ref) => !ref)) {
+        toast.error("Reload the mailbox before changing tags.");
+        return;
+      }
+      const refs = identities.flatMap((ref) =>
+        ref
+          ? [
+              {
+                account_id: ref.accountId,
+                message_uid: ref.uid,
+                folder: ref.folder,
+                uid_validity: ref.uidValidity,
+              },
+            ]
+          : [],
+      );
 
       const shouldRemove = selectedMessages.every((message) =>
         hasMessageTag(message, tagId),
@@ -1241,12 +1425,18 @@ export function MobileInboxScreen() {
       try {
         const operation = shouldRemove ? batchRemoveTag : batchAssignTag;
         const result = await operation(tagId, refs);
+        if (!isRequestPrincipalCurrent(principal)) return;
+        if (result.failed > 0)
+          throw new Error(
+            "Some tags could not be changed. Refresh the mailbox and retry.",
+          );
         const inboxService = getInboxService();
         selectedMessages.forEach((message) => {
           const update = buildMessageTagUpdate(message, tag, !shouldRemove);
           inboxService.updateMessage(update.localId, { tags: update.tags });
         });
-        const count = result?.success ?? refs.length;
+        if (!captured.isCurrent()) return;
+        const count = result.success;
         toast.success(
           shouldRemove
             ? `Removed tag from ${count} ${count === 1 ? "message" : "messages"}`
@@ -1254,21 +1444,35 @@ export function MobileInboxScreen() {
         );
         exitBulkMode();
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Tag failed");
+        if (!isRequestPrincipalCurrent(principal)) return;
+        const cache = getCacheService();
+        cache.invalidateMessages({});
+        for (const ref of refs)
+          cache.invalidateMessageDetail(
+            String(ref.account_id),
+            ref.folder,
+            getMessageIdentityKey({
+              accountId: ref.account_id,
+              folder: ref.folder,
+              uidValidity: ref.uid_validity,
+              uid: ref.message_uid,
+            }),
+          );
+        if (captured.isCurrent())
+          toast.error(error instanceof Error ? error.message : "Tag failed");
       } finally {
-        setIsBulkActionRunning(false);
+        if (mountedRef.current && captured.isPrincipalCurrent())
+          setIsBulkActionRunning(false);
       }
     },
     [
-      accountIdForActions,
-      accounts,
       batchAssignTag,
       batchRemoveTag,
       exitBulkMode,
-      selectedAccount,
-      selectedFolder,
       selectedMessages,
+      selectedCount,
       tags,
+      captureBulkScope,
     ],
   );
 
@@ -1283,11 +1487,15 @@ export function MobileInboxScreen() {
         return;
       }
 
+      if (!validateSelectedMessages()) return;
+      const captured = captureBulkScope();
+      if (!captured.isCurrent()) return;
       setIsSnoozing(true);
       try {
         const succeeded: SnoozeTarget[] = [];
         let firstError = "";
         for (const target of snoozeTargets) {
+          if (!captured.isCurrent()) break;
           const result = await snoozeEmail({
             account_id: target.accountId,
             message_uid: target.messageUid,
@@ -1299,11 +1507,13 @@ export function MobileInboxScreen() {
             from: target.from,
             date: target.date,
           });
+          if (!captured.isPrincipalCurrent()) return;
           if (result.success) succeeded.push(target);
           else if (!firstError) firstError = result.error || "";
         }
 
         if (succeeded.length === 0) {
+          if (!captured.isCurrent()) return;
           toast.error(firstError || "Snooze failed");
           return;
         }
@@ -1316,6 +1526,7 @@ export function MobileInboxScreen() {
             inboxService.removeMessage?.(getMessageIdentityKey(message));
           }
         });
+        if (!captured.isCurrent()) return;
         toast.success(
           `Snoozed ${succeeded.length} ${succeeded.length === 1 ? "message" : "messages"}`,
         );
@@ -1323,13 +1534,17 @@ export function MobileInboxScreen() {
           exitBulkMode();
         }
       } catch (error) {
+        if (!captured.isCurrent()) return;
         toast.error(error instanceof Error ? error.message : "Snooze failed");
       } finally {
-        setIsSnoozing(false);
+        if (mountedRef.current && captured.isPrincipalCurrent())
+          setIsSnoozing(false);
       }
     },
     [
       exitBulkMode,
+      captureBulkScope,
+      validateSelectedMessages,
       selectedMessages,
       showSelectedSnooze,
       snoozeEmail,
@@ -1352,6 +1567,9 @@ export function MobileInboxScreen() {
 
   const handleOneOffSweepRun = React.useCallback(
     async (request: StartOneOffSweepRequest) => {
+      const captured = captureBulkScope();
+      if (!captured.isCurrent())
+        throw new Error("The selection changed. Reopen Sweep and retry.");
       // Route the sweep through the process / activity queue.
       const result = await enqueueSweepQueue({
         selected_message_ids: request.selected_message_ids,
@@ -1365,6 +1583,7 @@ export function MobileInboxScreen() {
         create_rule: request.create_rule ?? false,
         excluded_message_ids: request.excluded_message_ids,
       });
+      if (!captured.isCurrent()) return result;
       toast.success(
         result.deduplicated
           ? "That sweep is already running"
@@ -1374,22 +1593,26 @@ export function MobileInboxScreen() {
       exitBulkMode();
       return result;
     },
-    [exitBulkMode],
+    [exitBulkMode, captureBulkScope],
   );
 
   const loadRules = React.useCallback(async () => {
+    const captured = captureBulkScope();
+    if (!captured.isCurrent()) return;
     setRulesLoading(true);
     try {
       const rules = await fetchFilterRules(accountIdForActions);
+      if (!captured.isCurrent()) return;
       setAvailableRules(
         rules.filter((rule) => rule.enabled && ruleCanRunManually(rule)),
       );
     } catch {
-      setAvailableRules([]);
+      if (captured.isCurrent()) setAvailableRules([]);
     } finally {
-      setRulesLoading(false);
+      if (mountedRef.current && captured.isPrincipalCurrent())
+        setRulesLoading(false);
     }
-  }, [accountIdForActions]);
+  }, [accountIdForActions, captureBulkScope]);
 
   const openRulesSheet = React.useCallback(() => {
     setActionSheetOpen(false);
@@ -1398,7 +1621,9 @@ export function MobileInboxScreen() {
   }, [loadRules]);
 
   const confirmRunRule = React.useCallback(async () => {
-    if (!pendingRule) return;
+    if (!pendingRule || !validateSelectedMessages()) return;
+    const captured = captureBulkScope();
+    if (!captured.isCurrent()) return;
     if (selectedRuleRefs.length === 0) {
       toast.info("No selected messages can be organized");
       setPendingRule(null);
@@ -1420,18 +1645,23 @@ export function MobileInboxScreen() {
           refs: selectedRuleRefs,
         },
       });
+      if (!captured.isCurrent()) return;
       toast.success("Rule run started for selected messages");
       exitBulkMode();
     } catch (error) {
+      if (!captured.isCurrent()) return;
       toast.error(
         error instanceof Error ? error.message : "Could not start the rule run",
       );
     } finally {
-      setRuleRunLoading(false);
-      setPendingRule(null);
+      if (mountedRef.current && captured.isPrincipalCurrent())
+        setRuleRunLoading(false);
+      if (captured.isCurrent()) setPendingRule(null);
     }
   }, [
     accountIdForActions,
+    captureBulkScope,
+    validateSelectedMessages,
     exitBulkMode,
     pendingRule,
     selectedFolder,
@@ -1444,8 +1674,9 @@ export function MobileInboxScreen() {
       return;
     }
     void runBulkOperation(
-      async () => {
+      async (captured) => {
         for (const message of selectedMessages) {
+          if (!captured.isCurrent()) return;
           const accountId =
             resolveMessageAccountId(message, accounts, selectedAccount) ??
             accountIdForActions;
@@ -1511,17 +1742,19 @@ export function MobileInboxScreen() {
       return;
     }
     void runBulkOperation(
-      async () => {
+      async (captured) => {
         for (const message of selectedMessages) {
+          if (!captured.isCurrent()) return;
           const accountId =
             resolveMessageAccountId(message, accounts, selectedAccount) ??
             accountIdForActions;
           if (!accountId) continue;
           const result = await classifyEmails(accountId, [
             {
-              uid:
-                message.uid != null ? String(message.uid) : String(message.id),
-              folder: message.folder || selectedFolder || "INBOX",
+              uid: message.uid,
+
+              uidValidity: message.uidValidity ?? message.uid_validity,
+              folder: message.folder || "",
               subject: message.subject ?? "",
               from: message.from ?? "",
               date: message.date ?? "",
@@ -1818,7 +2051,7 @@ export function MobileInboxScreen() {
                     />
                     Refresh
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setBulkMode(true)}>
+                  <DropdownMenuItem onClick={() => enterBulkMode()}>
                     <CheckSquare className="mr-2 h-4 w-4" aria-hidden="true" />
                     Select
                   </DropdownMenuItem>

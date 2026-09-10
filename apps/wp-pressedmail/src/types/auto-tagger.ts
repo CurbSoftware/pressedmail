@@ -486,6 +486,7 @@ export interface AutoTaggerContextValue {
     accountId: number,
     emails: Array<{
       uid?: string | number;
+      uidValidity?: string | number;
       msg_no?: number;
       folder?: string;
       subject?: string;
@@ -502,6 +503,7 @@ export interface AutoTaggerContextValue {
     accountId: number,
     emails: Array<{
       uid: string | number;
+      uidValidity?: string | number;
       folder: string;
       subject?: string;
       from?: string;

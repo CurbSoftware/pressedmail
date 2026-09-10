@@ -148,16 +148,8 @@ export function SecuritySettingsCard() {
     () => ({
       auto_show_images: preferences.auto_show_images,
       lock_timeout_seconds: lockStatus?.timeout_seconds ?? 0,
-      // Defaults to protected when the status has not loaded, matching the
-      // server: absent preference means protection is on.
-      impersonation_protection_enabled:
-        impersonationStatus?.protection_enabled ?? true,
     }),
-    [
-      preferences.auto_show_images,
-      lockStatus?.timeout_seconds,
-      impersonationStatus?.protection_enabled,
-    ],
+    [preferences.auto_show_images, lockStatus?.timeout_seconds],
   );
   const [draft, setDraft] = useState(savedDraft);
   const [lastSavedDraft, setLastSavedDraft] = useState<
@@ -172,9 +164,7 @@ export function SecuritySettingsCard() {
   const baselineDraft = lastSavedDraft ?? savedDraft;
   const dirty =
     draft.auto_show_images !== baselineDraft.auto_show_images ||
-    draft.lock_timeout_seconds !== baselineDraft.lock_timeout_seconds ||
-    draft.impersonation_protection_enabled !==
-      baselineDraft.impersonation_protection_enabled;
+    draft.lock_timeout_seconds !== baselineDraft.lock_timeout_seconds;
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -424,41 +414,6 @@ export function SecuritySettingsCard() {
               __("Failed to update the lock timeout", "pressedmail"),
           );
         }
-      }
-
-      if (
-        nextDraft.impersonation_protection_enabled !==
-        previousDraft.impersonation_protection_enabled
-      ) {
-        const response = await apiFetch(
-          `${getApiUrl()}${getRuntimeRestNamespace()}/security/impersonation-protection`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              enabled: nextDraft.impersonation_protection_enabled,
-            }),
-          },
-        );
-        const data = await response.json();
-
-        if (data.status !== "success") {
-          throw new Error(
-            data.message ||
-              __("Failed to update switched-user protection", "pressedmail"),
-          );
-        }
-
-        // Seed from the server's read-back, not the draft: savedDraft depends
-        // on this value, so a disagreement would visibly bounce the switch.
-        setImpersonationStatus((previous) =>
-          previous
-            ? {
-                ...previous,
-                protection_enabled: data.protection_enabled === true,
-              }
-            : previous,
-        );
       }
 
       if (nextDraft.auto_show_images !== previousDraft.auto_show_images) {
@@ -778,43 +733,28 @@ export function SecuritySettingsCard() {
               <div className="flex min-w-0 gap-3">
                 <UserX className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="space-y-1">
-                  <Label
-                    htmlFor="impersonation-protection"
-                    className="text-sm font-medium cursor-pointer">
-                    {__("Block admin impersonation access", "pressedmail")}
-                  </Label>
+                  <p className="text-sm font-medium">
+                    {__("Your mailbox stays private", "pressedmail")}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {__(
-                      "When enabled, WordPress admins using user-switching plugins cannot access your email accounts. If you use PressedMail Lock, your passphrase is still required as well.",
+                      "WordPress administrators and switched sessions cannot open your mailbox. Sign in with your own account to read your email.",
                       "pressedmail",
                     )}
                   </p>
                   {impersonationStatus?.is_user_switching && (
                     <p className="text-xs text-warning mt-2 font-medium">
                       {__(
-                        "You are in a switched session. This setting can only be changed from your own login.",
+                        "You are in a switched session. Sign out and use your own login to open your mailbox.",
                         "pressedmail",
                       )}
                     </p>
                   )}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
-                {saveStatus === "saving" && (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                )}
-                <Switch
-                  id="impersonation-protection"
-                  data-test="security-impersonation-toggle"
-                  checked={draft.impersonation_protection_enabled}
-                  onCheckedChange={(checked) =>
-                    updateDraft("impersonation_protection_enabled", checked)
-                  }
-                  // Presentation only. A switched session is refused by the
-                  // endpoint with a 403; that is the actual control.
-                  disabled={impersonationStatus?.is_user_switching === true}
-                />
-              </div>
+              <span className="text-xs text-muted-foreground">
+                {__("Always on", "pressedmail")}
+              </span>
             </div>
 
             {canShowExternalImages && (

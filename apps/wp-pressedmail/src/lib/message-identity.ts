@@ -1,48 +1,121 @@
 import type { EmailAccount, EmailMessage } from "@/types";
 
-function stringifyIdentityPart(value: unknown): string {
-  if (value === null || value === undefined || value === "") {
-    return "";
+/** A UID is meaningful only within this account, physical folder, and generation. */
+export interface MessageIdentityRef {
+  accountId: number;
+  folder: string;
+  uidValidity: string;
+  uid: string;
+}
+
+export type ParsedAccountQualifiedToken =
+  | (MessageIdentityRef & { kind: "message" })
+  | {
+      kind: "legacy-uid";
+      accountId: number;
+      legacyUid: string;
+      uid?: never;
+    }
+  | {
+      kind: "legacy-row";
+      accountId: number;
+      legacyRowId: string;
+      uid?: never;
+    };
+
+function canonicalPositiveInteger(value: unknown): string | null {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : null;
   }
 
-  return String(value);
+  if (typeof value !== "string" || !/^[1-9][0-9]*$/.test(value)) {
+    return null;
+  }
+
+  const numberValue = Number(value);
+  return Number.isSafeInteger(numberValue) && String(numberValue) === value
+    ? value
+    : null;
 }
 
 /**
- * Stable operation identity for a message across inbox modes.
+ * Validate an explicit reference without guessing a folder, generation, or UID.
+ * Folder names are preserved exactly, including case, delimiters, and spaces.
  */
-export function getMessageIdentityKey(message: EmailMessage | null): string {
-  if (!message) return "";
+export function parseMessageIdentityRef(
+  candidate: unknown,
+): MessageIdentityRef | null {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+    return null;
+  }
 
-  return stringifyIdentityPart(
-    message.consolidatedUid ??
-      message.uid ??
-      message.id ??
-      message.msg_no ??
-      "",
-  );
+  const input = candidate as Record<string, unknown>;
+  const accountId = canonicalPositiveInteger(input.accountId);
+  const uidValidity = canonicalPositiveInteger(input.uidValidity);
+  const uid = canonicalPositiveInteger(input.uid);
+  const folder = input.folder;
+
+  if (
+    accountId === null ||
+    uidValidity === null ||
+    uid === null ||
+    Number(uidValidity) > 4294967295 ||
+    Number(uid) > 4294967295 ||
+    typeof folder !== "string" ||
+    folder === "" ||
+    folder.includes("\0")
+  ) {
+    return null;
+  }
+
+  return { accountId: Number(accountId), folder, uidValidity, uid };
 }
 
 /**
- * UI row identity scoped enough for React keys in folder/account message lists.
+ * Read the message's explicit mailbox metadata. Derived consolidated tokens,
+ * display labels, mirror row IDs, and sequence numbers cannot fill missing data.
  */
+export function getMessageIdentityRef(
+  message: EmailMessage | MessageIdentityRef | null,
+  fallbackAccountId?: string | number | null,
+): MessageIdentityRef | null {
+  if (!message) return null;
+
+  const legacyUidValidity =
+    "uid_validity" in message ? message.uid_validity : undefined;
+  const uidValidity = message.uidValidity ?? legacyUidValidity;
+  if (
+    message.uidValidity != null &&
+    legacyUidValidity != null &&
+    canonicalPositiveInteger(message.uidValidity) !==
+      canonicalPositiveInteger(legacyUidValidity)
+  ) {
+    return null;
+  }
+
+  return parseMessageIdentityRef({
+    accountId: message.accountId ?? fallbackAccountId,
+    folder: message.folder,
+    uidValidity,
+    uid: message.uid,
+  });
+}
+
+function serializeMessageIdentity(ref: MessageIdentityRef): string {
+  return JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid]);
+}
+
+/** Complete operation identity, or an empty key when the row must be reloaded. */
+export function getMessageIdentityKey(
+  message: EmailMessage | MessageIdentityRef | null,
+): string {
+  const ref = getMessageIdentityRef(message);
+  return ref ? serializeMessageIdentity(ref) : "";
+}
+
+/** UI rows use the same mailbox identity as selection and operations. */
 export function getMessageRowIdentityKey(message: EmailMessage): string {
-  const account = stringifyIdentityPart(
-    message.accountId ?? message.accountEmail ?? "",
-  );
-  const folder = stringifyIdentityPart(
-    message.folder ?? message.folderLabel ?? "",
-  );
-  const messageId = stringifyIdentityPart(
-    message.consolidatedUid ??
-      message.uid ??
-      message.messageId ??
-      message.id ??
-      message.msg_no ??
-      "",
-  );
-
-  return `account:${account}|folder:${folder}|message:${messageId}`;
+  return getMessageIdentityKey(message);
 }
 
 /**
@@ -62,61 +135,77 @@ export function getMessageListRowKeys(messages: EmailMessage[]): string[] {
 }
 
 /**
- * Account-qualified operation token for bulk/sweep payloads.
- *
- * Multi-account scopes must never send bare numeric ids. A bare number can
- * collide with another account's uid OR mirror-row id. Forms:
- *  - "<accountId>:<uid>"        when the row has a UID
- *  - "<accountId>:id:<rowId>"   when it only has a mirror-row id
- * Falls back to the plain identity key when the account is unknown
- * (single-account flows keep working with legacy tokens).
+ * Complete operation token for bulk/sweep payloads. The optional account is
+ * explicit single-account context; folder and generation must come from the row.
  */
 export function getAccountQualifiedMessageToken(
-  message: EmailMessage | null,
+  message: EmailMessage | MessageIdentityRef | null,
   fallbackAccountId?: string | number | null,
 ): string {
-  if (!message) return "";
-
-  const consolidated = stringifyIdentityPart(message.consolidatedUid ?? "");
-  if (consolidated !== "") {
-    return consolidated;
-  }
-
-  const accountId = Number(message.accountId ?? fallbackAccountId ?? 0);
-  if (!Number.isFinite(accountId) || accountId <= 0) {
-    return getMessageIdentityKey(message);
-  }
-
-  const uid = stringifyIdentityPart(message.uid ?? "");
-  if (uid !== "") {
-    return `${accountId}:${uid}`;
-  }
-
-  const rowId = stringifyIdentityPart(message.id ?? "");
-  if (rowId !== "") {
-    return `${accountId}:id:${rowId}`;
-  }
-
-  return getMessageIdentityKey(message);
-}
-
-/** Parsed account-qualified token (see getAccountQualifiedMessageToken). */
-export function parseAccountQualifiedToken(
-  token: string,
-): { accountId: number; uid?: string; rowId?: string } | null {
-  const rowForm = /^(\d+):id:(\d+)$/.exec(token);
-  if (rowForm) {
-    return { accountId: Number(rowForm[1]), rowId: rowForm[2] };
-  }
-  const uidForm = /^(\d+):(\d+)$/.exec(token);
-  if (uidForm) {
-    return { accountId: Number(uidForm[1]), uid: uidForm[2] };
-  }
-  return null;
+  const ref = getMessageIdentityRef(message, fallbackAccountId);
+  return ref ? serializeMessageIdentity(ref) : "";
 }
 
 /**
- * The message identifier used for API requests and result caching.
+ * Parse complete tuples, accepting equivalent JSON escaping and whitespace.
+ * Encoding always uses the canonical tuple representation.
+ * Legacy values deliberately have no `uid` field: callers must resolve a unique
+ * loaded complete reference or request a reload before making an operation.
+ */
+export function parseAccountQualifiedToken(
+  token: string,
+): ParsedAccountQualifiedToken | null {
+  if (typeof token !== "string") return null;
+
+  if (token.trimStart().startsWith("[")) {
+    try {
+      const tuple: unknown = JSON.parse(token);
+      if (
+        !Array.isArray(tuple) ||
+        tuple.length !== 4 ||
+        typeof tuple[0] !== "number" ||
+        typeof tuple[1] !== "string" ||
+        typeof tuple[2] !== "string" ||
+        typeof tuple[3] !== "string"
+      ) {
+        return null;
+      }
+
+      const ref = parseMessageIdentityRef({
+        accountId: tuple[0],
+        folder: tuple[1],
+        uidValidity: tuple[2],
+        uid: tuple[3],
+      });
+      return ref ? { kind: "message", ...ref } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  const legacy = /^([1-9][0-9]*):(id:)?([1-9][0-9]*)$/.exec(token);
+  if (!legacy || legacy[0] !== token) return null;
+  const accountId = canonicalPositiveInteger(legacy[1]);
+  const identifier = canonicalPositiveInteger(legacy[3]);
+  if (accountId === null || identifier === null) return null;
+
+  if (legacy[2]) {
+    return {
+      kind: "legacy-row",
+      accountId: Number(accountId),
+      legacyRowId: identifier,
+    };
+  }
+  return {
+    kind: "legacy-uid",
+    accountId: Number(accountId),
+    legacyUid: identifier,
+  };
+}
+
+/**
+ * Raw provider identifier for existing wire contracts, never a safe cache or
+ * operation identity by itself. Mutations must also carry a complete reference.
  *
  * Lived in `lib/phishing-email.ts` until the edition split needed it: shared
  * inbox components use it regardless of edition, so keeping it in a phishing

@@ -1,3 +1,8 @@
+import {
+  getPrincipalStorageItem,
+  removePrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Sync Service Implementation
  *
@@ -29,6 +34,11 @@ import { serializeConsolidatedAccountIds } from "@/lib/consolidated-account-scop
 import { serializeConsolidatedFolderMap } from "@/lib/consolidated-folder-map";
 import { apiFetch, SessionExpiredError, isAbortError } from "@/lib/api-client";
 import { parseConsolidatedAccountReadiness } from "@/lib/consolidated-account-readiness";
+import type { EmailMessage } from "@/types";
+import {
+  getMessageIdentityKey,
+  parseAccountQualifiedToken,
+} from "@/lib/message-identity";
 import { getConnectionStateService } from "./connection-state.service";
 
 const SYNC_TOKENS_KEY = "pressedmail-sync-tokens";
@@ -62,19 +72,21 @@ async function buildHttpError(response: Response): Promise<Error> {
 }
 
 function normalizeUpdatedItem(item: Record<string, unknown>) {
-  // Combined-inbox rows carry a consolidatedUid ("<accountId>:<uid>") instead
-  // of a localId, the same flat summary shape as a single-account row, just
-  // with that extra key. It must outrank the bare uid/id so applyDiff's
-  // consolidated-mode message-map lookup (keyed by consolidatedUid) can find
-  // the row; for a single-account row consolidatedUid is undefined and the
-  // fallback chain proceeds unchanged.
+  const explicitId = item.localId ?? item.local_id;
+  const explicit =
+    typeof explicitId === "string"
+      ? parseAccountQualifiedToken(explicitId)
+      : null;
+  const messageKey = getMessageIdentityKey(item as unknown as EmailMessage);
+  const explicitKey =
+    explicit?.kind === "message" ? getMessageIdentityKey(explicit) : "";
+  // Invalid updates remain visible to InboxService's full-refresh guard.
   const localId =
-    item.localId ??
-    item.local_id ??
-    item.consolidatedUid ??
-    item.uid ??
-    item.id ??
-    item.messageId;
+    explicitId != null
+      ? explicitKey && (!messageKey || explicitKey === messageKey)
+        ? explicitKey
+        : ""
+      : messageKey;
   const changes =
     item.changes && typeof item.changes === "object"
       ? (item.changes as Record<string, unknown>)
@@ -117,8 +129,7 @@ function normalizeDelta(
         (item): item is Record<string, unknown> =>
           Boolean(item) && typeof item === "object",
       )
-      .map(normalizeUpdatedItem)
-      .filter((item) => item.localId.length > 0),
+      .map(normalizeUpdatedItem),
     deleted: rawDeleted.map((item) => String(item)),
     total: Number(payload.total ?? payload.num_messages ?? 0),
     unread: Number(payload.unread ?? 0),
@@ -135,23 +146,10 @@ function normalizeDelta(
   };
 }
 
-/**
- * Local identity candidates for an added row, matching applyDiff's
- * getMessageLocalId: the consolidated id ("<accountId>:<uid>") plus the bare
- * uid/id. Used to drop a row that a LATER drained page tombstones.
- */
+/** A tombstone can remove only its complete physical message identity. */
 function addedRowIdentityKeys(item: Record<string, unknown>): string[] {
-  const keys: string[] = [];
-  if (item.consolidatedUid !== undefined && item.consolidatedUid !== null) {
-    keys.push(String(item.consolidatedUid));
-  }
-  if (item.uid !== undefined && item.uid !== null) {
-    keys.push(String(item.uid));
-  }
-  if (item.id !== undefined && item.id !== null) {
-    keys.push(String(item.id));
-  }
-  return keys;
+  const key = getMessageIdentityKey(item as unknown as EmailMessage);
+  return key ? [key] : [];
 }
 
 /**
@@ -832,10 +830,10 @@ export class SyncService implements ISyncService {
   }
 
   private loadStoredState(): void {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
-      const tokensData = sessionStorage.getItem(SYNC_TOKENS_KEY);
+      const tokensData = getPrincipalStorageItem("session", SYNC_TOKENS_KEY);
       if (tokensData) {
         const tokens = JSON.parse(tokensData) as Record<string, string>;
         for (const [key, value] of Object.entries(tokens)) {
@@ -843,7 +841,7 @@ export class SyncService implements ISyncService {
         }
       }
 
-      const statesData = sessionStorage.getItem(SYNC_STATE_KEY);
+      const statesData = getPrincipalStorageItem("session", SYNC_STATE_KEY);
       if (statesData) {
         const states = JSON.parse(statesData) as Record<
           string,
@@ -862,14 +860,16 @@ export class SyncService implements ISyncService {
   }
 
   private saveStoredState(): void {
-    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (typeof window === "undefined") return;
 
     try {
-      sessionStorage.setItem(
+      setPrincipalStorageItem(
+        "session",
         SYNC_TOKENS_KEY,
         JSON.stringify(Object.fromEntries(this._syncTokens.entries())),
       );
-      sessionStorage.setItem(
+      setPrincipalStorageItem(
+        "session",
         SYNC_STATE_KEY,
         JSON.stringify(Object.fromEntries(this._folderStates.entries())),
       );
@@ -890,9 +890,9 @@ export class SyncService implements ISyncService {
     this._lastSyncTime = null;
     this._syncError = null;
 
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      sessionStorage.removeItem(SYNC_TOKENS_KEY);
-      sessionStorage.removeItem(SYNC_STATE_KEY);
+    if (typeof window !== "undefined") {
+      removePrincipalStorageItem("session", SYNC_TOKENS_KEY);
+      removePrincipalStorageItem("session", SYNC_STATE_KEY);
     }
   }
 

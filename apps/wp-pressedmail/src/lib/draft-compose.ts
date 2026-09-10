@@ -50,6 +50,21 @@ export function isDraftMessage(
   );
 }
 
+export function hasDraftComposeDetail(message: EmailMessage): boolean {
+  const bodyState = message.bodyState ?? message.body_state;
+  if (bodyState === "pending" || bodyState === "partial") return false;
+  if (bodyState === "full") return true;
+
+  // Older complete detail/cache records can omit bodyState. An explicit empty
+  // MIME body is still a saved draft; list summaries omit these fields.
+  return [
+    message.htmlBody,
+    message.plainBody,
+    message.textBody,
+    message.body,
+  ].some((body) => typeof body === "string");
+}
+
 export function getDraftComposeData(
   message: EmailMessage,
   selectedFolder: string | null | undefined,
@@ -115,6 +130,8 @@ export function getDraftComposeData(
       : Array.isArray(message.contact_lists)
         ? message.contact_lists
         : [],
+    inReplyTo: message.inReplyTo,
+    references: message.references,
     subject: message.subject ?? "",
     body,
     contentType,
@@ -166,6 +183,8 @@ export function getDraftComposeSignature(
     accountId: draft.draftAccountId,
     uidValidity: draft.draftUidValidity,
     draftMessageId: draft.draftMessageId,
+    inReplyTo: draft.inReplyTo,
+    references: draft.references,
     attachmentManifestComplete: draft.draftAttachmentManifestComplete,
     to: draft.to,
     cc: draft.cc,

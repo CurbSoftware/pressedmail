@@ -3,9 +3,18 @@ import {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   Dispatch,
   SetStateAction,
 } from "react";
+
+import {
+  captureStoragePrincipal,
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+  getPrincipalStorageKey,
+  isStoragePrincipalCurrent,
+} from "@/lib/principal-storage";
 
 const prefixedKey = "pressedmail-";
 
@@ -14,6 +23,7 @@ const prefixedKey = "pressedmail-";
 let instanceCounter = 0;
 
 export interface UseLocalStorageOptions<T> {
+  principalScoped?: boolean;
   /** Map an in-memory value to its JSON-safe persisted representation. */
   toStorage?: (value: T) => unknown;
   /** Notify the owner before another hook or tab replaces the value. */
@@ -32,7 +42,12 @@ export default function useLocalStorage<T>(
   initialValue: T | (() => T),
   options?: UseLocalStorageOptions<T>,
 ): [T, Dispatch<SetStateAction<T>>] {
-  const prefixedKeyCombined = prefixedKey + key;
+  const logicalKey = prefixedKey + key;
+  const scoped = options?.principalScoped === true;
+  const principal = useMemo(() => captureStoragePrincipal(), []);
+  const prefixedKeyCombined = scoped
+    ? getPrincipalStorageKey(logicalKey, principal)
+    : logicalKey;
 
   // Unique instance ID to prevent handling our own events
   // Uses useMemo with empty deps to generate ID only once per hook instance
@@ -41,7 +56,14 @@ export default function useLocalStorage<T>(
 
   // Helper to read from localStorage
   const readValue = useCallback((): T => {
-    const storedValue = localStorage.getItem(prefixedKeyCombined);
+    let storedValue: string | null = null;
+    try {
+      storedValue = scoped
+        ? getPrincipalStorageItem("local", logicalKey, principal)
+        : localStorage.getItem(logicalKey);
+    } catch {
+      /* Storage can be disabled. Keep the in-memory value usable. */
+    }
     let data: T | null;
 
     // Try to parse JSON, fallback to raw value
@@ -61,25 +83,40 @@ export default function useLocalStorage<T>(
     } else {
       return initialValue;
     }
-  }, [prefixedKeyCombined, initialValue]);
+  }, [scoped, logicalKey, principal, initialValue]);
 
   const [value, setValue] = useState<T>(readValue);
+  const previousKey = useRef(logicalKey);
+  if (previousKey.current !== logicalKey) {
+    previousKey.current = logicalKey;
+    setValue(readValue());
+  }
 
   // Write to localStorage when value changes
   const toStorage = options?.toStorage;
   const onExternalChange = options?.onExternalChange;
   useEffect(() => {
     if (value == null) return;
-    localStorage.setItem(
-      prefixedKeyCombined,
-      JSON.stringify(toStorage ? toStorage(value) : value),
-    );
-  }, [prefixedKeyCombined, value, toStorage]);
+    try {
+      const serialized = JSON.stringify(toStorage ? toStorage(value) : value);
+      if (scoped)
+        setPrincipalStorageItem("local", logicalKey, serialized, principal);
+      else localStorage.setItem(logicalKey, serialized);
+    } catch {
+      /* Quota failures do not prevent editing. */
+    }
+  }, [scoped, logicalKey, principal, value, toStorage]);
 
   // Listen for storage events to sync across components/tabs
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === prefixedKeyCombined && event.newValue !== null) {
+      if (prefixedKeyCombined && event.key === prefixedKeyCombined) {
+        if (scoped && !isStoragePrincipalCurrent(principal)) return;
+        if (event.newValue === null) {
+          onExternalChange?.();
+          setValue(readValue());
+          return;
+        }
         try {
           const newValue = JSON.parse(event.newValue) as T;
           onExternalChange?.();
@@ -100,7 +137,9 @@ export default function useLocalStorage<T>(
       event: CustomEvent<{ key: string; value: T; sourceId?: string }>,
     ) => {
       if (
+        prefixedKeyCombined &&
         event.detail.key === prefixedKeyCombined &&
+        (!scoped || isStoragePrincipalCurrent(principal)) &&
         event.detail.sourceId !== instanceId
       ) {
         onExternalChange?.();
@@ -120,7 +159,14 @@ export default function useLocalStorage<T>(
         handleCustomStorageChange as EventListener,
       );
     };
-  }, [prefixedKeyCombined, instanceId, onExternalChange]);
+  }, [
+    prefixedKeyCombined,
+    instanceId,
+    onExternalChange,
+    scoped,
+    principal,
+    readValue,
+  ]);
 
   // Custom setValue that also dispatches custom event for same-tab sync
   const setValueWithSync: Dispatch<SetStateAction<T>> = useCallback(
@@ -134,6 +180,11 @@ export default function useLocalStorage<T>(
         // Defer custom event dispatch to avoid updating other components during render.
         // Using queueMicrotask ensures the event fires after the current render cycle.
         queueMicrotask(() => {
+          if (
+            !prefixedKeyCombined ||
+            (scoped && !isStoragePrincipalCurrent(principal))
+          )
+            return;
           window.dispatchEvent(
             new CustomEvent("pressedmail-storage-change", {
               detail: {
@@ -148,7 +199,7 @@ export default function useLocalStorage<T>(
         return resolvedValue;
       });
     },
-    [prefixedKeyCombined, instanceId],
+    [prefixedKeyCombined, instanceId, scoped, principal],
   );
 
   return [value, setValueWithSync];

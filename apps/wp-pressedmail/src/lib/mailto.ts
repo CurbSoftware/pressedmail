@@ -14,6 +14,29 @@ const EMPTY_MAILTO_FIELDS: MailtoComposeFields = {
   body: "",
 };
 
+/** Strip only an external compose payload, preserving all other route fields. */
+export function consumeComposeRouteSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of [
+    "mailto",
+    "pm_share_target",
+    "pm_share_title",
+    "pm_share_text",
+    "pm_share_url",
+  ]) {
+    params.delete(key);
+  }
+  return params.size ? `?${params}` : "";
+}
+
+export function buildMailtoHandlerUrl(currentUrl: string): string {
+  const url = new URL(currentUrl);
+  url.searchParams.delete("pm_mailto");
+  url.hash = "";
+  // The browser needs a literal %s placeholder, not URLSearchParams' %25s.
+  return `${url.href}${url.search ? "&" : "?"}pm_mailto=%s#/compose`;
+}
+
 function safeDecode(value: string): string {
   try {
     return decodeURIComponent(value.replace(/\+/g, " "));
@@ -61,4 +84,17 @@ export function parseShareTargetComposeParams(
     subject: title,
     body,
   };
+}
+
+export function parseComposeRouteFields(
+  routeSearch: string,
+  pageSearch: string,
+): MailtoComposeFields {
+  const routeParams = new URLSearchParams(routeSearch);
+  const pageParams = new URLSearchParams(pageSearch);
+  const mailto = routeParams.get("mailto") || pageParams.get("pm_mailto");
+  if (mailto) return parseMailtoComposeUrl(mailto);
+
+  routeParams.forEach((value, key) => pageParams.set(key, value));
+  return parseShareTargetComposeParams(pageParams);
 }

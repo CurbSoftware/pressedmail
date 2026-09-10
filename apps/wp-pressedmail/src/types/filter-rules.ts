@@ -203,6 +203,7 @@ export interface FilterMatchResult {
 }
 
 export interface FilterRuleRunRef {
+  uidValidity: string;
   accountId: number;
   uid: string;
   folder: string;
@@ -261,6 +262,7 @@ export interface FilterRuleRunJob {
   processedCount?: number;
   changedCount?: number;
   failedCount?: number;
+  skippedCount?: number;
   requiresSync?: boolean;
   cancelRequested?: boolean;
   errorMessage?: string;
@@ -369,8 +371,7 @@ export function ruleRunsOnReceive(rule: Pick<FilterRule, "runTriggers">) {
 
 /**
  * Actions a rule can still carry but that nothing executes, on either side.
- * The client engine ignores them (see applyRuleActionsToMessages) and the
- * server lists the same set in FilterRuleMatcher::UNSUPPORTED_ACTION_TYPES, so
+ * The server lists them in FilterRuleMatcher::UNSUPPORTED_ACTION_TYPES, so
  * the editor hides them rather than letting people save a rule that does
  * nothing. They keep their labels so rules stored before this list still read
  * correctly.
@@ -388,6 +389,45 @@ export const UNIMPLEMENTED_ACTIONS: FilterActionType[] = [
 
 export function isUnimplementedAction(action: FilterActionType): boolean {
   return UNIMPLEMENTED_ACTIONS.includes(action);
+}
+
+/**
+ * Condition fields the SERVER run engine cannot evaluate.
+ *
+ * Mirrors FilterRuleMatcher::UNSUPPORTED_CONDITION_FIELDS. The mirror stores a
+ * truncated snippet, not the message body, and no size at all. These rules are
+ * deliberately still creatable for manual use, because the browser holds the
+ * full message and can match them: see test-filter-rule-production-safety.php.
+ * They just cannot run on cron or through "Run rules now".
+ */
+export const SERVER_UNSUPPORTED_CONDITION_FIELDS: FilterConditionField[] = [
+  "body",
+  "size",
+];
+
+/**
+ * Whether the server run engine will execute this rule, or skip it.
+ *
+ * Mirrors FilterRuleMatcher::is_rule_runnable. "Run rules now" posts to the
+ * server, so a rule that fails this check does nothing there while Organize
+ * still applies it in the browser. Use it to say so, not to hide the rule.
+ */
+export function ruleRunsOnServer(
+  rule: Pick<FilterRule, "conditions" | "actions">,
+): boolean {
+  const conditions = rule.conditions ?? [];
+  const actions = rule.actions ?? [];
+
+  if (
+    conditions.some((c) => SERVER_UNSUPPORTED_CONDITION_FIELDS.includes(c.field))
+  ) {
+    return false;
+  }
+  if (actions.some((a) => isUnimplementedAction(a.type))) {
+    return false;
+  }
+
+  return actions.length > 0;
 }
 
 /**

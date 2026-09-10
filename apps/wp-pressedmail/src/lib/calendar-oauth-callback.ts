@@ -22,6 +22,7 @@ export interface SyncOAuthCallbackMessage {
   type: string;
   provider: string;
   code: string | null;
+  state: string | null;
   error: string | null;
 }
 
@@ -44,6 +45,7 @@ export function maybeForwardCalendarOAuthCallback(): boolean {
     type: messageType,
     provider: params.get("provider") ?? "",
     code: params.get("code"),
+    state: params.get("state"),
     error: params.get("error"),
   };
 

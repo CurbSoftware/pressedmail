@@ -14,6 +14,7 @@ import {
   usePlateEditor,
 } from "@kit/plate/react";
 import type { Value, Descendant } from "@kit/plate";
+import { TextApi } from "@kit/plate";
 import {
   createPlateEmailChangeCallbacks,
   createPlateEmailEditorPluginKit,
@@ -29,6 +30,7 @@ import {
 
 import { cn } from "@/lib/utils";
 import { ComposerReactPlugins } from "./plate-composer-react-kit";
+import { getComposerDomHtml } from "./plate-composer-dom";
 import { ComposerAIKit } from "@/components/composer/plate/ai-kit.active";
 import { ComposerCopilotKit } from "@/components/composer/plate/copilot-kit.active";
 import {
@@ -98,6 +100,27 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       [aiEnabled],
     );
 
+    const setDocumentValue = useCallback(
+      (value: Value) => {
+        // HTML deserialization returns an insertable fragment. A saved body made
+        // only of div/span wrappers can therefore contain root text or links,
+        // which Slate removes when used as the entire document. Wrap that inline
+        // fragment once; existing block documents keep their structure.
+        const fragment = value as Descendant[];
+        const inlineOnly =
+          fragment.length > 0 &&
+          fragment.every(
+            (node) => TextApi.isText(node) || editor.api.isInline(node),
+          );
+        editor.tf.setValue(
+          inlineOnly
+            ? ([{ type: editor.getType("p"), children: fragment }] as Value)
+            : value,
+        );
+      },
+      [editor],
+    );
+
     // Keep latest callbacks without re-subscribing the editor.
     const onChangeRef = useRef(onChange);
     const onValueChangeRef = useRef(onValueChange);
@@ -142,7 +165,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       if (editor) {
         editorController.hydrateInitialHtml(initialHtml, {
           deserializer: editor.api.html,
-          setValue: (value) => editor.tf.setValue(value as Value),
+          setValue: setDocumentValue,
         });
       }
     }, []);
@@ -152,11 +175,11 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       if (!editor) return;
       const editorRef = createPlateEmailEditorRef<Value, Descendant>({
         controller: editorController,
-        getDomHtml: () => contentContainerRef.current?.innerHTML ?? null,
+        getDomHtml: () => getComposerDomHtml(contentContainerRef.current),
         getPlainText: () =>
           serializePlateValueToPlainText(editor.children as Value),
         deserializer: editor.api.html,
-        setValue: (value) => editor.tf.setValue(value as Value),
+        setValue: setDocumentValue,
         insertNodes: (value) => editor.tf.insertNodes(value),
         insertText: (text) => editor.tf.insertText(text),
         getSelection: () => editor.selection,
@@ -169,7 +192,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
         onReady: onReadyRef.current,
         forwardedRef: ref,
       });
-    }, [editor, ref, editorController]);
+    }, [editor, ref, editorController, setDocumentValue]);
 
     const handleContainerClick = useCallback(
       (event: React.MouseEvent<HTMLDivElement>) => {

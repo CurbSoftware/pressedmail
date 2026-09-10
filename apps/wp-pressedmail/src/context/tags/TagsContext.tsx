@@ -21,13 +21,16 @@ import type {
   CreateTagData,
   UpdateTagData,
   TagsResponse,
-  TagResponse,
   TagOperationResponse,
-  BatchOperationResponse,
   MessageIdentifier,
 } from "../../types/tags";
 import { routeApiPrefix, buildApiUrl } from "../Strings";
-import { apiFetch } from "@/lib/api-client";
+import { apiFetch, SessionExpiredError } from "@/lib/api-client";
+import { parseMessageIdentityRef } from "@/lib/message-identity";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 
 const TagsContext = createContext<TagsContextValue | undefined>(undefined);
 
@@ -56,6 +59,92 @@ const getApiHeaders = (): HeadersInit => {
     "Content-Type": "application/json",
   };
 };
+
+/** Snapshot an explicit physical mailbox reference before starting a request. */
+function requireMessageIdentifier(
+  message: MessageIdentifier,
+): MessageIdentifier {
+  const ref = parseMessageIdentityRef({
+    accountId: message?.account_id,
+    uid: message?.message_uid,
+    folder: message?.folder,
+    uidValidity: message?.uid_validity,
+  });
+  if (!ref || Array.isArray(message)) {
+    throw Object.assign(
+      new Error("Reload the mailbox before changing or loading message tags."),
+      { code: "message_identity_conflict", requiresRefresh: true },
+    );
+  }
+  return {
+    account_id: ref.accountId,
+    message_uid: ref.uid,
+    folder: ref.folder,
+    uid_validity: ref.uidValidity,
+  };
+}
+
+function requireMessageBatch(
+  messages: MessageIdentifier[],
+): MessageIdentifier[] {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error("Select messages before changing their tags.");
+  }
+  // Validate the entire batch, including sparse entries, before any HTTP request.
+  return Array.from(messages, requireMessageIdentifier);
+}
+
+async function postMessageTagOperation(
+  path: string,
+  payload: object,
+  failureMessage: string,
+): Promise<Record<string, unknown>> {
+  const principal = captureRequestPrincipal();
+  const response = await apiFetch(`${getApiUrl()}/tags/${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: getApiHeaders(),
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json();
+  // Body parsing can finish after logout or a cross-tab account change.
+  if (!isRequestPrincipalCurrent(principal)) throw new SessionExpiredError();
+  if (!response.ok || result?.status !== "success") {
+    throw Object.assign(
+      new Error(
+        typeof result?.message === "string" && result.message
+          ? result.message
+          : failureMessage,
+      ),
+      { code: result?.code, status: response.status },
+    );
+  }
+  return result;
+}
+
+function requireBatchResults(
+  result: Record<string, unknown>,
+  messageCount: number,
+): { success: number; failed: number } {
+  const counts = result.results as {
+    success?: unknown;
+    failed?: unknown;
+  } | null;
+  if (
+    typeof counts?.success !== "number" ||
+    !Number.isSafeInteger(counts.success) ||
+    counts.success < 0 ||
+    typeof counts.failed !== "number" ||
+    !Number.isSafeInteger(counts.failed) ||
+    counts.failed < 0 ||
+    counts.success + counts.failed !== messageCount
+  ) {
+    throw new Error(
+      "The tag result was incomplete. Refresh the mailbox to check its tags.",
+    );
+  }
+  return { success: counts.success, failed: counts.failed };
+}
 
 /**
  * Tags Provider Component
@@ -197,25 +286,20 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       tagId: number,
       accountId: number,
       messageUid: string,
-      folder: string = "INBOX",
+      folder: string,
+      uidValidity: string,
     ): Promise<void> => {
-      const response = await apiFetch(`${getApiUrl()}/tags/assign`, {
-        method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          tag_id: tagId,
-          account_id: accountId,
-          message_uid: messageUid,
-          folder,
-        }),
+      const message = requireMessageIdentifier({
+        account_id: accountId,
+        message_uid: messageUid,
+        folder,
+        uid_validity: uidValidity,
       });
-
-      const result: TagOperationResponse = await response.json();
-
-      if (result.status === "error") {
-        throw new Error(result.message || "Failed to assign tag");
-      }
+      await postMessageTagOperation(
+        "assign",
+        { tag_id: tagId, ...message },
+        "Failed to assign tag",
+      );
     },
     [],
   );
@@ -228,25 +312,20 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       tagId: number,
       accountId: number,
       messageUid: string,
-      folder: string = "INBOX",
+      folder: string,
+      uidValidity: string,
     ): Promise<void> => {
-      const response = await apiFetch(`${getApiUrl()}/tags/remove`, {
-        method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          tag_id: tagId,
-          account_id: accountId,
-          message_uid: messageUid,
-          folder,
-        }),
+      const message = requireMessageIdentifier({
+        account_id: accountId,
+        message_uid: messageUid,
+        folder,
+        uid_validity: uidValidity,
       });
-
-      const result: TagOperationResponse = await response.json();
-
-      if (result.status === "error") {
-        throw new Error(result.message || "Failed to remove tag");
-      }
+      await postMessageTagOperation(
+        "remove",
+        { tag_id: tagId, ...message },
+        "Failed to remove tag",
+      );
     },
     [],
   );
@@ -259,20 +338,13 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       tagId: number,
       messages: MessageIdentifier[],
     ): Promise<{ success: number; failed: number }> => {
-      const response = await apiFetch(`${getApiUrl()}/tags/batch/assign`, {
-        method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
-        body: JSON.stringify({ tag_id: tagId, messages }),
-      });
-
-      const result: BatchOperationResponse = await response.json();
-
-      if (result.status === "error") {
-        throw new Error(result.message || "Failed to assign tag");
-      }
-
-      return result.results ?? { success: 0, failed: 0 };
+      const refs = requireMessageBatch(messages);
+      const result = await postMessageTagOperation(
+        "batch/assign",
+        { tag_id: tagId, messages: refs },
+        "Failed to assign tag",
+      );
+      return requireBatchResults(result, refs.length);
     },
     [],
   );
@@ -285,20 +357,13 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       tagId: number,
       messages: MessageIdentifier[],
     ): Promise<{ success: number; failed: number }> => {
-      const response = await apiFetch(`${getApiUrl()}/tags/batch/remove`, {
-        method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
-        body: JSON.stringify({ tag_id: tagId, messages }),
-      });
-
-      const result: BatchOperationResponse = await response.json();
-
-      if (result.status === "error") {
-        throw new Error(result.message || "Failed to remove tag");
-      }
-
-      return result.results ?? { success: 0, failed: 0 };
+      const refs = requireMessageBatch(messages);
+      const result = await postMessageTagOperation(
+        "batch/remove",
+        { tag_id: tagId, messages: refs },
+        "Failed to remove tag",
+      );
+      return requireBatchResults(result, refs.length);
     },
     [],
   );
@@ -310,25 +375,25 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
     async (
       accountId: number,
       messageUid: string,
-      folder: string = "INBOX",
+      folder: string,
+      uidValidity: string,
     ): Promise<Tag[]> => {
-      const response = await apiFetch(`${getApiUrl()}/tags/message`, {
-        method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
-        body: JSON.stringify({
-          account_id: accountId,
-          message_uid: messageUid,
-          folder,
-        }),
+      const message = requireMessageIdentifier({
+        account_id: accountId,
+        message_uid: messageUid,
+        folder,
+        uid_validity: uidValidity,
       });
-
-      const result = await response.json();
-
-      if (result.status === "error") {
-        throw new Error(result.message || "Failed to get message tags");
+      const result = await postMessageTagOperation(
+        "message",
+        message,
+        "Failed to get message tags",
+      );
+      if (!Array.isArray(result.tags)) {
+        throw new Error(
+          "The message tag result was incomplete. Refresh the mailbox.",
+        );
       }
-
       return result.tags;
     },
     [],

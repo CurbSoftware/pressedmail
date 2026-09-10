@@ -1,3 +1,4 @@
+import { parseMessageIdentityRef } from "@/lib/message-identity";
 import React from "react";
 import { __ } from "@wordpress/i18n";
 import { cn } from "@/lib/utils";
@@ -14,6 +15,7 @@ interface EmailSandboxProps {
    */
   accountId?: number | null;
   uid?: string | number | null;
+  uidValidity?: string | number | null;
   folder?: string | null;
   /**
    * Preview mode: raw HTML for in-memory previews (composer, signatures).
@@ -46,11 +48,12 @@ interface EmailSandboxProps {
  * - CSS cannot escape the iframe (no overlay attacks on WP admin)
  * - All links open in new tabs via <base target="_blank">
  * - DOMPurify sanitization as defense-in-depth before iframe
- * - External images blocked by default (tracking pixel protection)
+ * - All remote resources blocked by default (tracking protection)
  */
 export function EmailSandbox({
   accountId,
   uid,
+  uidValidity,
   folder,
   html,
   className,
@@ -58,9 +61,13 @@ export function EmailSandbox({
   onBlockedImageCount,
   bodyBackgroundColor,
 }: EmailSandboxProps) {
-  const useEndpoint = Boolean(
-    accountId != null && uid != null && String(uid) !== "",
-  );
+  const reference = parseMessageIdentityRef({
+    accountId,
+    uid,
+    uidValidity,
+    folder,
+  });
+  const useEndpoint = Boolean(reference);
 
   const themeColors = useThemeColorsForSandbox();
   const chromeColors = useSandboxChromeColors();
@@ -106,8 +113,16 @@ export function EmailSandbox({
       themeColors,
       bodyBackgroundColor,
       chromeColors,
+      showExternalImages,
     );
-  }, [bodyBackgroundColor, chromeColors, processedHtml, themeColors, useEndpoint]);
+  }, [
+    bodyBackgroundColor,
+    chromeColors,
+    processedHtml,
+    showExternalImages,
+    themeColors,
+    useEndpoint,
+  ]);
 
   // ---- Endpoint mode ----
   const src = React.useMemo(() => {
@@ -116,7 +131,8 @@ export function EmailSandbox({
       {
         accountId: accountId!,
         uid: String(uid),
-        folder: folder ?? "INBOX",
+        uidValidity: String(uidValidity),
+        folder: folder!,
         showImages: showExternalImages,
         colors: themeColors,
         chromeColors,
@@ -126,6 +142,7 @@ export function EmailSandbox({
   }, [
     accountId,
     uid,
+    uidValidity,
     folder,
     showExternalImages,
     chromeColors,
@@ -133,6 +150,13 @@ export function EmailSandbox({
     runtimeNonce,
     useEndpoint,
   ]);
+
+  if (accountId != null && !reference)
+    return (
+      <p role="status">
+        {__("Reload the mailbox to view this message.", "pressedmail")}
+      </p>
+    );
 
   return (
     <div className={cn("flex flex-col flex-1 min-h-0", className)}>
@@ -157,6 +181,7 @@ export function EmailSandbox({
 interface IframeUrlOpts {
   accountId: number;
   uid: string;
+  uidValidity: string;
   folder: string;
   showImages: boolean;
   colors: SandboxThemeColors;
@@ -170,6 +195,7 @@ export function buildIframeEndpointUrl(
   const base = getPluginRestBase();
   const params = new URLSearchParams({
     uid: opts.uid,
+    uid_validity: opts.uidValidity,
     folder: opts.folder,
     show_images: opts.showImages ? "1" : "0",
     theme_bg: opts.colors.background,
@@ -310,7 +336,11 @@ export function buildSandboxDocument(
   colors: SandboxThemeColors,
   bodyBackgroundColor?: string,
   chromeColors: SandboxChromeColors = DEFAULT_SANDBOX_CHROME_COLORS,
+  showExternalImages = false,
 ): string {
+  // CSS images obey img-src too. Remote stylesheets and fonts stay blocked even
+  // after image reveal because they have no authenticated proxy transformation.
+  const imageSources = showExternalImages ? "data: cid: https:" : "data: cid:";
   const explicitBodyBg =
     typeof bodyBackgroundColor === "string" &&
     HEX_COLOR_PATTERN.test(bodyBackgroundColor)
@@ -337,7 +367,7 @@ export function buildSandboxDocument(
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: cid: https:; style-src 'unsafe-inline' https:; font-src data: https:; base-uri 'none'; form-action 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; media-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${imageSources}; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'; script-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; media-src 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <base target="_blank">

@@ -1,5 +1,10 @@
 "use client";
 
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
+
 /**
  * Search Command Menu Context
  *
@@ -109,12 +114,16 @@ export function SearchCommandMenuProvider({
         try {
           const key = "pressedmail_recent_searches";
           const recent = JSON.parse(
-            localStorage.getItem(key) || "[]",
+            getPrincipalStorageItem("local", key) || "[]",
           ) as string[];
           const searchTerm = term ?? search.searchTerm;
           if (searchTerm && !recent.includes(searchTerm)) {
             recent.unshift(searchTerm);
-            localStorage.setItem(key, JSON.stringify(recent.slice(0, 10)));
+            setPrincipalStorageItem(
+              "local",
+              key,
+              JSON.stringify(recent.slice(0, 10)),
+            );
           }
         } catch {
           /* ignore localStorage errors */
@@ -123,7 +132,8 @@ export function SearchCommandMenuProvider({
       getRecentSearches: (): string[] => {
         try {
           return JSON.parse(
-            localStorage.getItem("pressedmail_recent_searches") || "[]",
+            getPrincipalStorageItem("local", "pressedmail_recent_searches") ||
+              "[]",
           );
         } catch {
           return [];

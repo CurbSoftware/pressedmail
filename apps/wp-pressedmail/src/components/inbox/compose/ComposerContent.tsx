@@ -583,6 +583,18 @@ export function ComposerContent({
         isSavingDraft={form.isSavingDraft}
       />
 
+      {form.confirmation ? (
+        <ConfirmationPanel
+          open
+          {...form.confirmation}
+          onConfirm={() => form.resolveConfirmation(true)}
+          onCancel={() => form.resolveConfirmation(false)}
+          onOpenChange={(open) => {
+            if (!open) form.resolveConfirmation(false);
+          }}
+        />
+      ) : null}
+
       <ConfirmationPanel
         open={showPlainTextWarning}
         onOpenChange={(open) => {

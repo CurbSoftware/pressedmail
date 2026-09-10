@@ -1,3 +1,4 @@
+import { parseCalendarDate, getAllDayDisplayEnd } from "./calendar-timezone";
 import { useEffect, useState } from "react";
 import { __, sprintf } from "@wordpress/i18n";
 import { CalendarPlus, MapPin, Users } from "lucide-react";
@@ -37,15 +38,20 @@ export interface ImportIcsPreviewProps {
 }
 
 function formatRange(event: IcsPreviewEvent): string {
-  const start = new Date(event.start_datetime);
-  const end = new Date(event.end_datetime);
+  const start = parseCalendarDate(event.start_datetime, event.all_day);
+  const rawEnd = parseCalendarDate(event.end_datetime, event.all_day);
+  const end = event.all_day ? getAllDayDisplayEnd(start, rawEnd) : rawEnd;
   if (Number.isNaN(start.getTime())) return event.start_datetime;
 
   const formatter = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: event.all_day ? undefined : "short",
   });
-  if (Number.isNaN(end.getTime()) || start.getTime() === end.getTime()) {
+  if (
+    Number.isNaN(end.getTime()) ||
+    start.getTime() === end.getTime() ||
+    (event.all_day && start.toDateString() === end.toDateString())
+  ) {
     return formatter.format(start);
   }
   return `${formatter.format(start)} - ${formatter.format(end)}`;

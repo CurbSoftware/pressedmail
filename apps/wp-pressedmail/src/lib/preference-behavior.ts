@@ -1,6 +1,8 @@
 import type { EmailListSortState } from "@/lib/email-list-sort";
 import { utcIsoToZonedInput } from "@/components/calendar/calendar-timezone";
 import { getRuntimeSiteTimezone } from "@/lib/runtime-config";
+import { getMessageIdentityKey } from "@/lib/message-identity";
+import type { EmailMessage } from "@/types";
 import type {
   EmailListDateGrouping,
   EmailListDefaultSort,
@@ -247,26 +249,15 @@ export function nextVisibleMessageAfterRemoval<
     uid?: string | number;
     accountId?: string | number | null;
     consolidatedUid?: string | number;
+    folder?: string;
+    uidValidity?: string | number;
+    uid_validity?: string | number;
   },
 >(messages: readonly T[], removedIds: readonly string[]): T | null {
   const removed = new Set(removedIds.map(String));
   const isRemoved = (message: T) => {
-    const consolidatedUid = message.consolidatedUid;
-    if (consolidatedUid !== undefined && removed.has(String(consolidatedUid))) {
-      return true;
-    }
-
-    const uid = message.uid;
-    if (uid !== undefined && message.accountId != null) {
-      if (removed.has(`${message.accountId}:${uid}`)) return true;
-    }
-    if (uid !== undefined && removed.has(String(uid))) return true;
-
-    const id = message.id;
-    if (id !== undefined && message.accountId != null) {
-      if (removed.has(`${message.accountId}:id:${id}`)) return true;
-    }
-    return id !== undefined && removed.has(String(id));
+    const key = getMessageIdentityKey(message as unknown as EmailMessage);
+    return key !== "" && removed.has(key);
   };
   const index = messages.findIndex(isRemoved);
   const remaining = messages.filter((message) => !isRemoved(message));

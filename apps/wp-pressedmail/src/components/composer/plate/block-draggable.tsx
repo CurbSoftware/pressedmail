@@ -45,6 +45,21 @@ export const BlockDraggable: RenderNodeWrapper = (props) => {
     if (path.length === 1 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
       return true;
     }
+    // Blocks one level inside a container - the paragraphs of a reply quote,
+    // for instance. The allow-list only covered depths 1, 3 (columns) and 4
+    // (tables), and both the drag handle and the drop line are rendered by the
+    // Draggable wrapper this gate decides to mount. Missing it meant a quoted
+    // paragraph had no handle to drag out AND no drop target to drag into.
+    if (path.length === 2 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
+      const parent = editor.api.parent(path);
+      const parentType = parent?.[0]?.type;
+      if (
+        typeof parentType === 'string' &&
+        getPluginByType(editor, parentType)?.node.isContainer
+      ) {
+        return true;
+      }
+    }
     if (path.length === 3 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
       const block = editor.api.some({
         at: path,
@@ -176,6 +191,7 @@ function Draggable(props: PlateElementProps) {
 
       <div
         className={cn('absolute -left-0 hidden w-full')}
+        data-pm-editor-chrome
         contentEditable={false}
         ref={previewRef}
         style={{ top: `${-previewTop}px` }}
@@ -224,6 +240,7 @@ function Gutter({
         className,
       )}
       contentEditable={false}
+      data-pm-editor-chrome
     >
       {children}
     </div>

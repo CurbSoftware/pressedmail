@@ -5,6 +5,10 @@ import { __, sprintf } from "@wordpress/i18n";
 
 import { useOptionalContacts } from "@/context/contacts";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 import { parseSenderEmail } from "@/lib/mail-utils";
 
 /**
@@ -41,7 +45,18 @@ export function useSenderContact(
   const contacts = ctx?.contacts;
   const available = ctx?.capabilities?.available ?? false;
   const canCreate = ctx?.capabilities?.create ?? false;
-  const [confirmRemoveOpen, setConfirmRemoveOpen] = React.useState(false);
+  const [confirmation, setConfirmation] = React.useState<{
+    scope: object;
+    contactId: number;
+  } | null>(null);
+  const busy = React.useRef(false);
+  const mounted = React.useRef(true);
+  React.useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [pending, setPending] = React.useState(false);
 
   // Callers pass `message.email || message.from`, and not every backend path
@@ -62,8 +77,52 @@ export function useSenderContact(
     return contacts.find((c) => c.email.toLowerCase() === normalized) ?? null;
   }, [contacts, senderEmail]);
 
+  const scopeKey = JSON.stringify([
+    senderEmail.toLowerCase(),
+    senderName,
+    available,
+  ]);
+  const scopeRef = React.useRef({ key: scopeKey });
+  if (scopeRef.current.key !== scopeKey) scopeRef.current = { key: scopeKey };
+  const scope = scopeRef.current;
+  const confirmRemoveOpen =
+    confirmation?.scope === scope &&
+    confirmation.contactId === existingContact?.id;
+  const setConfirmRemoveOpen = React.useCallback(
+    (open: boolean) => {
+      const principal = captureRequestPrincipal();
+      if (
+        !mounted.current ||
+        !isRequestPrincipalCurrent(principal) ||
+        scopeRef.current !== scope
+      )
+        return;
+      setConfirmation(
+        open && available && existingContact
+          ? { scope, contactId: existingContact.id }
+          : null,
+      );
+    },
+    [available, existingContact, scope],
+  );
+
   const addSender = React.useCallback(async () => {
-    if (!senderEmail || pending || !ctx) return;
+    const principal = captureRequestPrincipal();
+    const current = () =>
+      mounted.current &&
+      scopeRef.current === scope &&
+      isRequestPrincipalCurrent(principal);
+    if (
+      !senderEmail ||
+      busy.current ||
+      !ctx ||
+      !available ||
+      !canCreate ||
+      existingContact ||
+      !current()
+    )
+      return;
+    busy.current = true;
     setPending(true);
     // "Ada Lovelace" → first/last; a bare address stays nameless rather than
     // becoming a contact whose first name is their own email.
@@ -89,6 +148,7 @@ export function useSenderContact(
         ...(defaultLists ? { lists: defaultLists } : {}),
       });
 
+      if (!current()) return;
       if (result?.success) {
         toast.success(
           sprintf(
@@ -103,25 +163,46 @@ export function useSenderContact(
         );
       }
     } catch (error) {
+      if (!current()) return;
       console.error("Failed to add sender to contacts:", error);
       toast.error(__("Could not add this contact.", "pressedmail"));
     } finally {
-      setPending(false);
+      busy.current = false;
+      if (mounted.current && isRequestPrincipalCurrent(principal))
+        setPending(false);
     }
   }, [
     ctx,
-    pending,
+    available,
+    canCreate,
+    existingContact,
+    scope,
     preferences.contacts_default_list_id,
     senderEmail,
     senderName,
   ]);
 
   const removeSender = React.useCallback(async () => {
-    if (!existingContact || pending || !ctx) return;
+    const principal = captureRequestPrincipal();
+    const current = () =>
+      mounted.current &&
+      scopeRef.current === scope &&
+      isRequestPrincipalCurrent(principal);
+    if (
+      !existingContact ||
+      busy.current ||
+      !ctx ||
+      !available ||
+      !confirmRemoveOpen ||
+      !current()
+    )
+      return;
+    busy.current = true;
     setPending(true);
     try {
       const result = await ctx.deleteContact(existingContact.id);
 
+      if (!current()) return;
       if (result?.success) {
         toast.success(__("Contact removed.", "pressedmail"));
       } else {
@@ -130,13 +211,16 @@ export function useSenderContact(
         );
       }
     } catch (error) {
+      if (!current()) return;
       console.error("Failed to remove sender from contacts:", error);
       toast.error(__("Could not remove this contact.", "pressedmail"));
     } finally {
-      setPending(false);
-      setConfirmRemoveOpen(false);
+      busy.current = false;
+      if (mounted.current && isRequestPrincipalCurrent(principal))
+        setPending(false);
+      if (current()) setConfirmation(null);
     }
-  }, [ctx, existingContact, pending]);
+  }, [ctx, existingContact, available, confirmRemoveOpen, scope]);
 
   return {
     available,

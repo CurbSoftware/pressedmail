@@ -16,7 +16,10 @@ import React, {
 } from "react";
 import type { EmailMessage } from "@/types";
 import { useInboxState } from "../InboxContext";
-import { getMessageIdentityKey } from "@/lib/message-identity";
+import {
+  getMessageIdentityKey,
+  parseAccountQualifiedToken,
+} from "@/lib/message-identity";
 import { mergeThreadCandidates } from "@/lib/message-grouping";
 
 export type EmailSelectionMode = "explicit" | "current-view";
@@ -37,7 +40,7 @@ export type EmailSelectionSnapshot =
  * Selection context value interface.
  */
 export interface EmailSelectionContextValue {
-  /** Set of selected message IDs (using string for consistent comparison) */
+  /** Canonical account/folder/generation/UID tokens, never bare provider IDs. */
   selectedIds: Set<string>;
   /** Whether the selection is a concrete ID set or the entire current view. */
   selectionMode: EmailSelectionMode;
@@ -114,10 +117,13 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
   );
 
   /**
-   * Normalize ID to string for consistent comparison.
+   * Normalize complete identities only. Legacy IDs cannot identify a mutation.
    */
-  const normalizeId = useCallback((id: string | number): string => {
-    return String(id);
+  const normalizeId = useCallback((id: string | number): string | null => {
+    const ref = parseAccountQualifiedToken(String(id));
+    return ref?.kind === "message"
+      ? JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid])
+      : null;
   }, []);
 
   const resetCurrentViewSelection = useCallback(() => {
@@ -132,6 +138,7 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
   const toggleSelection = useCallback(
     (id: string | number) => {
       const normalizedId = normalizeId(id);
+      if (normalizedId === null) return;
       if (selectionMode === "current-view") {
         setExcludedIds((prev) => {
           const next = new Set(prev);
@@ -162,13 +169,13 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
    * Select all visible messages.
    */
   const selectAll = useCallback(() => {
-    const allIds = filteredMessages.map((msg) =>
-      normalizeId(getMessageIdentityKey(msg)),
-    );
+    const allIds = filteredMessages
+      .map(getMessageIdentityKey)
+      .filter((id) => id !== "");
     setSelectionMode("explicit");
     resetCurrentViewSelection();
     setSelectedIds(new Set(allIds));
-  }, [filteredMessages, normalizeId, resetCurrentViewSelection]);
+  }, [filteredMessages, resetCurrentViewSelection]);
 
   /**
    * Select every message matching the current inbox view.
@@ -205,11 +212,13 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
    */
   const isSelected = useCallback(
     (id: string | number): boolean => {
+      const normalizedId = normalizeId(id);
+      if (normalizedId === null) return false;
       if (selectionMode === "current-view") {
-        return currentViewTotalCount > 0 && !excludedIds.has(normalizeId(id));
+        return currentViewTotalCount > 0 && !excludedIds.has(normalizedId);
       }
 
-      return selectedIds.has(normalizeId(id));
+      return selectedIds.has(normalizedId);
     },
     [
       selectionMode,
@@ -235,16 +244,10 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
    * Get selected email objects.
    */
   const getSelectedEmails = useCallback((): EmailMessage[] => {
-    if (selectionMode === "current-view") {
-      return filteredMessages.filter(
-        (msg) => !excludedIds.has(normalizeId(getMessageIdentityKey(msg))),
-      );
-    }
-
     return filteredMessages.filter((msg) =>
-      selectedIds.has(normalizeId(getMessageIdentityKey(msg))),
+      isSelected(getMessageIdentityKey(msg)),
     );
-  }, [selectionMode, filteredMessages, excludedIds, selectedIds, normalizeId]);
+  }, [filteredMessages, isSelected]);
 
   /**
    * Check if any messages are selected.
@@ -261,7 +264,10 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
       setSelectedIds((prev) => {
         const next =
           selectionMode === "current-view" ? new Set<string>() : new Set(prev);
-        ids.forEach((id) => next.add(normalizeId(id)));
+        ids.forEach((id) => {
+          const normalizedId = normalizeId(id);
+          if (normalizedId !== null) next.add(normalizedId);
+        });
         return next;
       });
       setSelectionMode("explicit");
@@ -278,7 +284,10 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
       if (selectionMode === "current-view") {
         setExcludedIds((prev) => {
           const next = new Set(prev);
-          ids.forEach((id) => next.add(normalizeId(id)));
+          ids.forEach((id) => {
+            const normalizedId = normalizeId(id);
+            if (normalizedId !== null) next.add(normalizedId);
+          });
           return next;
         });
         return;
@@ -286,7 +295,10 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
 
       setSelectedIds((prev) => {
         const next = new Set(prev);
-        ids.forEach((id) => next.delete(normalizeId(id)));
+        ids.forEach((id) => {
+          const normalizedId = normalizeId(id);
+          if (normalizedId !== null) next.delete(normalizedId);
+        });
         return next;
       });
     },
@@ -316,14 +328,8 @@ export const EmailSelectionProvider: React.FC<EmailSelectionProviderProps> = ({
   ]);
 
   const getVisibleSelectedCount = useCallback(
-    () =>
-      filteredMessages.filter((msg) => {
-        const id = normalizeId(getMessageIdentityKey(msg));
-        return selectionMode === "current-view"
-          ? !excludedIds.has(id)
-          : selectedIds.has(id);
-      }).length,
-    [selectionMode, filteredMessages, excludedIds, selectedIds, normalizeId],
+    () => getSelectedEmails().length,
+    [getSelectedEmails],
   );
 
   /**

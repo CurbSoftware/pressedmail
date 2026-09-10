@@ -28,8 +28,8 @@ import {
   getSweepMoveTargetFolders,
 } from "@/lib/bulk-mail-actions";
 import {
-  getAccountQualifiedMessageToken,
   getMessageIdentityKey,
+  parseAccountQualifiedToken,
 } from "@/lib/message-identity";
 import {
   buildPerAccountPathDestination,
@@ -47,6 +47,10 @@ import type {
   SweepScopeMode,
   SweepSkippedAccount,
 } from "@/services/one-off-sweep.service";
+import {
+  captureRequestPrincipal,
+  isRequestPrincipalCurrent,
+} from "@/lib/principal-storage";
 import { folderPathsEqual } from "@/services/filter-rule-folder-targets";
 
 const EMAIL_RE = /([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/;
@@ -166,21 +170,19 @@ function SweepStep({
 
 interface SweepSeed {
   tokens: string[];
+  complete: boolean;
   sampleCount: number;
   matchValues: SelectedValuesByType;
 }
 
 function deriveSeed(messages: EmailMessage[]): SweepSeed {
-  const tokens = new Set<string>();
-  for (const message of messages) {
-    const token =
-      getAccountQualifiedMessageToken(message) ||
-      getMessageIdentityKey(message);
-    if (token) tokens.add(token);
-  }
+  const tokens = new Set(messages.map(getMessageIdentityKey));
+  const complete = !tokens.has("");
+  tokens.delete("");
   const senders = messages.map(messageSender);
   return {
     tokens: Array.from(tokens),
+    complete,
     sampleCount: messages.length,
     matchValues: {
       sender_email: unique(senders),
@@ -194,10 +196,10 @@ export function EmailSweep({
   open,
   onOpenChange,
   initialMessages,
-  scope,
-  folders,
+  scope: liveScope,
+  folders: liveFolders,
   onRun,
-  selection,
+  selection: liveSelection,
 }: EmailSweepProps) {
   // Freeze everything derived from the selected rows at OPEN time: the list
   // refreshes underneath the dialog (sync poll, the sweep's own live refresh)
@@ -206,6 +208,15 @@ export function EmailSweep({
     deriveSeed(initialMessages),
   );
   const wasOpenRef = useRef(false);
+  const submittedRef = useRef(false);
+  const [snapshot, setSnapshot] = useState(() =>
+    structuredClone({
+      scope: liveScope,
+      folders: liveFolders,
+      selection: liveSelection,
+    }),
+  );
+  const { scope, folders, selection } = snapshot;
 
   const folderOptions = useMemo<SweepFolderOption[]>(() => {
     const scopeAccountIds = [
@@ -279,9 +290,20 @@ export function EmailSweep({
               });
         push({
           value: folderDestinationKey(destination),
-          name:
-            flattened.find((entry) => entry.folder === folder)?.breadcrumb ??
-            folder.name,
+          // Junk and Trash are ROLE destinations: the server resolves them to
+          // whichever folder actually carries the role, so naming them after
+          // the first folder that happened to match gave the same destination a
+          // different label here than everywhere else. A mailbox carrying both
+          // `Junk` and `INBOX.spam` listed "INBOX / spam" in this dialog while
+          // the toolbar, the move menu and the fallbacks below all said "Junk".
+          // One destination, one name, and the duplicate collapses on the
+          // shared destination key.
+          name: isJunk
+            ? __("Junk", "pressedmail")
+            : isTrash
+              ? __("Trash", "pressedmail")
+              : (flattened.find((entry) => entry.folder === folder)
+                  ?.breadcrumb ?? folder.name),
           role: isJunk ? "spam" : role,
           destination,
         });
@@ -355,10 +377,18 @@ export function EmailSweep({
     wasOpenRef.current = true;
 
     // One reset per OPEN, never mid-edit.
+    submittedRef.current = false;
+    setSnapshot(
+      structuredClone({
+        scope: liveScope,
+        folders: liveFolders,
+        selection: liveSelection,
+      }),
+    );
     const nextSeed = deriveSeed(initialMessages);
     setSeed(nextSeed);
     setScopeMode(
-      (selection?.selectedCount ?? nextSeed.sampleCount) > 0
+      (liveSelection?.selectedCount ?? nextSeed.sampleCount) > 0
         ? "selected_only"
         : "entire_view",
     );
@@ -367,7 +397,7 @@ export function EmailSweep({
     setCreateRule(false);
     setError(null);
     setFolderValue("");
-  }, [open, initialMessages, selection?.selectedCount]);
+  }, [open, initialMessages, liveScope, liveFolders, liveSelection]);
 
   // Keep the destination valid without clobbering an explicit choice.
   useEffect(() => {
@@ -411,6 +441,29 @@ export function EmailSweep({
   );
 
   const handleConfirm = useCallback(() => {
+    if (submittedRef.current) return;
+    const principal = captureRequestPrincipal();
+    if (!principal || !isRequestPrincipalCurrent(principal)) {
+      setError(
+        __("Your session changed. Reload before running Sweep.", "pressedmail"),
+      );
+      return;
+    }
+    if (
+      !seed.complete ||
+      (scopeMode === "entire_view" &&
+        selection?.excludedIds?.some(
+          (token) => parseAccountQualifiedToken(token)?.kind !== "message",
+        ))
+    ) {
+      setError(
+        __(
+          "Some selected messages need refreshing. Reload the mailbox before running Sweep.",
+          "pressedmail",
+        ),
+      );
+      return;
+    }
     if (seed.tokens.length === 0) {
       setError(__("Select at least one sample message", "pressedmail"));
       return;
@@ -447,10 +500,12 @@ export function EmailSweep({
 
     // Fire-and-forget: the sweep runs in the activity queue, so close now and
     // surface enqueue failures as a toast.
+    submittedRef.current = true;
     setError(null);
     onOpenChange(false);
-    void Promise.resolve(onRun(request))
+    void (async () => onRun(structuredClone(request)))()
       .then((result) => {
+        if (!isRequestPrincipalCurrent(principal)) return;
         if (!result || typeof result !== "object") return;
         const payload = result as {
           rule_ids?: unknown;
@@ -502,6 +557,7 @@ export function EmailSweep({
         }
       })
       .catch((err) => {
+        if (!isRequestPrincipalCurrent(principal)) return;
         toast.error(err instanceof Error ? err.message : String(err));
       });
   }, [
@@ -513,7 +569,7 @@ export function EmailSweep({
     onRun,
     scope,
     scopeMode,
-    seed.tokens,
+    seed,
     selectedValues,
     selection,
   ]);

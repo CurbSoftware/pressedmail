@@ -18,7 +18,6 @@ import {
 import { usePreferenceSectionDraft } from "./use-preference-section-draft";
 
 export const COMPOSER_BEHAVIOR_KEYS = [
-  "composer_quote_collapsed_by_default",
   "composer_typography_auto_format",
   "composer_confirm_unsaved_close",
   "composer_toolbar_preset",
@@ -56,14 +55,6 @@ export function ComposerBehaviorSection({
       )}
       tooltip={settingsInfoTooltips.composerBehavior}
       docHref={settingsInfoDocHrefs.composerBehavior}>
-      <PreferenceSwitchRow
-        title={__("Collapse quoted original", "pressedmail")}
-        checked={draft.composer_quote_collapsed_by_default}
-        onCheckedChange={(checked) =>
-          patchDraft({ composer_quote_collapsed_by_default: checked })
-        }
-        dataTest="pref-composer-quote-collapsed"
-      />
       <PreferenceSwitchRow
         title={__("Typography auto-format", "pressedmail")}
         description={__(

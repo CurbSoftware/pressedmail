@@ -46,6 +46,7 @@ export interface EmailMessage {
   content_type?: EmailContentType;
   /** Completeness of the live MIME detail response. */
   bodyState?: "pending" | "partial" | "full";
+  bodyOmitted?: boolean;
   body_state?: "pending" | "partial" | "full";
   text?: string;
   name?: string;
@@ -103,6 +104,11 @@ export interface EmailMessage {
   scheduledStatus?: "pending" | "sending" | "sent" | "failed" | "cancelled";
   draftUid?: number;
   draftFolder?: string;
+  /** Local Snoozed view: durable record ID, never an IMAP UID. */
+  snoozed?: boolean;
+  snooze_id?: number;
+  snooze_until?: string;
+  original_folder?: string;
   [key: string]: any;
 }
 
@@ -141,6 +147,8 @@ export interface EmailThread {
 export interface EmailAttachment {
   id?: string;
   wpAttachmentId?: number;
+  /** Exact bytes approved for a queued delivery. */
+  sha256?: string;
   filename: string;
   mimeType: string;
   size: number;
@@ -150,6 +158,8 @@ export interface EmailAttachment {
   source?: "received" | "media-library";
   inline?: boolean;
   part?: string | null;
+  part_format?: string | null;
+  metadata_format?: string | null;
 }
 
 export interface EmailAttachmentMeta {
@@ -158,6 +168,8 @@ export interface EmailAttachmentMeta {
   size: number;
   inline?: boolean;
   part?: string | null;
+  part_format?: string | null;
+  metadata_format?: string | null;
 }
 
 /** Stable mailbox context retained while composing a reply. */
@@ -170,6 +182,13 @@ export interface ComposeReplySource {
 }
 
 export interface ComposeData {
+  /** Explicit consent for this message, bound to the current server revision. */
+  readReceipt?: { requested: boolean; revision: string };
+  /** RFC threading headers preserved through draft and delivery paths. */
+  inReplyTo?: string;
+  references?: string;
+  /** Selected sender survives switching between compact and desktop composers. */
+  fromAccount?: string;
   to: string;
   cc: string;
   bcc: string;

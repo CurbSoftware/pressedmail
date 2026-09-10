@@ -1,3 +1,7 @@
+import {
+  getPrincipalStorageItem,
+  setPrincipalStorageItem,
+} from "@/lib/principal-storage";
 /**
  * Per-account folder persistence in localStorage.
  * Remembers which folder the user was viewing so it can be restored on page refresh.
@@ -15,7 +19,7 @@ export function saveSelectedFolder(accountEmail: string, folder: string): void {
   try {
     const data = readAll();
     data[accountEmail] = folder;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    setPrincipalStorageItem("local", STORAGE_KEY, JSON.stringify(data));
   } catch {
     // localStorage may be full or unavailable
   }
@@ -27,7 +31,7 @@ export function removeSelectedFolder(accountEmail: string): void {
     const data = readAll();
     if (accountEmail in data) {
       delete data[accountEmail];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      setPrincipalStorageItem("local", STORAGE_KEY, JSON.stringify(data));
     }
   } catch {
     // localStorage may be unavailable.
@@ -49,7 +53,7 @@ export function getSelectedFolder(accountEmail: string): string | null {
 
 function readAll(): Record<string, string> {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = getPrincipalStorageItem("local", STORAGE_KEY);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};

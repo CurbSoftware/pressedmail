@@ -18,3 +18,20 @@ export function ComposerScheduleSendButton(_props: Props) {
 export function ComposerRemoveScheduleButton(_props: Props) {
   return null;
 }
+
+export function ComposerReadReceiptButton(_props: Props) {
+  return null;
+}
+
+/** Free has no tracking settings requests or consent UI. */
+export function useReadReceipt(
+  _options: import("@/hooks/compose/v2/useReadReceipt").UseReadReceiptOptions,
+) {
+  return {
+    pending: false,
+    error: null as string | null,
+    enable: async () => false,
+    disableForMessage: () => {},
+    revokeAll: async () => false,
+  };
+}

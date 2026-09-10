@@ -58,13 +58,11 @@ import { BaseParagraphPlugin, KEYS } from '@kit/plate';
 import {
   AttachmentCardPlugin,
   AISuggestionPlugin,
-  QuoteBlockPlugin,
   SignatureBlockPlugin,
 } from './nodes';
 import {
   AISuggestionElementStatic,
   AttachmentCardElementStatic,
-  QuoteElementStatic,
   SignatureElementStatic,
 } from './nodes/static';
 import { BlockListStatic } from './plate/block-list-static';
@@ -275,7 +273,6 @@ export const ComposerEditorPlugins = [
   // round-trippable (serializeHtml renders via node.component, not the legacy
   // parsers.html.serializer path).
   SignatureBlockPlugin.withComponent(SignatureElementStatic),
-  QuoteBlockPlugin.withComponent(QuoteElementStatic),
   AttachmentCardPlugin.withComponent(AttachmentCardElementStatic),
   AISuggestionPlugin.withComponent(AISuggestionElementStatic),
   // Promote every <br>/\n soft break to its own block (mirrors the

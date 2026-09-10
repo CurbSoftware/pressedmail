@@ -10,7 +10,6 @@
  * These components re-emit that contract via SlateElement's `attributes`.
  * They mirror the opening tags produced by each plugin's legacy serializer:
  *   signature   → <div  data-pm-block="signature" data-account-id data-signature-id>
- *   quote       → <blockquote data-pm-block="quote" data-collapsed data-source-*>
  *   attachment  → <span data-pm-block="attachment" data-filename data-size data-attachment-id>
  *   ai-suggestion → <span data-pm-block="ai-suggestion" data-accepted data-suggestion-id>
  */
@@ -20,7 +19,6 @@ import { SlateElement } from '@kit/plate/static';
 
 import type { AISuggestionElement } from './ai-suggestion-node';
 import type { AttachmentCardElement } from './attachment-card-node';
-import type { QuoteElement } from './quote-node';
 import type { SignatureElement } from './signature-node';
 
 export function SignatureElementStatic(props: SlateElementProps) {
@@ -38,29 +36,6 @@ export function SignatureElementStatic(props: SlateElementProps) {
           : {}),
         ...(el.signatureId != null
           ? { 'data-signature-id': String(el.signatureId) }
-          : {}),
-      }}
-    >
-      {props.children}
-    </SlateElement>
-  );
-}
-
-export function QuoteElementStatic(props: SlateElementProps) {
-  const el = props.element as QuoteElement;
-
-  return (
-    <SlateElement
-      {...props}
-      as="blockquote"
-      attributes={{
-        ...props.attributes,
-        'data-pm-block': 'quote',
-        'data-collapsed': el.collapsed ? 'true' : 'false',
-        ...(el.sourceFrom ? { 'data-source-from': String(el.sourceFrom) } : {}),
-        ...(el.sourceDate ? { 'data-source-date': String(el.sourceDate) } : {}),
-        ...(el.sourceMessageId
-          ? { 'data-source-message-id': String(el.sourceMessageId) }
           : {}),
       }}
     >

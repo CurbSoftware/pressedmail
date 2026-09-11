@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Monorepo source tag: `pressedmail-v1.0.28`
+Monorepo source tag: `pressedmail-v1.0.29`
 
 ## Layout
 

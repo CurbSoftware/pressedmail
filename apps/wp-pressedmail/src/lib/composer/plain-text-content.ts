@@ -91,7 +91,10 @@ export function getPlainTextAuthoredContent(
   return withoutSignature.trim();
 }
 
-function stripPlainSignature(text: string, mode: PlainTextComposeMode): string {
+export function stripPlainSignature(
+  text: string,
+  mode: PlainTextComposeMode,
+): string {
   const quoteStart = findQuotedOriginalStart(text, mode);
   const authored = text.slice(0, quoteStart);
   const quoted = text.slice(quoteStart);
@@ -103,6 +106,19 @@ function stripPlainSignature(text: string, mode: PlainTextComposeMode): string {
   return `${authored.slice(0, match.index).replace(/\s+$/g, "")}${
     quoted ? `\n\n${quoted.replace(/^\n+/, "")}` : ""
   }`;
+}
+
+export function plainTextSignatureSnapshot(
+  text: string,
+  mode: PlainTextComposeMode,
+): string | null {
+  const normalized = normalizeOutgoingPlainText(text);
+  const authored = normalized.slice(
+    0,
+    findQuotedOriginalStart(normalized, mode),
+  );
+  const match = /(?:^|\n{2,})--[ \t]*\n/.exec(authored);
+  return match ? authored.slice(match.index).trim() : null;
 }
 
 export function hasPlainTextSignature(

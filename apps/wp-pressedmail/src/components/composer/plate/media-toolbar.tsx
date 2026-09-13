@@ -104,7 +104,12 @@ export function MediaToolbar({
 
             <Separator className="mx-1 h-6" orientation="vertical" />
 
-            <Button size="sm" variant="ghost" {...buttonProps}>
+            <Button
+              aria-label={__('Remove media', 'pressedmail')}
+              size="sm"
+              variant="ghost"
+              {...buttonProps}
+            >
               <Trash2Icon />
             </Button>
           </div>

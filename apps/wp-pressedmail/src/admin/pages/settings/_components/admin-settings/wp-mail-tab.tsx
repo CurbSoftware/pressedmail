@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { __ } from "@wordpress/i18n";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { __, _n, sprintf } from "@wordpress/i18n";
+import { AlertCircle } from "lucide-react";
 
 import {
   Alert,
@@ -19,6 +19,7 @@ import {
   SettingsSaveBar,
   SettingsSectionCard,
   useSettingsNavigationGuard,
+  SettingsSkeleton,
   type SettingsDraftHandle,
 } from "@/components/settings-ui";
 import { WpMailConnectionsPanel } from "@/admin/pages/settings/_components/admin-settings/wp-mail-connections-panel.active";
@@ -196,12 +197,11 @@ export function WpMailTab() {
 
   if (loading) {
     return (
-      <div
-        className="flex justify-center py-10"
-        data-test="wp-mail-loading"
-        data-testid="wp-mail-loading">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <SettingsSkeleton
+        label={__("Loading WordPress email settings", "pressedmail")}
+        dataTest="wp-mail-loading"
+        rows={2}
+      />
     );
   }
 
@@ -306,7 +306,15 @@ export function WpMailTab() {
 
           <Label
             htmlFor="wp-mail-mailer-pressedmail"
-            className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5">
+            data-test="wp-mail-mailer-pressedmail-option"
+            // A disabled radio that keeps a pointer cursor and full-strength
+            // text reads as available. Dim the whole option so the state is
+            // visible before it is clicked.
+            className={`flex items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5 ${
+              hasUsableDefault
+                ? "cursor-pointer"
+                : "cursor-not-allowed opacity-60"
+            }`}>
             <RadioGroupItem
               id="wp-mail-mailer-pressedmail"
               data-test="wp-mail-enabled"
@@ -329,10 +337,7 @@ export function WpMailTab() {
                   className="block text-xs text-warning"
                   data-test="wp-mail-mailer-blocked"
                   data-testid="wp-mail-mailer-blocked">
-                  {__(
-                    "Add a mail server below first, then come back and choose this.",
-                    "pressedmail",
-                  )}
+                  {__("Add a mail server below to use this.", "pressedmail")}
                 </span>
               ) : !hasUsableDefault ? (
                 <span
@@ -340,7 +345,7 @@ export function WpMailTab() {
                   data-test="wp-mail-mailer-blocked"
                   data-testid="wp-mail-mailer-blocked">
                   {__(
-                    "One of the servers below has to be enabled, complete, and set as the default before this can be chosen.",
+                    "Enable one of the servers below, finish its settings, and make it the default to use this.",
                     "pressedmail",
                   )}
                 </span>
@@ -399,10 +404,10 @@ export function WpMailTab() {
                   <SelectItem key={days} value={String(days)}>
                     {days === 0
                       ? __("Do not log", "pressedmail")
-                      : /* translators: %d: number of days. */
-                        __("%d days", "pressedmail").replace(
-                          "%d",
-                          String(days),
+                      : sprintf(
+                          /* translators: %d: number of days entries are kept. */
+                          _n("%d day", "%d days", days, "pressedmail"),
+                          days,
                         )}
                   </SelectItem>
                 ))}

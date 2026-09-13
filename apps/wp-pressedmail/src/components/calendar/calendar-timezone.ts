@@ -1,4 +1,6 @@
+import { __, sprintf } from "@wordpress/i18n";
 import type { LocalCalendarEvent } from "@/types/calendar";
+import { calendarFormatter, getCalendarLocale } from "./calendar-intl";
 
 export interface TimezoneOption {
   value: string;
@@ -61,7 +63,7 @@ function parseLocalInput(value: string): {
   };
 }
 
-function parseUtcDate(value: string): Date {
+export function parseUtcDate(value: string): Date {
   if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)) {
     return new Date(value);
   }
@@ -170,7 +172,7 @@ export function formatTimeZoneLabel(
   let longName = normalized;
 
   try {
-    const namePart = new Intl.DateTimeFormat(undefined, {
+    const namePart = new Intl.DateTimeFormat(getCalendarLocale(), {
       timeZone: normalized,
       timeZoneName: "long",
     })
@@ -197,7 +199,11 @@ export function getTimezoneOptions(
   return [
     {
       value: normalizedUserTimeZone,
-      label: `Your timezone: ${formatTimeZoneLabel(normalizedUserTimeZone)}`,
+      label: sprintf(
+        /* translators: %s: timezone name, long name and UTC offset. */
+        __("Your timezone: %s", "pressedmail"),
+        formatTimeZoneLabel(normalizedUserTimeZone),
+      ),
     },
     ...zones.map((timeZone) => ({
       value: timeZone,
@@ -289,35 +295,46 @@ export function formatEventDateRange(event: LocalCalendarEvent): string {
     ? getLocalEventDate(event)
     : parseUtcDate(event.start_datetime);
   const end = parseUtcDate(event.end_datetime);
-  const dateText = new Intl.DateTimeFormat(undefined, {
+  const dateText = calendarFormatter({
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: event.all_day ? undefined : timeZone,
+    ...(event.all_day ? {} : { timeZone }),
   }).format(start);
 
   if (event.all_day) {
-    return `${dateText} (All day, ${timeZone})`;
+    return sprintf(
+      /* translators: 1: event date, 2: timezone name. */
+      __("%1$s (all day, %2$s)", "pressedmail"),
+      dateText,
+      timeZone,
+    );
   }
 
-  const timeFormatter = new Intl.DateTimeFormat(undefined, {
+  const timeFormatter = calendarFormatter({
     hour: "numeric",
     minute: "2-digit",
     timeZone,
   });
 
-  return `${dateText}, ${timeFormatter.format(start)} - ${timeFormatter.format(end)} (${timeZone})`;
+  return sprintf(
+    /* translators: 1: event date, 2: time range, 3: timezone name. */
+    __("%1$s, %2$s (%3$s)", "pressedmail"),
+    dateText,
+    timeFormatter.formatRange(start, end),
+    timeZone,
+  );
 }
 
 export function getEventDateText(event: LocalCalendarEvent): string {
   const timeZone = getLocalEventTimezone(event);
-  return new Intl.DateTimeFormat(undefined, {
+  return calendarFormatter({
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-    timeZone: event.all_day ? undefined : timeZone,
+    ...(event.all_day ? {} : { timeZone }),
   }).format(
     event.all_day
       ? getLocalEventDate(event)
@@ -328,16 +345,26 @@ export function getEventDateText(event: LocalCalendarEvent): string {
 export function getEventTimeText(event: LocalCalendarEvent): string {
   const timeZone = getLocalEventTimezone(event);
   if (event.all_day) {
-    return `All day (${timeZone})`;
+    return sprintf(
+      /* translators: %s: timezone name. */
+      __("All day (%s)", "pressedmail"),
+      timeZone,
+    );
   }
 
-  const formatter = new Intl.DateTimeFormat(undefined, {
+  const formatter = calendarFormatter({
     hour: "numeric",
     minute: "2-digit",
     timeZone,
   });
 
-  return `${formatter.format(parseUtcDate(event.start_datetime))} - ${formatter.format(
-    parseUtcDate(event.end_datetime),
-  )} (${timeZone})`;
+  return sprintf(
+    /* translators: 1: time range, 2: timezone name. */
+    __("%1$s (%2$s)", "pressedmail"),
+    formatter.formatRange(
+      parseUtcDate(event.start_datetime),
+      parseUtcDate(event.end_datetime),
+    ),
+    timeZone,
+  );
 }

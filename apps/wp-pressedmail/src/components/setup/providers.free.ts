@@ -23,7 +23,7 @@ export const PROVIDERS = {
     docUrl: "https://pressedmail.com/docs/outlook-microsoft-365",
   },
   custom: {
-    name: __("Custom Email", "pressedmail"),
+    name: __("Custom email", "pressedmail"),
     icon: PressedMailLaunchIcon,
     imap: { host: "", port: 993, security: "SSL/TLS" },
     smtp: { host: "", port: 587, security: "STARTTLS" },

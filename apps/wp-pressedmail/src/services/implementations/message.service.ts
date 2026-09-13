@@ -7,6 +7,8 @@
  * @since 2.0.0
  */
 
+import { __ } from "@wordpress/i18n";
+
 import type { EmailMessage } from "@/types";
 import type {
   IMessageOperations,
@@ -51,8 +53,17 @@ import {
   type MessageIdentityRef,
 } from "@/lib/message-identity";
 
-const IDENTITY_CONFLICT =
-  "The mailbox reference is incomplete or has changed. Refresh the mailbox and try again.";
+/**
+ * A function rather than a constant: a module-level constant is evaluated on
+ * first import, which can land before `i18n-boot` applies the user's catalog,
+ * freezing the English string in for the session.
+ */
+function identityConflictMessage(): string {
+  return __(
+    "The mailbox reference is incomplete or has changed. Refresh the mailbox and try again.",
+    "pressedmail",
+  );
+}
 const IDENTITY_CONFLICT_CODES = new Set([
   "mailbox_generation_unavailable",
   "mailbox_generation_changed",
@@ -109,7 +120,11 @@ function operationFailure(response: ApiErrorResponse | Error): OperationResult {
 }
 
 function identityFailure(): OperationResult {
-  return { success: false, error: IDENTITY_CONFLICT, requiresRefresh: true };
+  return {
+    success: false,
+    error: identityConflictMessage(),
+    requiresRefresh: true,
+  };
 }
 
 /**
@@ -146,7 +161,7 @@ function getErrorMessage(response: ApiErrorResponse | Error): string {
   ) {
     return response.data.message;
   }
-  return "An error occurred";
+  return __("Something went wrong. Please try again.", "pressedmail");
 }
 
 interface BatchMutationResponse {
@@ -384,7 +399,7 @@ export class MessageService implements IMessageOperations {
     );
     if (!capturedRefs) {
       return {
-        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        ...this.createBatchFailureResult(messageIds, identityConflictMessage()),
         requiresRefresh: true,
       };
     }
@@ -505,7 +520,7 @@ export class MessageService implements IMessageOperations {
     const refs = this.resolveBatchIdentity(accountId, messageIds, options);
     if (!refs)
       return {
-        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        ...this.createBatchFailureResult(messageIds, identityConflictMessage()),
         requiresRefresh: true,
       };
     try {
@@ -659,7 +674,9 @@ export class MessageService implements IMessageOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to mark as read",
+          error instanceof Error
+            ? error.message
+            : __("Failed to mark as read", "pressedmail"),
       };
     }
   }
@@ -693,7 +710,9 @@ export class MessageService implements IMessageOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to mark as unread",
+          error instanceof Error
+            ? error.message
+            : __("Failed to mark as unread", "pressedmail"),
       };
     }
   }
@@ -742,7 +761,10 @@ export class MessageService implements IMessageOperations {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to toggle star",
+        error:
+          error instanceof Error
+            ? error.message
+            : __("Failed to toggle star", "pressedmail"),
       };
     }
   }
@@ -777,7 +799,9 @@ export class MessageService implements IMessageOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to fetch headers",
+          error instanceof Error
+            ? error.message
+            : __("Failed to fetch headers", "pressedmail"),
       };
     }
   }
@@ -830,7 +854,9 @@ export class MessageService implements IMessageOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to delete message",
+          error instanceof Error
+            ? error.message
+            : __("Failed to delete message", "pressedmail"),
       };
     }
   }
@@ -907,7 +933,9 @@ export class MessageService implements IMessageOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to move message",
+          error instanceof Error
+            ? error.message
+            : __("Failed to move message", "pressedmail"),
       };
     }
   }
@@ -970,7 +998,10 @@ export class MessageService implements IMessageOperations {
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Failed to set flag",
+        error:
+          error instanceof Error
+            ? error.message
+            : __("Failed to set flag", "pressedmail"),
       };
     }
   }
@@ -1049,7 +1080,7 @@ export class MessageService implements IMessageOperations {
       targetFolder.accountId !== Number(accountId)
     ) {
       return {
-        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        ...this.createBatchFailureResult(messageIds, identityConflictMessage()),
         requiresRefresh: true,
       };
     }
@@ -1229,7 +1260,7 @@ export class MessageService implements IMessageOperations {
     const refs = this.resolveBatchIdentity(accountId, messageIds, options);
     if (!refs) {
       return {
-        ...this.createBatchFailureResult(messageIds, IDENTITY_CONFLICT),
+        ...this.createBatchFailureResult(messageIds, identityConflictMessage()),
         requiresRefresh: true,
       };
     }

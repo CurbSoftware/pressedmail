@@ -69,6 +69,7 @@ import {
   getMessageIdentityRef,
 } from "@/lib/message-identity";
 import { ScheduledEmailReadingPane } from "@/components/scheduled/ScheduledEmailReadingPane";
+import { buildReplyRecipients } from "./reply-recipients";
 
 import {
   Button,
@@ -176,6 +177,8 @@ export function RightPaneContainer({
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<PendingDelete | null>(null);
+  /** Why the last delete attempt failed, shown inside the open dialog. */
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [isScheduledActionLoading, setIsScheduledActionLoading] =
     React.useState(false);
   // Expanded ("pop out") reading view, shows the message in a large in-app modal.
@@ -318,6 +321,7 @@ export function RightPaneContainer({
   }, []);
   React.useEffect(() => {
     setPendingDelete(null);
+    setDeleteError(null);
     setIsDeleting(false);
     setIsScheduledActionLoading(false);
   }, [operationScope, paneIdentity]);
@@ -347,11 +351,72 @@ export function RightPaneContainer({
   const identityFailure = React.useCallback(() => {
     if (!mounted.current) return;
     appMessage(
-      "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+      __(
+        "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+        "pressedmail",
+      ),
       "error",
     );
     void livePane.current.refreshMessages().catch(() => {});
   }, []);
+
+  /**
+   * Say so when a mailbox operation fails.
+   *
+   * Archive, delete, mark unread, star and folder recovery all used to throw
+   * their result away, so a rate limit, a credentials error or a dropped
+   * connection left the message sitting there with no explanation and the user
+   * clicking again. A refresh-requiring failure has already reported its own
+   * identity conflict, so it stays quiet here.
+   */
+  const reportOperationFailure = React.useCallback(
+    (
+      result?: {
+        success?: boolean;
+        requiresRefresh?: boolean;
+        error?: string;
+      } | void,
+    ) => {
+      // An operation that reports nothing at all cannot be called a failure.
+      if (!result || !mounted.current) return;
+      if (result.success || result.requiresRefresh) return;
+      appMessage(
+        result.error || __("That did not work. Try again.", "pressedmail"),
+        "error",
+      );
+    },
+    [],
+  );
+
+  /** Every address that belongs to the account this message arrived on. */
+  const ownAddresses = React.useMemo(() => {
+    const ref = getMessageIdentityRef(selectedMessage);
+    const account = ref
+      ? accounts.find(
+          (candidate) => String(candidate.id) === String(ref.accountId),
+        )
+      : undefined;
+    return account?.email ? [String(account.email)] : [];
+  }, [accounts, selectedMessage]);
+
+  /** The original message's addressing, Reply-To included. */
+  const replyHeaders = React.useMemo(() => {
+    const headers = selectedMessage?.headers as
+      | Record<string, string>
+      | undefined;
+    const replyToHeader =
+      (selectedMessage?.replyTo as string | undefined) ||
+      (selectedMessage?.reply_to as string | undefined) ||
+      headers?.["Reply-To"] ||
+      headers?.["reply-to"];
+
+    return {
+      from: selectedMessage?.from || selectedMessage?.email || "",
+      replyTo: replyToHeader ?? "",
+      to: selectedMessage?.to ?? "",
+      cc: selectedMessage?.cc ?? "",
+    };
+  }, [selectedMessage]);
   const replyContext = React.useCallback(
     (threaded = true): Partial<ComposeData> | null => {
       const ref = getMessageIdentityRef(selectedMessage);
@@ -588,15 +653,20 @@ export function RightPaneContainer({
     const source = replyContext();
     if (!source) return;
 
-    const replyTo = selectedMessage.email || selectedMessage.from || "";
     const subject = selectedMessage.subject?.startsWith("Re:")
       ? selectedMessage.subject
       : `Re: ${selectedMessage.subject || ""}`;
+    // Reply All answers the whole conversation: the reply target plus everyone
+    // on the original To, with the original Cc kept as Cc, minus this account.
+    const recipients = buildReplyRecipients(replyHeaders, {
+      replyAll: true,
+      ownAddresses,
+    });
 
     openPaneCompose("reply-all", {
       ...source,
-      to: replyTo,
-      cc: selectedMessage.cc ?? "",
+      to: recipients.to,
+      cc: recipients.cc,
       subject,
       body:
         preferredContentType === "plain"
@@ -604,7 +674,14 @@ export function RightPaneContainer({
           : formatQuotedHtml(selectedMessage),
       contentType: preferredContentType,
     });
-  }, [openPaneCompose, preferredContentType, selectedMessage, replyContext]);
+  }, [
+    openPaneCompose,
+    ownAddresses,
+    preferredContentType,
+    replyHeaders,
+    selectedMessage,
+    replyContext,
+  ]);
 
   // Handle Reply
   const handleReply = React.useCallback(() => {
@@ -617,14 +694,19 @@ export function RightPaneContainer({
       return;
     }
 
-    const replyTo = selectedMessage.email || selectedMessage.from || "";
     const subject = selectedMessage.subject?.startsWith("Re:")
       ? selectedMessage.subject
       : `Re: ${selectedMessage.subject || ""}`;
+    // Reply-To exists so a sender can redirect replies: mailing lists, support
+    // desks and no-reply senders all set it, and it used to be ignored.
+    const recipients = buildReplyRecipients(replyHeaders, {
+      replyAll: false,
+      ownAddresses,
+    });
 
     openPaneCompose("reply", {
       ...source,
-      to: replyTo,
+      to: recipients.to,
       subject,
       body:
         preferredContentType === "plain"
@@ -636,8 +718,10 @@ export function RightPaneContainer({
     replyContext,
     handleReplyAll,
     openPaneCompose,
+    ownAddresses,
     preferredContentType,
     preferences.default_reply_action,
+    replyHeaders,
     selectedMessage,
   ]);
 
@@ -717,6 +801,24 @@ export function RightPaneContainer({
     paneCompose,
   ]);
 
+  /**
+   * Put focus back in the message list.
+   *
+   * Deleting, archiving or moving the open message unmounts the action bar the
+   * user just pressed, and focus fell to the document body: a keyboard user
+   * started again from the WordPress admin bar and a screen reader said
+   * nothing. Land them on the row that holds the list's tab stop instead.
+   */
+  const focusMessageList = React.useCallback(() => {
+    if (typeof document === "undefined") return;
+    const grid = document.querySelector<HTMLElement>('[role="grid"]');
+    const row =
+      grid?.querySelector<HTMLElement>(
+        '[data-message-row="true"][tabindex="0"]',
+      ) ?? grid?.querySelector<HTMLElement>('[data-message-row="true"]');
+    row?.focus();
+  }, []);
+
   const finishAfterRemoval = React.useCallback(
     (
       action: "message_list" | "next_message",
@@ -730,12 +832,14 @@ export function RightPaneContainer({
         );
         if (next) {
           void live.selectMessage(next);
+          focusMessageList();
           return;
         }
       }
       live.clearSelection();
+      focusMessageList();
     },
-    [isCurrentSelection],
+    [focusMessageList, isCurrentSelection],
   );
 
   const handleArchive = React.useCallback(() => {
@@ -744,9 +848,15 @@ export function RightPaneContainer({
       return;
     }
     const source = captureSelection();
-    void archiveMessage(selectedIdentity).then((result) => {
-      if (result.success && !result.requiresRefresh)
+    // Promise.resolve, not a bare .then: these operations are promise-returning
+    // by contract, and a handler that explodes on a contract slip is a worse
+    // failure than the one it was added to report.
+    void Promise.resolve(archiveMessage(selectedIdentity)).then((result) => {
+      if (result?.success && !result.requiresRefresh) {
         finishAfterRemoval(preferences.after_archive_action, source);
+        return;
+      }
+      reportOperationFailure(result);
     });
   }, [
     selectedIdentity,
@@ -754,6 +864,7 @@ export function RightPaneContainer({
     captureSelection,
     archiveMessage,
     finishAfterRemoval,
+    reportOperationFailure,
     preferences.after_archive_action,
   ]);
 
@@ -764,6 +875,7 @@ export function RightPaneContainer({
     }
     const source = captureSelection();
     if (permanentlyDeletes || preferences.confirm_delete) {
+      setDeleteError(null);
       setPendingDelete({
         selection: source,
         permanent: permanentlyDeletes,
@@ -771,10 +883,15 @@ export function RightPaneContainer({
       });
       return;
     }
-    void deleteMessage(selectedIdentity, false).then((result) => {
-      if (result.success && !result.requiresRefresh)
-        finishAfterRemoval(preferences.after_delete_action, source);
-    });
+    void Promise.resolve(deleteMessage(selectedIdentity, false)).then(
+      (result) => {
+        if (result?.success && !result.requiresRefresh) {
+          finishAfterRemoval(preferences.after_delete_action, source);
+          return;
+        }
+        reportOperationFailure(result);
+      },
+    );
   }, [
     selectedIdentity,
     identityFailure,
@@ -784,6 +901,7 @@ export function RightPaneContainer({
     preferences.after_delete_action,
     deleteMessage,
     finishAfterRemoval,
+    reportOperationFailure,
   ]);
 
   const handleConfirmTrash = React.useCallback(async () => {
@@ -795,6 +913,7 @@ export function RightPaneContainer({
       return;
     }
     setIsDeleting(true);
+    setDeleteError(null);
     try {
       const result = await deleteMessage(
         pending.selection.identity,
@@ -807,6 +926,18 @@ export function RightPaneContainer({
       ) {
         setPendingDelete(null);
         finishAfterRemoval(pending.afterAction, pending.selection);
+        return;
+      }
+      // A failed delete used to close nothing and say nothing: the dialog sat
+      // there and the message stayed put. Keep it open and say why.
+      if (
+        !result.success &&
+        !result.requiresRefresh &&
+        isCurrentSelection(pending.selection, false)
+      ) {
+        setDeleteError(
+          result.error || __("That did not work. Try again.", "pressedmail"),
+        );
       }
     } finally {
       if (isCurrentSelection(pending.selection)) setIsDeleting(false);
@@ -824,16 +955,20 @@ export function RightPaneContainer({
       identityFailure();
       return;
     }
-    void markAsUnread(selectedIdentity);
-  }, [selectedIdentity, identityFailure, markAsUnread]);
+    void Promise.resolve(markAsUnread(selectedIdentity)).then(
+      reportOperationFailure,
+    );
+  }, [selectedIdentity, identityFailure, markAsUnread, reportOperationFailure]);
 
   const handleToggleStar = React.useCallback(() => {
     if (!selectedIdentity) {
       identityFailure();
       return;
     }
-    void toggleStar(selectedIdentity);
-  }, [selectedIdentity, identityFailure, toggleStar]);
+    void Promise.resolve(toggleStar(selectedIdentity)).then(
+      reportOperationFailure,
+    );
+  }, [selectedIdentity, identityFailure, toggleStar, reportOperationFailure]);
 
   const handleFolderRecovery = React.useCallback(() => {
     if (!selectedIdentity) {
@@ -852,6 +987,8 @@ export function RightPaneContainer({
         ) {
           finishAfterRemoval("message_list", source);
           await livePane.current.refreshMessages();
+        } else {
+          reportOperationFailure(result);
         }
       } finally {
         if (isCurrentSelection(source)) setIsDeleting(false);
@@ -864,6 +1001,7 @@ export function RightPaneContainer({
     moveMessage,
     isCurrentSelection,
     finishAfterRemoval,
+    reportOperationFailure,
   ]);
 
   // Close compose and return to reading. Also clear the shared composer state
@@ -903,7 +1041,9 @@ export function RightPaneContainer({
         identityFailure();
         return;
       }
-      void archiveMessage(replySource.identity, replySource);
+      void Promise.resolve(
+        archiveMessage(replySource.identity, replySource),
+      ).then(reportOperationFailure);
     }
   }, [
     archiveMessage,
@@ -911,6 +1051,7 @@ export function RightPaneContainer({
     identityFailure,
     preferences.auto_archive,
     replySource,
+    reportOperationFailure,
   ]);
 
   // After a manual draft save: drop the Drafts folder's cached pages so opening
@@ -1323,6 +1464,7 @@ export function RightPaneContainer({
         onOpenChange={(open) => {
           if (!open) {
             setPendingDelete(null);
+            setDeleteError(null);
           }
         }}
         title={
@@ -1331,9 +1473,20 @@ export function RightPaneContainer({
             : __("Delete email?", "pressedmail")
         }
         description={
-          pendingDelete?.permanent
-            ? __("This cannot be undone.", "pressedmail")
-            : __("This email will be moved to Trash.", "pressedmail")
+          <>
+            {pendingDelete?.permanent
+              ? __("This cannot be undone.", "pressedmail")
+              : __("This email will be moved to Trash.", "pressedmail")}
+            {deleteError ? (
+              <span
+                role="alert"
+                data-test="reading-pane-delete-error"
+                data-testid="reading-pane-delete-error"
+                className="mt-2 block text-destructive">
+                {deleteError}
+              </span>
+            ) : null}
+          </>
         }
         confirmText={__("Delete", "pressedmail")}
         cancelText={__("Cancel", "pressedmail")}

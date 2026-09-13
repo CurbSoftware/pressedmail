@@ -31,7 +31,7 @@ const CommandDialog = ({
   description,
   ...props
 }: CommandDialogProps) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   return (
     <DialogPrimitive.Root {...props}>
@@ -57,6 +57,7 @@ const CommandDialog = ({
           <div
             className={cn(themeClass, 'mx-auto w-full max-w-2xl')}
             data-pm-portal
+            lang={lang}
             style={style}
           >
             <DialogPrimitive.Content

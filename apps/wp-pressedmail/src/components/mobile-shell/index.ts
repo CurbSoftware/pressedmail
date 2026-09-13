@@ -1,5 +1,6 @@
 export { useMobileShellFlag } from "./useMobileShellFlag";
 export { useApplyShellMode } from "./useApplyShellMode";
+export { useFragmentLinkGuard } from "./useFragmentLinkGuard";
 export { MobileAppShell } from "./MobileAppShell";
 export type { MobileAppShellProps } from "./MobileAppShell";
 
@@ -57,7 +58,10 @@ export { MobileSearchInput } from "./MobileSearchInput";
 export type { MobileSearchInputProps } from "./MobileSearchInput";
 
 export { InboxFilterChips } from "./InboxFilterChips";
-export type { InboxFilterChipsProps, InboxQuickFilter } from "./InboxFilterChips";
+export type {
+  InboxFilterChipsProps,
+  InboxQuickFilter,
+} from "./InboxFilterChips";
 
 export { MobileAccountSheet } from "./MobileAccountSheet";
 export type {

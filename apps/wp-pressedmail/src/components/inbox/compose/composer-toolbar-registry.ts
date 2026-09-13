@@ -1,3 +1,5 @@
+import { __ } from "@wordpress/i18n";
+
 import type {
   ComposerToolbarItemId,
   ComposerToolbarPreset,
@@ -164,6 +166,32 @@ export const COMPOSER_MOBILE_RECOMMENDED_TOOLBAR_ITEMS: ComposerToolbarItemId[] 
     "ai",
   ];
 
+/**
+ * The default email toolbar: one calm row of the tools people reach for in
+ * a mail client. Everything else (fonts, sizes, colours, tables, alignment,
+ * spacing, import/export) is one click away in Customize, or all at once
+ * with the Advanced preset.
+ */
+export const COMPOSER_STANDARD_TOOLBAR_ITEMS: ComposerToolbarItemId[] = [
+  "history_undo",
+  "history_redo",
+  "ai",
+  "block_style",
+  "bold",
+  "italic",
+  "underline",
+  "list_menu",
+  "insert_link",
+  "insert_image_library",
+  "more_menu",
+  "clear_formatting",
+  // Right-side actions: always rendered, listed so the Customize switches
+  // show them as on.
+  "signature",
+  "preview",
+  "print",
+];
+
 export const COMPOSER_TOOLBAR_PRESETS: Record<
   Exclude<ComposerToolbarPreset, "custom">,
   ComposerToolbarItemId[]
@@ -175,7 +203,7 @@ export const COMPOSER_TOOLBAR_PRESETS: Record<
     "insert_link",
     "print",
   ],
-  standard: ALL_COMPOSER_TOOLBAR_ITEM_IDS,
+  standard: COMPOSER_STANDARD_TOOLBAR_ITEMS,
   advanced: ALL_COMPOSER_TOOLBAR_ITEM_IDS,
   recommended_mobile: COMPOSER_MOBILE_RECOMMENDED_TOOLBAR_ITEMS,
 };
@@ -351,22 +379,79 @@ export function resolveComposerToolbarItems(
     );
   }
 
-  return new Set(
-    filterAvailableToolbarItems(
-      COMPOSER_TOOLBAR_PRESETS[preset ?? "standard"] ??
-        COMPOSER_TOOLBAR_PRESETS.standard,
-      options,
-    ),
-  );
+  const resolvedPreset = preset ?? "standard";
+  // Signature and auto-reply editors are formatting tools with their own,
+  // already narrowed item set; the calm Standard row is for writing mail.
+  const presetItems =
+    resolvedPreset === "standard" && (options.surface ?? "email") !== "email"
+      ? COMPOSER_TOOLBAR_PRESETS.advanced
+      : (COMPOSER_TOOLBAR_PRESETS[resolvedPreset] ??
+        COMPOSER_TOOLBAR_PRESETS.standard);
+
+  return new Set(filterAvailableToolbarItems(presetItems, options));
+}
+
+/**
+ * Translated labels for the Customize dialog, keyed by group or item id. The
+ * English labels above are ids for tests and fallbacks; they are never shown
+ * untranslated. Built on call: a module-level __() runs before main.tsx loads
+ * the locale catalog, so it would always return English.
+ */
+function toolbarLabels(): Record<string, string> {
+  return {
+    history: __("History", "pressedmail"),
+    history_undo: __("Undo", "pressedmail"),
+    history_redo: __("Redo", "pressedmail"),
+    ai: __("AI", "pressedmail"),
+    import_export: __("Import and export", "pressedmail"),
+    insert_block: __("Insert and block style", "pressedmail"),
+    block_style: __("Block style", "pressedmail"),
+    font_size: __("Font size", "pressedmail"),
+    font: __("Font", "pressedmail"),
+    font_family: __("Font", "pressedmail"),
+    text_formatting: __("Text formatting", "pressedmail"),
+    bold: __("Bold", "pressedmail"),
+    italic: __("Italic", "pressedmail"),
+    underline: __("Underline", "pressedmail"),
+    strikethrough: __("Strikethrough", "pressedmail"),
+    inline_code: __("Inline code", "pressedmail"),
+    text_color: __("Text color", "pressedmail"),
+    highlight_color: __("Highlight", "pressedmail"),
+    body_background: __("Background color", "pressedmail"),
+    lists_alignment: __("Lists and alignment", "pressedmail"),
+    align: __("Align", "pressedmail"),
+    list_menu: __("Lists", "pressedmail"),
+    insert_tools: __("Insert tools", "pressedmail"),
+    insert_link: __("Insert link", "pressedmail"),
+    horizontal_rule: __("Horizontal rule", "pressedmail"),
+    insert_table: __("Insert table", "pressedmail"),
+    emoji: __("Emoji", "pressedmail"),
+    media: __("Media", "pressedmail"),
+    insert_image_library: __("Insert image", "pressedmail"),
+    spacing: __("Spacing", "pressedmail"),
+    line_height: __("Line height", "pressedmail"),
+    outdent: __("Outdent", "pressedmail"),
+    indent: __("Indent", "pressedmail"),
+    content_blocks: __("Content blocks", "pressedmail"),
+    more: __("More", "pressedmail"),
+    more_menu: __("More tools", "pressedmail"),
+    clear_formatting: __("Clear formatting", "pressedmail"),
+    actions: __("Actions", "pressedmail"),
+    signature: __("Signature", "pressedmail"),
+    preview: __("Preview", "pressedmail"),
+    print: __("Print", "pressedmail"),
+  };
 }
 
 export function getComposerToolbarSettingsGroups(
   options: ComposerToolbarResolutionOptions = {},
 ): ComposerToolbarGroupDefinition[] {
+  const labels = toolbarLabels();
   return COMPOSER_TOOLBAR_SETTINGS_GROUPS.map((group) => ({
     ...group,
-    items: group.items.filter((item) =>
-      isToolbarItemAvailable(item.id, options),
-    ),
+    label: labels[group.id] ?? group.label,
+    items: group.items
+      .filter((item) => isToolbarItemAvailable(item.id, options))
+      .map((item) => ({ ...item, label: labels[item.id] ?? item.label })),
   })).filter((group) => group.items.length > 0);
 }

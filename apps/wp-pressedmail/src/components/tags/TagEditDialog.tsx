@@ -9,7 +9,8 @@
  * @since 1.1.0
  */
 
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
+import { __, sprintf } from "@wordpress/i18n";
 import { Tag as TagIcon, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -30,7 +31,7 @@ import {
   Textarea,
 } from "@kit/ui/plugin";
 import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
-import { ComposerColorPalette } from "@/components/ui/color-picker/ComposerColorPalette";
+import { cn } from "@/lib/utils";
 import {
   PressedDialogContent,
   PressedDialogHeader,
@@ -43,6 +44,142 @@ import { TAG_COLORS } from "../../types/tags";
 import type { Tag, CreateTagData, UpdateTagData } from "../../types/tags";
 
 const DEFAULT_TAG_COLOR = TAG_COLORS[10] ?? "#3b82f6";
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+
+/** Names for TAG_COLORS, in the same order. Built at render time for i18n. */
+function tagColorNames(): string[] {
+  return [
+    __("Red", "pressedmail"),
+    __("Orange", "pressedmail"),
+    __("Amber", "pressedmail"),
+    __("Yellow", "pressedmail"),
+    __("Lime", "pressedmail"),
+    __("Green", "pressedmail"),
+    __("Emerald", "pressedmail"),
+    __("Teal", "pressedmail"),
+    __("Cyan", "pressedmail"),
+    __("Sky", "pressedmail"),
+    __("Blue", "pressedmail"),
+    __("Indigo", "pressedmail"),
+    __("Violet", "pressedmail"),
+    __("Purple", "pressedmail"),
+    __("Fuchsia", "pressedmail"),
+    __("Pink", "pressedmail"),
+    __("Rose", "pressedmail"),
+    __("Slate", "pressedmail"),
+  ];
+}
+
+/**
+ * Tag colour choice: the curated tag swatches as a radio group, plus one
+ * custom hex field. Tag text renders in the theme foreground over a light tint
+ * of the colour, so every choice stays readable. Nothing here touches the
+ * composer's palette history or custom colours.
+ */
+function TagColorPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (hex: string) => void;
+}) {
+  const labelId = useId();
+  const customId = useId();
+  const customErrorId = useId();
+  const names = tagColorNames();
+  const selectedIndex = TAG_COLORS.findIndex(
+    (hex) => hex.toLowerCase() === value.toLowerCase(),
+  );
+  const [custom, setCustom] = useState(selectedIndex === -1 ? value : "");
+  const customInvalid = custom !== "" && !HEX_COLOR.test(custom);
+
+  const select = (index: number, group: HTMLElement | null) => {
+    const hex = TAG_COLORS[index];
+    if (!hex) return;
+    onChange(hex);
+    setCustom("");
+    const radios = group?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
+    radios?.[index]?.focus();
+  };
+
+  return (
+    <div className="space-y-2">
+      <span id={labelId} className="text-sm font-medium leading-none">
+        {__("Color", "pressedmail")}
+      </span>
+      <div
+        role="radiogroup"
+        aria-labelledby={labelId}
+        data-test="tag-color-swatches"
+        className="flex flex-wrap gap-1.5"
+        onKeyDown={(event) => {
+          const step =
+            event.key === "ArrowRight" || event.key === "ArrowDown"
+              ? 1
+              : event.key === "ArrowLeft" || event.key === "ArrowUp"
+                ? -1
+                : 0;
+          if (!step) return;
+          event.preventDefault();
+          const from = selectedIndex === -1 ? 0 : selectedIndex;
+          select(
+            (from + step + TAG_COLORS.length) % TAG_COLORS.length,
+            event.currentTarget,
+          );
+        }}>
+        {TAG_COLORS.map((hex, index) => {
+          const checked = index === selectedIndex;
+          return (
+            <button
+              key={hex}
+              type="button"
+              role="radio"
+              aria-checked={checked}
+              aria-label={names[index]}
+              tabIndex={checked || (selectedIndex === -1 && index === 0) ? 0 : -1}
+              onClick={(event) =>
+                select(index, event.currentTarget.parentElement)
+              }
+              className={cn(
+                "size-7 rounded-full border border-black/10 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                checked &&
+                  "ring-2 ring-foreground ring-offset-2 ring-offset-background",
+              )}
+              style={{ backgroundColor: hex }}
+            />
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2">
+        <Label htmlFor={customId} className="text-sm font-normal">
+          {__("Custom", "pressedmail")}
+        </Label>
+        <Input
+          id={customId}
+          autoComplete="off"
+          spellCheck={false}
+          value={custom}
+          maxLength={7}
+          placeholder="#3b82f6"
+          data-test="tag-color-custom"
+          aria-invalid={customInvalid || undefined}
+          aria-describedby={customInvalid ? customErrorId : undefined}
+          onChange={(event) => {
+            const next = event.target.value.trim();
+            setCustom(next);
+            if (HEX_COLOR.test(next)) onChange(next);
+          }}
+          className="h-8 w-28 font-mono text-sm"
+        />
+      </div>
+      {customInvalid ? (
+        <p id={customErrorId} className="text-xs text-destructive">
+          {__("Use a hex color such as #3b82f6.", "pressedmail")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * Tag Edit Dialog Component
@@ -105,9 +242,15 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <PressedDialogContent size="paletteForm">
         <PressedDialogHeader
-          title={tag ? "Edit Tag" : "Create Tag"}
+          title={
+            tag ? __("Edit tag", "pressedmail") : __("Create tag", "pressedmail")
+          }
           icon={TagIcon}
-          description={tag ? "Edit tag details" : "Create a new tag"}
+          description={
+            tag
+              ? __("Change this tag's name, color or description.", "pressedmail")
+              : __("Create a tag to label your email.", "pressedmail")
+          }
           descriptionMode="sr-only"
         />
 
@@ -115,20 +258,22 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
           <PressedOverlayBody className="space-y-4">
             {/* Name Input */}
             <div className="space-y-2">
-              <Label htmlFor="tag-name">Name</Label>
+              <Label htmlFor="tag-name">{__("Name", "pressedmail")}</Label>
               <Input autoComplete="off"
                 id="tag-name"
                 data-test="tag-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Enter tag name"
+                placeholder={__("For example: Follow up", "pressedmail")}
                 maxLength={100}
               />
             </div>
 
             {/* Description, doubles as the AI auto-tag instruction */}
             <div className="space-y-2">
-              <Label htmlFor="tag-description">Description</Label>
+              <Label htmlFor="tag-description">
+                {__("Description", "pressedmail")}
+              </Label>
               <Textarea autoComplete="off"
                 id="tag-description"
                 data-test="tag-description"
@@ -136,8 +281,11 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={
                   aiAvailable
-                    ? "Describe this tag. When AI auto-tagging is on, this is the instruction the AI uses to apply it."
-                    : "Describe what this tag is for"
+                    ? __(
+                        "Describe this tag. With AI auto-tagging on, this is the instruction the AI follows.",
+                        "pressedmail",
+                      )
+                    : __("What is this tag for?", "pressedmail")
                 }
                 rows={4}
               />
@@ -150,7 +298,7 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
                   <Label
                     htmlFor="tag-ai-enabled"
                     className="text-sm font-medium">
-                    AI auto-tagging
+                    {__("AI auto-tagging", "pressedmail")}
                   </Label>
                   <Switch
                     id="tag-ai-enabled"
@@ -160,32 +308,32 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  When on, the AI applies this tag to emails during auto-tagging
-                  using the description above as its instruction.
+                  {__(
+                    "When on, the AI applies this tag during auto-tagging, using the description above as its instruction.",
+                    "pressedmail",
+                  )}
                 </p>
               </div>
             ) : null}
 
             {/* Color Picker */}
-            <div className="space-y-2">
-              <Label>Color</Label>
-              <ComposerColorPalette
-                mode="picker"
-                level="reduced"
-                onPick={setColor}
-                onClear={() => setColor(DEFAULT_TAG_COLOR)}
-              />
-            </div>
+            <TagColorPicker
+              key={tag?.id ?? "new"}
+              value={color}
+              onChange={setColor}
+            />
 
             {/* Preview */}
             <div className="space-y-2">
-              <Label>Preview</Label>
+              <span className="text-sm font-medium leading-none">
+                {__("Preview", "pressedmail")}
+              </span>
               <TagBadge
                 tag={{
                   id: 0,
                   user_id: 0,
                   account_id: null,
-                  name: name || "Tag name",
+                  name: name || __("Tag name", "pressedmail"),
                   description,
                   color,
                   icon: null,
@@ -209,13 +357,17 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}>
-              Cancel
+              {__("Cancel", "pressedmail")}
             </Button>
             <Button
               type="submit"
               data-test="tag-save"
               disabled={!name.trim() || saving}>
-              {saving ? "Saving..." : tag ? "Save Changes" : "Create Tag"}
+              {saving
+                ? __("Saving…", "pressedmail")
+                : tag
+                  ? __("Save changes", "pressedmail")
+                  : __("Create tag", "pressedmail")}
             </Button>
           </PressedOverlayFooter>
         </form>
@@ -257,23 +409,28 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
         <AlertDialogHeader>
           <AlertDialogTitle>
             <DialogTitleRow>
-              <Trash2 />
-              <span>Delete Tag</span>
+              <Trash2 aria-hidden="true" />
+              <span>{__("Delete tag", "pressedmail")}</span>
             </DialogTitleRow>
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to delete the tag{" "}
-            <strong>"{tag?.name}"</strong>? This will remove the tag from all
-            messages.
+            {sprintf(
+              /* translators: %s: tag name. */
+              __(
+                "Delete the tag \u201c%s\u201d? It comes off every message that has it.",
+                "pressedmail",
+              ),
+              tag?.name ?? "",
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>{__("Cancel", "pressedmail")}</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
             disabled={deleting}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-            {deleting ? "Deleting..." : "Delete"}
+            {deleting ? __("Deleting…", "pressedmail") : __("Delete", "pressedmail")}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

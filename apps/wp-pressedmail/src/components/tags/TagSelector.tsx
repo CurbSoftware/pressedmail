@@ -6,6 +6,8 @@
  * @since 1.1.0
  */
 
+import { __, _n, sprintf } from "@wordpress/i18n";
+import { appMessage } from "@/context/toast";
 import React, { useState, useCallback } from "react";
 import {
   Popover,
@@ -85,11 +87,16 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:opacity-50 disabled:cursor-not-allowed",
             className,
-          )}
-          aria-label="Select tags">
-          <TagIcon size={16} />
+          )}>
+          <TagIcon size={16} aria-hidden="true" />
           <span>
-            {selectedTags.length > 0 ? `${selectedTags.length} Tags` : "Tags"}
+            {selectedTags.length > 0
+              ? sprintf(
+                  /* translators: %d: number of tags on the message. */
+                  _n("%d tag", "%d tags", selectedTags.length, "pressedmail"),
+                  selectedTags.length,
+                )
+              : __("Tags", "pressedmail")}
           </span>
         </button>
       </PopoverTrigger>
@@ -111,7 +118,8 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
             <input
               autoComplete="off"
               type="text"
-              placeholder="Search tags..."
+              aria-label={__("Search tags", "pressedmail")}
+              placeholder={__("Search tags...", "pressedmail")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className={cn(
@@ -128,11 +136,13 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
         <div className="max-h-64 overflow-y-auto p-1">
           {loading ? (
             <div className="px-3 py-2 text-sm text-muted-foreground text-center">
-              Loading tags...
+              {__("Loading tags...", "pressedmail")}
             </div>
           ) : filteredTags.length === 0 ? (
             <div className="px-3 py-2 text-sm text-muted-foreground text-center">
-              {searchQuery ? "No tags found" : "No tags created yet"}
+              {searchQuery
+                ? __("No tags found", "pressedmail")
+                : __("No tags yet", "pressedmail")}
             </div>
           ) : (
             filteredTags.map((tag) => {
@@ -176,7 +186,7 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
                 "transition-colors",
               )}>
               <Plus size={14} />
-              <span>Create new tag</span>
+              <span>{__("Create new tag", "pressedmail")}</span>
             </button>
           </div>
         )}
@@ -298,9 +308,12 @@ const InlineMessageTagSelector: React.FC<
           if (!isCurrent(principal)) return;
           setSelectedTags(messageTags);
           setLoaded(true);
-        } catch (error) {
+        } catch {
           if (isCurrent(principal))
-            console.error("Failed to load message tags:", error);
+            appMessage(
+              __("Could not load this message's tags.", "pressedmail"),
+              "error",
+            );
         } finally {
           loading.current = false;
         }
@@ -347,7 +360,12 @@ const InlineMessageTagSelector: React.FC<
         if (!isCurrent(principal)) return;
         setSelectedTags(previousTags);
         updateLocalMessageTags(previousTags, principal);
-        console.error("Failed to toggle tag:", error);
+        appMessage(
+          error instanceof Error && error.message
+            ? error.message
+            : __("Could not update the tag. Try again.", "pressedmail"),
+          "error",
+        );
       } finally {
         mutating.current = false;
         if (isCurrent(principal)) {
@@ -395,7 +413,7 @@ const InlineMessageTagSelector: React.FC<
               className,
             )}
             onClick={(event) => event.stopPropagation()}
-            aria-label="Manage tags">
+            aria-label={__("Manage tags", "pressedmail")}>
             <TagIcon size={16} />
           </button>
         )}

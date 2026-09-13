@@ -217,6 +217,13 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      find: /^@\/components\/signatures\/SignatureRulesManager\.pro$/,
+      replacement: pick(
+        "./src/components/signatures/SignatureRulesManager.free.tsx",
+        "./src/components/signatures/SignatureRulesManager.pro.tsx",
+      ),
+    },
+    {
       find: /^@\/components\/inbox\/compose\/ComposerScheduleActions\.active$/,
       replacement: pick(
         "./src/components/inbox/compose/ComposerScheduleActions.free.tsx",
@@ -368,6 +375,14 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/components/snooze/snooze-popover.free.tsx",
         "./src/components/snooze/snooze-popover.tsx",
+      ),
+    },
+    {
+      // Free renders none of the Pro tabs, so its map must not carry their ids.
+      find: /^@\/components\/settings-ui\/settings-section-description$/,
+      replacement: pick(
+        "./src/components/settings-ui/settings-section-description.free.ts",
+        "./src/components/settings-ui/settings-section-description.ts",
       ),
     },
     {

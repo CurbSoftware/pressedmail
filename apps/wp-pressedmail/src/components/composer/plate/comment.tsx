@@ -287,6 +287,7 @@ export function Comment(props: {
           <div className="absolute top-0 right-0 flex space-x-1">
             {index === 0 && (
               <Button
+                aria-label={__('Resolve comment', 'pressedmail')}
                 className="h-6 p-1 text-muted-foreground"
                 onClick={onResolveComment}
                 type="button"
@@ -341,6 +342,7 @@ export function Comment(props: {
             {isEditing && (
               <div className="ml-auto flex shrink-0 gap-1">
                 <Button
+                  aria-label={__('Cancel editing', 'pressedmail')}
                   className="size-[28px]"
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                     e.stopPropagation();
@@ -355,6 +357,7 @@ export function Comment(props: {
                 </Button>
 
                 <Button
+                  aria-label={__('Save comment', 'pressedmail')}
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                     e.stopPropagation();
                     void onSave();
@@ -448,7 +451,11 @@ function CommentMoreDropdown(props: {
       open={dropdownOpen}
     >
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-        <Button className={cn('h-6 p-1 text-muted-foreground')} variant="ghost">
+        <Button
+          aria-label={__('Comment actions', 'pressedmail')}
+          className={cn('h-6 p-1 text-muted-foreground')}
+          variant="ghost"
+        >
           <MoreHorizontalIcon className="size-4" />
         </Button>
       </DropdownMenuTrigger>

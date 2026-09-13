@@ -51,7 +51,7 @@ export function SettingsHeaderActionButton({
         disabled={disabled}
         data-test={dataTest}
         data-testid={dataTest}
-        className="h-9 w-9">
+        className="pm-touch-target h-11 w-11">
         <Icon className="h-5 w-5" aria-hidden="true" />
       </Button>
     );

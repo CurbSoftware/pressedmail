@@ -121,14 +121,14 @@ export function useReadReceipt(options: UseReadReceiptOptions) {
       if (!current()) return null;
       const response = await apiFetch(url, {
         method: enabled === undefined ? "GET" : "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         ...(enabled === undefined
           ? {}
           : { body: JSON.stringify({ tracking_enabled: enabled }) }),
       });
       if (!current()) return null;
-      const body: unknown = await response.json();
+      // An HTML error page must not surface as "Unexpected token '<'".
+      const body: unknown = await response.json().catch(() => null);
       if (!current()) return null;
       if (!response.ok) {
         const message =

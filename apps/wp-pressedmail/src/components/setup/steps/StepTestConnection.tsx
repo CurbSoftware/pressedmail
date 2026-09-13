@@ -48,7 +48,7 @@ export function StepTestConnection({
       <div className="text-center space-y-2">
         <CheckCircle className="h-12 w-12 text-primary mx-auto" />
         <h2 className="text-2xl font-bold">
-          {__("Test Connection", "pressedmail")}
+          {__("Test connection", "pressedmail")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {__("Verify your settings before completing setup", "pressedmail")}
@@ -57,7 +57,7 @@ export function StepTestConnection({
 
       <Card>
         <CardHeader>
-          <CardTitle>{__("Account Summary", "pressedmail")}</CardTitle>
+          <CardTitle>{__("Account summary", "pressedmail")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div className="flex justify-between">
@@ -77,7 +77,7 @@ export function StepTestConnection({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">
-              {__("Display Name:", "pressedmail")}
+              {__("Display name:", "pressedmail")}
             </span>
             <span className="font-medium">{formData.displayName}</span>
           </div>
@@ -85,7 +85,7 @@ export function StepTestConnection({
             <>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
-                  {__("IMAP Server:", "pressedmail")}
+                  {__("IMAP server:", "pressedmail")}
                 </span>
                 <span className="font-medium">
                   {formData.imapHost}:{formData.imapPort}
@@ -93,7 +93,7 @@ export function StepTestConnection({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">
-                  {__("SMTP Server:", "pressedmail")}
+                  {__("SMTP server:", "pressedmail")}
                 </span>
                 <span className="font-medium">
                   {formData.smtpHost}:{formData.smtpPort}
@@ -117,7 +117,7 @@ export function StepTestConnection({
       {(loading || testState.imapStatus !== "pending") && (
         <Card>
           <CardHeader>
-            <CardTitle>{__("Connection Status", "pressedmail")}</CardTitle>
+            <CardTitle>{__("Connection status", "pressedmail")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-3">
@@ -135,7 +135,7 @@ export function StepTestConnection({
               )}
               <div className="flex-1">
                 <p className="font-medium">
-                  {__("IMAP (Receiving)", "pressedmail")}
+                  {__("IMAP (receiving)", "pressedmail")}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {testState.imapMessage ||
@@ -159,7 +159,7 @@ export function StepTestConnection({
               )}
               <div className="flex-1">
                 <p className="font-medium">
-                  {__("SMTP (Sending)", "pressedmail")}
+                  {__("SMTP (sending)", "pressedmail")}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   {testState.smtpMessage ||
@@ -178,10 +178,10 @@ export function StepTestConnection({
           className="w-full"
           variant={connectionStatus?.success ? "secondary" : "default"}>
           {loading
-            ? __("Testing Connection...", "pressedmail")
+            ? __("Testing connection...", "pressedmail")
             : connectionStatus?.success
-              ? __("Connection Tested", "pressedmail")
-              : __("Test Connection", "pressedmail")}
+              ? __("Connection tested", "pressedmail")
+              : __("Test connection", "pressedmail")}
         </Button>
 
         {connectionStatus && !loading && (

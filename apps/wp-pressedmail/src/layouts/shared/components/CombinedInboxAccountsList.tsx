@@ -49,7 +49,7 @@ export function CombinedInboxAccountsList({
       {!isCollapsed && (
         <div className="px-0 py-1">
           <span className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-            {__("Combined Inbox", "pressedmail")}
+            {__("Combined inbox", "pressedmail")}
           </span>
         </div>
       )}

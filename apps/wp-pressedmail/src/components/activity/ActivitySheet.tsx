@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/task-progress-row";
 import { useProcessQueue, refreshProcessQueue } from "@/hooks/useProcessQueue";
 import { clearProcessHistory } from "@/services/process-queue.service";
+import { appMessage } from "@/context/toast";
 import type {
   ProcessTask,
   ProcessTaskStatus,
@@ -263,7 +264,7 @@ function TabButton({ active, count, onClick, children }: TabButtonProps) {
 }
 
 export function ActivitySheet({ open, onOpenChange }: ActivitySheetProps) {
-  const { activeTasks, historyTasks, cancel } = useProcessQueue();
+  const { activeTasks, historyTasks, cancel, error } = useProcessQueue();
   const [tab, setTab] = useState<ActivityTab>("tasks");
 
   // Portal the sheet into the PressedMail app frame so it stays inside the plugin
@@ -297,7 +298,17 @@ export function ActivitySheet({ open, onOpenChange }: ActivitySheetProps) {
 
   const handleCancel = useCallback(
     (taskId: number) => {
-      void cancel(taskId);
+      // cancel() rethrows. Throwing the promise away made a failed cancel an
+      // unhandled rejection, and the row simply carried on running. Wrapped in
+      // Promise.resolve so reporting the failure can never itself throw.
+      void Promise.resolve(cancel(taskId)).catch((caught: unknown) => {
+        appMessage(
+          caught instanceof Error
+            ? caught.message
+            : __("We could not cancel that task.", "pressedmail"),
+          "error",
+        );
+      });
     },
     [cancel],
   );
@@ -308,8 +319,13 @@ export function ActivitySheet({ open, onOpenChange }: ActivitySheetProps) {
     try {
       await clearProcessHistory();
       refreshProcessQueue();
-    } catch {
-      // Best-effort: the next poll re-renders whatever the server kept.
+    } catch (caught) {
+      appMessage(
+        caught instanceof Error
+          ? caught.message
+          : __("We could not clear the history.", "pressedmail"),
+        "error",
+      );
     } finally {
       setClearingHistory(false);
     }
@@ -367,7 +383,28 @@ export function ActivitySheet({ open, onOpenChange }: ActivitySheetProps) {
               aria-label={__("Background tasks", "pressedmail")}
               data-test="process-queue-section"
               data-testid="process-queue-section">
-              {activeTasks.length === 0 ? (
+              {error && activeTasks.length === 0 ? (
+                // An unreachable queue is not an idle queue. Saying "nothing
+                // running" when the load failed told people all was well while
+                // their sweep was in an unknown state.
+                <div
+                  role="alert"
+                  data-test="process-queue-error"
+                  data-testid="process-queue-error"
+                  className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-3 text-xs text-foreground">
+                  <p>{error}</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    data-test="process-queue-retry"
+                    data-testid="process-queue-retry"
+                    onClick={() => refreshProcessQueue()}>
+                    {__("Try again", "pressedmail")}
+                  </Button>
+                </div>
+              ) : activeTasks.length === 0 ? (
                 <p
                   data-test="process-queue-empty"
                   data-testid="process-queue-empty"

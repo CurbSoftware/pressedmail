@@ -1,13 +1,17 @@
 /**
  * ComposerAddressing: Addressing section for the email composer.
  *
- * Full-width recipient fields with inline Cc/Bcc action buttons.
+ * Full-width recipient fields with inline Cc and Bcc text toggles, the way
+ * mail clients show them, so they read as words rather than glyphs. Each
+ * toggle is a disclosure button: its name stays "Cc" or "Bcc" and
+ * aria-expanded carries the state, so a screen reader never hears a name that
+ * contradicts it.
  *
  * @since 2.0.0
  */
 
+import { useId } from "react";
 import { __ } from "@wordpress/i18n";
-import { EyeOff, Users } from "lucide-react";
 import { RecipientInput } from "@/components/compose/RecipientInput";
 import {
   dedupeRecipientGroupsByEmail,
@@ -59,6 +63,8 @@ export function ComposerAddressing({
   disabled = false,
   autoFocusTo = false,
 }: ComposerAddressingProps) {
+  const ccFieldId = useId();
+  const bccFieldId = useId();
   const applyRecipientGroups = (groups: RecipientGroups) => {
     const next = dedupeRecipientGroupsByEmail(groups);
     if (!sameRecipientList(toRecipients, next.to)) {
@@ -102,19 +108,17 @@ export function ComposerAddressing({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    aria-label={
-                      showCc
-                        ? __("Hide Cc", "pressedmail")
-                        : __("Show Cc", "pressedmail")
-                    }
+                    size="sm"
+                    disabled={disabled}
+                    aria-expanded={showCc}
+                    aria-controls={showCc ? ccFieldId : undefined}
                     data-test="toggle-cc-button"
-                    className="h-7 w-7"
+                    className="h-7 px-2 text-xs font-medium pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowCcChange(!showCc);
                     }}>
-                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                    {__("Cc", "pressedmail")}
                   </Button>
                 </PressedTooltip>
 
@@ -128,19 +132,17 @@ export function ComposerAddressing({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    aria-label={
-                      showBcc
-                        ? __("Hide Bcc", "pressedmail")
-                        : __("Show Bcc", "pressedmail")
-                    }
+                    size="sm"
+                    disabled={disabled}
+                    aria-expanded={showBcc}
+                    aria-controls={showBcc ? bccFieldId : undefined}
                     data-test="toggle-bcc-button"
-                    className="h-7 w-7"
+                    className="h-7 px-2 text-xs font-medium pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowBccChange(!showBcc);
                     }}>
-                    <EyeOff className="h-3.5 w-3.5 text-muted-foreground" />
+                    {__("Bcc", "pressedmail")}
                   </Button>
                 </PressedTooltip>
               </>
@@ -151,7 +153,10 @@ export function ComposerAddressing({
 
       {/* Cc Field, expanded */}
       {showCc && (
-        <div className="border-b border-border px-4 py-2" data-test="cc-input">
+        <div
+          id={ccFieldId}
+          className="border-b border-border px-4 py-2"
+          data-test="cc-input">
           <RecipientInput
             label={__("Cc", "pressedmail")}
             value={ccRecipients}
@@ -171,7 +176,10 @@ export function ComposerAddressing({
 
       {/* Bcc Field, expanded */}
       {showBcc && (
-        <div className="border-b border-border px-4 py-2" data-test="bcc-input">
+        <div
+          id={bccFieldId}
+          className="border-b border-border px-4 py-2"
+          data-test="bcc-input">
           <RecipientInput
             label={__("Bcc", "pressedmail")}
             value={bccRecipients}

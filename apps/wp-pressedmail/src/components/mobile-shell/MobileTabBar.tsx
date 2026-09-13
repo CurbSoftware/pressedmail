@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import { NavLink } from "react-router-dom";
 
 import { cn } from "@/lib/utils";
@@ -49,7 +50,11 @@ function Badge({ count }: { count: number }) {
   const text = count > 99 ? "99+" : String(count);
   return (
     <span
-      aria-label={`${count} unread`}
+      aria-label={sprintf(
+        /* translators: %d: number of unread messages. */
+        _n("%d unread", "%d unread", count, "pressedmail"),
+        count,
+      )}
       className="absolute -top-1 right-3 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold leading-4 text-primary-foreground">
       {text}
     </span>
@@ -91,6 +96,7 @@ function renderTab(item: MobileTabItem) {
     <NavLink
       key={item.id}
       to={item.to}
+      state={{ pmMobileTabRoot: true }}
       className={({ isActive }) =>
         cn(
           "pm-touch-target flex flex-1 flex-col items-center justify-center py-2 active:bg-muted",
@@ -121,7 +127,7 @@ export function MobileTabBar({
 
   return (
     <nav
-      aria-label="Mobile navigation"
+      aria-label={__("Mobile navigation", "pressedmail")}
       data-pm-tab-bar
       className={cn(
         "sticky bottom-0 z-40 flex w-full shrink-0 items-stretch border-t border-border bg-card",

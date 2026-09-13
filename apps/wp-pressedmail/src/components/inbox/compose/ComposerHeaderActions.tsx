@@ -202,6 +202,7 @@ export function ComposerHeaderSendGroup({
             size="sm"
             aria-label={popOutLabel}
             onClick={onPopOut}
+            data-compose-view-trigger="popout"
             className={RIBBON_BUTTON_CLASSES}>
             <span className={RIBBON_ICON_WRAP}>
               <ExternalLink />
@@ -238,6 +239,7 @@ export function ComposerHeaderSendGroup({
             aria-label={fullViewLabel}
             onClick={onFullView}
             data-test="full-view-compose-button"
+            data-compose-view-trigger="full"
             className={RIBBON_BUTTON_CLASSES}>
             <span className={RIBBON_ICON_WRAP}>
               <Maximize2 />
@@ -337,6 +339,7 @@ export function ComposerHeaderSendGroup({
             size="icon"
             aria-label={popOutLabel}
             onClick={onPopOut}
+            data-compose-view-trigger="popout"
             className="h-8 w-8">
             <ExternalLink className="h-4 w-4" />
           </Button>
@@ -367,6 +370,7 @@ export function ComposerHeaderSendGroup({
             aria-label={fullViewLabel}
             onClick={onFullView}
             data-test="full-view-compose-button"
+            data-compose-view-trigger="full"
             className="h-8 w-8">
             <Maximize2 className="h-4 w-4" />
           </Button>

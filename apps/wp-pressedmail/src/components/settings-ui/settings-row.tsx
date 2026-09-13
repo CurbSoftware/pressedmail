@@ -10,6 +10,16 @@ interface SettingsRowProps {
   meta?: ReactNode;
   className?: string;
   controlClassName?: string;
+  /**
+   * Keep the control on the title's row at every width.
+   *
+   * The default stacks the control under the description below 640px, which is
+   * right for a wide control (an input, a select) but wrong for a switch: it
+   * spends three lines on one toggle and puts the switch nowhere near the thing
+   * it controls. iOS, Android and WordPress ToggleControl all keep a switch on
+   * the label's row, so switch rows pass `inline`.
+   */
+  inline?: boolean;
 }
 
 export function SettingsRow({
@@ -20,13 +30,16 @@ export function SettingsRow({
   meta,
   className,
   controlClassName,
+  inline = false,
 }: SettingsRowProps) {
   return (
     <div
       className={cn(
         "grid gap-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center",
+        inline && "grid-cols-[1fr_auto] items-center",
         className,
       )}
+      data-pm-inline={inline ? "true" : undefined}
       data-test="settings-row"
       data-testid="settings-row">
       <div className="min-w-0 space-y-1">
@@ -48,6 +61,7 @@ export function SettingsRow({
         <div
           className={cn(
             "flex flex-wrap items-center gap-2 sm:justify-end",
+            inline && "justify-end",
             controlClassName,
           )}
           data-test="settings-row-control"

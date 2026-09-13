@@ -1,12 +1,14 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 
 import { useOptionalBackStack } from "@/hooks/useBackStack";
 import { useEdgeSwipe } from "@/hooks/useEdgeSwipe";
 import { cn } from "@/lib/utils";
 
 import { useOptionalMobileLayout } from "./MobileLayoutContext";
+import { isNonTouchPointer } from "./pointerStream";
 
 export interface MobileScreenProps {
   header?: React.ReactNode;
@@ -52,22 +54,59 @@ export function MobileScreen({
     onComplete: () => popRef.current?.(),
   });
 
+  // A phone emits both streams. Its pointercancel must not erase the gesture
+  // still tracked by touch events; touchcancel handles an actual interruption.
+  const toPointerLike = (event: React.TouchEvent) => {
+    const touch = event.changedTouches[0] ?? event.touches[0];
+    return {
+      clientX: touch?.clientX ?? 0,
+      clientY: touch?.clientY ?? 0,
+    } as React.PointerEvent;
+  };
+
+  const focusContent = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    const content = document.getElementById("pm-screen-content");
+    if (!content) return;
+    event.preventDefault();
+    content.focus({ preventScroll: true });
+    content.scrollIntoView?.({ block: "start" });
+  };
+
+  const tabBarVisible = layout ? !layout.isTabBarHidden : false;
+
   return (
     <div
       data-pm-screen
-      onPointerDown={edgeSwipe.onPointerDown}
-      onPointerMove={edgeSwipe.onPointerMove}
-      onPointerUp={edgeSwipe.onPointerUp}
-      onPointerCancel={edgeSwipe.onPointerCancel}
+      onPointerDown={(event) =>
+        isNonTouchPointer(event) && edgeSwipe.onPointerDown(event)
+      }
+      onPointerMove={(event) =>
+        isNonTouchPointer(event) && edgeSwipe.onPointerMove(event)
+      }
+      onPointerUp={(event) =>
+        isNonTouchPointer(event) && edgeSwipe.onPointerUp(event)
+      }
+      onPointerCancel={(event) =>
+        isNonTouchPointer(event) && edgeSwipe.onPointerCancel(event)
+      }
+      onTouchStart={(event) => edgeSwipe.onPointerDown(toPointerLike(event))}
+      onTouchMove={(event) => edgeSwipe.onPointerMove(toPointerLike(event))}
+      onTouchEnd={(event) => edgeSwipe.onPointerUp(toPointerLike(event))}
+      onTouchCancel={(event) => edgeSwipe.onPointerCancel(toPointerLike(event))}
       className={cn(
         "flex h-full min-h-0 w-full flex-col bg-background text-foreground",
         back?.canGoBack && "pm-screen-slide-in",
         className,
       )}>
+      {/* Focus is moved in JS rather than left to the browser: the hash router
+          treats any location.hash write as a route, so the bare href alone
+          navigated to the inbox instead of skipping the header. The href stays
+          for semantics and for the status bar. */}
       <a
         href="#pm-screen-content"
+        onClick={focusContent}
         className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:left-3 focus-visible:top-3 focus-visible:z-50 focus-visible:rounded-md focus-visible:bg-primary focus-visible:px-3 focus-visible:py-2 focus-visible:text-sm focus-visible:font-medium focus-visible:text-primary-foreground">
-        Skip to content
+        {__("Skip to content", "pressedmail")}
       </a>
       {header}
       <div
@@ -89,7 +128,16 @@ export function MobileScreen({
         )}>
         {children}
       </div>
-      {footer}
+      {/* The footer sits outside the padded scroll body, so the FAB's 28px
+          overhang landed straight on top of it: on the inbox the pager's
+          previous-page button and its "Showing 1-50 of ..." count were
+          physically unreachable. Reserve that strip whenever the tab bar (and
+          therefore the FAB) is actually on screen. */}
+      {footer ? (
+        <div data-pm-screen-footer className={cn(tabBarVisible && "pb-7")}>
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import {
   captureStoragePrincipal,
   getPrincipalStorageItem,
   setPrincipalStorageItem,
+  removePrincipalStorageItem,
   getPrincipalStorageKey,
   isStoragePrincipalCurrent,
 } from "@/lib/principal-storage";
@@ -96,8 +97,17 @@ export default function useLocalStorage<T>(
   const toStorage = options?.toStorage;
   const onExternalChange = options?.onExternalChange;
   useEffect(() => {
-    if (value == null) return;
     try {
+      // Clearing is a write too. Skipping it left the previous value in
+      // storage, so the next mount read it straight back: removing an account
+      // set selectedAccount to null and the removed account returned on
+      // reload, which is what AppProvider's "stale localStorage" repair effect
+      // was cleaning up after.
+      if (value == null) {
+        if (scoped) removePrincipalStorageItem("local", logicalKey, principal);
+        else localStorage.removeItem(logicalKey);
+        return;
+      }
       const serialized = JSON.stringify(toStorage ? toStorage(value) : value);
       if (scoped)
         setPrincipalStorageItem("local", logicalKey, serialized, principal);

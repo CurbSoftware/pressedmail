@@ -1,7 +1,7 @@
 import { __, sprintf } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { Info, Loader2 } from "lucide-react";
+import { Info } from "lucide-react";
 import {
   Alert,
   AlertDescription,
@@ -19,16 +19,14 @@ import {
   SettingsSectionCard,
   useSettingsHeaderAction,
   useSettingsNavigationGuard,
+  SettingsSkeleton,
 } from "@/components/settings-ui";
 import {
   notifyAutosaveError,
   notifyAutosaveSuccess,
   type AutosaveStatus,
 } from "@/hooks/useAutosaveSetting";
-import {
-  AccessRolesCard,
-  type AccessControlDraftHandle,
-} from "./access-tab";
+import { AccessRolesCard, type AccessControlDraftHandle } from "./access-tab";
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 
 interface AdminSecuritySettings {
@@ -57,7 +55,9 @@ const getApiUrl = (): string => {
   return window.pressedmailPlugin?.apiUrl || "/wp-json/";
 };
 
-export function SecurityAccessTab() {
+export function SecurityAccessTab({
+  section = "access",
+}: { section?: "access" | "sync" | "data" } = {}) {
   const { loading: featuresLoading } = useFeatures();
   const [settings, setSettings] =
     useState<AdminSecuritySettings>(DEFAULT_SETTINGS);
@@ -67,6 +67,8 @@ export function SecurityAccessTab() {
     Record<string, AccessControlDraftHandle>
   >({});
   const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("idle");
 
   // JUSTIFICATION: useEffect needed to fetch plugin settings after features context resolves
@@ -76,8 +78,13 @@ export function SecurityAccessTab() {
         return;
       }
 
+      setIsLoading(true);
+      setLoadFailed(false);
+
       try {
-        const response = await apiFetch(`${getApiUrl()}${getRuntimeRestNamespace()}/plugin/settings`);
+        const response = await apiFetch(
+          `${getApiUrl()}${getRuntimeRestNamespace()}/plugin/settings`,
+        );
 
         const data = await response.json();
 
@@ -110,16 +117,28 @@ export function SecurityAccessTab() {
           };
           setSettings(nextSettings);
           setSavedSettings(nextSettings);
+        } else {
+          throw new Error(
+            typeof data?.message === "string"
+              ? data.message
+              : "Plugin settings request was not successful",
+          );
         }
       } catch (error) {
         console.error("Failed to fetch security settings:", error);
+        // Leaving DEFAULT_SETTINGS on screen presented "remote images allowed,
+        // uploads allowed, downloads allowed" as though they had been read from
+        // the site, and Save then wrote those defaults over whatever was
+        // actually stored. A setting that cannot be read is an error state, not
+        // a value.
+        setLoadFailed(true);
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchSettings();
-  }, [featuresLoading]);
+  }, [featuresLoading, reloadToken]);
 
   const registerExternalDraft = useCallback(
     (key: string, draft: AccessControlDraftHandle | null) => {
@@ -186,13 +205,16 @@ export function SecurityAccessTab() {
     setSaveStatus("saving");
 
     try {
-      const response = await apiFetch(`${getApiUrl()}${getRuntimeRestNamespace()}/plugin/settings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      const response = await apiFetch(
+        `${getApiUrl()}${getRuntimeRestNamespace()}/plugin/settings`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(changedSettings),
         },
-        body: JSON.stringify(changedSettings),
-      });
+      );
 
       const data = await response.json();
 
@@ -292,8 +314,111 @@ export function SecurityAccessTab() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <SettingsSkeleton
+        label={__("Loading access control settings", "pressedmail")}
+        dataTest="admin-security-access-loading"
+        rows={4}
+      />
+    );
+  }
+
+  if (loadFailed) {
+    return (
+      <Alert
+        role="alert"
+        variant="destructive"
+        data-test="admin-security-access-load-error"
+        data-testid="admin-security-access-load-error">
+        <Info className="h-4 w-4" />
+        <AlertTitle>
+          {__("These settings could not be loaded", "pressedmail")}
+        </AlertTitle>
+        <AlertDescription className="space-y-3">
+          <p>
+            {__(
+              "PressedMail could not read this site's permission settings, so none of them are shown. Nothing has been changed.",
+              "pressedmail",
+            )}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setReloadToken((token) => token + 1)}
+            data-test="admin-security-access-retry"
+            data-testid="admin-security-access-retry">
+            {__("Retry", "pressedmail")}
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (section === "sync") {
+    return (
+      <SettingsSectionCard
+        title={__("Background sync", "pressedmail")}
+        description={__(
+          "Choose how often connected mailboxes check for new messages.",
+          "pressedmail",
+        )}>
+        <SettingsRow
+          title={__("Email sync frequency", "pressedmail")}
+          description={__(
+            "How often PressedMail checks connected mailboxes for new mail in the background. Set to 0 to disable automatic background sync. Manual refresh works any time.",
+            "pressedmail",
+          )}
+          control={
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="sync-interval-minutes" className="sr-only">
+                  {__("Email sync frequency", "pressedmail")}
+                </Label>
+                <Input
+                  autoComplete="off"
+                  id="sync-interval-minutes"
+                  data-test="sync-interval-minutes"
+                  type="number"
+                  min={0}
+                  max={60}
+                  value={settings.sync_interval_minutes}
+                  onChange={(e) => {
+                    const val = Math.max(
+                      0,
+                      Math.min(Number(e.target.value) || 0, 60),
+                    );
+                    updateSetting("sync_interval_minutes", val);
+                  }}
+                  className="w-20 text-center"
+                />
+                <span className="text-xs text-muted-foreground">
+                  {__("minutes", "pressedmail")}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {settings.sync_interval_minutes === 0
+                  ? __(
+                      "Auto-sync disabled · Manual refresh available",
+                      "pressedmail",
+                    )
+                  : __("0 = manual sync only", "pressedmail")}
+              </span>
+            </div>
+          }
+        />
+      </SettingsSectionCard>
+    );
+  }
+  if (section === "data") {
+    return (
+      <div>
+        {" "}
+        <DangerZoneCard
+          purgeEnabled={settings.purge_data_on_uninstall}
+          onPurgeChange={(enabled) =>
+            updateSetting("purge_data_on_uninstall", enabled)
+          }
+        />
       </div>
     );
   }
@@ -314,6 +439,7 @@ export function SecurityAccessTab() {
           )}
           contentClassName="space-y-1">
           <SettingsRow
+            inline
             title={__("Allow uploads", "pressedmail")}
             description={__(
               "Users can attach local files to outgoing emails.",
@@ -336,6 +462,7 @@ export function SecurityAccessTab() {
             }
           />
           <SettingsRow
+            inline
             title={__("Allow Media Library files", "pressedmail")}
             description={__(
               "Users can attach existing files from the WordPress Media Library.",
@@ -360,6 +487,7 @@ export function SecurityAccessTab() {
             }
           />
           <SettingsRow
+            inline
             title={__("Allow downloads", "pressedmail")}
             description={__(
               "Users can download attachments from received messages.",
@@ -407,7 +535,8 @@ export function SecurityAccessTab() {
                 <Label htmlFor="max-attachment-size" className="sr-only">
                   {__("Max attachment size", "pressedmail")}
                 </Label>
-                <Input autoComplete="off"
+                <Input
+                  autoComplete="off"
                   id="max-attachment-size"
                   type="number"
                   min={1}
@@ -430,49 +559,6 @@ export function SecurityAccessTab() {
                 />
                 <span className="text-xs text-muted-foreground">
                   {__("MB", "pressedmail")}
-                </span>
-              </div>
-            }
-          />
-          <SettingsRow
-            title={__("Email sync frequency", "pressedmail")}
-            description={__(
-              "How often PressedMail checks connected mailboxes for new mail in the background. Set to 0 to disable automatic background sync. Manual refresh works any time.",
-              "pressedmail",
-            )}
-            control={
-              <div className="flex flex-col items-end gap-1">
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="sync-interval-minutes" className="sr-only">
-                    {__("Email sync frequency", "pressedmail")}
-                  </Label>
-                  <Input autoComplete="off"
-                    id="sync-interval-minutes"
-                    data-test="sync-interval-minutes"
-                    type="number"
-                    min={0}
-                    max={60}
-                    value={settings.sync_interval_minutes}
-                    onChange={(e) => {
-                      const val = Math.max(
-                        0,
-                        Math.min(Number(e.target.value) || 0, 60),
-                      );
-                      updateSetting("sync_interval_minutes", val);
-                    }}
-                    className="w-20 text-center"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {__("minutes", "pressedmail")}
-                  </span>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {settings.sync_interval_minutes === 0
-                    ? __(
-                        "Auto-sync disabled · Manual refresh available",
-                        "pressedmail",
-                      )
-                    : __("0 = manual sync only", "pressedmail")}
                 </span>
               </div>
             }
@@ -570,6 +656,7 @@ export function SecurityAccessTab() {
           )}
           contentClassName="space-y-1">
           <SettingsRow
+            inline
             title={__("Allow remote images", "pressedmail")}
             description={__(
               "When disabled, remote images stay blocked across the inbox.",
@@ -617,13 +704,6 @@ export function SecurityAccessTab() {
         {__SINGLE_SEAT__ ? null : (
           <AccessRolesCard registerDraft={registerExternalDraft} />
         )}
-
-        <DangerZoneCard
-          purgeEnabled={settings.purge_data_on_uninstall}
-          onPurgeChange={(enabled) =>
-            updateSetting("purge_data_on_uninstall", enabled)
-          }
-        />
       </div>
     </div>
   );

@@ -36,7 +36,10 @@ export function ComposerFromAccountSelect({
       <Select value={selectedFromAccount} onValueChange={onFromAccountChange}>
         <SelectTrigger
           aria-label={__("From account", "pressedmail")}
-          className="w-[min(18rem,45vw)] min-w-0"
+          // The shared select width pinned by src/test/ui-standardization.test.ts,
+          // plus max-w-full so a narrow pane clips the trigger, not the row. The
+          // header can no longer squeeze it: From sits on a row of its own.
+          className="w-[min(18rem,45vw)] min-w-0 max-w-full"
           data-test="from-account-selector"
           disabled={fromDisabled}>
           <SelectValue placeholder={__("Select account", "pressedmail")} />

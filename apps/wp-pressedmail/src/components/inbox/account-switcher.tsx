@@ -100,7 +100,7 @@ export function AccountSwitcher({
   );
   const activeLabel = isConsolidatedView
     ? sprintf(
-        __("Combined Inbox (%d)", "pressedmail"),
+        __("Combined inbox (%d)", "pressedmail"),
         effectiveConsolidatedAccountIds.length,
       )
     : (activeAccount?.label ??
@@ -160,7 +160,7 @@ export function AccountSwitcher({
                 <Layers className="h-4 w-4" />
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">
-                    {__("Combined Inbox", "pressedmail")}
+                    {__("Combined inbox", "pressedmail")}
                   </span>
                   <Badge variant="outline" className="text-xs">
                     {effectiveConsolidatedAccountIds.length}

@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from "react";
+import { __, sprintf } from "@wordpress/i18n";
 import { ChevronLeft } from "lucide-react";
 
 import { useOptionalBackStack, type BackStackApi } from "@/hooks/useBackStack";
 import { cn } from "@/lib/utils";
 
-import { MobileImmersiveToggle } from "./MobileImmersiveToggle";
 import { useOptionalMobileLayout } from "./MobileLayoutContext";
 
 /**
@@ -62,7 +62,7 @@ export function MobileScreenHeader({
   hideTitle = false,
   onCancel,
   onBack,
-  cancelLabel = "Cancel",
+  cancelLabel,
   backStackApi,
 }: MobileScreenHeaderProps) {
   const ctxBack = useOptionalBackStack();
@@ -75,8 +75,13 @@ export function MobileScreenHeader({
   const showBack =
     !hideBack && !leading && hasBackStack && (back.canGoBack || isTabBarHidden);
   const backLabel = back.previousTitle
-    ? `Back to ${back.previousTitle}`
-    : "Back";
+    ? sprintf(
+        /* translators: %s: title of the screen the Back button returns to. */
+        __("Back to %s", "pressedmail"),
+        back.previousTitle,
+      )
+    : __("Back", "pressedmail");
+  const resolvedCancelLabel = cancelLabel ?? __("Cancel", "pressedmail");
 
   const isLarge = variant === "large";
   const headerHeight = isLarge ? "h-24" : "h-14";
@@ -86,14 +91,23 @@ export function MobileScreenHeader({
       data-pm-screen-header
       data-variant={variant}
       className={cn(
-        "relative sticky top-0 z-30 flex w-full items-center gap-2 border-b border-border bg-card px-3",
+        // Three columns, not an absolutely-centred title layer over the whole
+        // header. The layer centred the title perfectly and then let any
+        // trailing action sit straight on top of it: Email Rules registers a
+        // "Run rules now" and a "Create Rule" button, and the header rendered
+        // as "Run rul[Email Ru]". Every settings screen with unsaved edits
+        // (Security, Access Control, Allowed Domains) put Cancel + Save into
+        // the same collision. A column the title owns cannot be overlapped;
+        // the cost is that the title centres within the space the actions
+        // leave, which is what iOS does too.
+        "relative sticky top-0 z-30 grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b border-border bg-card px-3",
         "pm-safe-pt pm-safe-pl pm-safe-pr",
         headerHeight,
         className,
       )}>
-      {/* Leading group: natural width, above the center layer. Holds the menu /
-          auto Back, plus an optional Cancel for action pages. */}
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
+      {/* Leading group: holds the menu / auto Back, plus an optional Cancel for
+          action pages. */}
+      <div className="flex min-w-0 shrink-0 items-center gap-1">
         {leading ??
           (showBack ? (
             <button
@@ -109,16 +123,11 @@ export function MobileScreenHeader({
             type="button"
             onClick={onCancel}
             className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-3 text-sm font-medium text-muted-foreground active:bg-muted">
-            {cancelLabel}
+            {resolvedCancelLabel}
           </button>
         ) : null}
       </div>
 
-      {/* Title. Large variant stays inline + left-aligned (heading style). The
-          default variant uses an absolutely-centered layer spanning the header
-          so the title is VISUALLY centred regardless of the (differing) left /
-          right action-group widths. The layer ignores pointer events so the
-          action buttons beneath its transparent edges stay clickable. */}
       {/* The screen title carries the heading role. It is the only thing on a
           mobile screen that names what you are looking at, so without it a
           screen reader user has no landmark to jump to and the shell reads as
@@ -128,33 +137,25 @@ export function MobileScreenHeader({
         <div role="heading" aria-level={2} className="sr-only">
           {title}
         </div>
-      ) : isLarge ? (
+      ) : (
         <div
           data-variant={variant}
           role="heading"
           aria-level={2}
-          className="min-w-0 flex-1 truncate text-left text-2xl font-semibold leading-tight"
+          className={cn(
+            "min-w-0 truncate",
+            isLarge
+              ? "text-left text-2xl font-semibold leading-tight"
+              : "text-center text-base font-semibold",
+          )}
           title={title}>
           {title}
         </div>
-      ) : (
-        <div className="pointer-events-none absolute inset-y-0 left-3 right-3 flex items-center justify-center">
-          <div
-            data-variant={variant}
-            role="heading"
-            aria-level={2}
-            className="pointer-events-auto max-w-[60%] truncate text-center text-base font-semibold"
-            title={title}>
-            {title}
-          </div>
-        </div>
       )}
 
-      {/* Trailing group: natural width, pushed to the right edge, above the
-          center layer. The WP admin-bar toggle is always last. */}
-      <div className="relative z-10 ml-auto flex shrink-0 items-center justify-end gap-1">
+      {/* Per-screen actions; the WordPress menu toggle lives in More. */}
+      <div className="flex min-w-0 shrink-0 items-center justify-end gap-1">
         {trailing}
-        <MobileImmersiveToggle />
       </div>
     </header>
   );

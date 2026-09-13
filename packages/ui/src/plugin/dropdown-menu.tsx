@@ -80,11 +80,11 @@ DropdownMenuSubTrigger.displayName =
 const DropdownMenuSubContent: React.FC<
   React.ComponentPropsWithRef<typeof DropdownMenuPrimitive.SubContent>
 > = ({ className, ...props }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const subContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <DropdownMenuPrimitive.SubContent
         className={cn(
           'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 border-border z-[200] max-h-[min(var(--radix-dropdown-menu-content-available-height),80vh)] min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg',
@@ -103,11 +103,11 @@ DropdownMenuSubContent.displayName =
 const DropdownMenuContent: React.FC<
   React.ComponentPropsWithRef<typeof DropdownMenuPrimitive.Content>
 > = ({ className, sideOffset = 4, ...props }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const menuContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <DropdownMenuPrimitive.Content
         sideOffset={sideOffset}
         className={cn(

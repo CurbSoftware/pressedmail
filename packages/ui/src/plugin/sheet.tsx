@@ -63,13 +63,13 @@ function SheetContent({
    */
   contained?: boolean;
 }) {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
   const positionClass = contained ? 'absolute' : 'fixed';
 
   return (
     <SheetPortal container={container}>
       <div className={isDark ? 'dark' : undefined}>
-        <div className={themeClass} data-pm-portal style={style}>
+        <div className={themeClass} data-pm-portal lang={lang} style={style}>
           <SheetOverlay className={contained ? 'absolute' : undefined} />
           <SheetPrimitive.Popup
             data-slot="sheet-content"

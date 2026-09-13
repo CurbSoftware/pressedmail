@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import {
   AlertTriangle,
   CalendarPlus,
+  ChevronDown,
   Download,
   Loader2,
   Mail,
@@ -68,7 +69,6 @@ import { PhishingResultBadge } from "@/components/phishing/PhishingResultBadge";
 import {
   AddSenderContactIcon,
   AiFileIcon,
-  DetailsBlockIcon,
   RemoveSenderContactIcon,
 } from "@/components/icons/MailActionIcons";
 import { EmailTagBadges } from "@/components/tags/EmailTagBadges";
@@ -996,6 +996,22 @@ export function MailDisplay({
                 </PressedTooltip>
               ) : null}
             </div>
+            {/* Who else got this, without opening the details panel. The
+                recipients were hidden behind that toggle entirely, so "was I
+                the only one?" took an extra click on every message. */}
+            {!showHeaderDetails && displayTo ? (
+              <p
+                className="mt-0.5 min-w-0 truncate text-xs text-muted-foreground"
+                data-test="message-detail-recipients"
+                data-testid="message-detail-recipients"
+                title={displayTo}>
+                {sprintf(
+                  /* translators: %s: the message's To recipients. */
+                  __("To %s", "pressedmail"),
+                  displayTo,
+                )}
+              </p>
+            ) : null}
             <div
               className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
               data-test="message-detail-date-row">
@@ -1024,18 +1040,38 @@ export function MailDisplay({
                         ? "text-foreground"
                         : "text-muted-foreground",
                     )}>
-                    <DetailsBlockIcon className="h-5 w-5" />
+                    {/*
+                      A disclosure chevron, not the old split-triangle glyph.
+                      That icon reads as a warning sign, so every message
+                      looked flagged in a product that also flags real phishing.
+                    */}
+                    <ChevronDown
+                      className={cn(
+                        "h-5 w-5 transition-transform",
+                        showHeaderDetails && "rotate-180",
+                      )}
+                      aria-hidden="true"
+                    />
                   </Button>
                 </PressedTooltip>
                 {mailDate ? (
                   <span
                     className="min-w-0 truncate"
-                    data-test="message-detail-date">
-                    {format(mailDate, "PPpp")}
+                    data-test="message-detail-date"
+                    data-testid="message-detail-date"
+                    title={format(mailDate, "PPpp")}>
+                    {/* Minutes, not seconds: nobody reads mail to the second,
+                        and the extra digits pushed the date out of its line on
+                        a phone. The full stamp stays in the tooltip and in the
+                        details panel. */}
+                    {format(mailDate, "PPp")}
                   </span>
                 ) : null}
               </div>
-              <div className="flex min-w-0 flex-[0_1_55%] flex-wrap items-center justify-end gap-1.5">
+              {/* flex-none, not a 55% basis: the tag group reserved over half
+                  the row even when it held a single icon, which is what cut
+                  the date off mid-timestamp. */}
+              <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
                 {messageTagSelection.length > 0 || tagsEnabled ? (
                   <div
                     className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5"
@@ -1206,18 +1242,17 @@ export function MailDisplay({
                     </PressedTooltip>
                   </div>
                 ) : null}
-                <div className="min-w-0 truncate">
-                  <span
-                    className="font-semibold mr-1"
-                    data-test="message-detail-subject-label">
-                    {__("Subject:", "pressedmail")}
-                  </span>
-                  <span
-                    className="font-normal"
-                    data-test="message-detail-subject-value">
-                    {decodedSubject || __("No Subject", "pressedmail")}
-                  </span>
-                </div>
+                {/*
+                  The subject is the headline of this screen, the way it is in
+                  every mail client. It used to be a body-size "Subject:" field
+                  under the sender, truncated with no way to read the rest.
+                */}
+                <h2
+                  className="min-w-0 text-lg font-semibold leading-snug text-foreground [overflow-wrap:anywhere]"
+                  data-test="message-detail-subject-value"
+                  data-testid="message-detail-subject-value">
+                  {decodedSubject || __("No subject", "pressedmail")}
+                </h2>
               </div>
               {attachments.length > 0 ? (
                 <HeaderAttachmentList

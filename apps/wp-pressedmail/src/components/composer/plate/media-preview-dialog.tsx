@@ -1,5 +1,7 @@
 'use client';
 
+import { __ } from '@wordpress/i18n';
+
 import type * as React from 'react';
 import {
   PreviewImage,
@@ -12,6 +14,8 @@ import { ArrowLeft, ArrowRight, Download, Minus, Plus, X } from 'lucide-react';
 import { useEditorRef } from '@kit/plate/react';
 
 import { cn } from '@/lib/utils';
+
+import { safeMediaUrl } from './safe-media-url';
 
 /**
  * Full-screen image preview with zoom/navigation/download (template port).
@@ -52,13 +56,14 @@ export function MediaPreviewDialog() {
     zoomInProps,
     zoomOutDisabled,
   } = useImagePreview({ scrollSpeed: SCROLL_SPEED });
-  const downloadDisabled = !currentPreview?.url;
+  const downloadUrl = safeMediaUrl(currentPreview?.url);
+  const downloadDisabled = !downloadUrl;
   const handleDownload = () => {
-    if (!currentPreview?.url) return;
+    if (!downloadUrl) return;
 
     const link = document.createElement('a');
-    link.download = getImageDownloadFilename(currentPreview.url);
-    link.href = currentPreview.url;
+    link.download = getImageDownloadFilename(downloadUrl);
+    link.href = downloadUrl;
     link.rel = 'noopener noreferrer';
     document.body.append(link);
     link.click();
@@ -90,6 +95,7 @@ export function MediaPreviewDialog() {
             <div className="flex gap-1">
               <button
                 {...prevProps}
+                aria-label={__('Previous image', 'pressedmail')}
                 className={cn(
                   buttonVariants({
                     variant: prevDisabled ? 'disabled' : 'default',
@@ -102,6 +108,7 @@ export function MediaPreviewDialog() {
               {(currentUrlIndex ?? 0) + 1}
               <button
                 {...nextProps}
+                aria-label={__('Next image', 'pressedmail')}
                 className={cn(
                   buttonVariants({
                     variant: nextDisabled ? 'disabled' : 'default',
@@ -120,6 +127,7 @@ export function MediaPreviewDialog() {
                   }),
                 )}
                 {...zommOutProps}
+                aria-label={__('Zoom out', 'pressedmail')}
                 type="button"
               >
                 <Minus className="size-4" />
@@ -127,7 +135,10 @@ export function MediaPreviewDialog() {
               <div className="mx-px">
                 {isEditingScale ? (
                   <>
-                    <ScaleInput className="w-10 rounded bg-transparent px-1 text-white outline outline-1 outline-white/60" />{' '}
+                    <ScaleInput
+                      aria-label={__('Zoom level', 'pressedmail')}
+                      className="w-10 rounded bg-transparent px-1 text-white outline outline-1 outline-white/60"
+                    />{' '}
                     <span>%</span>
                   </>
                 ) : (
@@ -141,6 +152,7 @@ export function MediaPreviewDialog() {
                   }),
                 )}
                 {...zoomInProps}
+                aria-label={__('Zoom in', 'pressedmail')}
                 type="button"
               >
                 <Plus className="size-4" />
@@ -152,6 +164,7 @@ export function MediaPreviewDialog() {
                   variant: downloadDisabled ? 'disabled' : 'default',
                 }),
               )}
+              aria-label={__('Download image', 'pressedmail')}
               disabled={downloadDisabled}
               onClick={handleDownload}
               type="button"
@@ -160,6 +173,7 @@ export function MediaPreviewDialog() {
             </button>
             <button
               {...closeProps}
+              aria-label={__('Close preview', 'pressedmail')}
               className={cn(buttonVariants())}
               type="button"
             >

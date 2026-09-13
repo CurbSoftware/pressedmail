@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback } from "react";
 import { __, sprintf } from "@wordpress/i18n";
-import { AlertCircle, Star, Tag } from "lucide-react";
+import { Star, Tag } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { parseEmailDate } from "@/lib/email-date";
@@ -34,6 +34,7 @@ function formatSmartTimestamp(date: Date): string {
 }
 
 import {
+  useFilterOperations,
   useInbox,
   useInboxState,
   useMessageOperations,
@@ -45,6 +46,7 @@ import { InlineTagSelector } from "@/components/tags/TagSelector";
 import { decodeMimeWords } from "./mail-display";
 import { areMessageRowsEqual } from "./mail-list-item-equal";
 import { MailListSkeleton } from "./mail-list-skeleton";
+import { useMessageGridNavigation } from "./use-message-grid-navigation";
 import { SelectionCheckbox } from "./SelectionCheckbox";
 import { EmailRow } from "./EmailRow";
 import { EmailListStatusSlots } from "./EmailListStatusSlots";
@@ -128,10 +130,18 @@ const FOLDER_NAMES = [
 interface MailListItemProps {
   item: EmailMessage;
   index: number;
-  selectedMessageId: string | number | undefined;
+  /**
+   * Whether this row is the open message. Passed as the rendered boolean, not a
+   * key to compare: the row id is a bare IMAP UID while the selection key is the
+   * full mailbox identity tuple, so comparing the two inside the memo
+   * comparator was always false and a selection change never re-rendered a row.
+   */
+  selected: boolean;
+  /** Roving tabindex from the list grid: 0 for the tab stop, -1 for the rest. */
+  rowTabIndex: number;
   enableSelection: boolean;
   onSelect: (item: EmailMessage) => void;
-  onStarClick: (e: React.MouseEvent, messageId: string | number) => void;
+  onStarClick: (e: React.MouseEvent, messageId: string) => void;
   showDetails: boolean;
   density: "loose" | "comfortable" | "compact" | "dense";
   showPreview: boolean;
@@ -165,7 +175,8 @@ const MailListItem = memo(
   function MailListItem({
     item,
     index,
-    selectedMessageId,
+    selected,
+    rowTabIndex,
     enableSelection,
     onSelect,
     onStarClick,
@@ -224,7 +235,8 @@ const MailListItem = memo(
         variant="default-flat"
         density={density}
         testId="message-item"
-        selected={selectedMessageId === messageKey}
+        selected={selected}
+        tabIndex={rowTabIndex}
         enableSelection={enableSelection}
         showAccountBadge={showAccountBadge && Boolean(item.accountEmail)}
         showSenderEmail={showDetails}
@@ -245,7 +257,7 @@ const MailListItem = memo(
         }}
         selectionSlot={
           enableSelection ? (
-            <SelectionCheckbox messageId={messageKey} small />
+            <SelectionCheckbox messageId={messageKey} message={item} small />
           ) : null
         }
         rightRailSlot={
@@ -264,7 +276,11 @@ const MailListItem = memo(
           ) : null
         }
         actions={{
-          onToggleStar: (message, event) => onStarClick(event, message.id),
+          // The mutation identity is the mailbox tuple, never the row id: the
+          // server sends the bare IMAP UID as `id`, which no operation can
+          // resolve back to an account, folder and generation.
+          onToggleStar: (message, event) =>
+            onStarClick(event, getMessageIdentityKey(message)),
         }}
         onTagClick={onTagClick}
         onTagRemove={(tag) => onTagRemove(item, tag)}
@@ -276,8 +292,8 @@ const MailListItem = memo(
     return (
       areMessageRowsEqual(prev.item, next.item) &&
       prev.enableSelection === next.enableSelection &&
-      (prev.selectedMessageId === prev.item.id) ===
-        (next.selectedMessageId === next.item.id) &&
+      prev.selected === next.selected &&
+      prev.rowTabIndex === next.rowTabIndex &&
       prev.index === next.index &&
       prev.onSelect === next.onSelect &&
       prev.onStarClick === next.onStarClick &&
@@ -310,13 +326,14 @@ export function MailList({
     retryInit,
   } = useInboxState();
   const { selectedAccountId, selectedFolder, threadGroups } = useInbox();
+  const { activeFilters } = useFilterOperations();
   const { selectMessage, toggleStar } = useMessageOperations();
   const { requestNavigation } = useComposer();
   const { preferences } = useUserPreferences();
   const { filterByTag, removeMessageTag } = useEmailMessageTagActions();
 
   const handleStarClick = useCallback(
-    (e: React.MouseEvent, messageId: string | number) => {
+    (e: React.MouseEvent, messageId: string) => {
       e.stopPropagation();
       void toggleStar(messageId);
     },
@@ -353,6 +370,9 @@ export function MailList({
   const messagesToDisplay = grouping.items;
   const messageRowKeys = getMessageListRowKeys(messagesToDisplay);
   const selectedMessageKey = getMessageIdentityKey(selectedMessage);
+  // A search that matched nothing is not an empty folder. The term is already
+  // in the active filters, so every list can say which search came back empty.
+  const searchTerm = activeFilters?.searchTerm?.trim() || undefined;
   const rowPresentation = getEmailListRowPresentation(preferences);
   const density = rowPresentation.density;
   const showPreview = rowPresentation.showPreview;
@@ -360,48 +380,47 @@ export function MailList({
   const showAttachmentIcon = rowPresentation.showAttachmentIcon;
   const unreadIndicator = rowPresentation.unreadIndicator;
   const dateGrouping = rowPresentation.dateGrouping;
+  const { gridProps, getRowTabIndex } =
+    useMessageGridNavigation<HTMLDivElement>(messagesToDisplay.length);
 
   if (messagesToDisplay.length <= 0 && isLoading) {
     return <MailListSkeleton count={10} />;
   }
 
+  // Three lists said "could not load" in three slightly different ways, and
+  // only one of them said anything true about the folder. One shared state
+  // now, so every layout reports the same failure with the same retry.
   if (error && messagesToDisplay.length === 0) {
     return (
-      <div
-        className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center"
-        data-test="inbox-error">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
-          <AlertCircle className="h-6 w-6 text-destructive" />
-        </div>
-        <div className="space-y-1">
-          <h3 className="font-medium text-sm">
-            {__("Failed to load messages", "pressedmail")}
-          </h3>
-          <p className="text-xs text-muted-foreground max-w-[200px]">
-            {__(
-              "Could not connect to mail server. Check your connection and try again.",
-              "pressedmail",
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={retryInit}
-          className="mt-2 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-          {__("Retry", "pressedmail")}
-        </button>
-      </div>
+      <InboxEmptyState
+        folder={selectedFolder}
+        variant="error"
+        error={error}
+        onRetry={retryInit}
+      />
     );
   }
 
   if (!messagesToDisplay.length) {
-    return <InboxEmptyState />;
+    return (
+      <InboxEmptyState
+        folder={selectedFolder}
+        variant={searchTerm ? "search" : "empty"}
+        searchTerm={searchTerm}
+      />
+    );
   }
 
   return (
-    <div className="flex flex-col" data-test="message-list">
+    <div
+      {...gridProps}
+      role="grid"
+      aria-label={__("Messages", "pressedmail")}
+      className="flex flex-col"
+      data-test="message-list">
       {messagesToDisplay.map((item: EmailMessage, index: number) => {
-        const threadMeta = grouping.meta.get(getMessageIdentityKey(item));
+        const itemKey = getMessageIdentityKey(item);
+        const threadMeta = grouping.meta.get(itemKey);
         const groupKey = emailListDateGroupKey(
           item.receivedDate ?? item.date,
           dateGrouping,
@@ -415,18 +434,26 @@ export function MailList({
           : null;
         const showGroup = Boolean(groupKey) && groupKey !== previousKey;
         return (
-          <Fragment key={messageRowKeys[index] ?? getMessageIdentityKey(item)}>
+          <Fragment key={messageRowKeys[index] ?? itemKey}>
             {showGroup ? (
-              <div
-                className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
-                data-test="email-list-date-group">
-                {groupKey}
+              // Every child of a grid has to be a row, date separators included.
+              <div role="row">
+                <div
+                  role="gridcell"
+                  className="px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                  data-test="email-list-date-group">
+                  {groupKey}
+                </div>
               </div>
             ) : null}
             <MailListItem
               item={item}
               index={index}
-              selectedMessageId={selectedMessageKey}
+              // A row with no mailbox identity (a virtual Snoozed row, say) has
+              // an empty key, which must never match the empty key of "nothing
+              // selected", or every such row renders as the open message.
+              selected={Boolean(itemKey) && itemKey === selectedMessageKey}
+              rowTabIndex={getRowTabIndex(index)}
               enableSelection={enableSelection}
               onSelect={guardedSelect}
               onStarClick={handleStarClick}

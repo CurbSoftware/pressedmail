@@ -1,13 +1,7 @@
 "use client";
 import * as React from "react";
 import { __ } from "@wordpress/i18n";
-import {
-  Inbox,
-  Trash2,
-  Send,
-  FileText,
-  Archive,
-} from "lucide-react";
+import { Inbox, Trash2, Send, FileText, Archive } from "lucide-react";
 import {
   EmailJunkIcon,
   EmailRefreshIcon,
@@ -56,7 +50,7 @@ function MailCompInner({
   listVariant = "default",
   pageSize = 50,
   showComposer = true,
-}: MailProps) {
+}: Omit<MailProps, "mails">) {
   const resolvedLayout = React.useMemo(
     () =>
       readPanelLayoutFromCookie("pressedm", {
@@ -364,7 +358,7 @@ export function MailComp({
   listVariant = "default",
   showComposer = true,
   ...props
-}: MailProps) {
+}: Omit<MailProps, "mails">) {
   // Get the current layout from the layout hook
   const { currentLayout } = useLayout();
 

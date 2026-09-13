@@ -1,4 +1,5 @@
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import {
   getMessageIdentityRef,
   getMessageIdentityKey,
@@ -8,6 +9,7 @@ import {
   isRequestPrincipalCurrent,
 } from "@/lib/principal-storage";
 
+import { appMessage } from "@/context/toast";
 import { useFilterOperations } from "@/context/InboxContext";
 import { useTags } from "@/context/tags";
 import { getInboxService } from "@/services/implementations";
@@ -62,8 +64,15 @@ export function useEmailMessageTagActions() {
         if (isRequestPrincipalCurrent(principal))
           getInboxService().updateMessage(localMessageId, { tags });
       } catch (error) {
-        if (isRequestPrincipalCurrent(principal))
+        if (isRequestPrincipalCurrent(principal)) {
+          // A tag chip's x used to fail in total silence: the console got the
+          // error, the user watched the chip stay exactly where it was.
           console.error("Failed to remove message tag:", error);
+          appMessage(
+            __("That tag could not be removed. Try again.", "pressedmail"),
+            "error",
+          );
+        }
       }
     },
     [removeTag, getMessageTags],

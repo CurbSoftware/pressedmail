@@ -268,6 +268,7 @@ function unwrapListItemChildren(nodes: ComposerNode[]): ComposerNode[] {
 function domListToComposerNodes(
   list: HTMLElement,
   inheritedIndent = 1,
+  marks: TextMarks = {},
 ): ComposerNode[] {
   const ordered = list.tagName.toLowerCase() === "ol";
   const defaultStyle = ordered ? "decimal" : "disc";
@@ -294,7 +295,9 @@ function domListToComposerNodes(
           !(child instanceof HTMLElement) ||
           !["ol", "ul"].includes(child.tagName.toLowerCase()),
       )
-      .flatMap((child) => domNodeToComposerNodes(child));
+      .flatMap((child) =>
+        domNodeToComposerNodes(child, elementTextMarks(item, marks)),
+      );
     const children = unwrapListItemChildren(contentNodes);
 
     result.push({
@@ -311,12 +314,28 @@ function domListToComposerNodes(
         nested instanceof HTMLElement &&
         ["ol", "ul"].includes(nested.tagName.toLowerCase())
       ) {
-        result.push(...domListToComposerNodes(nested, indent + 1));
+        result.push(
+          ...domListToComposerNodes(
+            nested,
+            indent + 1,
+            elementTextMarks(nested, elementTextMarks(item, marks)),
+          ),
+        );
       }
     }
   });
 
   return result;
+}
+
+/** Preserve inherited authored typography in the small Free HTML parser. */
+function elementTextMarks(node: HTMLElement, inherited: TextMarks): TextMarks {
+  const marks = { ...inherited };
+  for (const property of ["color", "fontFamily", "fontSize"] as const) {
+    const value = node.style[property];
+    if (value && value !== "inherit") marks[property] = value;
+  }
+  return marks;
 }
 
 function domNodeToComposerNodes(
@@ -329,10 +348,10 @@ function domNodeToComposerNodes(
   if (!(node instanceof HTMLElement)) return [];
 
   const tag = node.tagName.toLowerCase();
+  const nextMarks = elementTextMarks(node, marks);
   if (tag === "ol" || tag === "ul") {
-    return domListToComposerNodes(node);
+    return domListToComposerNodes(node, 1, nextMarks);
   }
-  const nextMarks = { ...marks };
   if (tag === "strong" || tag === "b") nextMarks.bold = true;
   if (tag === "em" || tag === "i") nextMarks.italic = true;
   if (tag === "u") nextMarks.underline = true;
@@ -360,10 +379,10 @@ function domNodeToComposerNodes(
     );
   }
 
-  if (tag === "br") return [{ text: "\n", ...marks }];
+  if (tag === "br") return [{ text: "\n", ...nextMarks }];
 
   const children = Array.from(node.childNodes).flatMap((child) =>
-    domNodeToComposerNodes(child, marks),
+    domNodeToComposerNodes(child, nextMarks),
   );
   const pmBlock = node.dataset.pmBlock;
 
@@ -490,9 +509,7 @@ export function deserializeLegacyHtmlStatic(html: string): Value {
 
   try {
     const document = new DOMParser().parseFromString(html, "text/html");
-    const value = Array.from(document.body.childNodes).flatMap((node) =>
-      domNodeToComposerNodes(node),
-    );
+    const value = domNodeToComposerNodes(document.body);
     return (value.length > 0 ? value : createPlateEmailEmptyValue()) as Value;
   } catch {
     return createPlateEmailEmptyValue();

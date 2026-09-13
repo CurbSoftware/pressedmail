@@ -44,21 +44,23 @@ export function EmailListSection({
       )}
       tooltip={settingsInfoTooltips.emailList}
       docHref={settingsInfoDocHrefs.emailList}>
-      <PreferenceSelectRow
-        title={__("Loading", "pressedmail")}
-        value={draft.email_list_mode}
-        options={PREFERENCE_ALLOWED_VALUES.email_list_mode}
-        labels={{
-          pagination: __("Pages", "pressedmail"),
-          lazy_loading: __("Infinite scroll", "pressedmail"),
-        }}
-        onValueChange={(value) =>
-          patchDraft({
-            email_list_mode: value as "pagination" | "lazy_loading",
-          })
-        }
-        dataTest="pref-email-list-mode"
-      />
+      {__IS_PRO__ ? (
+        <PreferenceSelectRow
+          title={__("Loading", "pressedmail")}
+          value={draft.email_list_mode}
+          options={PREFERENCE_ALLOWED_VALUES.email_list_mode}
+          labels={{
+            pagination: __("Pages", "pressedmail"),
+            lazy_loading: __("Infinite scroll", "pressedmail"),
+          }}
+          onValueChange={(value) =>
+            patchDraft({
+              email_list_mode: value as "pagination" | "lazy_loading",
+            })
+          }
+          dataTest="pref-email-list-mode"
+        />
+      ) : null}
       <PreferenceSelectRow
         title={__("Page size", "pressedmail")}
         value={String(draft.email_list_page_size)}

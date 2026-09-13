@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import { Maximize } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -44,11 +45,13 @@ export function MobileFullscreenPrompt({
           <h2
             id="pm-fullscreen-prompt-title"
             className="text-sm font-semibold text-foreground">
-            Run PressedMail fullscreen?
+            {__("Run PressedMail fullscreen?", "pressedmail")}
           </h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Hide the WordPress chrome for a native-app feel. You can change this
-            from settings any time.
+            {__(
+              "Hide the WordPress chrome for a native-app feel. You can change this from settings any time.",
+              "pressedmail",
+            )}
           </p>
         </div>
       </div>
@@ -60,20 +63,20 @@ export function MobileFullscreenPrompt({
             onChoose("always");
           }}
           className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground active:bg-primary/90">
-          Enter fullscreen
+          {__("Enter fullscreen", "pressedmail")}
         </button>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => onChoose("prompt")}
             className="pm-touch-target pm-no-tap-highlight flex-1 rounded-lg border border-border bg-card text-sm text-foreground active:bg-muted">
-            Maybe later
+            {__("Maybe later", "pressedmail")}
           </button>
           <button
             type="button"
             onClick={() => onChoose("never")}
             className="pm-touch-target pm-no-tap-highlight flex-1 rounded-lg border border-border bg-card text-sm text-muted-foreground active:bg-muted">
-            Don&apos;t ask again
+            {__("Don't ask again", "pressedmail")}
           </button>
         </div>
       </div>

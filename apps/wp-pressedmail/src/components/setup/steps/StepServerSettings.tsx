@@ -93,6 +93,25 @@ function StatusIcon({
   return <Circle className={`${statusIconClassName} text-muted-foreground`} />;
 }
 
+/**
+ * Read a port out of an `<input type="number">`.
+ *
+ * The element reports "" while the field is empty or mid-edit, and
+ * `parseInt("")` is NaN. React then warns ("Received NaN for the value
+ * attribute") and drops the value, so the controlled input goes blank and the
+ * port cannot be retyped cleanly. Empty means "no port yet" (0, which
+ * submit-time validation already rejects); anything unparseable keeps the
+ * value the user had.
+ */
+export function parsePortInput(raw: string, previous: number): number {
+  if (raw.trim() === "") {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isNaN(parsed) ? previous : parsed;
+}
+
 export function StepServerSettings({
   isEditing = false,
   formData,
@@ -115,7 +134,7 @@ export function StepServerSettings({
       <div className="space-y-1.5 text-center">
         <Server className="mx-auto h-9 w-9 text-primary" />
         <h2 className="text-xl font-semibold">
-          {__("Server Configuration", "pressedmail")}
+          {__("Server settings", "pressedmail")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {__(
@@ -177,10 +196,16 @@ export function StepServerSettings({
                           imapHost: e.target.value,
                         }))
                       }
+                      aria-invalid={errors.imapHost ? true : undefined}
+                      aria-describedby={
+                        errors.imapHost ? "imapHost-error" : undefined
+                      }
                       className={errors.imapHost ? "border-destructive" : ""}
                     />
                     {errors.imapHost && (
-                      <p className="text-xs text-destructive">
+                      <p
+                        id="imapHost-error"
+                        className="text-xs text-destructive">
                         {errors.imapHost}
                       </p>
                     )}
@@ -193,17 +218,26 @@ export function StepServerSettings({
                       id="imapPort"
                       data-test="imap-port-input"
                       type="number"
-                      value={formData.imapPort}
+                      inputMode="numeric"
+                      min={1}
+                      max={65535}
+                      value={formData.imapPort === 0 ? "" : formData.imapPort}
                       onChange={(e) =>
                         setFormData((prev) => ({
                           ...prev,
-                          imapPort: parseInt(e.target.value),
+                          imapPort: parsePortInput(e.target.value, prev.imapPort),
                         }))
+                      }
+                      aria-invalid={errors.imapPort ? true : undefined}
+                      aria-describedby={
+                        errors.imapPort ? "imapPort-error" : undefined
                       }
                       className={errors.imapPort ? "border-destructive" : ""}
                     />
                     {errors.imapPort && (
-                      <p className="text-xs text-destructive">
+                      <p
+                        id="imapPort-error"
+                        className="text-xs text-destructive">
                         {errors.imapPort}
                       </p>
                     )}
@@ -231,7 +265,7 @@ export function StepServerSettings({
                           {__("STARTTLS (Port 143)", "pressedmail")}
                         </SelectItem>
                         <SelectItem value="None">
-                          {__("None (Not Recommended)", "pressedmail")}
+                          {__("None (not recommended)", "pressedmail")}
                         </SelectItem>
                       </SelectContent>
                     </Select>
@@ -386,10 +420,16 @@ export function StepServerSettings({
                           smtpHost: e.target.value,
                         }))
                       }
+                      aria-invalid={errors.smtpHost ? true : undefined}
+                      aria-describedby={
+                        errors.smtpHost ? "smtpHost-error" : undefined
+                      }
                       className={errors.smtpHost ? "border-destructive" : ""}
                     />
                     {errors.smtpHost && (
-                      <p className="text-xs text-destructive">
+                      <p
+                        id="smtpHost-error"
+                        className="text-xs text-destructive">
                         {errors.smtpHost}
                       </p>
                     )}
@@ -402,17 +442,26 @@ export function StepServerSettings({
                       id="smtpPort"
                       data-test="smtp-port-input"
                       type="number"
-                      value={formData.smtpPort}
+                      inputMode="numeric"
+                      min={1}
+                      max={65535}
+                      value={formData.smtpPort === 0 ? "" : formData.smtpPort}
                       onChange={(e) =>
                         setFormData((prev) => ({
                           ...prev,
-                          smtpPort: parseInt(e.target.value),
+                          smtpPort: parsePortInput(e.target.value, prev.smtpPort),
                         }))
+                      }
+                      aria-invalid={errors.smtpPort ? true : undefined}
+                      aria-describedby={
+                        errors.smtpPort ? "smtpPort-error" : undefined
                       }
                       className={errors.smtpPort ? "border-destructive" : ""}
                     />
                     {errors.smtpPort && (
-                      <p className="text-xs text-destructive">
+                      <p
+                        id="smtpPort-error"
+                        className="text-xs text-destructive">
                         {errors.smtpPort}
                       </p>
                     )}
@@ -539,7 +588,7 @@ export function StepServerSettings({
         <Card data-test="connection-status-card">
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold">
-              {__("Connection Status", "pressedmail")}
+              {__("Connection status", "pressedmail")}
             </CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
@@ -547,7 +596,7 @@ export function StepServerSettings({
               <StatusIcon status={testState.imapStatus} tone="info" />
               <div className="min-w-0">
                 <p className="font-medium">
-                  {__("IMAP (Receiving)", "pressedmail")}
+                  {__("IMAP (receiving)", "pressedmail")}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {testState.imapMessage ||
@@ -559,7 +608,7 @@ export function StepServerSettings({
               <StatusIcon status={testState.smtpStatus} tone="success" />
               <div className="min-w-0">
                 <p className="font-medium">
-                  {__("SMTP (Sending)", "pressedmail")}
+                  {__("SMTP (sending)", "pressedmail")}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {testState.smtpMessage ||
@@ -586,9 +635,9 @@ export function StepServerSettings({
                 {__("Working...", "pressedmail")}
               </>
             ) : connectionStatus?.success ? (
-              __("Retest Connection", "pressedmail")
+              __("Retest connection", "pressedmail")
             ) : (
-              __("Test Connection", "pressedmail")
+              __("Test connection", "pressedmail")
             )}
           </Button>
 
@@ -600,8 +649,8 @@ export function StepServerSettings({
               disabled={loading || !onAddEmail}
               className="w-full sm:w-auto">
               {isEditing
-                ? __("Save Changes", "pressedmail")
-                : __("Add Email", "pressedmail")}
+                ? __("Save changes", "pressedmail")
+                : __("Add email", "pressedmail")}
             </Button>
           )}
         </div>

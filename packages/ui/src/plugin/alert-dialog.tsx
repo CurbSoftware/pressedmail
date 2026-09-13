@@ -39,15 +39,15 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent: React.FC<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
 > = ({ className, ...props }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
   const frameStyle = useAppFrameCoverStyle();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const wrapperContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <AlertDialogPrimitive.Content
         className={cn(
-          'bg-popover text-popover-foreground border-border pointer-events-auto relative z-50 grid max-h-[min(calc(100dvh-2rem),90dvh)] w-full max-w-lg gap-4 overflow-x-hidden overflow-y-auto rounded-lg border p-6 shadow-xl duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+          'bg-popover text-popover-foreground border-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 pointer-events-auto relative z-50 grid max-h-[min(calc(100dvh-2rem),90dvh)] w-full max-w-lg gap-4 overflow-x-hidden overflow-y-auto rounded-lg border p-6 shadow-xl duration-200',
           className,
         )}
         {...props}

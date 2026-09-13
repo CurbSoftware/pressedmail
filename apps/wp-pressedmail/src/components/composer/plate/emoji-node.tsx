@@ -2,9 +2,11 @@
 
 import * as React from 'react';
 import { EmojiInlineIndexSearch, insertEmoji } from '@kit/plate/emoji';
-import { EmojiPlugin } from '@kit/plate/emoji/react';
 import type { PlateElementProps } from '@kit/plate/react';
-import { PlateElement, usePluginOption } from '@kit/plate/react';
+import { PlateElement } from '@kit/plate/react';
+import { __ } from '@wordpress/i18n';
+
+import { useEmojiData } from './emoji-data';
 
 import {
   InlineCombobox,
@@ -32,13 +34,13 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 /** `:` inline emoji combobox (template emoji-node.tsx port). */
 export function EmojiInputElement(props: PlateElementProps) {
   const { children, editor, element } = props;
-  const data = usePluginOption(EmojiPlugin, 'data')!;
+  const data = useEmojiData();
   const [value, setValue] = React.useState('');
   const debouncedValue = useDebouncedValue(value, 100);
   const isPending = value !== debouncedValue;
 
   const filteredEmojis = React.useMemo(() => {
-    if (debouncedValue.trim().length === 0) return [];
+    if (!data || debouncedValue.trim().length === 0) return [];
 
     return EmojiInlineIndexSearch.getInstance(data)
       .search(debouncedValue.replace(TRAILING_COLON_REGEX, ''))
@@ -58,7 +60,13 @@ export function EmojiInputElement(props: PlateElementProps) {
         <InlineComboboxInput />
 
         <InlineComboboxContent>
-          {!isPending && <InlineComboboxEmpty>No results</InlineComboboxEmpty>}
+          {!isPending && (
+            <InlineComboboxEmpty>
+              {data
+                ? __('No results', 'pressedmail')
+                : __('Loading emoji...', 'pressedmail')}
+            </InlineComboboxEmpty>
+          )}
 
           <InlineComboboxGroup>
             {filteredEmojis.map((emoji) => (

@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { settingsSectionDescription } from "@/components/settings-ui";
 import { useAvailableSettingsTabs } from "@/hooks/useAvailableSettingsTabs";
 import { EmailAccountsTab } from "./_components/user-settings/email-accounts-tab";
 import { SignaturesTab } from "./_components/user-settings/profile-tab";
@@ -47,26 +48,22 @@ export interface FreeSettingsSection {
 
 const PERSONAL_CONTENT: Record<
   string,
-  { icon: LucideIcon; description: string; content: ReactNode }
+  { icon: LucideIcon; content: ReactNode }
 > = {
   accounts: {
     icon: Mail,
-    description: __("Manage your personal email accounts.", "pressedmail"),
     content: <EmailAccountsTab />,
   },
   signatures: {
     icon: PenTool,
-    description: __("Create and manage your email signatures.", "pressedmail"),
     content: <SignaturesTab />,
   },
   preferences: {
     icon: Settings2,
-    description: __("Configure your inbox preferences.", "pressedmail"),
     content: <PreferencesTab />,
   },
   "email-rules": {
     icon: Filter,
-    description: __("Organize incoming messages automatically.", "pressedmail"),
     content: (
       <Suspense fallback={null}>
         <EmailRulesTab />
@@ -75,7 +72,6 @@ const PERSONAL_CONTENT: Record<
   },
   security: {
     icon: Shield,
-    description: __("Manage inbox security preferences.", "pressedmail"),
     content: <UserSecurityTab />,
   },
 };
@@ -87,31 +83,28 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
   );
 
   return useMemo(() => {
-    const sections: FreeSettingsSection[] = tabs.flatMap((tab) => {
-      const definition = PERSONAL_CONTENT[tab.id];
-      if (!definition) return [];
+    const sections: Omit<FreeSettingsSection, "description">[] = tabs.flatMap(
+      (tab) => {
+        const definition = PERSONAL_CONTENT[tab.id];
+        if (!definition) return [];
 
-      return [
-        {
-          id: tab.id,
-          label: tab.label,
-          description: definition.description,
-          icon: definition.icon,
-          content: definition.content,
-          group: "personal" as const,
-        },
-      ];
-    });
+        return [
+          {
+            id: tab.id,
+            label: tab.label,
+            icon: definition.icon,
+            content: definition.content,
+            group: "personal" as const,
+          },
+        ];
+      },
+    );
 
     if (canManageSettings) {
       sections.push(
         {
           id: "admin-wp-mail",
           label: __("WordPress Email", "pressedmail"),
-          description: __(
-            "Send WordPress system email through your own SMTP server.",
-            "pressedmail",
-          ),
           icon: MailCheck,
           content: <WpMailTab />,
           group: "admin",
@@ -119,10 +112,6 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
         {
           id: "admin-security-access",
           label: __("Access Control", "pressedmail"),
-          description: __(
-            "Control site-wide attachment, remote-content, and credential access.",
-            "pressedmail",
-          ),
           icon: ShieldAlert,
           content: <SecurityAccessTab />,
           group: "admin",
@@ -130,10 +119,6 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
         {
           id: "admin-diagnostics",
           label: __("Diagnostics", "pressedmail"),
-          description: __(
-            "Review plugin status, connectivity, and configuration.",
-            "pressedmail",
-          ),
           icon: Stethoscope,
           content: <DiagnosticsTab />,
           group: "admin",
@@ -144,15 +129,32 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
     sections.push({
       id: "pro",
       label: __("PressedMail Pro", "pressedmail"),
-      description: __(
-        "Discover the separately distributed Pro plugin.",
-        "pressedmail",
-      ),
       icon: Sparkles,
       content: <ProUpgradeInfo />,
       group: "about",
     });
 
-    return sections;
+    if (canManageSettings) {
+      sections.push(
+        {
+          id: "admin-sync",
+          label: __("Mail sync", "pressedmail"),
+          icon: Mail,
+          content: <SecurityAccessTab section="sync" />,
+          group: "admin",
+        },
+        {
+          id: "admin-data",
+          label: __("Data and uninstall", "pressedmail"),
+          icon: Shield,
+          content: <SecurityAccessTab section="data" />,
+          group: "admin",
+        },
+      );
+    }
+    return sections.map((section) => ({
+      ...section,
+      description: settingsSectionDescription(section.id),
+    }));
   }, [canManageSettings, tabs]);
 }

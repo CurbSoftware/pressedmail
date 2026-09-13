@@ -52,7 +52,11 @@ import {
   recipientsToString,
 } from "@/types/recipients";
 import type { Signature } from "@/types/signatures";
-import { applySignature, hasSignature } from "@/services/signature.service";
+import {
+  applySignature,
+  signatureSnapshot,
+  removeSignature,
+} from "@/services/signature.service";
 import { useSignatureBinding } from "./useSignatureBinding";
 import {
   getUserPreferencesSnapshot,
@@ -83,7 +87,8 @@ import {
 import {
   applyPlainTextSignature,
   getPlainTextAuthoredContent,
-  hasPlainTextSignature,
+  plainTextSignatureSnapshot,
+  stripPlainSignature,
   normalizeOutgoingPlainText,
 } from "@/lib/composer/plain-text-content";
 
@@ -677,7 +682,6 @@ export function useComposeForm({
     },
     [composerContext],
   );
-  const sigInsertedRef = useRef(false);
   // Tracks whether the composed body has been flushed into the editor once it
   // became ready (the cached-signatures race fix).
   const editorReadyFlushedRef = useRef(false);
@@ -716,20 +720,8 @@ export function useComposeForm({
     return account ? getAccountNumericId(account) : null;
   }, [resolveSendingAccount]);
 
-  // Account-aware signature resolution: the sending account's assigned
-  // signature wins, falling back to the global default, and only auto-inserts
-  // when its per-mode include flag is set. Replaces the old global-only
-  // `useDefaultSignature` path so a reply/forward picks up the account's
-  // selected signature.
-  const { signature: boundSignature, shouldInsertForMode } =
-    useSignatureBinding({ accountId: getSendingAccountId(), mode });
   const { preferences: composerPreferences } = useUserPreferences();
-  const shouldInsertSignature =
-    shouldInsertForMode &&
-    shouldInsertComposerSignature(
-      composerPreferences.composer_reply_signature_behavior,
-      mode,
-    );
+  const signatureRulesEnabled = useFeatureAvailable("signature_rules");
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -972,6 +964,32 @@ export function useComposeForm({
         ? "html"
         : defaultContentType))
     : localContentType;
+  const {
+    signature: boundSignature,
+    shouldInsertForMode,
+    ready: signatureReady,
+    failed: signatureLookupFailed,
+  } = useSignatureBinding({
+    accountId: getSendingAccountId(),
+    mode,
+    rulesEnabled: signaturesEnabled && signatureRulesEnabled,
+    recipients: [...toRecipients, ...ccRecipients]
+      .filter((recipient) => recipient.type !== "list")
+      .map((recipient) => recipient.email),
+    subject,
+    folder:
+      composerContext?.composeData.replySource?.folder ??
+      composerContext?.composeData.draftFolder ??
+      "",
+    session: composeSessionVersion,
+  });
+  const shouldInsertSignature =
+    shouldInsertForMode &&
+    shouldInsertComposerSignature(
+      composerPreferences.composer_reply_signature_behavior,
+      mode,
+    );
+
   const receiptValue = isContextMode
     ? (composerContext!.composeData.readReceipt ?? {
         requested: false,
@@ -1161,121 +1179,136 @@ export function useComposeForm({
   // ---------------------------------------------------------------------------
 
   const leadingBlanksInsertedRef = useRef(false);
-  const initialContentTypeRef = useRef(contentType);
-  // Tracks which signature id is currently auto-applied, so the From-account
-  // swap effect only replaces when the resolved signature actually changes.
-  const appliedSignatureIdRef = useRef<number | null>(null);
+  const automaticSignatureRef = useRef<{
+    session: number | null;
+    contentType: EmailContentType;
+    snapshot: string | null;
+    choice: string | null;
+    locked: boolean;
+    initialized: boolean;
+  }>({
+    session: composeSessionVersion,
+    contentType,
+    snapshot: null,
+    choice: null,
+    locked: false,
+    initialized: false,
+  });
 
-  // Auto-insert leading blanks (so cursor lands at the top) and the default
-  // signature on mount.
   useEffect(() => {
-    if (sigInsertedRef.current && leadingBlanksInsertedRef.current) {
-      return;
+    if (operationGateRef.current) return;
+    let automatic = automaticSignatureRef.current;
+    if (automatic.session !== composeSessionVersion) {
+      automatic = {
+        session: composeSessionVersion,
+        contentType,
+        snapshot: null,
+        choice: null,
+        locked: false,
+        initialized: false,
+      };
+      automaticSignatureRef.current = automatic;
+      leadingBlanksInsertedRef.current = false;
     }
-
-    let nextBody: string | null = null;
-    const currentBody = body ?? "";
-
+    // A restored draft and a deliberate format conversion retain their content.
     if (
-      initialContentTypeRef.current === "html" &&
-      contentType === "html" &&
-      !leadingBlanksInsertedRef.current
-    ) {
+      (!automatic.initialized &&
+        (hasAnyDraftIdentityMarker || isScheduledEdit)) ||
+      automatic.contentType !== contentType
+    )
+      automatic.locked = true;
+    automatic.initialized = true;
+    const currentBody =
+      contentType === "html" && editorReadyFlushedRef.current
+        ? (editorRef.current?.getHTML?.() ?? body ?? "")
+        : (body ?? "");
+    let nextBody = currentBody;
+    if (!leadingBlanksInsertedRef.current) {
       leadingBlanksInsertedRef.current = true;
-      // The blanks give the user room above a freshly generated quote block. A
-      // restored draft or armed schedule already has whatever spacing they
-      // left, and the startsWith guard below cannot recognise a body that has
-      // been through the editor once, so it would add five more every reopen.
-      const isRestoredBody = hasAnyDraftIdentityMarker || isScheduledEdit;
       if (
-        !isRestoredBody &&
+        contentType === "html" &&
+        mode !== "new" &&
+        !hasAnyDraftIdentityMarker &&
+        !isScheduledEdit &&
         !currentBody.startsWith(COMPOSER_LEADING_BLANK_LINES_HTML)
       ) {
         nextBody = `${COMPOSER_LEADING_BLANK_LINES_HTML}${currentBody}`;
       }
     }
-
+    const snapshot = (value: string) =>
+      contentType === "plain"
+        ? plainTextSignatureSnapshot(value, mode)
+        : signatureSnapshot(value);
+    // Only the unchanged block we inserted belongs to automation. A picked,
+    // edited, deleted, or externally restored signature belongs to the author.
+    if (snapshot(currentBody) !== automatic.snapshot) automatic.locked = true;
     if (
-      !sigInsertedRef.current &&
-      signaturesEnabled &&
-      boundSignature &&
-      shouldInsertSignature
+      signatureReady !== false &&
+      !signatureLookupFailed &&
+      !automatic.locked
     ) {
-      sigInsertedRef.current = true;
-      appliedSignatureIdRef.current = boundSignature.id;
-      const source = nextBody ?? currentBody;
-      // Reply/forward → above the <hr> separator; new → after the body.
-      nextBody =
-        contentType === "plain"
-          ? applyPlainTextSignature(source, boundSignature, mode)
-          : applySignature(source, boundSignature, {
-              mode,
-              replaceExisting: false,
-              placement: composerPreferences.composer_signature_placement,
-            });
+      const signature =
+        signaturesEnabled && shouldInsertSignature ? boundSignature : null;
+      const choice = signature
+        ? JSON.stringify([
+            signature.id,
+            signature.content,
+            signature.content_type,
+            mode,
+            composerPreferences.composer_signature_placement,
+          ])
+        : null;
+      if (choice !== automatic.choice) {
+        if (signature) {
+          const source =
+            mode === "new" && contentType === "html" && !nextBody.trim()
+              ? "<p><br></p>"
+              : nextBody;
+          nextBody =
+            contentType === "plain"
+              ? applyPlainTextSignature(source, signature, mode)
+              : applySignature(source, signature, {
+                  mode,
+                  replaceExisting: true,
+                  placement: composerPreferences.composer_signature_placement,
+                });
+        } else if (automatic.snapshot !== null) {
+          nextBody =
+            contentType === "plain"
+              ? stripPlainSignature(nextBody, mode)
+              : removeSignature(nextBody);
+        }
+        automatic.choice = choice;
+        automatic.snapshot = snapshot(nextBody);
+      }
     }
-
-    if (nextBody !== null && nextBody !== currentBody) {
-      editorRef.current?.setContent?.(nextBody);
+    if (nextBody !== currentBody) {
+      if (contentType === "html") editorRef.current?.setContent?.(nextBody);
+      // Plate can normalize wrapper markup. Compare its actual serialized block
+      // on the next edit, not the pre-deserialization input HTML.
+      if (
+        !automatic.locked &&
+        contentType === "html" &&
+        editorReadyFlushedRef.current
+      )
+        automatic.snapshot = snapshot(
+          editorRef.current?.getHTML?.() ?? nextBody,
+        );
       setBody(nextBody);
     }
-
-    // Park the caret at the top of the editor so the user lands above the
-    // quoted block instead of at the end of content.
-    editorRef.current?.focusStart?.();
-  }, [
-    signaturesEnabled,
-    boundSignature,
-    shouldInsertSignature,
-    mode,
-    contentType,
-    composerPreferences.composer_signature_placement,
-  ]);
-
-  // Swap the auto-inserted signature when the From account changes. Scoped to
-  // the signature block (applySignature replaceExisting strips only that block,
-  // preserving the user's typed text) and gated on an existing block, so it
-  // never re-adds a signature the user deleted nor clobbers body content.
-  useEffect(() => {
-    if (!sigInsertedRef.current) return;
-    if (!signaturesEnabled || !boundSignature || !shouldInsertSignature) return;
-    if (boundSignature.id === appliedSignatureIdRef.current) return;
-
-    const currentBody =
-      contentType === "plain"
-        ? (body ?? "")
-        : (editorRef.current?.getHTML?.() ?? body ?? "");
-    if (
-      contentType === "plain"
-        ? !hasPlainTextSignature(currentBody, mode)
-        : !hasSignature(currentBody)
-    ) {
-      return;
-    }
-
-    appliedSignatureIdRef.current = boundSignature.id;
-    const updatedBody =
-      contentType === "plain"
-        ? applyPlainTextSignature(currentBody, boundSignature, mode)
-        : applySignature(currentBody, boundSignature, {
-            mode,
-            replaceExisting: true,
-            placement: composerPreferences.composer_signature_placement,
-          });
-    if (contentType === "html" && editorRef.current) {
-      editorRef.current.setContent(updatedBody);
-    } else {
-      setBody(updatedBody);
-    }
   }, [
     boundSignature,
+    signatureReady,
+    signatureLookupFailed,
+    isSending,
+    isScheduling,
+    isDiscarding,
     shouldInsertSignature,
     signaturesEnabled,
     mode,
     contentType,
     body,
-    editorRef,
-    setBody,
+    composeSessionVersion,
     composerPreferences.composer_signature_placement,
   ]);
 
@@ -1394,8 +1427,14 @@ export function useComposeForm({
       setLocalCanvasBackgroundColor(undefined);
       setLocalAttachments([]);
     }
-    sigInsertedRef.current = false;
-    appliedSignatureIdRef.current = null;
+    automaticSignatureRef.current = {
+      session: composeSessionVersion,
+      contentType,
+      snapshot: null,
+      choice: null,
+      locked: false,
+      initialized: false,
+    };
     leadingBlanksInsertedRef.current = false;
     priorDraftRef.current = null;
     openedDraftIdentityRef.current = null;
@@ -1731,7 +1770,6 @@ export function useComposeForm({
         return result;
       } catch (error) {
         if (ownsComposeSession(composeSessionVersion)) {
-          console.error("[useComposeForm] save draft failed", error);
           appMessage(__("Failed to save draft", "pressedmail"), "error");
         }
         return { ok: false, draft: null };
@@ -1795,6 +1833,20 @@ export function useComposeForm({
       if (operationGateRef.current) {
         return false;
       }
+      if (
+        operation === "delivery" &&
+        signatureReady === false &&
+        !automaticSignatureRef.current.locked
+      ) {
+        appMessage(
+          __(
+            "Wait for the signature lookup to finish, or choose a signature from the toolbar.",
+            "pressedmail",
+          ),
+          "error",
+        );
+        return false;
+      }
       if (pendingInlineImageUploadsRef.current > 0) {
         appMessage(
           __("Wait for the image upload to finish.", "pressedmail"),
@@ -1808,7 +1860,7 @@ export function useComposeForm({
       }
       return true;
     },
-    [],
+    [signatureReady],
   );
 
   const releaseComposeOperation = useCallback(
@@ -1943,6 +1995,9 @@ export function useComposeForm({
   );
 
   const handleSend = useCallback(async () => {
+    // Set once the server accepts the message. After that, a failure (the
+    // close callback, the acknowledgement) must not claim it was not sent.
+    let accepted = false;
     if (receiptActions.pending) return;
     if (toRecipients.length === 0) {
       appMessage(
@@ -2156,7 +2211,13 @@ export function useComposeForm({
         formData.append("is_reply", "true");
       }
 
-      if (__IS_PRO__ && undoSendEnabled) {
+      // A copied site keeps Undo Send paused, because the queued send is
+      // unattended work. Send right away instead of queueing a send that cannot
+      // run until an administrator approves this site.
+      const undoSendPaused =
+        window.pressedmailPlugin?.automationPaused === true;
+
+      if (__IS_PRO__ && undoSendEnabled && !undoSendPaused) {
         if (currentAttachments.length > 0) {
           appMessage(
             __(
@@ -2216,9 +2277,13 @@ export function useComposeForm({
               __("Unable to queue the message right now.", "pressedmail"),
             "error",
           );
-          throw new Error(response?.message || "Failed to queue email");
+          // Already reported; finally still resets the sending state.
+          return;
         }
 
+        // Queued: it goes out at send_at unless undone, so from here a
+        // failing callback must not say it was not sent.
+        accepted = true;
         const pendingId = Number(response.data?.id);
         showUndoSend({
           id: Number.isFinite(pendingId) ? pendingId : 0,
@@ -2296,6 +2361,7 @@ export function useComposeForm({
         return;
       }
 
+      accepted = true;
       appMessage(
         response.warning ||
           response.message ||
@@ -2325,7 +2391,21 @@ export function useComposeForm({
         }
       }
     } catch (error) {
-      console.error("[useComposeForm] send failed", error);
+      // sendNormalEmail reports its own failures, so anything caught here
+      // happened before the send started (nothing went out) or after the
+      // server accepted it (it did). Only the first needs telling.
+      if (!accepted && ownsComposeSession(composeSessionVersion)) {
+        appMessage(
+          error instanceof Error && error.message
+            ? sprintf(
+                /* translators: %s: the error the browser gave. */
+                __("The message was not sent: %s", "pressedmail"),
+                error.message,
+              )
+            : __("The message was not sent. Try again.", "pressedmail"),
+          "error",
+        );
+      }
     } finally {
       if (
         activeSendSnapshotRef.current?.composeSessionVersion ===
@@ -2661,7 +2741,6 @@ export function useComposeForm({
           !ownsComposeSession(composeSessionVersion)
         )
           return false;
-        console.error("[useComposeForm] schedule failed", error);
         appMessage(
           error instanceof Error
             ? error.message
@@ -2848,7 +2927,6 @@ export function useComposeForm({
       clearForm();
       onClose?.();
     } catch (error) {
-      console.error("[useComposeForm] remove schedule failed", error);
       appMessage(
         __("Failed to remove schedule. Please try again.", "pressedmail"),
         "error",
@@ -2904,7 +2982,6 @@ export function useComposeForm({
       clearForm();
       onClose?.();
     } catch (error) {
-      console.error("[useComposeForm] scheduled send now failed", error);
       appMessage(
         __("Failed to send this email. Please try again.", "pressedmail"),
         "error",
@@ -3153,7 +3230,6 @@ export function useComposeForm({
       onDraftSaved?.();
       return true;
     } catch (error) {
-      console.error("[useComposeForm] scheduled discard failed", error);
       appMessage(
         __("Could not delete this scheduled email.", "pressedmail"),
         "error",
@@ -3445,6 +3521,14 @@ export function useComposeForm({
       const composed = latestBodyRef.current;
       if (composed && editorRef.current) {
         editorRef.current.setContent?.(composed);
+        if (
+          !automaticSignatureRef.current.locked &&
+          automaticSignatureRef.current.snapshot !== null
+        ) {
+          automaticSignatureRef.current.snapshot = signatureSnapshot(
+            editorRef.current.getHTML?.() ?? composed,
+          );
+        }
         editorRef.current.focusStart?.();
       }
     },
@@ -3470,7 +3554,7 @@ export function useComposeForm({
               replaceExisting: true,
               placement: composerPreferences.composer_signature_placement,
             });
-      appliedSignatureIdRef.current = signature.id;
+      automaticSignatureRef.current.locked = true;
 
       if (contentType === "html" && editorRef.current) {
         editorRef.current.setContent(updatedBody);

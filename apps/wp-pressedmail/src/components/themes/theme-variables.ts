@@ -24,6 +24,18 @@ export interface ThemeColorVariables {
   "--destructive": string;
   "--destructive-foreground": string;
   "--destructive-border": string;
+  // Status colours used as TEXT rather than as a fill.
+  //
+  // The fills are tuned for white foreground on top of them, which makes them
+  // far too light to read as text: on the default dark palette text-warning
+  // measured 3.23:1 on the card and text-destructive 4.10:1, and the worst
+  // palette reached 2.92:1. These are the same hues at a lightness chosen for
+  // the surface, so they differ between light and dark.
+  "--success-text": string;
+  "--warning-text": string;
+  "--info-text": string;
+  "--destructive-text": string;
+  "--primary-text": string;
   "--success": string;
   "--success-foreground": string;
   "--success-border": string;
@@ -76,6 +88,21 @@ export const SEMANTIC_STATUS_TOKEN_KEYS = [
   "--destructive-border",
 ] as const satisfies readonly (keyof ThemeColorVariables)[];
 
+/**
+ * Text-safe status tokens.
+ *
+ * Deliberately NOT part of SEMANTIC_STATUS_TOKEN_KEYS: those are copied from
+ * light to dark unchanged, which is exactly what these must not do.
+ */
+export const STATUS_TEXT_TOKEN_KEYS = [
+  "--success-text",
+  "--warning-text",
+  "--info-text",
+  "--destructive-text",
+  "--primary-text",
+] as const satisfies readonly (keyof ThemeColorVariables)[];
+
+type StatusTextTokenKey = (typeof STATUS_TEXT_TOKEN_KEYS)[number];
 type SemanticStatusTokenKey = (typeof SEMANTIC_STATUS_TOKEN_KEYS)[number];
 type SemanticStatusTokens = Pick<ThemeColorVariables, SemanticStatusTokenKey>;
 type GeneratedStatusTokenKey = Exclude<
@@ -88,7 +115,7 @@ type CheckedCheckboxTokenKey =
   | "--checkbox-checked-foreground";
 type ThemeColorVariableInputBase = Omit<
   ThemeColorVariables,
-  SemanticStatusTokenKey | CheckedCheckboxTokenKey
+  SemanticStatusTokenKey | CheckedCheckboxTokenKey | StatusTextTokenKey
 >;
 type LightThemeColorVariableInput = ThemeColorVariableInputBase &
   Pick<SemanticStatusTokens, "--destructive" | "--destructive-foreground"> &
@@ -146,6 +173,42 @@ function scaleChroma(base: number, scale: number): number {
  * from hue 145 to 162 across the palettes. 0.52 clears AA (4.5:1) at every hue
  * in use, so a palette can nudge its hues without re-measuring.
  */
+/**
+ * Lightness for status text, and the helper that applies it.
+ *
+ * These live in status-text-tokens.ts because the Free provider needs them too
+ * and must not import this module: THEME_REGISTRY would carry every Pro palette
+ * into the Free bundle. Re-exported here so existing importers keep working.
+ */
+import {
+  DARK_STATUS_TEXT_LIGHTNESS,
+  LIGHT_STATUS_TEXT_LIGHTNESS,
+  themeTextUtilityCss,
+  withOklchLightness,
+} from "./status-text-tokens";
+
+export {
+  DARK_STATUS_TEXT_LIGHTNESS,
+  LIGHT_STATUS_TEXT_LIGHTNESS,
+  withOklchLightness,
+} from "./status-text-tokens";
+
+/** The status hues again, at a lightness that can carry text. */
+function buildStatusTextTokens(
+  hues: StatusHues,
+  lightness: number,
+): Omit<Pick<ThemeColorVariables, StatusTextTokenKey>, "--primary-text"> {
+  const s = hues.chromaScale ?? 1;
+  const c = (base: number) => scaleChroma(base, s);
+
+  return {
+    "--success-text": `oklch(${lightness} ${c(0.16)} ${hues.success})`,
+    "--warning-text": `oklch(${lightness} ${c(0.13)} ${hues.warning})`,
+    "--info-text": `oklch(${lightness} ${c(0.17)} ${hues.info})`,
+    "--destructive-text": `oklch(${lightness} ${c(0.2)} ${hues.destructive})`,
+  };
+}
+
 function buildStatusTokens(hues: StatusHues): GeneratedStatusTokens {
   const s = hues.chromaScale ?? 1;
   const c = (base: number) => scaleChroma(base, s);
@@ -165,17 +228,24 @@ function buildStatusTokens(hues: StatusHues): GeneratedStatusTokens {
 }
 
 function withStatusTokens(theme: ThemeDefinitionInput): ThemeDefinition {
+  const hues = theme.statusHues ?? DEFAULT_STATUS_HUES;
   const lightBase = {
-    ...buildStatusTokens(theme.statusHues ?? DEFAULT_STATUS_HUES),
+    ...buildStatusTokens(hues),
     ...theme.light,
-  } satisfies Omit<ThemeColorVariables, CheckedCheckboxTokenKey>;
+  } satisfies Omit<
+    ThemeColorVariables,
+    CheckedCheckboxTokenKey | StatusTextTokenKey
+  >;
   const sharedStatusTokens = Object.fromEntries(
     SEMANTIC_STATUS_TOKEN_KEYS.map((token) => [token, lightBase[token]]),
   ) as SemanticStatusTokens;
   const darkBase = {
     ...theme.dark,
     ...sharedStatusTokens,
-  } satisfies Omit<ThemeColorVariables, CheckedCheckboxTokenKey>;
+  } satisfies Omit<
+    ThemeColorVariables,
+    CheckedCheckboxTokenKey | StatusTextTokenKey
+  >;
   const checkedCheckboxTokens = {
     "--checkbox-checked-background": lightBase["--primary"],
     "--checkbox-checked-foreground": lightBase["--primary-foreground"],
@@ -186,10 +256,20 @@ function withStatusTokens(theme: ThemeDefinitionInput): ThemeDefinition {
     light: {
       ...lightBase,
       ...checkedCheckboxTokens,
+      ...buildStatusTextTokens(hues, LIGHT_STATUS_TEXT_LIGHTNESS),
+      "--primary-text": withOklchLightness(
+        lightBase["--primary"],
+        LIGHT_STATUS_TEXT_LIGHTNESS,
+      ),
     },
     dark: {
       ...darkBase,
       ...checkedCheckboxTokens,
+      ...buildStatusTextTokens(hues, DARK_STATUS_TEXT_LIGHTNESS),
+      "--primary-text": withOklchLightness(
+        darkBase["--primary"],
+        DARK_STATUS_TEXT_LIGHTNESS,
+      ),
     },
   };
 }
@@ -1133,91 +1213,9 @@ function applyTailwindColorOverrides(
       background-color: ${variables["--info"]} !important;
     }
 
-    /* Text/Foreground colors */
-    #pressedmail-plugin .text-foreground,
-    #pressedmail-plugin-frontend .text-foreground {
-      color: ${variables["--foreground"]} !important;
-    }
+    /* Text colors come from the compiled utility cascade. */
 
-    #pressedmail-plugin .text-card-foreground,
-    #pressedmail-plugin-frontend .text-card-foreground {
-      color: ${variables["--card-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-popover-foreground,
-    #pressedmail-plugin-frontend .text-popover-foreground {
-      color: ${variables["--popover-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-muted-foreground,
-    #pressedmail-plugin-frontend .text-muted-foreground {
-      color: ${variables["--muted-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .placeholder\\:text-muted-foreground::placeholder,
-    #pressedmail-plugin-frontend .placeholder\\:text-muted-foreground::placeholder {
-      color: ${variables["--muted-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-accent-foreground,
-    #pressedmail-plugin-frontend .text-accent-foreground {
-      color: ${variables["--accent-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-primary,
-    #pressedmail-plugin-frontend .text-primary {
-      color: ${variables["--primary"]} !important;
-    }
-
-    #pressedmail-plugin .text-primary-foreground,
-    #pressedmail-plugin-frontend .text-primary-foreground {
-      color: ${variables["--primary-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-secondary-foreground,
-    #pressedmail-plugin-frontend .text-secondary-foreground {
-      color: ${variables["--secondary-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-destructive,
-    #pressedmail-plugin-frontend .text-destructive {
-      color: ${variables["--destructive"]} !important;
-    }
-
-    #pressedmail-plugin .text-destructive-foreground,
-    #pressedmail-plugin-frontend .text-destructive-foreground {
-      color: ${variables["--destructive-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-success,
-    #pressedmail-plugin-frontend .text-success {
-      color: ${variables["--success"]} !important;
-    }
-
-    #pressedmail-plugin .text-success-foreground,
-    #pressedmail-plugin-frontend .text-success-foreground {
-      color: ${variables["--success-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-warning,
-    #pressedmail-plugin-frontend .text-warning {
-      color: ${variables["--warning"]} !important;
-    }
-
-    #pressedmail-plugin .text-warning-foreground,
-    #pressedmail-plugin-frontend .text-warning-foreground {
-      color: ${variables["--warning-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-info,
-    #pressedmail-plugin-frontend .text-info {
-      color: ${variables["--info"]} !important;
-    }
-
-    #pressedmail-plugin .text-info-foreground,
-    #pressedmail-plugin-frontend .text-info-foreground {
-      color: ${variables["--info-foreground"]} !important;
-    }
+${themeTextUtilityCss()}
 
     /* Border colors */
     #pressedmail-plugin .border-border,
@@ -1227,12 +1225,12 @@ function applyTailwindColorOverrides(
 
     #pressedmail-plugin .border-input,
     #pressedmail-plugin-frontend .border-input {
-      border-color: ${variables["--input"]} !important;
+      border-color: var(--pm-control-border) !important;
     }
 
     #pressedmail-plugin .border-input\\/50,
     #pressedmail-plugin-frontend .border-input\\/50 {
-      border-color: color-mix(in oklch, ${variables["--input"]} 50%, transparent) !important;
+      border-color: color-mix(in oklch, var(--pm-control-border) 50%, transparent) !important;
     }
 
     #pressedmail-plugin .border-primary,
@@ -1395,21 +1393,6 @@ function applyTailwindColorOverrides(
       background-color: ${variables["--background"]} !important;
     }
 
-    #pressedmail-plugin .hover\\:text-foreground:hover,
-    #pressedmail-plugin-frontend .hover\\:text-foreground:hover {
-      color: ${variables["--foreground"]} !important;
-    }
-
-    #pressedmail-plugin .hover\\:text-accent-foreground:hover,
-    #pressedmail-plugin-frontend .hover\\:text-accent-foreground:hover {
-      color: ${variables["--accent-foreground"]} !important;
-    }
-
-    #pressedmail-plugin .hover\\:text-primary:hover,
-    #pressedmail-plugin-frontend .hover\\:text-primary:hover {
-      color: ${variables["--primary"]} !important;
-    }
-
     #pressedmail-plugin .hover\\:border-primary:hover,
     #pressedmail-plugin-frontend .hover\\:border-primary:hover {
       border-color: ${variables["--primary"]} !important;
@@ -1424,11 +1407,6 @@ function applyTailwindColorOverrides(
     #pressedmail-plugin .focus\\:bg-accent:focus,
     #pressedmail-plugin-frontend .focus\\:bg-accent:focus {
       background-color: ${variables["--accent"]} !important;
-    }
-
-    #pressedmail-plugin .focus\\:text-accent-foreground:focus,
-    #pressedmail-plugin-frontend .focus\\:text-accent-foreground:focus {
-      color: ${variables["--accent-foreground"]} !important;
     }
 
     #pressedmail-plugin .focus\\:bg-background:focus,
@@ -1449,7 +1427,7 @@ function applyTailwindColorOverrides(
 
     #pressedmail-plugin .focus-within\\:border-input:focus-within,
     #pressedmail-plugin-frontend .focus-within\\:border-input:focus-within {
-      border-color: ${variables["--input"]} !important;
+      border-color: var(--pm-control-border) !important;
     }
 
     /* Data state active (for Tabs, etc.) */
@@ -1458,16 +1436,7 @@ function applyTailwindColorOverrides(
       background-color: ${variables["--background"]} !important;
     }
 
-    #pressedmail-plugin .data-\\[state\\=active\\]\\:text-foreground[data-state="active"],
-    #pressedmail-plugin-frontend .data-\\[state\\=active\\]\\:text-foreground[data-state="active"] {
-      color: ${variables["--foreground"]} !important;
-    }
-
     /* Group hover states */
-    #pressedmail-plugin .group:hover .group-hover\\:text-foreground,
-    #pressedmail-plugin-frontend .group:hover .group-hover\\:text-foreground {
-      color: ${variables["--foreground"]} !important;
-    }
 
     /* Background with backdrop-blur support */
     #pressedmail-plugin .bg-background\\/95,
@@ -1507,17 +1476,6 @@ function applyTailwindColorOverrides(
     #pressedmail-plugin .bg-sidebar,
     #pressedmail-plugin-frontend .bg-sidebar {
       background-color: ${variables["--sidebar-background"]} !important;
-    }
-    `
-        : ""
-    }
-
-    ${
-      variables["--sidebar-foreground"]
-        ? `
-    #pressedmail-plugin .text-sidebar-foreground,
-    #pressedmail-plugin-frontend .text-sidebar-foreground {
-      color: ${variables["--sidebar-foreground"]} !important;
     }
     `
         : ""
@@ -1602,33 +1560,7 @@ function applyTailwindColorOverrides(
       background-color: color-mix(in oklch, ${variables["--primary"]} 15%, ${variables["--background"]}) !important;
     }
 
-    #pressedmail-plugin .text-blue-600,
-    #pressedmail-plugin-frontend .text-blue-600,
-    #pressedmail-plugin .text-blue-700,
-    #pressedmail-plugin-frontend .text-blue-700,
-    #pressedmail-plugin .text-blue-500,
-    #pressedmail-plugin-frontend .text-blue-500 {
-      color: ${variables["--primary"]} !important;
-    }
-
     /* Text colors - Gray scale */
-    #pressedmail-plugin .text-gray-900,
-    #pressedmail-plugin-frontend .text-gray-900,
-    #pressedmail-plugin .text-gray-800,
-    #pressedmail-plugin-frontend .text-gray-800,
-    #pressedmail-plugin .text-gray-700,
-    #pressedmail-plugin-frontend .text-gray-700 {
-      color: ${variables["--foreground"]} !important;
-    }
-
-    #pressedmail-plugin .text-gray-600,
-    #pressedmail-plugin-frontend .text-gray-600,
-    #pressedmail-plugin .text-gray-500,
-    #pressedmail-plugin-frontend .text-gray-500,
-    #pressedmail-plugin .text-gray-400,
-    #pressedmail-plugin-frontend .text-gray-400 {
-      color: ${variables["--muted-foreground"]} !important;
-    }
 
     /* Border colors - Gray scale */
     #pressedmail-plugin .border-gray-200,
@@ -1677,13 +1609,6 @@ function applyTailwindColorOverrides(
       background-color: ${variables["--destructive"]} !important;
     }
 
-    #pressedmail-plugin .text-red-600,
-    #pressedmail-plugin-frontend .text-red-600,
-    #pressedmail-plugin .text-red-500,
-    #pressedmail-plugin-frontend .text-red-500 {
-      color: ${variables["--destructive"]} !important;
-    }
-
     #pressedmail-plugin .bg-red-50,
     #pressedmail-plugin-frontend .bg-red-50,
     #pressedmail-plugin .bg-red-100,
@@ -1699,13 +1624,6 @@ function applyTailwindColorOverrides(
     #pressedmail-plugin .bg-indigo-600,
     #pressedmail-plugin-frontend .bg-indigo-600 {
       background-color: ${variables["--primary"]} !important;
-    }
-
-    #pressedmail-plugin .text-purple-600,
-    #pressedmail-plugin-frontend .text-purple-600,
-    #pressedmail-plugin .text-indigo-600,
-    #pressedmail-plugin-frontend .text-indigo-600 {
-      color: ${variables["--primary"]} !important;
     }
 
     /* Sky colors (used in some layouts) */

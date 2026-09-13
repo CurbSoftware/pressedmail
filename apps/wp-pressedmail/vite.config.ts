@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { wp_scripts } from "@kucrut/vite-for-wp/plugins";
+import externalGlobals from "rollup-plugin-external-globals";
 import type { Plugin, ResolvedConfig } from "vite";
 import { defineConfig } from "vite";
 import sharedFeatureConfig from "./feature-variants.cjs";
@@ -198,15 +198,36 @@ const configs = {
 };
 
 const currentConfig = configs[target as keyof typeof configs];
-const wordpressScriptExternals =
+/**
+ * Module specifiers this build reads from a WordPress global instead of
+ * bundling, and the global each one comes from.
+ *
+ * Free takes React from core, which prints a compatible copy on every admin
+ * screen. Pro keeps its own React 19 (core ships 18, Plate needs 19) but still
+ * takes `@wordpress/i18n`, so `wp_set_script_translations()` has somewhere to
+ * load a catalogue into for either edition rather than for Free alone.
+ *
+ * This object is the entire externals configuration, which is what lets
+ * `emitWordPressDependencies()` state the script handles as a fact. It used to
+ * be `wp_scripts()`, which externalises all sixty-odd globals WordPress
+ * registers: an import of jquery, lodash or any other `@wordpress` package
+ * would silently have been externalised with no handle declared for it, which
+ * is exactly how Free came to depend on wp-i18n without ever saying so.
+ */
+const wordpressProvidedModules: Record<string, string> =
   variant === "free"
-    ? wp_scripts({
-        extraScripts: {
-          "react/jsx-runtime": "ReactJSXRuntime",
-          "react-dom/client": "ReactDOM",
-        },
-      })
-    : null;
+    ? {
+        react: "React",
+        "react-dom": "ReactDOM",
+        "react-dom/client": "ReactDOM",
+        "react/jsx-runtime": "ReactJSXRuntime",
+        "@wordpress/i18n": "wp.i18n",
+      }
+    : { "@wordpress/i18n": "wp.i18n" };
+
+const wordpressScriptExternals = externalGlobals(
+  wordpressProvidedModules,
+) as Plugin;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -334,6 +355,62 @@ function emitModuleGraph(): Plugin {
   };
 }
 
+/**
+ * The registered WordPress script handle that prints a module's global.
+ *
+ * The two names differ: `@wordpress/i18n` is the `wp.i18n` global, printed by
+ * the script registered as `wp-i18n`.
+ */
+function wordpressScriptHandle(specifier: string): string {
+  if (specifier.startsWith("@wordpress/")) {
+    return `wp-${specifier.slice("@wordpress/".length)}`;
+  }
+  if (specifier.startsWith("react/jsx-")) return "react-jsx-runtime";
+  if (specifier.startsWith("react-dom")) return "react-dom";
+  return specifier;
+}
+
+/**
+ * Writes the WordPress script handles the built bundle depends on.
+ *
+ * Both editions used to declare react, react-dom and react-jsx-runtime, so Pro
+ * loaded a second React it never calls, while Free never declared wp-i18n and
+ * only received it because `wp_set_script_translations()` appends that handle.
+ *
+ * The answer is the externals configuration, not the emitted code: a first
+ * attempt matched globals by regex over the minified chunks, and read React's
+ * own error strings inside the Pro bundle as a dependency on React. Every
+ * module in `wordpressProvidedModules` is one this build does not carry, so
+ * that list, mapped to handles, is the dependency list.
+ * `includes/Assets/Admin.php` reads the file.
+ */
+function emitWordPressDependencies(): Plugin {
+  return {
+    name: "pressedmail:wp-dependencies",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: "wp-dependencies.json",
+        source: JSON.stringify(
+          {
+            variant,
+            handles: [
+              ...new Set(
+                Object.keys(wordpressProvidedModules).map(
+                  wordpressScriptHandle,
+                ),
+              ),
+            ].sort(),
+          },
+          null,
+          2,
+        ),
+      });
+    },
+  };
+}
+
 function useFreeReactCompilerCompatibilityRuntime(): Plugin {
   return {
     name: "pressedmail:free-react-compiler-runtime",
@@ -433,6 +510,7 @@ export default defineConfig({
     wordpressScriptExternals,
     enforceFreeReactCompatibility(),
     emitModuleGraph(),
+    emitWordPressDependencies(),
   ],
   define: {
     __PLUGIN_VARIANT__: JSON.stringify(variant),
@@ -505,20 +583,33 @@ export default defineConfig({
             drop_debugger: true,
           },
           format: {
-            comments: false,
+            // The MIT, ISC and BSD-3-Clause libraries in this bundle require
+            // their notice to survive redistribution. `comments: false` removed
+            // every @license banner from the shipped chunks.
+            comments: /@license|@preserve|^!/,
           },
         },
       }
     : undefined,
   server: {
-    host: true,
+    // Loopback only. `host: true` binds 0.0.0.0, and allowedHosts only checks
+    // the Host header, which any direct request sets for itself, so the whole
+    // repository (committed credentials included) was readable over /@fs/ by
+    // anyone on the network while a developer ran this server.
+    host: "localhost",
     port: currentConfig.port,
     strictPort: true,
     origin: `http://localhost:${currentConfig.port}`,
     allowedHosts: ["localhost"],
     cors: true,
     fs: {
-      allow: [repoRoot],
+      // The app, the workspace packages it compiles from, and the dependency
+      // store. Not `environment/` or `testing/`.
+      allow: [
+        __dirname,
+        path.resolve(repoRoot, "packages"),
+        path.resolve(repoRoot, "node_modules"),
+      ],
     },
     watch: {
       ignored: [

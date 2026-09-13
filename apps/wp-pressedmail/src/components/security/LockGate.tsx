@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useEffect, useState, type CSSProperties } from "react";
-import { __ } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import { Lock, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
 
 import { Alert, AlertDescription, Button, Input, Label } from "@kit/ui/plugin";
@@ -231,8 +231,16 @@ export function LockGate({ children }: LockGateProps) {
               data-testid="lock-gate-lockout">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                {__("Too many failed attempts.", "pressedmail")} {retryAfter}
-                {__("s until you can try again.", "pressedmail")}
+                {sprintf(
+                  /* translators: %d: seconds remaining before another attempt. */
+                  _n(
+                    "Too many failed attempts. Try again in %d second.",
+                    "Too many failed attempts. Try again in %d seconds.",
+                    retryAfter,
+                    "pressedmail",
+                  ),
+                  retryAfter,
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -319,12 +327,18 @@ export function LockGate({ children }: LockGateProps) {
                     variant="ghost"
                     size="sm"
                     className="absolute right-0 top-0 h-full px-3"
+                    aria-label={
+                      showPassphrase
+                        ? __("Hide passphrase", "pressedmail")
+                        : __("Show passphrase", "pressedmail")
+                    }
+                    aria-pressed={showPassphrase}
                     onClick={() => setShowPassphrase((show) => !show)}
                     disabled={busy}>
                     {showPassphrase ? (
-                      <EyeOff className="h-4 w-4" />
+                      <EyeOff className="h-4 w-4" aria-hidden="true" />
                     ) : (
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-4 w-4" aria-hidden="true" />
                     )}
                   </Button>
                 </div>

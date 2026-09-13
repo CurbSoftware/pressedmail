@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Monorepo source tag: `pressedmail-v1.0.30`
+Public tag: `v1.0.31`
 
 ## Layout
 
@@ -21,8 +21,10 @@ Monorepo source tag: `pressedmail-v1.0.30`
 
 ## Toolchain
 
-- Node.js 20+
-- pnpm 11 (exact version pinned via `packageManager` in `package.json`)
+- Node.js 22.13 or later. `.nvmrc` pins the version used
+  here, and the pinned pnpm refuses to run on anything older.
+- pnpm 11 (exact version pinned via `packageManager` in `package.json`;
+  `corepack enable` fetches it)
 - Vite (admin SPA); webpack via `@wordpress/scripts` for the block sources
   noted below
 - React 19, TypeScript, Tailwind CSS v4
@@ -30,9 +32,15 @@ Monorepo source tag: `pressedmail-v1.0.30`
 ## Build steps
 
 ```sh
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
 pnpm build
 ```
+
+`pnpm-lock.yaml` is committed, so `--frozen-lockfile` installs the exact
+dependency versions the shipped bundle was compiled from. Installing
+without it lets every range float, because `.npmrc` sets
+`resolution-mode=highest`.
 
 The build writes the compiled, hashed free-variant assets to
 `apps/wp-pressedmail/plugin-files/assets/admin/dist/`. Those are the
@@ -41,6 +49,13 @@ compiles the Gutenberg block sources under `src/blocks/` into
 `assets/blocks/`; the plugin does not register or ship those blocks, so
 that output is not part of the package. No build step downloads or
 executes remote code.
+
+## PHP and Composer
+
+This tree is the source for the compiled admin interface only. The
+plugin's PHP needs no build step: the WordPress plugin zip ships its own
+readable `includes/`, `database/` and `libs/` sources alongside the
+Composer `vendor/` tree it loads.
 
 ## Third-party assets
 

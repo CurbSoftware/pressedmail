@@ -21,6 +21,8 @@ import { useCanShowExternalImages } from "@/context/admin-settings";
 import {
   SettingsSaveState,
   useSettingsHeaderAction,
+  SettingsSkeleton,
+  SettingsSectionCard,
 } from "@/components/settings-ui";
 import {
   Alert,
@@ -35,11 +37,6 @@ import {
   AlertDialogTitle,
   AlertDialogTitleRow,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   Select,
@@ -133,6 +130,7 @@ export function SecuritySettingsCard() {
   // --- Lock setup / management state (immediate actions, not draft-saved) ---
   const [setupPassphrase, setSetupPassphrase] = useState("");
   const [setupConfirm, setSetupConfirm] = useState("");
+  const [setupFieldError, setSetupFieldError] = useState<string | null>(null);
   const [setupTimeout, setSetupTimeout] = useState(0);
   const [lockBusy, setLockBusy] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
@@ -271,6 +269,15 @@ export function SecuritySettingsCard() {
   );
 
   const handleSetup = useCallback(async () => {
+    setSetupFieldError(null);
+
+    if (setupPassphrase === "") {
+      setSetupFieldError(
+        __("Enter a passphrase to turn the lock on.", "pressedmail"),
+      );
+      return;
+    }
+
     if (setupPassphrase !== setupConfirm) {
       setLockError(__("The passphrases don’t match.", "pressedmail"));
       return;
@@ -494,20 +501,11 @@ export function SecuritySettingsCard() {
 
   if (isLoading) {
     return (
-      <Card data-test="user-security-settings-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            <span>{__("Security Settings", "pressedmail")}</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>{__("Loading security settings...", "pressedmail")}</span>
-          </div>
-        </CardContent>
-      </Card>
+      <SettingsSkeleton
+        label={__("Loading security settings...", "pressedmail")}
+        dataTest="user-security-settings-card"
+        rows={3}
+      />
     );
   }
 
@@ -515,347 +513,367 @@ export function SecuritySettingsCard() {
 
   return (
     <>
-      <Card data-test="user-security-settings-card">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            <span>{__("Security Settings", "pressedmail")}</span>
-            <SettingsSaveState status={saveStatus} />
-          </CardTitle>
-          <CardDescription>
-            {__(
-              "Protect access to your mailbox and control how message content is handled.",
-              "pressedmail",
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Message Display */}
-          {message && (
-            <Alert
-              variant={message.type === "error" ? "destructive" : "default"}
+      <SettingsSectionCard
+        title={__("Mailbox privacy", "pressedmail")}
+        actions={<SettingsSaveState status={saveStatus} />}
+        contentClassName="space-y-4"
+        dataTest="user-security-settings-card">
+        {/* Message Display */}
+        {message && (
+          <Alert
+            variant={message.type === "error" ? "destructive" : "default"}
+            className={
+              message.type === "success"
+                ? "bg-primary/10 border-primary/20"
+                : ""
+            }>
+            {message.type === "error" && <AlertCircle className="h-4 w-4" />}
+            {message.type === "info" && <AlertCircle className="h-4 w-4" />}
+            <AlertDescription
               className={
-                message.type === "success"
-                  ? "bg-primary/10 border-primary/20"
-                  : ""
+                message.type === "success" ? "text-muted-foreground" : ""
               }>
-              {message.type === "error" && <AlertCircle className="h-4 w-4" />}
-              {message.type === "info" && <AlertCircle className="h-4 w-4" />}
-              <AlertDescription
-                className={
-                  message.type === "success" ? "text-muted-foreground" : ""
-                }>
-                {message.text}
-              </AlertDescription>
-            </Alert>
-          )}
+              {message.text}
+            </AlertDescription>
+          </Alert>
+        )}
 
-          {/* PressedMail Lock */}
-          <div
-            className="rounded-lg border bg-muted/30 p-4 space-y-3"
-            data-test="security-mailbox-lock-tile">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Lock className="h-5 w-5 shrink-0 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {__("PressedMail Lock", "pressedmail")}
-                  {lockEnabled && (
-                    <span className="ml-2 text-xs font-normal text-primary">
-                      {__("Enabled", "pressedmail")}
-                    </span>
-                  )}
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {__(
-                  "An optional passphrase that locks your inbox, contacts, calendars, and sending in this browser. Each browser unlocks separately; logging out of WordPress or opening a new browser locks it again. Background mail sync keeps running while locked.",
-                  "pressedmail",
+        {/* PressedMail Lock */}
+        <div
+          className="rounded-lg border bg-muted/30 p-4 space-y-3"
+          data-test="security-mailbox-lock-tile">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Lock className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <p className="text-sm font-medium">
+                {__("PressedMail Lock", "pressedmail")}
+                {lockEnabled && (
+                  <span className="ml-2 text-xs font-normal text-primary">
+                    {__("Enabled", "pressedmail")}
+                  </span>
                 )}
               </p>
             </div>
-
-            {lockError && (
-              <Alert variant="destructive" data-test="security-lock-error">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{lockError}</AlertDescription>
-              </Alert>
-            )}
-
-            {!lockEnabled ? (
-              <div className="space-y-2" data-test="security-lock-setup">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Input
-                    type="password"
-                    {...sensitiveInputProps("mailbox-lock-passphrase")}
-                    placeholder={__(
-                      "New passphrase (min. 8 characters)",
-                      "pressedmail",
-                    )}
-                    value={setupPassphrase}
-                    onChange={(e) => setSetupPassphrase(e.target.value)}
-                    disabled={lockBusy}
-                    data-test="security-lock-setup-passphrase"
-                  />
-                  <Input
-                    type="password"
-                    {...sensitiveInputProps("mailbox-lock-passphrase-confirm")}
-                    placeholder={__("Repeat passphrase", "pressedmail")}
-                    value={setupConfirm}
-                    onChange={(e) => setSetupConfirm(e.target.value)}
-                    disabled={lockBusy}
-                    data-test="security-lock-setup-confirm"
-                  />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    {__("Lock after inactivity:", "pressedmail")}
-                  </Label>
-                  <Select
-                    value={String(setupTimeout)}
-                    onValueChange={(value) => setSetupTimeout(Number(value))}
-                    disabled={lockBusy}>
-                    <SelectTrigger
-                      className="w-36"
-                      data-test="security-lock-setup-timeout">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMEOUT_OPTIONS.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={String(option.value)}>
-                          {option.label()}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => void handleSetup()}
-                    disabled={lockBusy || setupPassphrase === ""}
-                    data-test="security-lock-setup-submit">
-                    {lockBusy && (
-                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                    )}
-                    {__("Enable PressedMail Lock", "pressedmail")}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2" data-test="security-lock-manage">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Label className="text-xs text-muted-foreground">
-                    {__("Lock after inactivity:", "pressedmail")}
-                  </Label>
-                  <Select
-                    value={String(draft.lock_timeout_seconds)}
-                    onValueChange={(value) =>
-                      updateDraft("lock_timeout_seconds", Number(value))
-                    }
-                    disabled={lockBusy}>
-                    <SelectTrigger
-                      className="w-36"
-                      data-test="security-lock-timeout">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TIMEOUT_OPTIONS.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={String(option.value)}>
-                          {option.label()}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void runLockAction("lock", {})}
-                    disabled={lockBusy}
-                    data-test="security-lock-now">
-                    {__("Lock now", "pressedmail")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void runLockAction("lock-all", {})}
-                    disabled={lockBusy}
-                    data-test="security-lock-all">
-                    {__("Lock all sessions", "pressedmail")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setLockError(null);
-                      setChangeOpen(true);
-                    }}
-                    disabled={lockBusy}
-                    data-test="security-lock-change">
-                    {__("Change passphrase", "pressedmail")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      setLockError(null);
-                      setDisableOpen(true);
-                    }}
-                    disabled={lockBusy}
-                    data-test="security-lock-disable">
-                    {__("Turn off", "pressedmail")}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <p className="text-xs text-muted-foreground/80 pt-2 border-t">
+            <p className="text-xs text-muted-foreground">
               {__(
-                "PressedMail Lock protects access through the normal WordPress and PressedMail interfaces: switched admin sessions, open sessions on shared devices, and stolen browser sessions. It does not additionally encrypt your data, and it cannot protect against an administrator or hosting operator who can modify website code, database contents, or server configuration.",
+                "Lock your mail, contacts, calendar, and sending with a passphrase in each browser. Background sync keeps running.",
                 "pressedmail",
               )}
             </p>
           </div>
 
-          <div className="grid gap-3" data-test="user-security-settings-grid">
-            <div
-              className={securityTileClass}
-              data-test="security-impersonation-tile">
-              <div className="flex min-w-0 gap-3">
-                <UserX className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">
-                    {__("Your mailbox stays private", "pressedmail")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
+          {lockError && (
+            <Alert variant="destructive" data-test="security-lock-error">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{lockError}</AlertDescription>
+            </Alert>
+          )}
+
+          {!lockEnabled ? (
+            <div className="space-y-2" data-test="security-lock-setup">
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input
+                  type="password"
+                  id="security-lock-setup-passphrase"
+                  aria-label={__("New passphrase", "pressedmail")}
+                  aria-invalid={setupFieldError ? true : undefined}
+                  aria-describedby={
+                    setupFieldError
+                      ? "security-lock-setup-passphrase-error"
+                      : undefined
+                  }
+                  {...sensitiveInputProps("mailbox-lock-passphrase")}
+                  placeholder={__(
+                    "New passphrase (min. 8 characters)",
+                    "pressedmail",
+                  )}
+                  value={setupPassphrase}
+                  onChange={(e) => {
+                    setSetupPassphrase(e.target.value);
+                    setSetupFieldError(null);
+                  }}
+                  disabled={lockBusy}
+                  data-test="security-lock-setup-passphrase"
+                />
+                <Input
+                  type="password"
+                  {...sensitiveInputProps("mailbox-lock-passphrase-confirm")}
+                  aria-label={__("Repeat new passphrase", "pressedmail")}
+                  placeholder={__("Repeat passphrase", "pressedmail")}
+                  value={setupConfirm}
+                  onChange={(e) => setSetupConfirm(e.target.value)}
+                  disabled={lockBusy}
+                  data-test="security-lock-setup-confirm"
+                />
+              </div>
+              {setupFieldError ? (
+                <p
+                  id="security-lock-setup-passphrase-error"
+                  role="alert"
+                  className="text-xs text-destructive"
+                  data-test="security-lock-setup-error"
+                  data-testid="security-lock-setup-error">
+                  {setupFieldError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Label
+                  htmlFor="security-lock-setup-timeout"
+                  className="text-xs text-muted-foreground">
+                  {__("Lock after inactivity:", "pressedmail")}
+                </Label>
+                <Select
+                  value={String(setupTimeout)}
+                  onValueChange={(value) => setSetupTimeout(Number(value))}
+                  disabled={lockBusy}>
+                  <SelectTrigger
+                    id="security-lock-setup-timeout"
+                    className="w-36"
+                    data-test="security-lock-setup-timeout">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEOUT_OPTIONS.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={String(option.value)}>
+                        {option.label()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleSetup()}
+                  disabled={lockBusy}
+                  data-test="security-lock-setup-submit">
+                  {lockBusy && (
+                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  )}
+                  {__("Enable PressedMail Lock", "pressedmail")}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2" data-test="security-lock-manage">
+              <div className="flex flex-wrap items-center gap-2">
+                <Label
+                  htmlFor="security-lock-timeout"
+                  className="text-xs text-muted-foreground">
+                  {__("Lock after inactivity:", "pressedmail")}
+                </Label>
+                <Select
+                  value={String(draft.lock_timeout_seconds)}
+                  onValueChange={(value) =>
+                    updateDraft("lock_timeout_seconds", Number(value))
+                  }
+                  disabled={lockBusy}>
+                  <SelectTrigger
+                    id="security-lock-timeout"
+                    className="w-36"
+                    data-test="security-lock-timeout">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIMEOUT_OPTIONS.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={String(option.value)}>
+                        {option.label()}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runLockAction("lock", {})}
+                  disabled={lockBusy}
+                  data-test="security-lock-now">
+                  {__("Lock now", "pressedmail")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runLockAction("lock-all", {})}
+                  disabled={lockBusy}
+                  data-test="security-lock-all">
+                  {__("Lock all sessions", "pressedmail")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setLockError(null);
+                    setChangeOpen(true);
+                  }}
+                  disabled={lockBusy}
+                  data-test="security-lock-change">
+                  {__("Change passphrase", "pressedmail")}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setLockError(null);
+                    setDisableOpen(true);
+                  }}
+                  disabled={lockBusy}
+                  data-test="security-lock-disable">
+                  {__("Turn off", "pressedmail")}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <details className="text-xs text-muted-foreground pt-2 border-t">
+            <summary className="cursor-pointer font-medium">
+              {__("What the lock protects", "pressedmail")}
+            </summary>
+            <p className="pt-2">
+              {__(
+                "PressedMail Lock protects access through the normal WordPress and PressedMail interfaces: switched admin sessions, open sessions on shared devices, and stolen browser sessions. It does not additionally encrypt your data, and it cannot protect against an administrator or hosting operator who can modify website code, database contents, or server configuration.",
+                "pressedmail",
+              )}
+            </p>
+          </details>
+        </div>
+
+        <div className="grid gap-3" data-test="user-security-settings-grid">
+          <div
+            className="flex items-start gap-3 rounded-md bg-muted/40 p-3"
+            role="note"
+            data-test="security-impersonation-tile">
+            <div className="flex min-w-0 gap-3">
+              <UserX className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium leading-5">
+                  {__("Your mailbox stays private", "pressedmail")}
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    {__("Always on", "pressedmail")}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {__(
+                    "WordPress administrators and switched sessions cannot open your mailbox. Sign in with your own account to read your email.",
+                    "pressedmail",
+                  )}
+                </p>
+                {impersonationStatus?.is_user_switching && (
+                  <p className="text-xs text-warning mt-2 font-medium">
                     {__(
-                      "WordPress administrators and switched sessions cannot open your mailbox. Sign in with your own account to read your email.",
+                      "You are in a switched session. Sign out and use your own login to open your mailbox.",
                       "pressedmail",
                     )}
                   </p>
-                  {impersonationStatus?.is_user_switching && (
-                    <p className="text-xs text-warning mt-2 font-medium">
-                      {__(
-                        "You are in a switched session. Sign out and use your own login to open your mailbox.",
-                        "pressedmail",
-                      )}
-                    </p>
-                  )}
-                </div>
+                )}
               </div>
-              <span className="text-xs text-muted-foreground">
-                {__("Always on", "pressedmail")}
-              </span>
             </div>
+          </div>
 
-            {canShowExternalImages && (
-              <div
-                className={securityTileClass}
-                data-test="security-remote-images-tile">
-                <div className="flex min-w-0 gap-3">
-                  <Eye className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor="auto-show-images"
-                      className="text-sm font-medium cursor-pointer">
-                      {__("Automatically load remote images", "pressedmail")}
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      {__(
-                        "When enabled, external images in emails load automatically without clicking 'Show images' each time.",
-                        "pressedmail",
-                      )}
-                    </p>
-                    <p className="text-xs text-muted-foreground/80 mt-2">
-                      {__(
-                        "This may expose your activity to email senders via tracking pixels.",
-                        "pressedmail",
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
-                  {saveStatus === "saving" && (
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                  )}
-                  <Switch
-                    id="auto-show-images"
-                    checked={draft.auto_show_images}
-                    onCheckedChange={(checked) =>
-                      updateDraft("auto_show_images", checked)
-                    }
-                    disabled={prefsLoading}
-                    data-test="auto-show-images-toggle"
-                    data-testid="auto-show-images-toggle"
-                  />
-                </div>
-              </div>
-            )}
-
+          {canShowExternalImages && (
             <div
               className={securityTileClass}
-              data-test="security-email-cache-tile">
+              data-test="security-remote-images-tile">
               <div className="flex min-w-0 gap-3">
-                <Database className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+                <Eye className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
                 <div className="space-y-1">
                   <Label
-                    htmlFor="cache-email-body-content"
+                    htmlFor="auto-show-images"
                     className="text-sm font-medium cursor-pointer">
-                    {__(
-                      "Cache email content in DB (Recommended)",
-                      "pressedmail",
-                    )}
+                    {__("Automatically load remote images", "pressedmail")}
                   </Label>
                   <p className="text-xs text-muted-foreground">
                     {__(
-                      "Recommended. Caches the full content of emails you open so they reopen instantly, including across sessions and devices.",
+                      "When enabled, external images in emails load automatically without clicking 'Show images' each time.",
                       "pressedmail",
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground/80 mt-2">
                     {__(
-                      "Turning this off can make opening emails slower, since each message is downloaded live from your mail server.",
+                      "This may expose your activity to email senders via tracking pixels.",
                       "pressedmail",
                     )}
                   </p>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
-                {cacheBusy && (
+                {saveStatus === "saving" && (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                 )}
                 <Switch
-                  id="cache-email-body-content"
-                  data-test="cache-email-body-toggle"
-                  checked={isEmailCacheOn}
-                  onCheckedChange={handleEmailCacheToggle}
-                  disabled={prefsLoading || cacheBusy}
+                  id="auto-show-images"
+                  checked={draft.auto_show_images}
+                  onCheckedChange={(checked) =>
+                    updateDraft("auto_show_images", checked)
+                  }
+                  disabled={prefsLoading}
+                  data-test="auto-show-images-toggle"
+                  data-testid="auto-show-images-toggle"
                 />
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Security Note */}
-          <div className="text-xs text-muted-foreground/70 pt-2 border-t">
-            <p>
-              <strong>{__("Note:", "pressedmail")}</strong>{" "}
-              {__(
-                "Your email credentials are always stored encrypted on this site, whether or not PressedMail Lock is enabled.",
-                "pressedmail",
+          <div
+            className={securityTileClass}
+            data-test="security-email-cache-tile">
+            <div className="flex min-w-0 gap-3">
+              <Database className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
+              <div className="space-y-1">
+                <Label
+                  htmlFor="cache-email-body-content"
+                  className="text-sm font-medium cursor-pointer">
+                  {__("Cache email content in DB (Recommended)", "pressedmail")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {__(
+                    "Recommended. Caches the full content of emails you open so they reopen instantly, including across sessions and devices.",
+                    "pressedmail",
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground/80 mt-2">
+                  {__(
+                    "Turning this off can make opening emails slower, since each message is downloaded live from your mail server.",
+                    "pressedmail",
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
+              {cacheBusy && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               )}
-            </p>
+              <Switch
+                id="cache-email-body-content"
+                data-test="cache-email-body-toggle"
+                checked={isEmailCacheOn}
+                onCheckedChange={handleEmailCacheToggle}
+                disabled={prefsLoading || cacheBusy}
+              />
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        {/* Security Note */}
+        <div className="text-xs text-muted-foreground/70 pt-2 border-t">
+          <p>
+            <strong>{__("Note:", "pressedmail")}</strong>{" "}
+            {__(
+              "Your email credentials are always stored encrypted on this site, whether or not PressedMail Lock is enabled.",
+              "pressedmail",
+            )}
+          </p>
+        </div>
+      </SettingsSectionCard>
 
       {/* Change passphrase dialog */}
       <AlertDialog open={changeOpen} onOpenChange={setChangeOpen}>
@@ -888,6 +906,7 @@ export function SecuritySettingsCard() {
               value={currentPassphrase}
               onChange={(e) => setCurrentPassphrase(e.target.value)}
               disabled={lockBusy}
+              aria-label={__("Current passphrase", "pressedmail")}
               data-test="security-lock-change-current"
             />
             <Input
@@ -900,6 +919,7 @@ export function SecuritySettingsCard() {
               value={newPassphrase}
               onChange={(e) => setNewPassphrase(e.target.value)}
               disabled={lockBusy}
+              aria-label={__("New passphrase", "pressedmail")}
               data-test="security-lock-change-new"
             />
             <Input
@@ -909,6 +929,7 @@ export function SecuritySettingsCard() {
               value={newConfirm}
               onChange={(e) => setNewConfirm(e.target.value)}
               disabled={lockBusy}
+              aria-label={__("Repeat new passphrase", "pressedmail")}
               data-test="security-lock-change-new-confirm"
             />
           </div>
@@ -961,6 +982,7 @@ export function SecuritySettingsCard() {
               value={disablePassphrase}
               onChange={(e) => setDisablePassphrase(e.target.value)}
               disabled={lockBusy}
+              aria-label={__("Passphrase", "pressedmail")}
               data-test="security-lock-disable-passphrase"
             />
           </div>

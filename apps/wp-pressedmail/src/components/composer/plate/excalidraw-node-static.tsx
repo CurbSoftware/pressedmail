@@ -1,5 +1,6 @@
 import type { SlateElementProps } from '@kit/plate/static';
 import { SlateElement } from '@kit/plate/static';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Email-safe static drawing. The interactive component stores a PNG snapshot of
@@ -15,12 +16,14 @@ export function ExcalidrawElementStatic(props: SlateElementProps) {
       <div style={{ margin: '8px 0', textAlign: 'center' }}>
         {png ? (
           <img
-            alt="Drawing"
+            alt={__('Drawing', 'pressedmail')}
             src={png}
             style={{ maxWidth: '100%', height: 'auto' }}
           />
         ) : (
-          <span style={{ color: '#888', fontStyle: 'italic' }}>[Drawing]</span>
+          <span style={{ color: '#888', fontStyle: 'italic' }}>
+            {__('[Drawing]', 'pressedmail')}
+          </span>
         )}
       </div>
       {props.children}

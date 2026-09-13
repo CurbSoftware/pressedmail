@@ -7,6 +7,7 @@
  * @since 2.0.0
  */
 
+import { __ } from "@wordpress/i18n";
 import type { EmailMessage, EmailThread } from "@/types";
 import { parseEmailDate } from "@/lib/email-date";
 import type {
@@ -117,7 +118,8 @@ export class ThreadingService implements IThreadingService {
 
       // Find the thread root for this message
       const threadRoot = this.findThreadRoot(msg, messageIndex, opts.maxDepth);
-      const threadId = storedThreadId ?? threadRoot ?? this.generateThreadId(msg);
+      const threadId =
+        storedThreadId ?? threadRoot ?? this.generateThreadId(msg);
 
       // Create thread if it doesn't exist
       if (!threads.has(threadId)) {
@@ -337,7 +339,9 @@ export class ThreadingService implements IThreadingService {
         success: false,
         messages: [],
         error:
-          error instanceof Error ? error.message : "Failed to expand thread",
+          error instanceof Error
+            ? error.message
+            : __("Failed to expand thread", "pressedmail"),
       };
     }
   }

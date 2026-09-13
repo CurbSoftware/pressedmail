@@ -32,6 +32,12 @@ type ProCategory = {
   features: string[];
 };
 
+type ProCapability = {
+  label: string;
+  /** Genuinely unlimited, rather than "more than Free". */
+  unlimited: boolean;
+};
+
 const WHY_PRO = [
   {
     title: __("Stay ahead of busy inboxes", "pressedmail"),
@@ -56,11 +62,22 @@ const WHY_PRO = [
   },
 ];
 
-const PRO_CAPABILITIES = [
-  __("Unlimited accounts", "pressedmail"),
-  __("Unlimited users & sites", "pressedmail"),
-  __("Unlimited tags & signatures", "pressedmail"),
-  __("Unlimited contacts & calendars", "pressedmail"),
+/**
+ * Every claim here has to be true of the shipped builds.
+ *
+ * An unlimited-sites claim was not: yearly plans are priced by number of sites
+ * and Lifetime covers up to 100, so the sites line states the rule instead.
+ * Tags are unlimited in Free too (readme-free.txt), so the unlimited line is
+ * about signatures, which Free ships one of.
+ */
+const PRO_CAPABILITIES: ProCapability[] = [
+  { label: __("Unlimited accounts", "pressedmail"), unlimited: true },
+  { label: __("Unlimited signatures", "pressedmail"), unlimited: true },
+  {
+    label: __("Unlimited contacts & calendars", "pressedmail"),
+    unlimited: true,
+  },
+  { label: __("Sites depend on your plan", "pressedmail"), unlimited: false },
 ];
 
 const PRO_CATEGORIES: ProCategory[] = [
@@ -76,8 +93,6 @@ const PRO_CATEGORIES: ProCategory[] = [
       __("Smart inbox prioritization", "pressedmail"),
       __("Snooze emails", "pressedmail"),
       __("Automatic follow-up reminders", "pressedmail"),
-      __("Custom & smart folders", "pressedmail"),
-      __("Unlimited tags", "pressedmail"),
     ],
   },
   {
@@ -90,7 +105,6 @@ const PRO_CATEGORIES: ProCategory[] = [
     features: [
       __("Scheduled send", "pressedmail"),
       __("Conditional signature rules", "pressedmail"),
-      __("Rich composer", "pressedmail"),
     ],
   },
   {
@@ -124,7 +138,6 @@ const PRO_CATEGORIES: ProCategory[] = [
       __("Custom contact fields", "pressedmail"),
       __("CSV & vCard import/export", "pressedmail"),
       __("Local calendar", "pressedmail"),
-      __("Google & Outlook calendar sync", "pressedmail"),
       __("Recurring events", "pressedmail"),
     ],
   },
@@ -132,13 +145,12 @@ const PRO_CATEGORIES: ProCategory[] = [
     icon: ShieldCheck,
     title: __("Accounts & Protection", "pressedmail"),
     description: __(
-      "Connect more mailboxes with modern sign-in and verify your Pro installation.",
+      "Connect more mailboxes and verify your Pro installation.",
       "pressedmail",
     ),
     features: [
+      __("Multiple mail accounts", "pressedmail"),
       __("Plugin integrity checks", "pressedmail"),
-      __("Unlimited accounts, users & sites", "pressedmail"),
-      __("OAuth mail sign-in (XOAUTH2)", "pressedmail"),
     ],
   },
   {
@@ -161,9 +173,9 @@ function PricingLink() {
   return (
     <Button asChild>
       <a href={PRICING_URL} target="_blank" rel="noopener noreferrer">
-        {__("Explore PressedMail Pro", "pressedmail")}
+        {__("Explore PressedMail Pro", "pressedmail")}{" "}
         <span className="sr-only">
-          {__(" (opens in a new tab)", "pressedmail")}
+          {__("(opens in a new tab)", "pressedmail")}
         </span>
         <ExternalLink className="size-4" aria-hidden="true" />
       </a>
@@ -223,13 +235,17 @@ export function ProUpgradeInfo() {
                       className="mt-0.5 size-4 shrink-0 text-pro"
                       aria-hidden="true"
                     />
+                    {/* Spans, not paragraphs: wp-admin's unlayered
+                        common.css `p { margin: 1em 0 }` beats every layered
+                        Tailwind utility, which pushed each title about 16px
+                        below its check icon. */}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground">
+                      <span className="block text-sm font-medium text-foreground">
                         {benefit.title}
-                      </p>
-                      <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
                         {benefit.description}
-                      </p>
+                      </span>
                     </div>
                   </li>
                 ))}
@@ -242,14 +258,21 @@ export function ProUpgradeInfo() {
             className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {PRO_CAPABILITIES.map((capability) => (
               <li
-                key={capability}
+                key={capability.label}
                 className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2.5">
-                <InfinityIcon
-                  className="size-4 shrink-0 text-pro"
-                  aria-hidden="true"
-                />
+                {capability.unlimited ? (
+                  <InfinityIcon
+                    className="size-4 shrink-0 text-pro"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Check
+                    className="size-4 shrink-0 text-pro"
+                    aria-hidden="true"
+                  />
+                )}
                 <span className="text-xs font-medium text-foreground">
-                  {capability}
+                  {capability.label}
                 </span>
               </li>
             ))}

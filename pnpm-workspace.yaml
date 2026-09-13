@@ -55,7 +55,7 @@ catalog:
   '@platejs/list': 53.0.2
   '@platejs/markdown': 53.0.4
   '@platejs/math': 53.0.0
-  '@platejs/media': 53.0.1
+  '@platejs/media': 53.1.4
   '@platejs/mention': 53.0.0
   '@platejs/resizable': 53.0.0
   '@platejs/selection': 53.0.0
@@ -107,3 +107,23 @@ catalog:
   typescript: 5.9.3
   zod: 4.3.6
   wrangler: 4.110.0
+
+overrides:
+  '@types/react': 19.2.14
+  '@types/react-dom': 19.2.3
+  # Exact pins inside the excalidraw tree leave no in-range fix for these
+  # advisories (GHSA-28wg, GHSA-xwg4, GHSA-55q2). mermaid 10.9.5+ itself
+  # widened its dompurify range to ^3.2.4.
+  '@excalidraw/excalidraw>nanoid': 3.3.19
+  '@excalidraw/mermaid-to-excalidraw>nanoid': 5.1.16
+  'mermaid@10>dompurify': 3.4.15
+
+packageExtensions:
+  '@hookform/resolvers@5.2.2':
+    peerDependencies:
+      zod: '^3.25.0 || ^4.0.0'
+
+patchedDependencies:
+  # 53.0.7 calls conditional mark renderers directly, changing Slate's hook order.
+  # Mount each renderer as a component until the upstream fix is in our catalog.
+  '@platejs/core@53.0.7': patches/@platejs__core@53.0.7.patch

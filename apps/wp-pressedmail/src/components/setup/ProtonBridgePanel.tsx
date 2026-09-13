@@ -15,7 +15,7 @@ export function ProtonBridgePanel() {
           <CardTitle className="text-base font-semibold">
             {__("Proton Mail requires Proton Mail Bridge", "pressedmail")}
           </CardTitle>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
             <FlaskConical className="h-3 w-3" aria-hidden="true" />
             {__("Experimental", "pressedmail")}
           </span>

@@ -75,7 +75,7 @@ import {
 } from '@kit/plate/react';
 import * as React from 'react';
 
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 import {
   Button,
   DropdownMenu,
@@ -121,7 +121,9 @@ import {
 type TColor = { name: string; value: string };
 
 /** Cell background palette (minimal; the composer ships no font-color kit). */
-const DEFAULT_COLORS: TColor[] = [
+// Built on call: a module-level __() runs before the locale catalog loads,
+// so these names would always be English.
+const getDefaultColors = (): TColor[] => [
   { name: __('Dark grey', 'pressedmail'), value: '#434343' },
   { name: __('Grey', 'pressedmail'), value: '#999999' },
   { name: __('Light grey', 'pressedmail'), value: '#cccccc' },
@@ -135,12 +137,12 @@ const DEFAULT_COLORS: TColor[] = [
   { name: __('Pink', 'pressedmail'), value: '#db2777' },
 ];
 
-const BORDER_COLORS: TColor[] = [
+const getBorderColors = (): TColor[] => [
   { name: __('Default', 'pressedmail'), value: TABLE_BORDER_DEFAULT_COLOR },
-  ...DEFAULT_COLORS,
+  ...getDefaultColors(),
 ];
 
-const BORDER_STYLES = [
+const getBorderStyles = () => [
   { label: __('Solid', 'pressedmail'), value: 'solid' },
   { label: __('Dashed', 'pressedmail'), value: 'dashed' },
   { label: __('Dotted', 'pressedmail'), value: 'dotted' },
@@ -1410,7 +1412,7 @@ export function TableBorderSideMenuItems({
         <ColorDropdownMenuItems
           ariaLabelPrefix={`${label} ${__('color', 'pressedmail')}`}
           className="px-2 pb-2"
-          colors={BORDER_COLORS}
+          colors={getBorderColors()}
           keepOpen
           updateColor={(color) => update({ color })}
         />
@@ -1422,7 +1424,7 @@ export function TableBorderSideMenuItems({
         onValueChange={(style) => update({ style })}
         value={presentation.style}
       >
-        {BORDER_STYLES.map(({ label: styleLabel, value }) => (
+        {getBorderStyles().map(({ label: styleLabel, value }) => (
           <DropdownMenuRadioItem
             key={value}
             onSelect={(event) => event.preventDefault()}
@@ -1445,7 +1447,11 @@ export function TableBorderSideMenuItems({
             onSelect={(event) => event.preventDefault()}
             value={size.toString()}
           >
-            {`${size} px`}
+            {sprintf(
+              /* translators: %d: border width in pixels. */
+              __('%d px', 'pressedmail'),
+              size,
+            )}
           </DropdownMenuRadioItem>
         ))}
       </ToolbarMenuGroup>
@@ -1579,7 +1585,7 @@ function TableBordersDropdownMenuContent(
       <ToolbarMenuGroup label={__('Border color', 'pressedmail')}>
         <ColorDropdownMenuItems
           className="px-2 pb-2"
-          colors={BORDER_COLORS}
+          colors={getBorderColors()}
           updateColor={updateBorderColor}
         />
       </ToolbarMenuGroup>
@@ -1628,7 +1634,7 @@ function ColorDropdownMenu({
         <ToolbarMenuGroup label={__('Colors', 'pressedmail')}>
           <ColorDropdownMenuItems
             className="px-2"
-            colors={DEFAULT_COLORS}
+            colors={getDefaultColors()}
             updateColor={onUpdateColor}
           />
         </ToolbarMenuGroup>
@@ -1741,10 +1747,11 @@ function RowDragHandle({ dragRef }: { dragRef: React.Ref<any> }) {
   return (
     <Button
       className={cn(
-        'absolute top-1/2 left-0 z-51 h-6 w-4 -translate-y-1/2 p-0 focus-visible:ring-0 focus-visible:ring-offset-0',
+        'absolute top-1/2 left-0 z-51 h-6 w-4 -translate-y-1/2 p-0',
         'cursor-grab active:cursor-grabbing',
-        'opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-data-[table-resizing=true]/row:opacity-0'
+        'opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 focus-visible:opacity-100 group-data-[table-resizing=true]/row:opacity-0'
       )}
+      aria-label={__('Move or select row', 'pressedmail')}
       onClick={() => {
         editor.tf.select(element);
       }}

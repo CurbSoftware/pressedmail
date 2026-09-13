@@ -91,7 +91,7 @@ function CodeBlockCombobox() {
       languages.filter(
         (language) =>
           !searchValue ||
-          language.label.toLowerCase().includes(searchValue.toLowerCase()),
+          languageLabel(language).toLowerCase().includes(searchValue.toLowerCase()),
       ),
     [searchValue],
   );
@@ -108,8 +108,12 @@ function CodeBlockCombobox() {
           size="sm"
           variant="ghost"
         >
-          {languages.find((language) => language.value === value)?.label ??
-            'Plain Text'}
+          {languageLabel(
+            languages.find((language) => language.value === value) ?? {
+              label: '',
+              value: 'plaintext',
+            },
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -130,7 +134,7 @@ function CodeBlockCombobox() {
               {items.map((language) => (
                 <CommandItem
                   className="cursor-pointer"
-                  key={language.label}
+                  key={languageLabel(language)}
                   onSelect={(v: string) => {
                     editor.tf.setNodes<TCodeBlockElement>(
                       { lang: v },
@@ -146,7 +150,7 @@ function CodeBlockCombobox() {
                       value === language.value ? 'opacity-100' : 'opacity-0',
                     )}
                   />
-                  {language.label}
+                  {languageLabel(language)}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -201,6 +205,16 @@ export function CodeSyntaxLeaf(props: PlateLeafProps<TCodeSyntaxLeaf>) {
   const tokenClassName = props.leaf.className as string;
 
   return <PlateLeaf className={tokenClassName} {...props} />;
+}
+
+/**
+ * Language names stay as written; the two entries that are words get
+ * translated, on call, since the locale catalog loads after import.
+ */
+function languageLabel(language: { label: string; value: string }): string {
+  if (language.value === 'auto') return __('Auto', 'pressedmail');
+  if (language.value === 'plaintext') return __('Plain text', 'pressedmail');
+  return language.label;
 }
 
 const languages: { label: string; value: string }[] = [

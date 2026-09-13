@@ -1,11 +1,11 @@
 import { createContext, type ReactNode } from "react";
 import type {
   CalendarCapabilities,
-  CalendarContextValue,
   CalendarEvent,
   CalendarView,
   LocalCalendarEvent,
 } from "@/types/calendar";
+import type { ScopedCalendarContextValue } from "@/components/calendar/calendar-occurrence";
 
 const DISABLED_MESSAGE = "Calendar is not included in this build.";
 
@@ -20,7 +20,7 @@ const EMPTY_CAPABILITIES: CalendarCapabilities = {
   current_count: 0,
 };
 
-const EMPTY_CONTEXT: CalendarContextValue = {
+const EMPTY_CONTEXT: ScopedCalendarContextValue = {
   events: [],
   loading: false,
   error: null,
@@ -77,13 +77,14 @@ const EMPTY_CONTEXT: CalendarContextValue = {
   getFreeBusy: async () => ({ success: false, error: DISABLED_MESSAGE }),
 };
 
-const CalendarContext = createContext<CalendarContextValue>(EMPTY_CONTEXT);
+const CalendarContext =
+  createContext<ScopedCalendarContextValue>(EMPTY_CONTEXT);
 
 export function CalendarProvider({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function useCalendar(): CalendarContextValue {
+export function useCalendar(): ScopedCalendarContextValue {
   return EMPTY_CONTEXT;
 }
 

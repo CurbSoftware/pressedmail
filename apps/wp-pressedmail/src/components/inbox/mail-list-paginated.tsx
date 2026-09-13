@@ -7,7 +7,7 @@ import React, {
   useState,
 } from "react";
 import { __ } from "@wordpress/i18n";
-import { AlertCircle, Bookmark, Clock, FolderInput, Star } from "lucide-react";
+import { Bookmark, Clock, FolderInput, Star } from "lucide-react";
 import {
   EmailArchiveIcon,
   EmailForwardIcon,
@@ -56,6 +56,7 @@ import { useEmailMessageTagActions } from "@/hooks/useEmailMessageTagActions";
 import { decodeMimeWords } from "./mail-display";
 import { areMessageRowsEqual } from "./mail-list-item-equal";
 import { MailListSkeleton } from "./mail-list-skeleton";
+import { useMessageGridNavigation } from "./use-message-grid-navigation";
 import { PaginationBar } from "@/layouts/variants/default/inbox/PaginationBar";
 import {
   useDraggableEmail,
@@ -254,7 +255,12 @@ export function MailListPaginated({
     [currentMessages],
   );
   const selectedMessageKey = getMessageIdentityKey(selectedMessage);
+  // A search that matched nothing is not an empty folder. The term is already
+  // in the active filters, so every list can say which search came back empty.
+  const searchTerm = activeFilters?.searchTerm?.trim() || undefined;
   const rowPresentation = getEmailListRowPresentation(preferences);
+  const { gridProps, getRowTabIndex } =
+    useMessageGridNavigation<HTMLTableElement>(currentMessages.length);
 
   useEffect(() => {
     if (!selectedAccountId) {
@@ -282,6 +288,12 @@ export function MailListPaginated({
   }, [currentPage, totalPages, propPageSize]);
 
   const serverHasMore = safeCurrentPage * propPageSize < effectiveTotal;
+  // Grid positions are absolute within the folder: the column header is row 1
+  // and each page starts where the previous one ended. Date separators are
+  // group labels rather than data rows, so they take no position.
+  const headerRowCount = hideColumnHeader ? 0 : 1;
+  const firstRowIndex =
+    headerRowCount + (safeCurrentPage - 1) * propPageSize + 1;
 
   const handlePageChange = useCallback(
     async (page: number) => {
@@ -305,39 +317,28 @@ export function MailListPaginated({
     return <MailListSkeleton count={10} />;
   }
 
+  // Three lists said "could not load" in three slightly different ways, and
+  // only one of them said anything true about the folder. One shared state
+  // now, so every layout reports the same failure with the same retry.
   if (error && messagesToDisplay.length === 0) {
     return (
-      <div
-        className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center"
-        data-test="inbox-error">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
-          <AlertCircle className="h-6 w-6 text-destructive" />
-        </div>
-        <div className="space-y-1">
-          <h3 className="font-medium text-sm">
-            {__("Failed to load messages", "pressedmail")}
-          </h3>
-          <p className="text-xs text-muted-foreground max-w-[200px]">
-            {__(
-              "Could not connect to mail server. Check your connection and try again.",
-              "pressedmail",
-            )}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={retryInit}
-          className="mt-2 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-          {__("Retry", "pressedmail")}
-        </button>
-      </div>
+      <InboxEmptyState
+        folder={selectedFolder}
+        variant="error"
+        error={error}
+        onRetry={retryInit}
+      />
     );
   }
 
   if (!messagesToDisplay.length) {
     return (
       <div className="flex h-full flex-col" data-test="inbox-empty-paginated">
-        <InboxEmptyState />
+        <InboxEmptyState
+          folder={selectedFolder}
+          variant={searchTerm ? "search" : "empty"}
+          searchTerm={searchTerm}
+        />
       </div>
     );
   }
@@ -346,10 +347,16 @@ export function MailListPaginated({
     <div className="flex h-full flex-col">
       {/* Table with scrollable body */}
       <ScrollArea className="flex-1 min-h-0">
-        <Table>
+        <Table
+          {...gridProps}
+          role="grid"
+          aria-label={__("Messages", "pressedmail")}
+          // The folder's rows, not the page's: aria-rowcount is how a screen
+          // reader learns that more exists than the DOM is holding.
+          aria-rowcount={headerRowCount + effectiveTotal}>
           {!hideColumnHeader && (
             <TableHeader className="sticky top-0 z-10 bg-background">
-              <TableRow>
+              <TableRow aria-rowindex={1}>
                 {enableSelection && (
                   <TableHead className="w-10 pl-3"></TableHead>
                 )}
@@ -398,7 +405,11 @@ export function MailListPaginated({
                   ) : null}
                   <MailListPaginatedRow
                     item={item}
-                    selectedMessageId={selectedMessageKey}
+                    selected={
+                      Boolean(itemKey) && itemKey === selectedMessageKey
+                    }
+                    rowTabIndex={getRowTabIndex(index)}
+                    rowIndex={firstRowIndex + index}
                     enableSelection={enableSelection}
                     actions={actions}
                     accountId={accountId}
@@ -442,7 +453,17 @@ export function MailListPaginated({
 
 interface MailListPaginatedRowProps {
   item: EmailMessage;
-  selectedMessageId?: string;
+  /**
+   * Whether this row is the open message, already resolved by the parent. The
+   * memo comparator has to see the rendered boolean: the row id is a bare IMAP
+   * UID and the selection key is the mailbox identity tuple, so comparing them
+   * was always false and a selection change never re-rendered the row.
+   */
+  selected: boolean;
+  /** Roving tabindex from the list grid: 0 for the tab stop, -1 for the rest. */
+  rowTabIndex: number;
+  /** 1-based position in the whole grid, column header included. */
+  rowIndex: number;
   enableSelection?: boolean;
   actions?: MailListItemActions;
   accountId?: number;
@@ -467,7 +488,9 @@ interface MailListPaginatedRowProps {
 const MailListPaginatedRow = React.memo(
   function MailListPaginatedRow({
     item,
-    selectedMessageId,
+    selected,
+    rowTabIndex,
+    rowIndex,
     enableSelection,
     actions,
     accountId,
@@ -509,7 +532,6 @@ const MailListPaginatedRow = React.memo(
     );
 
     const messageKey = getMessageIdentityKey(item);
-    const isSelected = selectedMessageId === messageKey;
     const tagAccountId = resolveTagAccountId(item, accountId);
 
     return (
@@ -517,7 +539,9 @@ const MailListPaginatedRow = React.memo(
         message={item}
         variant="pressedg-table"
         density={density}
-        selected={isSelected}
+        selected={selected}
+        tabIndex={rowTabIndex}
+        rowIndex={rowIndex}
         enableSelection={enableSelection}
         showAccountBadge={showAccountBadge && Boolean(item.accountEmail)}
         showSenderEmail={showDetails}
@@ -537,7 +561,9 @@ const MailListPaginatedRow = React.memo(
           ...handleAttributes,
         }}
         selectionSlot={
-          enableSelection ? <SelectionCheckbox messageId={messageKey} /> : null
+          enableSelection ? (
+            <SelectionCheckbox messageId={messageKey} message={item} />
+          ) : null
         }
         rightRailSlot={
           <EmailListStatusSlots
@@ -600,8 +626,9 @@ const MailListPaginatedRow = React.memo(
     return (
       areMessageRowsEqual(prev.item, next.item) &&
       prev.enableSelection === next.enableSelection &&
-      (prev.selectedMessageId === prev.item.id) ===
-        (next.selectedMessageId === next.item.id) &&
+      prev.selected === next.selected &&
+      prev.rowTabIndex === next.rowTabIndex &&
+      prev.rowIndex === next.rowIndex &&
       prev.accountId === next.accountId &&
       prev.showDetails === next.showDetails &&
       prev.isHovered === next.isHovered &&

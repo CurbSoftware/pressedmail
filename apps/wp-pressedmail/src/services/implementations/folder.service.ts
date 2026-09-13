@@ -7,6 +7,7 @@
  * @since 2.0.0
  */
 
+import { __ } from "@wordpress/i18n";
 import type {
   IFolderOperations,
   ImapFolder,
@@ -100,12 +101,12 @@ interface FolderCollectionApiResponse {
 
 interface FolderOperationApiResponse {
   status?: string;
-  folder?: (Partial<ImapFolder> & {
+  folder?: Partial<ImapFolder> & {
     create_status?: ImapFolder["createStatus"];
     create_error?: string | null;
     unread_count?: number;
     total_count?: number;
-  });
+  };
   message?: string;
   queued?: boolean;
 }
@@ -218,7 +219,8 @@ function isProviderAllMailFolder(folder: ImapFolder): boolean {
   // The `all` role is retained internally (Gmail archive targets \All), but the
   // folder must never be surfaced. Catch it by role/systemType too.
   const role = normalizeFolderName(
-    (folder as ImapFolder & { role?: string; systemType?: string }).systemType ??
+    (folder as ImapFolder & { role?: string; systemType?: string })
+      .systemType ??
       (folder as ImapFolder & { role?: string }).role ??
       "",
   );
@@ -376,7 +378,8 @@ function buildFolderTreeFromFlat(folders: ImapFolder[]): ImapFolder[] {
     const node = nodes.get(folder.id);
     if (!node) continue;
     const parentId = folder.parentId ?? folder.parent_id ?? null;
-    const parent = typeof parentId === "number" ? nodes.get(parentId) : undefined;
+    const parent =
+      typeof parentId === "number" ? nodes.get(parentId) : undefined;
     if (parent && parent.id !== node.id) {
       parent.children = [...(parent.children ?? []), node];
     } else {
@@ -404,7 +407,8 @@ function reconcileFolderTreeWithFlat(
   );
 
   const visit = (folder: ImapFolder): ImapFolder => {
-    const flat = typeof folder.id === "number" ? byId.get(folder.id) : undefined;
+    const flat =
+      typeof folder.id === "number" ? byId.get(folder.id) : undefined;
     return {
       ...folder,
       ...flat,
@@ -418,7 +422,10 @@ function reconcileFolderTreeWithFlat(
 function filterVisibleProviderTree(folders: ImapFolder[]): ImapFolder[] {
   return folders.flatMap((folder) => {
     const children = filterVisibleProviderTree(folder.children ?? []);
-    if (isProviderAllMailFolder(folder) || isProviderVirtualStateFolder(folder)) {
+    if (
+      isProviderAllMailFolder(folder) ||
+      isProviderVirtualStateFolder(folder)
+    ) {
       return children;
     }
     return [{ ...folder, children }];
@@ -449,7 +456,8 @@ function isProviderVirtualStateFolder(folder: ImapFolder): boolean {
   const normalizedPath = normalizeFolderPath(folder.path || folder.name);
   const normalizedName = normalizeFolderName(folder.name || folder.path);
   const explicitRole = normalizeFolderName(
-    (folder as ImapFolder & { role?: string; systemType?: string }).systemType ??
+    (folder as ImapFolder & { role?: string; systemType?: string })
+      .systemType ??
       (folder as ImapFolder & { role?: string }).role ??
       "",
   );
@@ -757,7 +765,10 @@ export class FolderService implements IFolderOperations {
   private static readonly COUNTS_PARTIAL_MAX_RETRIES = 4;
   private static readonly COUNTS_PARTIAL_BASE_MS = 5_000;
   private _countsPartialRetries = new Map<string, number>();
-  private _countsPartialTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private _countsPartialTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
 
   // Monotonic load generation. reset() (account/scope switch) bumps it; a folder
   // load captures it at entry and refuses to apply its result if the generation
@@ -1055,7 +1066,9 @@ export class FolderService implements IFolderOperations {
           );
 
           if (data?.status === "error") {
-            throw new Error(data.message || "Failed to fetch folders");
+            throw new Error(
+              data.message || __("Failed to fetch folders", "pressedmail"),
+            );
           }
 
           const rawFolders = Array.isArray(data?.folders) ? data.folders : [];
@@ -1100,7 +1113,7 @@ export class FolderService implements IFolderOperations {
           const errorMsg =
             result.reason instanceof Error
               ? result.reason.message
-              : "Failed to load folders";
+              : __("Failed to load folders", "pressedmail");
           if (isAuthError(errorMsg) && this.connectionState) {
             this.connectionState.markUnhealthy(String(accountId), errorMsg);
           }
@@ -1239,7 +1252,8 @@ export class FolderService implements IFolderOperations {
       data = await fetchFolders();
 
       if (data?.status === "error") {
-        const errorMsg = data.message || "Failed to fetch folders";
+        const errorMsg =
+          data.message || __("Failed to fetch folders", "pressedmail");
         const authDetected = isAuthError(errorMsg);
 
         // Report auth error to circuit breaker (API returned 200 but body has auth failure)
@@ -1364,7 +1378,9 @@ export class FolderService implements IFolderOperations {
       }
 
       const errorMsg =
-        error instanceof Error ? error.message : "Failed to load folders";
+        error instanceof Error
+          ? error.message
+          : __("Failed to load folders", "pressedmail");
       const authDetected = isAuthError(errorMsg);
 
       if (authDetected && this.connectionState) {
@@ -1457,15 +1473,12 @@ export class FolderService implements IFolderOperations {
       return existingFolder;
     }
 
-    const response = await apiFetch(
-      `${routeApiPrefix}/folders/${accountId}`,
-      {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
+    const response = await apiFetch(`${routeApiPrefix}/folders/${accountId}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
       },
-    );
+    });
 
     if (!response.ok) {
       throw await buildHttpError(response);
@@ -1498,20 +1511,17 @@ export class FolderService implements IFolderOperations {
         parentId = parentFolder?.id ?? null;
       }
 
-      const response = await apiFetch(
-        `${routeApiPrefix}/folders/create`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            account_id: accountId,
-            name: options.name,
-            parent_id: parentId ?? options.parentPath ?? null,
-          }),
+      const response = await apiFetch(`${routeApiPrefix}/folders/create`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          account_id: accountId,
+          name: options.name,
+          parent_id: parentId ?? options.parentPath ?? null,
+        }),
+      });
 
       const data = (await response.json()) as FolderOperationApiResponse;
 
@@ -1533,7 +1543,9 @@ export class FolderService implements IFolderOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to create folder",
+          error instanceof Error
+            ? error.message
+            : __("Failed to create folder", "pressedmail"),
       };
     }
   }
@@ -1588,7 +1600,9 @@ export class FolderService implements IFolderOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to rename folder",
+          error instanceof Error
+            ? error.message
+            : __("Failed to rename folder", "pressedmail"),
       };
     }
   }
@@ -1634,7 +1648,9 @@ export class FolderService implements IFolderOperations {
       return {
         success: false,
         error:
-          error instanceof Error ? error.message : "Failed to delete folder",
+          error instanceof Error
+            ? error.message
+            : __("Failed to delete folder", "pressedmail"),
       };
     }
   }
@@ -1732,7 +1748,9 @@ export class FolderService implements IFolderOperations {
 
     const targets: ImapFolder[] = [];
     for (const folder of this._folders) {
-      if (String(folder.path ?? "").startsWith(CONSOLIDATED_ACCOUNT_PATH_PREFIX)) {
+      if (
+        String(folder.path ?? "").startsWith(CONSOLIDATED_ACCOUNT_PATH_PREFIX)
+      ) {
         continue;
       }
       if (folder.selectable !== false) {
@@ -1810,7 +1828,9 @@ export class FolderService implements IFolderOperations {
 
     const adjust = (folders: ImapFolder[]): ImapFolder[] =>
       folders.map((folder) => {
-        const nextChildren = folder.children ? adjust(folder.children) : folder.children;
+        const nextChildren = folder.children
+          ? adjust(folder.children)
+          : folder.children;
         if (normalizeFolderPath(folder.path) === target) {
           changed = true;
           return {

@@ -22,15 +22,18 @@ import { useComposerUploadFile } from './use-composer-upload-file';
  * Upload placeholder with progress (template media-placeholder-node.tsx
  * port over the PressedMail upload bridge). Failed/unsupported uploads
  * remove the placeholder so drafts never carry transient nodes.
+ *
+ * Built on call: the locale catalog loads after this module is imported, so
+ * a module-level __() would always return English.
  */
-const CONTENT: Record<
+const getContent = (): Record<
   string,
   {
     accept: string[];
     content: string;
     icon: React.ReactNode;
   }
-> = {
+> => ({
   [KEYS.audio]: {
     accept: ['audio/*'],
     content: __('Add an audio file', 'pressedmail'),
@@ -51,7 +54,7 @@ const CONTENT: Record<
     content: __('Add a video', 'pressedmail'),
     icon: <Film />,
   },
-};
+});
 
 export const PlaceholderElement = withHOC(
   PlaceholderProvider,
@@ -71,7 +74,7 @@ export const PlaceholderElement = withHOC(
 
     const loading = isUploading && uploadingFile;
 
-    const currentContent = CONTENT[element.mediaType];
+    const currentContent = getContent()[element.mediaType];
 
     const isImage = element.mediaType === KEYS.img;
 

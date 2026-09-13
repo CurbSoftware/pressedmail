@@ -30,6 +30,7 @@ export function PreferenceSwitchRow({
 
   return (
     <SettingsRow
+      inline
       title={title}
       titleId={titleId}
       description={description}

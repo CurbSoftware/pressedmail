@@ -48,16 +48,16 @@ const PopoverArrow = PopoverPrimitive.Arrow;
 const PopoverContent: React.FC<
   React.ComponentProps<typeof PopoverPrimitive.Content>
 > = ({ className, align = 'center', sideOffset = 4, ...props }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const popoverContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <PopoverPrimitive.Content
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          'bg-popover text-popover-foreground border-border z-50 max-h-[min(var(--radix-popover-content-available-height),80vh)] w-72 overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg outline-hidden data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+          'bg-popover text-popover-foreground border-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-[min(var(--radix-popover-content-available-height),80vh)] w-72 overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg outline-hidden',
           className,
         )}
         {...props}

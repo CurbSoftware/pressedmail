@@ -6,7 +6,7 @@ import type {
 } from "./oauth-connect-provider-types";
 
 const MICROSOFT_LABELS: OAuthConnectProviderLabels = {
-  connect: __("Connect Microsoft Account", "pressedmail"),
+  connect: __("Connect Microsoft account", "pressedmail"),
   connected: __("Microsoft account connected", "pressedmail"),
   waiting: __("Waiting for Microsoft sign-in…", "pressedmail"),
 };

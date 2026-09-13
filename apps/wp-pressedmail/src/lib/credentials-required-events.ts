@@ -10,6 +10,8 @@
  * import cycle, and so suites that `vi.mock("@/lib/api-client")` don't have
  * to know about it.
  */
+import { __ } from "@wordpress/i18n";
+
 export const CREDENTIALS_REQUIRED_EVENT = "pressedmail:credentials-required";
 
 export interface CredentialsRequiredDetail {
@@ -19,9 +21,19 @@ export interface CredentialsRequiredDetail {
   message: string;
 }
 
-/** Server copy reused when a 409 arrives without a usable message. */
-export const CREDENTIALS_REQUIRED_FALLBACK_MESSAGE =
-  "Reconnect the account or re-enter the mailbox password to continue.";
+/**
+ * Server copy reused when a 409 arrives without a usable message.
+ *
+ * A function, not a constant: a constant is evaluated when this module is first
+ * imported, which can happen before `i18n-boot` has applied the user's catalog,
+ * and the English string would then be frozen in for the whole session.
+ */
+export function credentialsRequiredFallbackMessage(): string {
+  return __(
+    "Reconnect the account or re-enter the mailbox password to continue.",
+    "pressedmail",
+  );
+}
 
 export function dispatchCredentialsRequired(
   detail: CredentialsRequiredDetail,

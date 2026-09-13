@@ -1,5 +1,6 @@
 import * as React from "react";
 import { X } from "lucide-react";
+import { __, _n, sprintf } from "@wordpress/i18n";
 
 import { cn } from "@/lib/utils";
 import type { EmailMessageTag } from "@/types";
@@ -72,7 +73,11 @@ export function EmailTagBadge({
           <button
             type="button"
             className="min-w-0 truncate text-left focus-visible:outline-none"
-            aria-label={`Filter by ${tag.name}`}
+            aria-label={sprintf(
+              /* translators: %s: tag name. */
+              __("Filter by %s", "pressedmail"),
+              tag.name,
+            )}
             onClick={(event) => {
               event.stopPropagation();
               onTagClick(tag, event);
@@ -86,7 +91,11 @@ export function EmailTagBadge({
           <button
             type="button"
             className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`Remove ${tag.name} tag`}
+            aria-label={sprintf(
+              /* translators: %s: tag name. */
+              __("Remove %s tag", "pressedmail"),
+              tag.name,
+            )}
             onClick={(event) => {
               event.stopPropagation();
               onTagRemove(tag, event);
@@ -174,19 +183,22 @@ export function EmailTagBadges({
         <button
           type="button"
           className="rounded px-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label="Show fewer tags"
           onClick={(event) => {
             event.stopPropagation();
             setExpanded(false);
           }}>
-          Less
+          {__("Show less", "pressedmail")}
         </button>
       ) : extra > 0 ? (
         expandable ? (
           <button
             type="button"
             className="rounded px-1 text-2xs text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={`Show ${extra} more tag`}
+            aria-label={sprintf(
+              /* translators: %d: number of hidden tags. */
+              _n("Show %d more tag", "Show %d more tags", extra, "pressedmail"),
+              extra,
+            )}
             onClick={(event) => {
               event.stopPropagation();
               setExpanded(true);

@@ -331,34 +331,37 @@ export function ComposerContent({
       {/* ── 1. Header ── */}
       {showHeader && (
         <div
-          className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 border-b border-border bg-transparent px-4 py-3"
+          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-transparent px-4 py-3"
           data-test="compose-header">
+          {/* Every item here truncates rather than holding its width, so the
+              group shrinks beside the actions instead of sliding under them. */}
           <div
-            className="inline-flex min-w-0 flex-1 flex-wrap items-center gap-x-1 gap-y-2"
-            data-test="composer-from-group">
+            className="flex min-w-0 flex-1 items-center gap-x-3"
+            data-test="composer-status-group">
             <span
-              className="shrink-0 truncate text-xs font-medium text-muted-foreground"
+              className="truncate text-xs font-medium text-muted-foreground"
               data-test="compose-mode-label">
               {form.modeTitle}
             </span>
-            <ComposerFromAccountSelect
-              accounts={accounts}
-              fromAccount={form.fromAccount}
-              onFromAccountChange={form.setFromAccount}
-              disabled={isExclusiveOperationPending}
-            />
             {form.isDraftSaved && (
-              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+              <span className="truncate text-xs font-medium text-muted-foreground">
                 {__("Draft saved", "pressedmail")}
               </span>
             )}
             {form.pendingInlineImageUploads > 0 && (
               <span
-                aria-live="polite"
-                className="shrink-0 text-xs font-medium text-muted-foreground">
+                aria-hidden="true"
+                className="truncate text-xs font-medium text-muted-foreground">
                 {__("Uploading image...", "pressedmail")}
               </span>
             )}
+            {/* Always mounted: a live region that appears with its text
+                already inside is often not announced. */}
+            <span aria-live="polite" className="sr-only">
+              {form.pendingInlineImageUploads > 0
+                ? __("Uploading image...", "pressedmail")
+                : ""}
+            </span>
           </div>
 
           <div
@@ -391,7 +394,17 @@ export function ComposerContent({
         className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden min-h-0"
         data-test="composer-payload"
         inert={isExclusiveOperationPending ? true : undefined}>
-        {/* ── 3. Addressing (To/From, Cc, Bcc) ── */}
+        {/* ── 2. From, on its own row so no header action can cover it ── */}
+        <div className="border-b border-border px-4 py-2" data-test="from-row">
+          <ComposerFromAccountSelect
+            accounts={accounts}
+            fromAccount={form.fromAccount}
+            onFromAccountChange={form.setFromAccount}
+            disabled={isExclusiveOperationPending}
+          />
+        </div>
+
+        {/* ── 3. Addressing (To, Cc, Bcc) ── */}
         <ComposerAddressing
           toRecipients={form.toRecipients}
           ccRecipients={form.ccRecipients}
@@ -471,6 +484,7 @@ export function ComposerContent({
                 signatures={signatures}
                 onTogglePreview={() => setPreviewMode((value) => !value)}
                 previewActive={previewMode}
+                toolbarVariant={variant === "mobile" ? "mobile" : "desktop"}
                 onToggleContentType={requestRichTextMode}
               />
             </div>
@@ -502,7 +516,12 @@ export function ComposerContent({
           </div>
         ) : (
           <div
-            className="flex flex-1 flex-col pm-email-content-surface"
+            className={cn(
+              "flex flex-1 flex-col",
+              previewMode
+                ? "pm-email-content-surface"
+                : "pm-composer-edit-surface",
+            )}
             data-content-colors-inverted="false"
             data-preview={previewMode ? "true" : "false"}
             data-test="body-editor"

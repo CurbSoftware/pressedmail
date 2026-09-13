@@ -65,6 +65,18 @@ export const router = createHashRouter(
               ),
             },
             {
+              // The tab bar links here in every edition, because More is where
+              // the phone shell reaches Settings, Help, Install and the
+              // WordPress menu. Without this entry the link resolved through
+              // the catch-all below and bounced the user back to the inbox, so
+              // tapping More on a Free site did nothing visible.
+              path: "more",
+              lazy: mobileOnlyLazy(
+                () => import("./pages/mobile/MobileMoreScreen"),
+                "/inbox",
+              ),
+            },
+            {
               path: "folders",
               lazy: mobileOnlyLazy(
                 () => import("./pages/mobile/MobileFoldersScreen"),

@@ -17,10 +17,10 @@ import { useThemeClass } from './hooks/use-theme-class';
 export { toast };
 
 const Toaster = ({ className, style, ...props }: ToasterProps) => {
-  const { themeClass, isDark, style: themeStyle } = useThemeClass();
+  const { themeClass, isDark, style: themeStyle, lang } = useThemeClass();
 
   return (
-    <div className={isDark ? 'dark' : undefined}>
+    <div className={isDark ? 'dark' : undefined} lang={lang}>
       <Sonner
         theme={isDark ? 'dark' : 'light'}
         className={cn('toaster group', themeClass, className)}

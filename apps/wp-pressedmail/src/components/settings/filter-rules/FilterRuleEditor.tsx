@@ -8,8 +8,8 @@
  */
 
 import * as React from "react";
-import { Plus, Trash2, GripVertical } from "lucide-react";
-import { __ } from "@wordpress/i18n";
+import { Plus, Trash2 } from "lucide-react";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   Button,
   Input,
@@ -60,7 +60,6 @@ import type { ImapFolder } from "@/services/interfaces";
 import { isResolvedFilterRuleFolderTarget } from "@/services/filter-rule-folder-targets";
 import { RuleFolderPicker } from "./RuleFolderPicker";
 
-
 interface FilterRuleEditorProps {
   rule?: FilterRule;
   onSave: (data: CreateFilterRuleData | UpdateFilterRuleData) => Promise<void>;
@@ -85,11 +84,26 @@ function isAbsoluteDateOperator(operator: FilterOperator): boolean {
 }
 
 function getConditionInputPlaceholder(condition: FilterCondition): string {
-  if (condition.field === "size") return "Size in bytes";
+  if (condition.field === "size") return __("Size in bytes", "pressedmail");
   if (condition.field === "date") {
-    return isAbsoluteDateOperator(condition.operator) ? "YYYY-MM-DD" : "Days";
+    return isAbsoluteDateOperator(condition.operator)
+      ? __("YYYY-MM-DD", "pressedmail")
+      : __("Days", "pressedmail");
   }
-  return "Value to match";
+  return __("Value to match", "pressedmail");
+}
+
+/**
+ * Whether this condition's value is a number.
+ *
+ * Size is a byte count and a relative date is a number of days, but both were
+ * free-text inputs, so "abc" bytes reached the server.
+ */
+function isNumericConditionValue(condition: FilterCondition): boolean {
+  if (condition.field === "size") return true;
+  return (
+    condition.field === "date" && !isAbsoluteDateOperator(condition.operator)
+  );
 }
 
 export function FilterRuleEditor({
@@ -495,14 +509,26 @@ export function FilterRuleEditor({
                   {minutes === 1440
                     ? __("Every day", "pressedmail")
                     : minutes >= 60
-                      ? `${__("Every", "pressedmail")} ${minutes / 60} ${__(
-                          "hours",
-                          "pressedmail",
-                        )}`
-                      : `${__("Every", "pressedmail")} ${minutes} ${__(
-                          "minutes",
-                          "pressedmail",
-                        )}`}
+                      ? sprintf(
+                          /* translators: %d: number of hours between runs. */
+                          _n(
+                            "Every %d hour",
+                            "Every %d hours",
+                            minutes / 60,
+                            "pressedmail",
+                          ),
+                          minutes / 60,
+                        )
+                      : sprintf(
+                          /* translators: %d: number of minutes between runs. */
+                          _n(
+                            "Every %d minute",
+                            "Every %d minutes",
+                            minutes,
+                            "pressedmail",
+                          ),
+                          minutes,
+                        )}
                 </option>
               ))}
             </select>
@@ -555,8 +581,6 @@ export function FilterRuleEditor({
               data-testid={`filter-rule-condition-row-${condition.id}`}>
               <CardContent className="p-2">
                 <div className="flex items-start gap-2">
-                  <GripVertical className="h-4 w-4 text-muted-foreground mt-2 cursor-grab" />
-
                   <div className="flex-1 grid gap-2 md:grid-cols-3">
                     {/* Field selector */}
                     <Select
@@ -567,6 +591,11 @@ export function FilterRuleEditor({
                         })
                       }>
                       <SelectTrigger
+                        aria-label={sprintf(
+                          /* translators: %d: condition number. */
+                          __("Condition %d field", "pressedmail"),
+                          index + 1,
+                        )}
                         data-test={`filter-rule-condition-field-${condition.id}`}
                         data-testid={`filter-rule-condition-field-${condition.id}`}>
                         <SelectValue />
@@ -578,14 +607,14 @@ export function FilterRuleEditor({
                             string,
                           ][]
                         ).map(([value, label]) => (
-                            <SelectItem
-                              key={value}
-                              value={value}
-                              data-test={`filter-rule-condition-field-option-${value}`}
-                              data-testid={`filter-rule-condition-field-option-${value}`}>
-                              {label}
-                            </SelectItem>
-                          ))}
+                          <SelectItem
+                            key={value}
+                            value={value}
+                            data-test={`filter-rule-condition-field-option-${value}`}
+                            data-testid={`filter-rule-condition-field-option-${value}`}>
+                            {label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
 
@@ -598,20 +627,25 @@ export function FilterRuleEditor({
                         })
                       }>
                       <SelectTrigger
+                        aria-label={sprintf(
+                          /* translators: %d: condition number. */
+                          __("Condition %d operator", "pressedmail"),
+                          index + 1,
+                        )}
                         data-test={`filter-rule-condition-operator-${condition.id}`}
                         data-testid={`filter-rule-condition-operator-${condition.id}`}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
                         {getOperatorsForField(condition.field).map((op) => (
-                            <SelectItem
-                              key={op}
-                              value={op}
-                              data-test={`filter-rule-condition-operator-option-${op}`}
-                              data-testid={`filter-rule-condition-operator-option-${op}`}>
-                              {getOperatorLabel(condition.field, op)}
-                            </SelectItem>
-                          ))}
+                          <SelectItem
+                            key={op}
+                            value={op}
+                            data-test={`filter-rule-condition-operator-option-${op}`}
+                            data-testid={`filter-rule-condition-operator-option-${op}`}>
+                            {getOperatorLabel(condition.field, op)}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
 
@@ -632,6 +666,24 @@ export function FilterRuleEditor({
                       ) : (
                         <Input
                           autoComplete="off"
+                          type={
+                            isNumericConditionValue(condition)
+                              ? "number"
+                              : "text"
+                          }
+                          inputMode={
+                            isNumericConditionValue(condition)
+                              ? "numeric"
+                              : undefined
+                          }
+                          min={
+                            isNumericConditionValue(condition) ? 0 : undefined
+                          }
+                          aria-label={sprintf(
+                            /* translators: %d: condition number. */
+                            __("Condition %d value", "pressedmail"),
+                            index + 1,
+                          )}
                           value={String(condition.value)}
                           onChange={(e) =>
                             updateCondition(condition.id, {
@@ -650,6 +702,11 @@ export function FilterRuleEditor({
                     variant="ghost"
                     size="sm"
                     onClick={() => removeCondition(condition.id)}
+                    aria-label={sprintf(
+                      /* translators: %d: condition number. */
+                      __("Remove condition %d", "pressedmail"),
+                      index + 1,
+                    )}
                     data-test={`filter-rule-condition-remove-${condition.id}`}
                     data-testid={`filter-rule-condition-remove-${condition.id}`}
                     className="h-7 w-7 p-0 text-destructive hover:text-destructive">
@@ -691,7 +748,7 @@ export function FilterRuleEditor({
         </div>
 
         <div className="space-y-1.5">
-          {actions.map((action) => (
+          {actions.map((action, actionIndex) => (
             <Card
               key={action.id}
               className="bg-muted/30"
@@ -699,8 +756,6 @@ export function FilterRuleEditor({
               data-testid={`filter-rule-action-row-${action.id}`}>
               <CardContent className="p-2">
                 <div className="flex items-center gap-2">
-                  <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" />
-
                   <div className="flex-1 grid gap-2 md:grid-cols-2">
                     {/* Action type selector */}
                     <Select
@@ -712,6 +767,11 @@ export function FilterRuleEditor({
                         })
                       }>
                       <SelectTrigger
+                        aria-label={sprintf(
+                          /* translators: %d: action number. */
+                          __("Action %d type", "pressedmail"),
+                          actionIndex + 1,
+                        )}
                         data-test={`filter-rule-action-type-${action.id}`}
                         data-testid={`filter-rule-action-type-${action.id}`}>
                         <SelectValue />
@@ -764,6 +824,11 @@ export function FilterRuleEditor({
                     ) : actionRequiresValue(action.type) ? (
                       <Input
                         autoComplete="off"
+                        aria-label={sprintf(
+                          /* translators: %d: action number. */
+                          __("Action %d value", "pressedmail"),
+                          actionIndex + 1,
+                        )}
                         value={
                           typeof action.value === "string" ? action.value : ""
                         }
@@ -772,10 +837,10 @@ export function FilterRuleEditor({
                         }
                         placeholder={
                           action.type === "apply_label"
-                            ? "Label name"
+                            ? __("Label name", "pressedmail")
                             : action.type === "forward"
-                              ? "Email address"
-                              : "Value"
+                              ? __("Email address", "pressedmail")
+                              : __("Value", "pressedmail")
                         }
                         data-test={`filter-rule-action-value-${action.id}`}
                         data-testid={`filter-rule-action-value-${action.id}`}
@@ -788,6 +853,11 @@ export function FilterRuleEditor({
                     variant="ghost"
                     size="sm"
                     onClick={() => removeAction(action.id)}
+                    aria-label={sprintf(
+                      /* translators: %d: action number. */
+                      __("Remove action %d", "pressedmail"),
+                      actionIndex + 1,
+                    )}
                     data-test={`filter-rule-action-remove-${action.id}`}
                     data-testid={`filter-rule-action-remove-${action.id}`}
                     className="h-7 w-7 p-0 text-destructive hover:text-destructive">
@@ -836,6 +906,34 @@ export function FilterRuleEditor({
       </div>
 
       <Separator />
+
+      {/* The submit button is disabled until the rule is complete, which used
+          to leave the user pressing a dead control with nothing to read. */}
+      {!isValid && !automaticRuleUnavailable ? (
+        <div
+          role="alert"
+          className="rounded-md border border-border bg-muted/30 p-3 text-xs text-muted-foreground"
+          data-test="filter-rule-requirements"
+          data-testid="filter-rule-requirements">
+          <p className="font-medium text-foreground">
+            {__("Still needed before this rule can be saved", "pressedmail")}
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4">
+            {!name.trim() ? <li>{__("A rule name", "pressedmail")}</li> : null}
+            {conditions.length === 0 ? (
+              <li>{__("At least one condition", "pressedmail")}</li>
+            ) : null}
+            {actions.length === 0 ? (
+              <li>{__("At least one action", "pressedmail")}</li>
+            ) : null}
+            {!hasValidMoveTargets ? (
+              <li>
+                {__("A destination folder for the move action", "pressedmail")}
+              </li>
+            ) : null}
+          </ul>
+        </div>
+      ) : null}
 
       {/* Form actions */}
       <div className="flex justify-end gap-2">

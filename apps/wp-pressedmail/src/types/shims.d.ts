@@ -33,6 +33,9 @@ declare module "lodash" {
 // SVG types are declared in src/vite-env.d.ts
 
 interface PressedMailPluginGlobal {
+  /** Automatic jobs stay paused until an administrator approves this site. */
+  automationPaused?: boolean;
+  automationReviewUrl?: string;
   apiUrl?: string;
   adminAjaxUrl?: string;
   restNamespace?: string;
@@ -155,7 +158,6 @@ declare global {
     pressedmailPlugin?: PressedMailPluginGlobal;
     pressedmail?: PressedMailFrontendGlobal;
     /** Server-injected Jed locale-data for the active plugin locale. */
-    pressedmailLocaleData?: Record<string, unknown>;
   }
 }
 

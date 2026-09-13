@@ -1,21 +1,23 @@
 /**
  * i18n bootstrap (client)
  *
- * The Vite SPA bundles its own copy of `@wordpress/i18n` (there is no global
- * `window.wp.i18n`), and the production script `src` is content-hashed so WP's
- * `<domain>-<locale>-<md5>.json` auto-loader is unreliable. Instead, PHP injects
- * the active locale's Jed catalog as `window.pressedmailLocaleData`, and this
- * module applies it to the bundled `@wordpress/i18n` at startup. On first run
- * (no server locale yet) the LocaleProvider uses {@link detectBrowserLocale} +
- * {@link persistLocale} to default to the user's browser language.
+ * The SPA's `__()` resolves through WordPress's own `wp.i18n`: the build
+ * externalises `@wordpress/i18n` to that global, and
+ * `wp_set_script_translations()` in `includes/Assets/Admin.php` makes WordPress
+ * load the matching `pressedmail-<locale>-<md5>.json` before the bundle runs,
+ * whether it shipped with the plugin or came from a WordPress.org language
+ * pack. Admin's script translation file filter selects the user's PressedMail
+ * language without changing the language of other WordPress scripts.
+ *
+ * What is left for this module: reading what the server resolved, and swapping
+ * the catalogue when the user picks a different language.
  *
  * @since 3.0.0
  */
 
-import { setLocaleData } from "@wordpress/i18n";
+import { getLocaleData, setLocaleData } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 
-import { mapBrowserLanguageToLocale } from "@/config/locales";
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 
 const DOMAIN = "pressedmail";
@@ -33,29 +35,79 @@ function getApiUrl(): string {
   return String(getPlugin().apiUrl ?? "");
 }
 
-/** The locale the server resolved ('' = first run → detect the browser). */
+/** The locale the server resolved for this user. */
 export function readServerLocale(): string {
   const value = getPlugin().locale;
   return typeof value === "string" ? value : "";
 }
 
-/** Map a browser language tag to a supported WordPress slug. */
-export function detectBrowserLocale(navLang?: string): string {
-  const lang =
-    navLang ?? (typeof navigator !== "undefined" ? navigator.language : "");
-  return mapBrowserLanguageToLocale(lang);
+/**
+ * Locales this site has a PressedMail catalogue for. Empty when the server did
+ * not say, which is every context outside a real plugin screen.
+ */
+export function readAvailableLocales(): string[] {
+  const value = getPlugin().availableLocales;
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-/** Apply a catalog to the bundled `@wordpress/i18n` (or reset to source English). */
-export function applyLocaleData(catalog: LocaleData | null | undefined): void {
-  setLocaleData(catalog ?? { "": { domain: DOMAIN } }, DOMAIN);
+/**
+ * A WordPress locale slug as a BCP 47 language tag, for the `lang` attribute.
+ * Chinese carries its script rather than its country, which is what assistive
+ * technology needs to pick a voice.
+ */
+export function toBcp47(wp: string): string {
+  if (!wp) return "";
+  if (wp === "zh_CN") return "zh-Hans";
+  if (wp === "zh_TW") return "zh-Hant";
+  return wp.replace(/_/g, "-");
 }
 
-/** Apply the server-injected catalog synchronously, before the first render. */
-export function applyInjectedLocaleData(): void {
-  if (typeof window !== "undefined" && window.pressedmailLocaleData) {
-    setLocaleData(window.pressedmailLocaleData, DOMAIN);
+/**
+ * A language's name, in the interface's language and in its own.
+ *
+ * For locales PressedMail lists itself the names are in `config/locales.ts`.
+ * This is for the rest: a WordPress profile language like `en_GB` or `pt_PT`
+ * becomes the active locale, and printing `pt_PT` where a language name belongs
+ * tells the reader nothing. `Intl.DisplayNames` is the platform's own answer,
+ * and it needs no catalogue and no network.
+ */
+export function describeLocale(wp: string): {
+  label: string;
+  nativeLabel: string;
+} {
+  const tag = toBcp47(wp);
+  return {
+    label: languageName(tag, "en"),
+    nativeLabel: languageName(tag, tag),
+  };
+}
+
+function languageName(tag: string, inLanguage: string): string {
+  try {
+    return (
+      new Intl.DisplayNames([inLanguage], {
+        type: "language",
+        languageDisplay: "dialect",
+      }).of(tag) ?? tag
+    );
+  } catch {
+    // A malformed tag throws RangeError, and an environment without full ICU
+    // data can be missing DisplayNames entirely.
+    return tag;
   }
+}
+
+/** Apply a catalog to `wp.i18n` (or reset to the untranslated source strings). */
+export function applyLocaleData(catalog: LocaleData | null | undefined): void {
+  const next = { ...(catalog ?? { "": { domain: DOMAIN } }) };
+  const current = getLocaleData(DOMAIN);
+  // getLocaleData returns this domain's live dictionary. Clear it before the
+  // setter merges and notifies listeners; resetLocaleData clears every domain.
+  if (current) {
+    for (const key of Object.keys(current)) delete current[key];
+  }
+  setLocaleData(next, DOMAIN);
 }
 
 export interface PersistedLocale {
@@ -64,20 +116,24 @@ export interface PersistedLocale {
 }
 
 /**
- * Persist the plugin-scoped locale server-side. The response carries the new
- * catalog so the caller can swap the UI language immediately (no reload).
+ * Persist the plugin-scoped locale server-side. The response carries the
+ * catalog when the plugin bundles one, so the caller can swap the UI language
+ * without a reload.
  */
 export async function persistLocale(
   wp: string,
 ): Promise<PersistedLocale | null> {
   try {
-    const response = await apiFetch(`${getApiUrl()}${getRuntimeRestNamespace()}/user/locale`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    const response = await apiFetch(
+      `${getApiUrl()}${getRuntimeRestNamespace()}/user/locale`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ locale: wp }),
       },
-      body: JSON.stringify({ locale: wp }),
-    });
+    );
     const data = await response.json();
     if (data?.status === "success") {
       return {

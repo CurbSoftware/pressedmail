@@ -8,6 +8,7 @@ export interface PluginThemeSnapshot {
   themeClass: string;
   isDark: boolean;
   style?: React.CSSProperties;
+  lang?: string;
 }
 
 interface PluginThemeScopeValue extends Partial<PluginThemeSnapshot> {}
@@ -19,9 +20,10 @@ export function PluginThemeScopeProvider({
   children,
   value,
 }: React.PropsWithChildren<{ value: PluginThemeScopeValue }>) {
+  const inherited = React.useContext(PluginThemeScopeContext);
   return React.createElement(
     PluginThemeScopeContext.Provider,
-    { value },
+    { value: { ...inherited, ...value } },
     children,
   );
 }
@@ -125,5 +127,6 @@ export function useThemeClass(): PluginThemeSnapshot {
     themeClass: scope?.themeClass ?? snapshot.themeClass,
     isDark: scope?.isDark ?? snapshot.isDark,
     style: scope?.style ?? snapshot.style,
+    lang: scope?.lang,
   };
 }

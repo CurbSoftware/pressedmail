@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import { Search, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -18,6 +19,8 @@ export interface MobileSearchInputProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Extra classes for the wrapper. */
   className?: string;
+  /** Marks the field as a search landmark control for assistive tech. */
+  role?: "searchbox";
 }
 
 /**
@@ -36,6 +39,7 @@ export function MobileSearchInput({
   autoFocus,
   inputRef,
   className,
+  role,
 }: MobileSearchInputProps) {
   const reactId = React.useId();
   const inputId = id ?? reactId;
@@ -50,10 +54,12 @@ export function MobileSearchInput({
         className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
       />
-      <input autoComplete="off"
+      <input
+        autoComplete="off"
         id={inputId}
         ref={inputRef}
         type="search"
+        role={role}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
@@ -66,7 +72,7 @@ export function MobileSearchInput({
       {showClear ? (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label={__("Clear search", "pressedmail")}
           onClick={onClear}
           className={cn(
             "pm-no-tap-highlight absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground active:bg-muted",

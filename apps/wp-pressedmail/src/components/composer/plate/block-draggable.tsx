@@ -1,5 +1,7 @@
 'use client';
 
+import { __ } from '@wordpress/i18n';
+
 /**
  * Block drag handle + drop-line, vendored from the Plate playground and rewired
  * to @kit/ui/plugin primitives. Interactive-only chrome, no email-serialization
@@ -10,7 +12,7 @@ import * as React from 'react';
 import { DndPlugin, useDraggable, useDropLine } from '@kit/plate/dnd';
 import { expandListItemsWithChildren } from '@kit/plate/list';
 import { BlockSelectionPlugin } from '@kit/plate/selection/react';
-import { GripVertical } from 'lucide-react';
+import { ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
 import { getPluginByType, isType, KEYS, type TElement } from '@kit/plate';
 import {
   MemoizedChildren,
@@ -26,6 +28,9 @@ import {
 
 import {
   Button,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -33,6 +38,7 @@ import {
 } from '@kit/ui/plugin';
 
 import { cn } from '@/lib/utils';
+import { getBlockMoveTarget, moveBlock } from './block-move';
 
 const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
 
@@ -138,6 +144,7 @@ function Draggable(props: PlateElementProps) {
   // first line. Measured from the DOM because line heights differ per block
   // type (heading vs paragraph vs callout).
   const [handleTop, setHandleTop] = React.useState(0);
+  const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
 
   React.useEffect(() => {
     setHandleTop(calcFirstLineCenter(editor, element));
@@ -166,25 +173,58 @@ function Draggable(props: PlateElementProps) {
         >
           <div
             className={cn(
-              'slate-blockToolbar relative w-4.5',
+              'slate-blockToolbar relative w-4.5 pointer-coarse:w-11',
               'pointer-events-auto mr-1 flex items-center',
               isInColumn && 'mr-1.5',
             )}
           >
-            <Button
-              className="absolute -left-0 h-6 w-full -translate-y-1/2 p-0"
-              data-plate-prevent-deselect
-              ref={handleRef}
-              style={{ top: `${handleTop}px` }}
-              variant="ghost"
-            >
-              <DragHandle
-                isDragging={isDragging}
-                previewRef={previewRef}
-                resetPreview={resetPreview}
-                setPreviewTop={setPreviewTop}
-              />
-            </Button>
+            <Popover open={moveMenuOpen} onOpenChange={setMoveMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  aria-label={__('Move this block', 'pressedmail')}
+                  className="absolute -left-0 h-6 w-full -translate-y-1/2 p-0 pointer-coarse:min-h-11"
+                  data-plate-prevent-deselect
+                  ref={handleRef}
+                  style={{ top: `${handleTop}px` }}
+                  variant="ghost"
+                >
+                  <DragHandle
+                    isDragging={isDragging}
+                    previewRef={previewRef}
+                    resetPreview={resetPreview}
+                    setPreviewTop={setPreviewTop}
+                  />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                className="w-44 p-1"
+                align="start"
+                aria-label={__('Move this block', 'pressedmail')}
+              >
+                {([-1, 1] as const).map((direction) => (
+                  <Button
+                    key={direction}
+                    type="button"
+                    variant="ghost"
+                    className="min-h-11 w-full justify-start gap-2"
+                    disabled={!getBlockMoveTarget(editor, element, direction)}
+                    onClick={() => {
+                      moveBlock(editor, element, direction);
+                      setMoveMenuOpen(false);
+                    }}
+                  >
+                    {direction === -1 ? (
+                      <ArrowUp aria-hidden="true" className="size-4" />
+                    ) : (
+                      <ArrowDown aria-hidden="true" className="size-4" />
+                    )}
+                    {direction === -1
+                      ? __('Move up', 'pressedmail')
+                      : __('Move down', 'pressedmail')}
+                  </Button>
+                ))}
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </Gutter>
@@ -230,16 +270,17 @@ function Gutter({
       {...props}
       className={cn(
         'slate-gutterLeft',
-        'absolute top-0 z-50 flex h-full -translate-x-full cursor-grab hover:opacity-100',
+        'absolute top-0 z-50 flex h-full -translate-x-full cursor-grab hover:opacity-100 focus-within:opacity-100',
         getPluginByType(editor, element.type)?.node.isContainer
           ? 'group-hover/container:opacity-100'
           : 'group-hover:opacity-100',
         isSelectionAreaVisible && 'hidden',
-        !pinned && 'sm:opacity-0',
-        !pinned && 'opacity-0',
+        // Touch has no hover; keep the handle discoverable there.
+        !pinned && 'pointer-fine:opacity-0',
         className,
       )}
       contentEditable={false}
+      data-active={pinned || undefined}
       data-pm-editor-chrome
     >
       {children}
@@ -269,7 +310,6 @@ const DragHandle = React.memo(function DragHandle({
             className="flex size-full items-center justify-center"
             data-plate-prevent-deselect
             onClick={(e) => {
-              e.preventDefault();
               editor.getApi(BlockSelectionPlugin).blockSelection.focus();
             }}
             onMouseDown={(e) => {
@@ -344,12 +384,11 @@ const DragHandle = React.memo(function DragHandle({
               }
             }}
             onMouseUp={() => resetPreview()}
-            role="button"
           >
             <GripVertical className="text-muted-foreground" />
           </div>
         </TooltipTrigger>
-        <TooltipContent>Drag to move</TooltipContent>
+        <TooltipContent>{__('Drag or choose a position', 'pressedmail')}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

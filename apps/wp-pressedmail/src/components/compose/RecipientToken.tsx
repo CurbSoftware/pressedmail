@@ -30,6 +30,12 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
   const initials = getRecipientInitials(recipient.displayName);
   const avatarColor = getRecipientAvatarColor(recipient.displayName);
   const hasValidAvatar = isValidImageUrl(recipient.avatarUrl);
+  // The chip shows the name only; two contacts called "Rob" would be
+  // indistinguishable without the address, so assistive tech always gets it.
+  const hiddenAddress =
+    !isList && recipient.email && recipient.email !== recipient.displayName
+      ? recipient.email
+      : "";
 
   return (
     <div
@@ -46,7 +52,13 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
       title={
         isList
           ? sprintf(
-              __("%s (%d members)", "pressedmail"),
+              /* translators: 1: list name, 2: number of people in the list. */
+              _n(
+                "%1$s (%2$d member)",
+                "%1$s (%2$d members)",
+                recipient.memberCount ?? 0,
+                "pressedmail",
+              ),
               recipient.displayName,
               recipient.memberCount ?? 0,
             )
@@ -65,6 +77,7 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
         />
       ) : isContact ? (
         <span
+          aria-hidden="true"
           className={cn(
             "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium text-white",
             avatarColor,
@@ -81,6 +94,9 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
       <span className="truncate text-xs font-medium">
         {recipient.displayName}
       </span>
+      {/* Parentheses, not angle brackets: screen readers say "less" and
+          "greater" for those. */}
+      {hiddenAddress && <span className="sr-only">{` (${hiddenAddress})`}</span>}
 
       {/* Member count for lists */}
       {isList && recipient.memberCount !== undefined && (
@@ -102,12 +118,22 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
           className={cn(
             "flex h-4 w-4 items-center justify-center rounded-full transition-colors",
             "hover:bg-destructive/20 hover:text-destructive",
-            "focus:outline-none focus:ring-1 focus:ring-destructive/50",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
           )}
-          aria-label={sprintf(
-            __("Remove %s", "pressedmail"),
-            recipient.displayName,
-          )}>
+          aria-label={
+            hiddenAddress
+              ? sprintf(
+                  /* translators: 1: recipient name, 2: their email address. */
+                  __("Remove %1$s (%2$s)", "pressedmail"),
+                  recipient.displayName,
+                  hiddenAddress,
+                )
+              : sprintf(
+                  /* translators: %s: recipient name or email address. */
+                  __("Remove %s", "pressedmail"),
+                  recipient.displayName,
+                )
+          }>
           <X className="h-3 w-3" />
         </button>
       )}

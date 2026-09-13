@@ -873,12 +873,12 @@ export default function SetupWizard({
   // provider-gate matrix used on the credentials step:
   //   Free Gmail   → app password only
   //   Free Outlook → OAuth + app password
-  //   Pro  Gmail   → app password + OAuth ("coming soon" while the Google
-  //                  relay gate is on in Published; active in Development)
+  //   Pro  Gmail   → app password, plus OAuth once the Google relay gate
+  //                  opens (off in Published while verification is pending)
   //   Pro  Outlook → app password + OAuth (active)
   const getProviderAuthOptions = (
     provider: ProviderKey,
-  ): { appPassword: boolean; oauth: "active" | "coming-soon" | "none" } => {
+  ): { appPassword: boolean; oauth: "active" | "none" } => {
     if (provider === "outlook") {
       return {
         appPassword: true,
@@ -886,14 +886,15 @@ export default function SetupWizard({
       };
     }
     if (provider === "gmail") {
-      if (__IS_FREE__) {
-        return { appPassword: true, oauth: "none" };
-      }
-      // Pro keeps the Google OAuth button in place but DISABLED ("coming
-      // soon") until Google verification completes, app passwords are the
-      // supported Gmail path meanwhile. Re-enable by restoring:
-      //   microsoftOAuthAvailable && gmailOAuthEnabled ? "active" : "coming-soon"
-      return { appPassword: true, oauth: "coming-soon" };
+      // Gmail OAuth is off until Google verification completes, and a shipped
+      // button nobody can press just advertises what the product cannot do.
+      // The distribution gate is the switch: once gmailOAuth is on, the button
+      // appears and works.
+      return {
+        appPassword: true,
+        oauth:
+          microsoftOAuthAvailable && gmailOAuthEnabled ? "active" : "none",
+      };
     }
     // Yahoo / iCloud / Proton connect with an app password, and Custom with
     // IMAP/SMTP credentials, on the credentials step. Surface a button on every
@@ -1299,20 +1300,19 @@ export default function SetupWizard({
       }
     } catch (error) {
       successfulManagedPayloadRef.current = null;
+      // The server already says WHY: mailbox already connected, seat limit
+      // reached, provider rejected the sign-in. Its message is localized, and
+      // AppProvider carries it here on the Error. Replacing it with one
+      // generic sentence left the user nothing to act on.
+      const reason =
+        error instanceof Error && error.message.trim() !== ""
+          ? error.message
+          : __("Failed to save account. Please try again.", "pressedmail");
+
       if (managedSetupMode) {
-        setManagedErrors({
-          submit: __(
-            "Failed to save account. Please try again.",
-            "pressedmail",
-          ),
-        });
+        setManagedErrors({ submit: reason });
       } else {
-        setErrors({
-          submit: __(
-            "Failed to save account. Please try again.",
-            "pressedmail",
-          ),
-        });
+        setErrors({ submit: reason });
       }
     } finally {
       if (!externalLoading) {
@@ -1452,10 +1452,10 @@ export default function SetupWizard({
   // "Add" implies a list to add to. On a single-mailbox build this wizard is
   // how you fill the one slot, so it says so.
   const setupTitle = isEditing
-    ? __("Edit Account", "pressedmail")
+    ? __("Edit account", "pressedmail")
     : __SINGLE_MAILBOX__
       ? __("Connect mailbox", "pressedmail")
-      : __("Add Account", "pressedmail");
+      : __("Add account", "pressedmail");
   // Provider-card auth buttons own advancement from the first step. Back is
   // retained for later steps and for settings-launched setup.
   const isProviderSelectStep = currentStep === 1;

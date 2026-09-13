@@ -90,11 +90,11 @@ SelectScrollDownButton.displayName =
 const SelectContent: React.FC<
   React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
 > = ({ className, children, position = 'popper', ...props }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const selectContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <SelectPrimitive.Content
         className={cn(
           'bg-popover text-popover-foreground border-border data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-[min(var(--radix-select-content-available-height),80vh)] min-w-[8rem] overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-lg',

@@ -26,10 +26,12 @@ import {
  * testable, applies uniformly to every verb, and never double-wraps.
  */
 
+import { __, sprintf } from "@wordpress/i18n";
+
 import { getRuntimeWpNonce } from "@/lib/runtime-config";
 import { refreshRestNonce } from "@/lib/nonce";
 import {
-  CREDENTIALS_REQUIRED_FALLBACK_MESSAGE,
+  credentialsRequiredFallbackMessage,
   dispatchCredentialsRequired,
   type CredentialsRequiredDetail,
 } from "@/lib/credentials-required-events";
@@ -65,7 +67,7 @@ export class PermissionError extends Error {
   readonly details?: unknown;
 
   constructor(
-    message = "You do not have permission to perform this action.",
+    message = __("You do not have permission to do that.", "pressedmail"),
     code?: string,
     details?: unknown,
   ) {
@@ -85,7 +87,10 @@ export class SessionExpiredError extends Error {
   readonly status = 401;
 
   constructor(
-    message = "Your session has expired. Reload the page to sign in again.",
+    message = __(
+      "Your session has expired. Reload the page to sign in again.",
+      "pressedmail",
+    ),
   ) {
     super(message);
     this.name = "SessionExpiredError";
@@ -177,7 +182,10 @@ function fenceResponse(
     if (error instanceof SessionExpiredError) throw error;
     // Unsupported/frozen response implementations cannot bypass the body fence.
     throw new SessionExpiredError(
-      "The response could not be verified. Reload the page before trying again.",
+      __(
+        "The response could not be verified. Reload the page before trying again.",
+        "pressedmail",
+      ),
     );
   }
 }
@@ -196,7 +204,10 @@ export class MailboxLockedError extends Error {
   readonly status = 423;
 
   constructor(
-    message = "PressedMail is locked. Enter your passphrase to continue.",
+    message = __(
+      "PressedMail is locked. Enter your passphrase to continue.",
+      "pressedmail",
+    ),
   ) {
     super(message);
     this.name = "MailboxLockedError";
@@ -264,7 +275,7 @@ async function readCredentialsRequired409(
       message:
         typeof fields.message === "string" && fields.message !== ""
           ? fields.message
-          : CREDENTIALS_REQUIRED_FALLBACK_MESSAGE,
+          : credentialsRequiredFallbackMessage(),
     };
   } catch (error) {
     ignoreMalformedJson(error);
@@ -300,13 +311,58 @@ export function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-/** Request exceeded its per-call timeout budget. */
+/**
+ * Request exceeded its per-call timeout budget.
+ *
+ * `message` is what the user reads, so it says what happened and what to do
+ * about it. The endpoint and the budget live on `details` for the console and
+ * for diagnostics: a REST URL in a toast tells a person nothing they can act
+ * on, and it is not translatable.
+ */
 export class RequestTimeoutError extends Error {
+  /** Endpoint and budget. Diagnostics only, never displayed. */
+  readonly details: string;
+  readonly url: string;
+  readonly timeoutMs: number;
+
   constructor(url: string, timeoutMs: number) {
     super(
-      `Request timed out after ${Math.ceil(timeoutMs / 1000)}s for ${url}.`,
+      __(
+        "This is taking longer than expected, so PressedMail stopped waiting. Your site may be busy. Try again in a moment.",
+        "pressedmail",
+      ),
     );
     this.name = "RequestTimeoutError";
+    this.details = `Request timed out after ${Math.ceil(timeoutMs / 1000)}s for ${url}.`;
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
+ * The browser could not complete the request at all: offline, DNS, TLS, a
+ * blocked origin. Carries the same split as the timeout error, a readable
+ * message plus `details` for diagnostics.
+ *
+ * It is a class rather than a plain Error because `isNetworkFetchError` used to
+ * recognise these by sniffing the message for "failed to fetch", and callers
+ * (inbox and folder services, FeaturesContext) branch on that to decide whether
+ * to retry or to show an offline state. A translated message has no English
+ * substring to sniff, so the type carries the classification instead.
+ */
+export class NetworkUnavailableError extends Error {
+  /** URL and underlying reason. Diagnostics only, never displayed. */
+  readonly details: string;
+
+  constructor(details: string) {
+    super(
+      __(
+        "PressedMail could not reach this site. Check your connection, then try again.",
+        "pressedmail",
+      ),
+    );
+    this.name = "NetworkUnavailableError";
+    this.details = details;
   }
 }
 
@@ -320,6 +376,7 @@ export function isRequestTimeoutError(
 /** True for a network-level fetch failure (TypeError / "Failed to fetch" / load failed). */
 export function isNetworkFetchError(error: unknown): boolean {
   if (isAbortError(error)) return false;
+  if (error instanceof NetworkUnavailableError) return true;
   if (error instanceof TypeError) return true;
   if (error instanceof Error) {
     const message = error.message.toLowerCase();
@@ -354,9 +411,8 @@ function buildNetworkFetchError(
       ? ` (fallback attempted: ${fallbackUrl})`
       : "";
 
-  return new Error(
-    `Network request failed for ${url}${fallbackContext}. ${reason}. ` +
-      "Check your WordPress REST API URL, site protocol/domain, and network connection.",
+  return new NetworkUnavailableError(
+    `Network request failed for ${url}${fallbackContext}. ${reason}.`,
   );
 }
 
@@ -631,7 +687,14 @@ export async function apiJson<T = unknown>(
     const message =
       typeof fields.message === "string"
         ? fields.message
-        : `HTTP ${res.status}`;
+        : sprintf(
+            /* translators: %d: HTTP status code. */
+            __(
+              "The server returned an unexpected response (%d).",
+              "pressedmail",
+            ),
+            res.status,
+          );
     if (res.status === 403) {
       throw new PermissionError(
         message,

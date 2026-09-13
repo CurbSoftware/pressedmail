@@ -20,7 +20,9 @@ import type { MailProps } from "@/types";
 
 interface ThemedMailLayoutProps extends Omit<
   MailProps,
-  "defaultLayout" | "navCollapsedSize" | "layoutVariant"
+  // `mails` goes with the demo fixture that used to feed it. Every layout
+  // takes its messages from InboxContext and always has.
+  "defaultLayout" | "navCollapsedSize" | "layoutVariant" | "mails"
 > {
   className?: string;
 }

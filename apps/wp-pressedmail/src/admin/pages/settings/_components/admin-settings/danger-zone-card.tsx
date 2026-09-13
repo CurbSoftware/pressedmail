@@ -66,6 +66,7 @@ export function DangerZoneCard({
       docHref={settingsInfoDocHrefs.dangerZone}
       contentClassName="space-y-4">
       <SettingsRow
+        inline
         className="rounded-md border border-destructive/30 bg-destructive/5 px-3"
         title={
           <span className="flex items-center gap-2 text-destructive">

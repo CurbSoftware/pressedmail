@@ -45,7 +45,9 @@ import {
   setBlockType,
 } from './transforms';
 
-export const turnIntoItems = [
+// Built on call: a module-level __() runs before main.tsx loads the locale
+// catalog, so these labels would always be English.
+export const getTurnIntoItems = () => [
   {
     icon: <PilcrowIcon />,
     keywords: ['paragraph'],
@@ -102,6 +104,7 @@ export const turnIntoItems = [
 ];
 
 export function TurnIntoToolbarButton(props: DropdownMenuProps) {
+  const items = getTurnIntoItems();
   const editor = useEditorRef();
   const [open, setOpen] = React.useState(false);
 
@@ -111,8 +114,8 @@ export function TurnIntoToolbarButton(props: DropdownMenuProps) {
   });
   const selectedItem = React.useMemo(
     () =>
-      turnIntoItems.find((item) => item.value === (value ?? KEYS.p)) ??
-      turnIntoItems[0],
+      items.find((item) => item.value === (value ?? KEYS.p)) ??
+      items[0],
     [value],
   );
 
@@ -144,7 +147,7 @@ export function TurnIntoToolbarButton(props: DropdownMenuProps) {
           }}
           value={value}
         >
-          {turnIntoItems.map(({ icon, label, value: itemValue }) => (
+          {items.map(({ icon, label, value: itemValue }) => (
             <DropdownMenuRadioItem
               className="min-w-[180px] [&_svg]:size-4 [&_svg]:text-muted-foreground"
               key={itemValue}

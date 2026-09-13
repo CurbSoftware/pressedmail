@@ -8,6 +8,7 @@
 
 import React from "react";
 import { X } from "lucide-react";
+import { __, sprintf } from "@wordpress/i18n";
 import { cn } from "../../lib/utils";
 import type { Tag } from "../../types/tags";
 import {
@@ -83,7 +84,11 @@ export const TagBadge: React.FC<TagBadgeProps> = ({
             e.stopPropagation();
             onRemove();
           }}
-          aria-label={`Remove ${tag.name} tag`}>
+          aria-label={sprintf(
+            /* translators: %s: tag name. */
+            __("Remove %s tag", "pressedmail"),
+            tag.name,
+          )}>
           <X className="h-3 w-3" />
         </button>
       )}

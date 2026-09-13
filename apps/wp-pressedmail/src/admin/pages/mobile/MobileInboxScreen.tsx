@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   CheckSquare,
   CircleAlert,
@@ -132,7 +133,11 @@ import {
   getScheduledComposeData,
   parseScheduledDraftHandoff,
 } from "@/types/scheduled-emails";
-import type { FolderTarget, MessageFilters } from "@/services/interfaces";
+import type {
+  FolderTarget,
+  MessageFilters,
+  SystemFolderType,
+} from "@/services/interfaces";
 import { getCacheService, getInboxService } from "@/services/implementations";
 import {
   captureRequestPrincipal,
@@ -163,22 +168,30 @@ import type { FilterRule } from "@/types/filter-rules";
 import { ruleCanRunManually } from "@/types/filter-rules";
 import { resolveInboxActionVisibility } from "@/lib/inbox-action-visibility";
 import { PaginationFooter } from "@/layouts/shared/components/footer-system";
+import { buildEmailRowViewModel } from "@/components/inbox/email-row-model";
+
+import { flattenImapFolders, getMailboxSlotLabel } from "./folder-labels";
 
 function getFromDisplay(mail: EmailMessage): string {
   if (mail.name) return mail.name;
   if (mail.email) return mail.email;
   if (mail.from) return mail.from;
-  return "Unknown";
+  return __("Unknown", "pressedmail");
 }
 
 interface MailRowProps {
   mail: EmailMessage;
+  /** Stable identity for this row, resolved once by the list. */
+  identity: string;
   selected: boolean;
   bulkMode: boolean;
-  onTap: () => void;
-  onLongPress: () => void;
-  onArchive: () => void;
-  onDelete: () => void;
+  // Callbacks take the row they act on, so the list can hand every row the
+  // same stable function instead of minting a fresh closure per row per
+  // render. Without that, React.memo below can never hold.
+  onTap: (mail: EmailMessage) => void;
+  onLongPress: (identity: string) => void;
+  onArchive: (identity: string) => void;
+  onDelete: (identity: string) => void;
   swipeDisabled?: boolean;
   onTagClick: (tag: EmailMessageTag) => void;
   rowPresentation: ReturnType<typeof getEmailListRowPresentation>;
@@ -202,8 +215,9 @@ function mobileRowDensityClass(
   }
 }
 
-function MailRow({
+function MailRowComponent({
   mail,
+  identity,
   selected,
   bulkMode,
   onTap,
@@ -220,7 +234,7 @@ function MailRow({
   const longPress = useLongPress({
     onLongPress: () => {
       justLongPressed.current = true;
-      onLongPress();
+      onLongPress(identity);
     },
     delay: 500,
   });
@@ -231,15 +245,18 @@ function MailRow({
       event.preventDefault();
       return;
     }
-    onTap();
+    onTap(mail);
   };
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.target !== event.currentTarget) return;
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
-    onTap();
+    onTap(mail);
   };
   const preview = getReadableMessagePreview(mail);
+  // The desktop row model, so a phone row reads "9:03 AM", "Thu" or "Sep 9"
+  // like every other list in the product instead of "9/10/2026" on every row.
+  const rowModel = React.useMemo(() => buildEmailRowViewModel(mail), [mail]);
   const emphasizeUnread =
     !mail.read &&
     (rowPresentation.unreadIndicator === "bold" ||
@@ -263,8 +280,8 @@ function MailRow({
   return (
     <SwipeActions
       mail={mail}
-      onArchive={onArchive}
-      onDelete={onDelete}
+      onArchive={() => onArchive(identity)}
+      onDelete={() => onDelete(identity)}
       disabled={swipeDisabled}>
       <div
         role="button"
@@ -289,15 +306,30 @@ function MailRow({
           threadGrouped && "border-l-4 border-l-primary",
           selected && bulkMode ? "bg-primary/10" : "active:bg-muted/50",
         )}>
+        <span className="sr-only">
+          {mail.read
+            ? __("Read message", "pressedmail")
+            : __("Unread message", "pressedmail")}
+        </span>
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
-            {showUnreadDot ? (
+            {/* A fixed gutter, present on every row of a dot-enabled list.
+                The dot used to sit inline only when a message was unread, so
+                unread senders started 12px right of read ones and the column
+                of names never lined up. */}
+            {rowPresentation.unreadIndicator === "dot" ||
+            rowPresentation.unreadIndicator === "dot_and_bold" ? (
               <span
-                data-test="email-row-unread-dot"
-                data-testid="email-row-unread-dot"
-                className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-                aria-label="Unread"
-              />
+                className="flex w-2 shrink-0 justify-center"
+                aria-hidden="true">
+                {showUnreadDot ? (
+                  <span
+                    data-test="email-row-unread-dot"
+                    data-testid="email-row-unread-dot"
+                    className="h-1.5 w-1.5 rounded-full bg-primary"
+                  />
+                ) : null}
+              </span>
             ) : null}
             {accountBadge ? (
               <Badge
@@ -319,7 +351,7 @@ function MailRow({
             </span>
           </div>
           <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-            {mail.date ? new Date(mail.date).toLocaleDateString() : ""}
+            {rowModel.dateLabel}
           </span>
         </div>
         <div className="flex min-w-0 items-center gap-1.5">
@@ -330,7 +362,7 @@ function MailRow({
                 ? "font-semibold text-foreground"
                 : "text-muted-foreground",
             )}>
-            {mail.subject || "(No subject)"}
+            {mail.subject || __("(No subject)", "pressedmail")}
           </span>
           {threadCount && threadCount > 1 ? (
             <span
@@ -347,8 +379,9 @@ function MailRow({
           />
           {showAttachment ? (
             <Paperclip
+              role="img"
               className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-              aria-label="Has attachment"
+              aria-label={__("Has attachment", "pressedmail")}
             />
           ) : null}
         </div>
@@ -367,6 +400,14 @@ function MailRow({
     </SwipeActions>
   );
 }
+
+/**
+ * Memoized because the phone list is unbounded: infinite scroll keeps adding
+ * rows, so every toast, sheet, snooze flag or
+ * selection change re-rendered every row on screen along with its swipe state
+ * and long-press timers.
+ */
+const MailRow = React.memo(MailRowComponent);
 
 type SheetActionIcon = React.ElementType<{
   className?: string;
@@ -738,7 +779,9 @@ export function MobileInboxScreen() {
         scheduledEmail ?? null,
       );
       if (!scheduledEmailId || !scheduledEmail || !sourceIdentity) {
-        toast.error("Reload this scheduled email before editing it.");
+        toast.error(
+          __("Reload this scheduled email before editing it.", "pressedmail"),
+        );
         return;
       }
 
@@ -766,7 +809,9 @@ export function MobileInboxScreen() {
         );
         const handoff = parseScheduledDraftHandoff(await response.json());
         if (!handoff) {
-          throw new Error("Scheduled draft handoff was incomplete");
+          throw new Error(
+            __("Scheduled draft handoff was incomplete", "pressedmail"),
+          );
         }
         void Promise.resolve(scheduledEmailsRef.current?.refreshEmails()).catch(
           () => undefined,
@@ -794,7 +839,12 @@ export function MobileInboxScreen() {
         openMobileCompose(getScheduledComposeData(scheduledEmail, handoff));
       } catch (error) {
         if (!surfaceApiAuthError(error)) {
-          toast.error("We could not open this scheduled email for editing.");
+          toast.error(
+            __(
+              "We could not open this scheduled email for editing.",
+              "pressedmail",
+            ),
+          );
         }
       } finally {
         if (scheduledEditRequestRef.current === requestId) {
@@ -814,7 +864,7 @@ export function MobileInboxScreen() {
       );
       const identity = getDraftComposeIdentity(draft);
       if (!identity) {
-        toast.error("Reload this draft before editing it.");
+        toast.error(__("Reload this draft before editing it.", "pressedmail"));
         return;
       }
       if (hasDraftComposeDetail(mail)) {
@@ -847,7 +897,12 @@ export function MobileInboxScreen() {
         );
         if (!ownsRequest()) return;
         if (outcome && "failed" in outcome && outcome.requiresRefresh) {
-          toast.error("The draft identity changed. Refreshing the mailbox.");
+          toast.error(
+            __(
+              "The draft identity changed. Refreshing the mailbox.",
+              "pressedmail",
+            ),
+          );
           await refreshMessages();
           return;
         }
@@ -861,9 +916,19 @@ export function MobileInboxScreen() {
             ("pending" in outcome ||
               ("detail" in outcome && outcome.detail.bodyState === "partial"))
           ) {
-            toast.info("This draft is still loading. Tap it again to retry.");
+            toast.info(
+              __(
+                "This draft is still loading. Tap it again to retry.",
+                "pressedmail",
+              ),
+            );
           } else {
-            toast.error("We could not load this draft. Tap it again to retry.");
+            toast.error(
+              __(
+                "We could not load this draft. Tap it again to retry.",
+                "pressedmail",
+              ),
+            );
           }
           return;
         }
@@ -878,13 +943,20 @@ export function MobileInboxScreen() {
             identity,
           )
         ) {
-          toast.error("Reload this draft before editing it.");
+          toast.error(
+            __("Reload this draft before editing it.", "pressedmail"),
+          );
           return;
         }
         openMobileCompose(loaded);
       } catch (error) {
         if (ownsRequest() && !surfaceApiAuthError(error)) {
-          toast.error("We could not load this draft. Tap it again to retry.");
+          toast.error(
+            __(
+              "We could not load this draft. Tap it again to retry.",
+              "pressedmail",
+            ),
+          );
         }
       }
     },
@@ -1093,7 +1165,12 @@ export function MobileInboxScreen() {
       selectedCount !== selectedMessages.length ||
       selectedMessages.some((message) => !getMessageIdentityRef(message))
     ) {
-      toast.error("Reload the mailbox before changing selected messages.");
+      toast.error(
+        __(
+          "Reload the mailbox before changing selected messages.",
+          "pressedmail",
+        ),
+      );
       return false;
     }
     return selectedCount > 0;
@@ -1107,7 +1184,7 @@ export function MobileInboxScreen() {
         failedIds?: (string | number)[];
       } | void>,
       successMessage: string,
-      failureMessage = "Operation failed",
+      failureMessage = __("Operation failed", "pressedmail"),
     ) => {
       if (!validateSelectedMessages()) return;
       const captured = captureBulkScope();
@@ -1144,8 +1221,16 @@ export function MobileInboxScreen() {
     () =>
       runBulkOperation(
         () => batchMove(selectedMessageIds, archiveTarget),
-        `Archived ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-        "Archive failed",
+        sprintf(
+          _n(
+            "Archived %d message",
+            "Archived %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Archive failed", "pressedmail"),
       ),
     [
       archiveTarget,
@@ -1160,8 +1245,16 @@ export function MobileInboxScreen() {
     () =>
       runBulkOperation(
         () => batchMove(selectedMessageIds, trashPath),
-        `Moved ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} to Trash`,
-        "Trash failed",
+        sprintf(
+          _n(
+            "Moved %d message to Trash",
+            "Moved %d messages to Trash",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Trash failed", "pressedmail"),
       ),
     [batchMove, runBulkOperation, selectedCount, selectedMessageIds, trashPath],
   );
@@ -1184,7 +1277,10 @@ export function MobileInboxScreen() {
               scheduledId <= 0
             ) {
               failedIds.push(localId);
-              firstError ??= "Scheduled email could not be identified";
+              firstError ??= __(
+                "Scheduled email could not be identified",
+                "pressedmail",
+              );
               continue;
             }
 
@@ -1206,16 +1302,32 @@ export function MobileInboxScreen() {
             error: firstError,
           };
         },
-        `Deleted ${selectedCount} ${selectedCount === 1 ? "scheduled message" : "scheduled messages"}`,
-        "Scheduled delete failed",
+        sprintf(
+          _n(
+            "Deleted %d scheduled message",
+            "Deleted %d scheduled messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Scheduled delete failed", "pressedmail"),
       );
       return;
     }
 
     void runBulkOperation(
       () => batchDelete(selectedMessageIds),
-      `Deleted ${selectedCount} ${selectedCount === 1 ? "draft" : "drafts"}`,
-      "Draft delete failed",
+      sprintf(
+        _n(
+          "Deleted %d draft",
+          "Deleted %d drafts",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Draft delete failed", "pressedmail"),
     );
   }, [
     batchDelete,
@@ -1253,8 +1365,16 @@ export function MobileInboxScreen() {
     () =>
       runBulkOperation(
         () => batchDelete(selectedMessageIds, true),
-        `Deleted ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-        "Delete failed",
+        sprintf(
+          _n(
+            "Deleted %d message",
+            "Deleted %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Delete failed", "pressedmail"),
       ),
     [batchDelete, runBulkOperation, selectedCount, selectedMessageIds],
   );
@@ -1278,16 +1398,32 @@ export function MobileInboxScreen() {
     if (allSelectedRead) {
       void runBulkOperation(
         () => batchMarkUnread(selectedMessageIds),
-        `Marked ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} as unread`,
-        "Mark unread failed",
+        sprintf(
+          _n(
+            "Marked %d message as unread",
+            "Marked %d messages as unread",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Mark unread failed", "pressedmail"),
       );
       return;
     }
 
     void runBulkOperation(
       () => batchMarkRead(selectedMessageIds),
-      `Marked ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} as read`,
-      "Mark read failed",
+      sprintf(
+        _n(
+          "Marked %d message as read",
+          "Marked %d messages as read",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Mark read failed", "pressedmail"),
     );
   }, [
     allSelectedRead,
@@ -1303,8 +1439,16 @@ export function MobileInboxScreen() {
       setMoveSheetOpen(false);
       void runBulkOperation(
         () => batchMove(selectedMessageIds, targetFolder),
-        `Moved ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-        "Move failed",
+        sprintf(
+          _n(
+            "Moved %d message",
+            "Moved %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        ),
+        __("Move failed", "pressedmail"),
       );
     },
     [batchMove, runBulkOperation, selectedCount, selectedMessageIds],
@@ -1313,8 +1457,16 @@ export function MobileInboxScreen() {
   const handleMoveToJunk = React.useCallback(() => {
     void runBulkOperation(
       () => batchMove(selectedMessageIds, junkPath),
-      `Moved ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} to Junk`,
-      "Move to junk failed",
+      sprintf(
+        _n(
+          "Moved %d message to Junk",
+          "Moved %d messages to Junk",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Move to junk failed", "pressedmail"),
     );
   }, [
     batchMove,
@@ -1329,7 +1481,7 @@ export function MobileInboxScreen() {
       void runBulkOperation(
         () => batchMove(selectedMessageIds, "INBOX"),
         message,
-        "Move failed",
+        __("Move failed", "pressedmail"),
       );
     },
     [batchMove, runBulkOperation, selectedMessageIds],
@@ -1346,14 +1498,32 @@ export function MobileInboxScreen() {
             if (!captured.isCurrent()) return;
             const result = await toggleStar(getMessageIdentityKey(message));
             if (result?.success === false)
-              throw new Error(result.error || "Message update failed");
+              throw new Error(
+                result.error || __("Message update failed", "pressedmail"),
+              );
           }
           return { success: true };
         },
         targetStarred
-          ? `Starred ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`
-          : `Unstarred ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-        "Star update failed",
+          ? sprintf(
+              _n(
+                "Starred %d message",
+                "Starred %d messages",
+                selectedCount,
+                "pressedmail",
+              ),
+              selectedCount,
+            )
+          : sprintf(
+              _n(
+                "Unstarred %d message",
+                "Unstarred %d messages",
+                selectedCount,
+                "pressedmail",
+              ),
+              selectedCount,
+            ),
+        __("Star update failed", "pressedmail"),
       );
     },
     [runBulkOperation, selectedCount, selectedMessages, toggleStar],
@@ -1372,14 +1542,32 @@ export function MobileInboxScreen() {
               getMessageIdentityKey(message),
             );
             if (result?.success === false)
-              throw new Error(result.error || "Message update failed");
+              throw new Error(
+                result.error || __("Message update failed", "pressedmail"),
+              );
           }
           return { success: true };
         },
         targetImportant
-          ? `Marked ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} important`
-          : `Removed important from ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-        "Important update failed",
+          ? sprintf(
+              _n(
+                "Marked %d message important",
+                "Marked %d messages important",
+                selectedCount,
+                "pressedmail",
+              ),
+              selectedCount,
+            )
+          : sprintf(
+              _n(
+                "Removed important from %d message",
+                "Removed important from %d messages",
+                selectedCount,
+                "pressedmail",
+              ),
+              selectedCount,
+            ),
+        __("Important update failed", "pressedmail"),
       );
     },
     [runBulkOperation, selectedCount, selectedMessages, toggleImportant],
@@ -1389,7 +1577,9 @@ export function MobileInboxScreen() {
     async (tagId: number) => {
       const tag = tags.find((item) => Number(item.id) === Number(tagId));
       if (selectedCount !== selectedMessages.length) {
-        toast.error("Reload the mailbox before changing tags.");
+        toast.error(
+          __("Reload the mailbox before changing tags.", "pressedmail"),
+        );
         return;
       }
       if (!tag || selectedMessages.length === 0) return;
@@ -1401,7 +1591,9 @@ export function MobileInboxScreen() {
         getMessageIdentityRef(message),
       );
       if (!principal || identities.some((ref) => !ref)) {
-        toast.error("Reload the mailbox before changing tags.");
+        toast.error(
+          __("Reload the mailbox before changing tags.", "pressedmail"),
+        );
         return;
       }
       const refs = identities.flatMap((ref) =>
@@ -1428,7 +1620,10 @@ export function MobileInboxScreen() {
         if (!isRequestPrincipalCurrent(principal)) return;
         if (result.failed > 0)
           throw new Error(
-            "Some tags could not be changed. Refresh the mailbox and retry.",
+            __(
+              "Some tags could not be changed. Refresh the mailbox and retry.",
+              "pressedmail",
+            ),
           );
         const inboxService = getInboxService();
         selectedMessages.forEach((message) => {
@@ -1439,8 +1634,24 @@ export function MobileInboxScreen() {
         const count = result.success;
         toast.success(
           shouldRemove
-            ? `Removed tag from ${count} ${count === 1 ? "message" : "messages"}`
-            : `Tagged ${count} ${count === 1 ? "message" : "messages"}`,
+            ? sprintf(
+                _n(
+                  "Removed tag from %d message",
+                  "Removed tag from %d messages",
+                  count,
+                  "pressedmail",
+                ),
+                count,
+              )
+            : sprintf(
+                _n(
+                  "Tagged %d message",
+                  "Tagged %d messages",
+                  count,
+                  "pressedmail",
+                ),
+                count,
+              ),
         );
         exitBulkMode();
       } catch (error) {
@@ -1459,7 +1670,11 @@ export function MobileInboxScreen() {
             }),
           );
         if (captured.isCurrent())
-          toast.error(error instanceof Error ? error.message : "Tag failed");
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : __("Tag failed", "pressedmail"),
+          );
       } finally {
         if (mountedRef.current && captured.isPrincipalCurrent())
           setIsBulkActionRunning(false);
@@ -1479,11 +1694,11 @@ export function MobileInboxScreen() {
   const handleSnoozeUntil = React.useCallback(
     async (snoozeUntil: string) => {
       if (!showSelectedSnooze) {
-        toast.info("Snooze is not available");
+        toast.info(__("Snooze is not available", "pressedmail"));
         return;
       }
       if (snoozeTargets.length === 0) {
-        toast.error("No selected messages can be snoozed");
+        toast.error(__("No selected messages can be snoozed", "pressedmail"));
         return;
       }
 
@@ -1514,7 +1729,7 @@ export function MobileInboxScreen() {
 
         if (succeeded.length === 0) {
           if (!captured.isCurrent()) return;
-          toast.error(firstError || "Snooze failed");
+          toast.error(firstError || __("Snooze failed", "pressedmail"));
           return;
         }
 
@@ -1528,14 +1743,26 @@ export function MobileInboxScreen() {
         });
         if (!captured.isCurrent()) return;
         toast.success(
-          `Snoozed ${succeeded.length} ${succeeded.length === 1 ? "message" : "messages"}`,
+          sprintf(
+            _n(
+              "Snoozed %d message",
+              "Snoozed %d messages",
+              succeeded.length,
+              "pressedmail",
+            ),
+            succeeded.length,
+          ),
         );
         if (succeeded.length === snoozeTargets.length) {
           exitBulkMode();
         }
       } catch (error) {
         if (!captured.isCurrent()) return;
-        toast.error(error instanceof Error ? error.message : "Snooze failed");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : __("Snooze failed", "pressedmail"),
+        );
       } finally {
         if (mountedRef.current && captured.isPrincipalCurrent())
           setIsSnoozing(false);
@@ -1554,12 +1781,12 @@ export function MobileInboxScreen() {
 
   const handleCustomSnooze = React.useCallback(() => {
     if (!customSnoozeDate) {
-      toast.error("Choose a snooze date");
+      toast.error(__("Choose a snooze date", "pressedmail"));
       return;
     }
     const snoozeDate = new Date(`${customSnoozeDate}T${customSnoozeTime}:00`);
     if (Number.isNaN(snoozeDate.getTime()) || snoozeDate <= new Date()) {
-      toast.error("Choose a future snooze time");
+      toast.error(__("Choose a future snooze time", "pressedmail"));
       return;
     }
     void handleSnoozeUntil(snoozeDate.toISOString());
@@ -1569,7 +1796,9 @@ export function MobileInboxScreen() {
     async (request: StartOneOffSweepRequest) => {
       const captured = captureBulkScope();
       if (!captured.isCurrent())
-        throw new Error("The selection changed. Reopen Sweep and retry.");
+        throw new Error(
+          __("The selection changed. Reopen Sweep and retry.", "pressedmail"),
+        );
       // Route the sweep through the process / activity queue.
       const result = await enqueueSweepQueue({
         selected_message_ids: request.selected_message_ids,
@@ -1586,8 +1815,8 @@ export function MobileInboxScreen() {
       if (!captured.isCurrent()) return result;
       toast.success(
         result.deduplicated
-          ? "That sweep is already running"
-          : "Added to the activity queue",
+          ? __("That sweep is already running", "pressedmail")
+          : __("Added to the activity queue", "pressedmail"),
       );
       refreshProcessQueue();
       exitBulkMode();
@@ -1625,7 +1854,7 @@ export function MobileInboxScreen() {
     const captured = captureBulkScope();
     if (!captured.isCurrent()) return;
     if (selectedRuleRefs.length === 0) {
-      toast.info("No selected messages can be organized");
+      toast.info(__("No selected messages can be organized", "pressedmail"));
       setPendingRule(null);
       return;
     }
@@ -1646,12 +1875,16 @@ export function MobileInboxScreen() {
         },
       });
       if (!captured.isCurrent()) return;
-      toast.success("Rule run started for selected messages");
+      toast.success(
+        __("Rule run started for selected messages", "pressedmail"),
+      );
       exitBulkMode();
     } catch (error) {
       if (!captured.isCurrent()) return;
       toast.error(
-        error instanceof Error ? error.message : "Could not start the rule run",
+        error instanceof Error
+          ? error.message
+          : __("Could not start the rule run", "pressedmail"),
       );
     } finally {
       if (mountedRef.current && captured.isPrincipalCurrent())
@@ -1670,7 +1903,7 @@ export function MobileInboxScreen() {
 
   const handlePhishingCheck = React.useCallback(() => {
     if (!showSelectedPhishing) {
-      toast.info("Phishing check is not available");
+      toast.info(__("Phishing check is not available", "pressedmail"));
       return;
     }
     void runBulkOperation(
@@ -1682,7 +1915,10 @@ export function MobileInboxScreen() {
             accountIdForActions;
           if (!accountId || !Number.isFinite(accountId)) {
             throw new Error(
-              "Could not resolve the email account for a selected message",
+              __(
+                "Could not resolve the email account for a selected message",
+                "pressedmail",
+              ),
             );
           }
           await analyzeEmail(
@@ -1693,8 +1929,16 @@ export function MobileInboxScreen() {
         }
         return { success: true };
       },
-      `Running phishing check on ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-      "Phishing check failed",
+      sprintf(
+        _n(
+          "Running phishing check on %d message",
+          "Running phishing check on %d messages",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Phishing check failed", "pressedmail"),
     );
   }, [
     accountIdForActions,
@@ -1710,7 +1954,7 @@ export function MobileInboxScreen() {
 
   const handleSummarize = React.useCallback(() => {
     if (!showSelectedSummarize) {
-      toast.info("Summarize is not available");
+      toast.info(__("Summarize is not available", "pressedmail"));
       return;
     }
     void runBulkOperation(
@@ -1721,12 +1965,22 @@ export function MobileInboxScreen() {
           result.failedCount > 0 ||
           result.successCount !== selectedMessages.length
         ) {
-          throw new Error(firstFailure || "Summarize failed");
+          throw new Error(
+            firstFailure || __("Summarize failed", "pressedmail"),
+          );
         }
         return { success: true };
       },
-      `Summarizing ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-      "Summarize failed",
+      sprintf(
+        _n(
+          "Summarizing %d message",
+          "Summarizing %d messages",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Summarize failed", "pressedmail"),
     );
   }, [
     runBulkOperation,
@@ -1738,7 +1992,7 @@ export function MobileInboxScreen() {
 
   const handleAutoTag = React.useCallback(() => {
     if (!showSelectedAutoTag) {
-      toast.info("Auto-tag is not available");
+      toast.info(__("Auto-tag is not available", "pressedmail"));
       return;
     }
     void runBulkOperation(
@@ -1768,13 +2022,23 @@ export function MobileInboxScreen() {
             },
           ]);
           if (result.status === "error") {
-            throw new Error(result.message || "Auto-tag failed");
+            throw new Error(
+              result.message || __("Auto-tag failed", "pressedmail"),
+            );
           }
         }
         return { success: true };
       },
-      `Auto-tagging ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`,
-      "Auto-tag failed",
+      sprintf(
+        _n(
+          "Auto-tagging %d message",
+          "Auto-tagging %d messages",
+          selectedCount,
+          "pressedmail",
+        ),
+        selectedCount,
+      ),
+      __("Auto-tag failed", "pressedmail"),
     );
   }, [
     accountIdForActions,
@@ -1881,46 +2145,50 @@ export function MobileInboxScreen() {
     return () => observer.disconnect();
   }, [hasMoreServer, isLoadingMore, isPagination, loadMore]);
 
-  const readActionLabel = allSelectedRead ? "Unread" : "Read";
+  const readActionLabel = allSelectedRead
+    ? __("Unread", "pressedmail")
+    : __("Read", "pressedmail");
   const readActionAria = allSelectedRead
-    ? "Mark selected messages as unread"
-    : "Mark selected messages as read";
+    ? __("Mark selected messages as unread", "pressedmail")
+    : __("Mark selected messages as read", "pressedmail");
   const primaryFolderAction = isTrashFolder
     ? {
         id: "restore",
-        label: "Restore",
-        ariaLabel: "Restore selected messages",
+        label: __("Restore", "pressedmail"),
+        ariaLabel: __("Restore selected messages", "pressedmail"),
         icon: FolderInput,
-        onAction: () => handleMoveToInbox("Messages restored"),
+        onAction: () =>
+          handleMoveToInbox(__("Messages restored", "pressedmail")),
       }
     : isJunkFolder
       ? {
           id: "not-spam",
-          label: "Not spam",
-          ariaLabel: "Move selected messages to Inbox",
+          label: __("Not spam", "pressedmail"),
+          ariaLabel: __("Move selected messages to Inbox", "pressedmail"),
           icon: FolderInput,
-          onAction: () => handleMoveToInbox("Messages moved to Inbox"),
+          onAction: () =>
+            handleMoveToInbox(__("Messages moved to Inbox", "pressedmail")),
         }
       : {
           id: "archive",
-          label: "Archive",
-          ariaLabel: "Archive selected messages",
+          label: __("Archive", "pressedmail"),
+          ariaLabel: __("Archive selected messages", "pressedmail"),
           icon: EmailArchiveIcon,
           onAction: handleBulkArchive,
         };
   const destructivePrimaryAction = isTrashFolder
     ? {
         id: "permanent-delete",
-        label: "Delete",
-        ariaLabel: "Delete selected messages permanently",
+        label: __("Delete", "pressedmail"),
+        ariaLabel: __("Delete selected messages permanently", "pressedmail"),
         icon: EmailTrashIcon,
         onAction: () => setConfirmPermanentOpen(true),
         destructive: true,
       }
     : {
         id: "trash",
-        label: "Trash",
-        ariaLabel: "Trash selected messages",
+        label: __("Trash", "pressedmail"),
+        ariaLabel: __("Trash selected messages", "pressedmail"),
         icon: EmailTrashIcon,
         onAction: handleBulkTrash,
         destructive: true,
@@ -1930,11 +2198,11 @@ export function MobileInboxScreen() {
       ? [
           {
             id: "delete-draft",
-            label: "Delete",
+            label: __("Delete", "pressedmail"),
             ariaLabel:
               currentFolderRole === "scheduled"
-                ? "Delete selected scheduled messages"
-                : "Delete selected drafts",
+                ? __("Delete selected scheduled messages", "pressedmail")
+                : __("Delete selected drafts", "pressedmail"),
             icon: EmailTrashIcon,
             onAction: handleDraftLikeDelete,
             destructive: true,
@@ -1951,9 +2219,7 @@ export function MobileInboxScreen() {
             icon: allSelectedRead ? EmailMarkUnreadIcon : EmailMarkReadIcon,
             onAction: handleBulkReadToggle,
             disabled:
-              selectedCount === 0 ||
-              (readActionLabel === "Read" && allSelectedRead) ||
-              (readActionLabel === "Unread" && allSelectedUnread),
+              selectedCount === 0 || (allSelectedRead && allSelectedUnread),
             loading: isBulkActionRunning,
           },
           {
@@ -1963,8 +2229,8 @@ export function MobileInboxScreen() {
           },
           {
             id: "more",
-            label: "More",
-            ariaLabel: "More actions for selected messages",
+            label: __("More", "pressedmail"),
+            ariaLabel: __("More actions for selected messages", "pressedmail"),
             icon: MoreHorizontal,
             onAction: () => setActionSheetOpen(true),
           },
@@ -1976,9 +2242,58 @@ export function MobileInboxScreen() {
         }))
     : [];
 
+  // The heading names the mailbox the way the rest of the product names it.
+  // `selectedNav` is a raw nav id, so the phone header read "INBOX",
+  // "snoozed" or "scheduled" where every desktop sidebar says Inbox, Snoozed
+  // and Scheduled.
+  const folderTitle = React.useMemo(() => {
+    const nav = String(selectedNav ?? "").trim();
+    if (!nav) return getMailboxSlotLabel("inbox");
+    const lower = nav.toLowerCase();
+    const virtualViews: Record<string, SystemFolderType> = {
+      important: "important",
+      starred: "starred",
+      flagged: "flagged",
+      snoozed: "snoozed",
+      scheduled: "scheduled",
+    };
+    const virtual = virtualViews[lower];
+    if (virtual) return getMailboxSlotLabel(virtual);
+    // Flattened: a Gmail account keeps Sent and friends under [Gmail], so a
+    // top-level lookup misses whatever the user actually selected.
+    const match = flattenImapFolders(folders).find(
+      (folder) =>
+        String(folder.path ?? "").toLowerCase() === lower ||
+        String(folder.name ?? "").toLowerCase() === lower,
+    );
+    if (match?.systemType) return getMailboxSlotLabel(match.systemType);
+    return match?.name || nav;
+  }, [folders, selectedNav]);
+
+  const handleRowLongPress = React.useCallback(
+    (identity: string) => enterBulkMode(identity),
+    [enterBulkMode],
+  );
+  const handleRowArchive = React.useCallback(
+    (identity: string) => {
+      void archiveMessage(identity);
+    },
+    [archiveMessage],
+  );
+  const handleRowTagClick = React.useCallback(
+    (tag: EmailMessageTag) => {
+      applyFilters({ ...activeFilters, tags: [String(tag.id)] });
+    },
+    [activeFilters, applyFilters],
+  );
+
   const headerTitle = bulkMode
-    ? `${selectedIds.size} selected`
-    : selectedNav || "Inbox";
+    ? sprintf(
+        /* translators: %d: number of selected messages. */
+        _n("%d selected", "%d selected", selectedIds.size, "pressedmail"),
+        selectedIds.size,
+      )
+    : folderTitle;
 
   return (
     <MobileScreen
@@ -1991,7 +2306,7 @@ export function MobileInboxScreen() {
                 type="button"
                 onClick={exitBulkMode}
                 className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-3 text-sm font-medium text-muted-foreground active:bg-muted">
-                Cancel
+                {__("Cancel", "pressedmail")}
               </button>
             ) : (
               // Account selector + Search sit together on the left; the title
@@ -1999,14 +2314,14 @@ export function MobileInboxScreen() {
               <>
                 <button
                   type="button"
-                  aria-label="Mailbox menu"
-                  onClick={() => navigate("/accounts")}
+                  aria-label={__("Folders and labels", "pressedmail")}
+                  onClick={() => navigate("/folders")}
                   className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted">
                   <Menu className="h-5 w-5" aria-hidden="true" />
                 </button>
                 <button
                   type="button"
-                  aria-label="Search"
+                  aria-label={__("Search", "pressedmail")}
                   onClick={() => navigate("/search")}
                   className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted">
                   <Search className="h-5 w-5" aria-hidden="true" />
@@ -2019,7 +2334,10 @@ export function MobileInboxScreen() {
               isDraftLikeFolder ? null : (
                 <button
                   type="button"
-                  aria-label="More actions for selected messages"
+                  aria-label={__(
+                    "More actions for selected messages",
+                    "pressedmail",
+                  )}
                   onClick={() => setActionSheetOpen(true)}
                   className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted">
                   <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
@@ -2033,7 +2351,7 @@ export function MobileInboxScreen() {
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    aria-label="More options"
+                    aria-label={__("More options", "pressedmail")}
                     className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted aria-expanded:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
                   </button>
@@ -2049,15 +2367,15 @@ export function MobileInboxScreen() {
                       )}
                       aria-hidden="true"
                     />
-                    Refresh
+                    {__("Refresh", "pressedmail")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => enterBulkMode()}>
                     <CheckSquare className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Select
+                    {__("Select", "pressedmail")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate("/settings")}>
                     <Settings2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                    Settings
+                    {__("Settings", "pressedmail")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -2068,7 +2386,10 @@ export function MobileInboxScreen() {
       footer={
         bulkMode ? (
           <BottomActionBar actions={bulkActions} />
-        ) : isPagination ? (
+        ) : // The pager has no loading state of its own, so while the first
+        // page was in flight the body said "Loading messages..." and the
+        // footer said "No messages" at the same time.
+        isPagination && !(isLoading && visibleMessages.length === 0) ? (
           <PaginationFooter
             currentPage={safeCurrentPage}
             totalItems={sortedMessages.length}
@@ -2090,14 +2411,32 @@ export function MobileInboxScreen() {
         }}
         disabled={bulkMode}>
         {isLoading && visibleMessages.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            Loading messages...
+          <p
+            role="status"
+            className="px-4 py-6 text-center text-sm text-muted-foreground">
+            {__("Loading messages...", "pressedmail")}
           </p>
         ) : null}
         {!isLoading && visibleMessages.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No messages
-          </p>
+          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+            <p className="text-sm font-medium text-foreground">
+              {sprintf(
+                /* translators: %s: the name of the current mailbox, e.g. Inbox. */
+                __("Nothing in %s", "pressedmail"),
+                folderTitle,
+              )}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {__("New mail shows up here as it arrives.", "pressedmail")}
+            </p>
+            <button
+              type="button"
+              onClick={() => refreshMessages()}
+              disabled={isLoading}
+              className="pm-touch-target pm-no-tap-highlight mt-1 inline-flex items-center justify-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground active:bg-primary/90 disabled:opacity-50">
+              {__("Check for new mail", "pressedmail")}
+            </button>
+          </div>
         ) : null}
         {/* The compact inbox is its own list, so it needs the same two hooks
             the desktop list publishes. Without them the phone and tablet inbox
@@ -2136,22 +2475,30 @@ export function MobileInboxScreen() {
                     {groupKey}
                   </li>
                 ) : null}
-                <li data-test="email-row" data-testid="email-row">
+                <li
+                  data-test="email-row"
+                  data-testid="email-row"
+                  // Keep long lists searchable and accessible while the browser
+                  // skips layout and paint for offscreen rows.
+                  style={
+                    visibleMessages.length > 200
+                      ? {
+                          contentVisibility: "auto",
+                          containIntrinsicSize: "auto 80px",
+                        }
+                      : undefined
+                  }>
                   <MailRow
                     mail={mail}
+                    identity={id}
                     selected={selectedIds.has(id)}
                     bulkMode={bulkMode}
-                    onTap={() => handleRowTap(mail)}
-                    onLongPress={() => enterBulkMode(id)}
-                    onArchive={() => archiveMessage(id)}
-                    onDelete={() => requestRowDelete(id)}
+                    onTap={handleRowTap}
+                    onLongPress={handleRowLongPress}
+                    onArchive={handleRowArchive}
+                    onDelete={requestRowDelete}
                     swipeDisabled={bulkMode}
-                    onTagClick={(tag) =>
-                      applyFilters({
-                        ...activeFilters,
-                        tags: [String(tag.id)],
-                      })
-                    }
+                    onTagClick={handleRowTagClick}
                     rowPresentation={rowPresentation}
                     threadCount={
                       threadMeta?.isNewest ? threadMeta.count : undefined
@@ -2170,37 +2517,57 @@ export function MobileInboxScreen() {
       <MobileSheet
         open={actionSheetOpen}
         onOpenChange={setActionSheetOpen}
-        title={`${selectedCount} selected`}>
+        title={sprintf(
+          /* translators: %d: number of selected messages. */
+          _n("%d selected", "%d selected", selectedCount, "pressedmail"),
+          selectedCount,
+        )}>
         <div className="space-y-5">
-          <SelectedSheetGroup title="Status">
+          <SelectedSheetGroup title={__("Status", "pressedmail")}>
             <SelectedSheetAction
-              label="Mark as read"
+              label={__("Mark as read", "pressedmail")}
               icon={EmailMarkReadIcon}
               disabled={selectedCount === 0 || allSelectedRead}
               onAction={() => {
                 setActionSheetOpen(false);
                 void runBulkOperation(
                   () => batchMarkRead(selectedMessageIds),
-                  `Marked ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} as read`,
-                  "Mark read failed",
+                  sprintf(
+                    _n(
+                      "Marked %d message as read",
+                      "Marked %d messages as read",
+                      selectedCount,
+                      "pressedmail",
+                    ),
+                    selectedCount,
+                  ),
+                  __("Mark read failed", "pressedmail"),
                 );
               }}
             />
             <SelectedSheetAction
-              label="Mark as unread"
+              label={__("Mark as unread", "pressedmail")}
               icon={EmailMarkUnreadIcon}
               disabled={selectedCount === 0 || allSelectedUnread}
               onAction={() => {
                 setActionSheetOpen(false);
                 void runBulkOperation(
                   () => batchMarkUnread(selectedMessageIds),
-                  `Marked ${selectedCount} ${selectedCount === 1 ? "message" : "messages"} as unread`,
-                  "Mark unread failed",
+                  sprintf(
+                    _n(
+                      "Marked %d message as unread",
+                      "Marked %d messages as unread",
+                      selectedCount,
+                      "pressedmail",
+                    ),
+                    selectedCount,
+                  ),
+                  __("Mark unread failed", "pressedmail"),
                 );
               }}
             />
             <SelectedSheetAction
-              label="Star"
+              label={__("Star", "pressedmail")}
               icon={Star}
               disabled={selectedCount === 0 || allSelectedStarred}
               onAction={() => {
@@ -2209,7 +2576,7 @@ export function MobileInboxScreen() {
               }}
             />
             <SelectedSheetAction
-              label="Unstar"
+              label={__("Unstar", "pressedmail")}
               icon={StarOff}
               disabled={selectedCount === 0 || !allSelectedStarred}
               onAction={() => {
@@ -2218,7 +2585,7 @@ export function MobileInboxScreen() {
               }}
             />
             <SelectedSheetAction
-              label="Mark important"
+              label={__("Mark important", "pressedmail")}
               icon={CircleAlert}
               disabled={selectedCount === 0 || allSelectedImportant}
               onAction={() => {
@@ -2227,7 +2594,7 @@ export function MobileInboxScreen() {
               }}
             />
             <SelectedSheetAction
-              label="Remove important"
+              label={__("Remove important", "pressedmail")}
               icon={CircleAlert}
               disabled={selectedCount === 0 || !allSelectedImportant}
               onAction={() => {
@@ -2237,10 +2604,10 @@ export function MobileInboxScreen() {
             />
           </SelectedSheetGroup>
 
-          <SelectedSheetGroup title="Organize">
+          <SelectedSheetGroup title={__("Organize", "pressedmail")}>
             {!isTrashFolder && !isJunkFolder ? (
               <SelectedSheetAction
-                label="Archive"
+                label={__("Archive", "pressedmail")}
                 icon={EmailArchiveIcon}
                 disabled={selectedCount === 0}
                 onAction={() => {
@@ -2250,7 +2617,7 @@ export function MobileInboxScreen() {
               />
             ) : null}
             <SelectedSheetAction
-              label="Move to folder"
+              label={__("Move to folder", "pressedmail")}
               icon={FolderInput}
               disabled={selectedCount === 0 || moveTargets.length === 0}
               onAction={() => {
@@ -2259,7 +2626,7 @@ export function MobileInboxScreen() {
               }}
             />
             <SelectedSheetAction
-              label="Tag / Label"
+              label={__("Tag / Label", "pressedmail")}
               icon={Tag}
               disabled={selectedCount === 0 || tags.length === 0}
               onAction={() => {
@@ -2269,7 +2636,7 @@ export function MobileInboxScreen() {
             />
             {showSelectedSnooze ? (
               <SelectedSheetAction
-                label="Snooze"
+                label={__("Snooze", "pressedmail")}
                 icon={SnoozeClockIcon}
                 disabled={selectedCount === 0}
                 onAction={() => {
@@ -2281,7 +2648,7 @@ export function MobileInboxScreen() {
               />
             ) : null}
             <SelectedSheetAction
-              label="Sweep"
+              label={__("Sweep", "pressedmail")}
               icon={EmailSweepIcon}
               disabled={selectedCount === 0}
               onAction={() => {
@@ -2290,7 +2657,7 @@ export function MobileInboxScreen() {
               }}
             />
             <SelectedSheetAction
-              label="Run rules"
+              label={__("Run rules", "pressedmail")}
               icon={ListChecks}
               disabled={selectedCount === 0}
               loading={rulesLoading}
@@ -2299,10 +2666,10 @@ export function MobileInboxScreen() {
           </SelectedSheetGroup>
 
           {showSelectedSecurityAiGroup ? (
-            <SelectedSheetGroup title="Security and AI">
+            <SelectedSheetGroup title={__("Security and AI", "pressedmail")}>
               {showSelectedPhishing ? (
                 <SelectedSheetAction
-                  label="Phishing check"
+                  label={__("Phishing check", "pressedmail")}
                   icon={PhishingRodIcon}
                   disabled={selectedCount === 0}
                   onAction={() => {
@@ -2313,7 +2680,7 @@ export function MobileInboxScreen() {
               ) : null}
               {showSelectedAutoTag ? (
                 <SelectedSheetAction
-                  label="Auto-tag"
+                  label={__("Auto-tag", "pressedmail")}
                   icon={EmailAutoTagIcon}
                   disabled={selectedCount === 0}
                   onAction={() => {
@@ -2324,7 +2691,7 @@ export function MobileInboxScreen() {
               ) : null}
               {showSelectedSummarize ? (
                 <SelectedSheetAction
-                  label="Summarize"
+                  label={__("Summarize", "pressedmail")}
                   icon={EmailSummaryIcon}
                   disabled={selectedCount === 0}
                   onAction={() => {
@@ -2336,10 +2703,10 @@ export function MobileInboxScreen() {
             </SelectedSheetGroup>
           ) : null}
 
-          <SelectedSheetGroup title="Spam and delete">
+          <SelectedSheetGroup title={__("Spam and delete", "pressedmail")}>
             {!isJunkFolder && !isTrashFolder ? (
               <SelectedSheetAction
-                label="Move to junk"
+                label={__("Move to junk", "pressedmail")}
                 icon={EmailJunkIcon}
                 disabled={selectedCount === 0}
                 onAction={() => {
@@ -2350,7 +2717,7 @@ export function MobileInboxScreen() {
             ) : null}
             {!isTrashFolder ? (
               <SelectedSheetAction
-                label="Trash"
+                label={__("Trash", "pressedmail")}
                 icon={EmailTrashIcon}
                 disabled={selectedCount === 0}
                 destructive
@@ -2362,7 +2729,7 @@ export function MobileInboxScreen() {
             ) : null}
             {isTrashFolder ? (
               <SelectedSheetAction
-                label="Delete permanently"
+                label={__("Delete permanently", "pressedmail")}
                 icon={EmailTrashIcon}
                 disabled={selectedCount === 0}
                 destructive
@@ -2379,7 +2746,15 @@ export function MobileInboxScreen() {
       <MobileSheet
         open={moveSheetOpen}
         onOpenChange={setMoveSheetOpen}
-        title={`Move ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`}>
+        title={sprintf(
+          _n(
+            "Move %d message",
+            "Move %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        )}>
         <ul role="list" className="space-y-1">
           {moveTargets.map((folder) => (
             <li key={folderTargetKey(folder)}>
@@ -2401,7 +2776,10 @@ export function MobileInboxScreen() {
       <MobileSheet
         open={tagSheetOpen}
         onOpenChange={setTagSheetOpen}
-        title={`Tag ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`}>
+        title={sprintf(
+          _n("Tag %d message", "Tag %d messages", selectedCount, "pressedmail"),
+          selectedCount,
+        )}>
         <ul role="list" className="space-y-1">
           {tags.map((tag) => (
             <li key={tag.id}>
@@ -2426,10 +2804,23 @@ export function MobileInboxScreen() {
       <MobileSheet
         open={snoozeSheetOpen}
         onOpenChange={setSnoozeSheetOpen}
-        title={`Snooze ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`}>
+        title={sprintf(
+          _n(
+            "Snooze %d message",
+            "Snooze %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        )}>
         {!__IS_FREE__ && !snoozeAvailable ? (
           <div className="space-y-3 px-2 text-sm text-muted-foreground">
-            <p>Snooze is not available for this account or license.</p>
+            <p>
+              {__(
+                "Snooze is not available for this account or license.",
+                "pressedmail",
+              )}
+            </p>
           </div>
         ) : snoozeCustomOpen ? (
           <div className="space-y-4 px-1">
@@ -2437,7 +2828,7 @@ export function MobileInboxScreen() {
               <label
                 htmlFor="mobile-bulk-snooze-date"
                 className="text-xs font-medium text-muted-foreground">
-                Date
+                {__("Date", "pressedmail")}
               </label>
               <DateTimeSelector
                 id="mobile-bulk-snooze-date"
@@ -2453,7 +2844,7 @@ export function MobileInboxScreen() {
               <label
                 htmlFor="mobile-bulk-snooze-time"
                 className="text-xs font-medium text-muted-foreground">
-                Time
+                {__("Time", "pressedmail")}
               </label>
               <DateTimeSelector
                 id="mobile-bulk-snooze-time"
@@ -2469,14 +2860,16 @@ export function MobileInboxScreen() {
                 type="button"
                 className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted"
                 onClick={() => setSnoozeCustomOpen(false)}>
-                Back
+                {__("Back", "pressedmail")}
               </button>
               <button
                 type="button"
                 disabled={isSnoozing}
                 className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground active:bg-primary/90 disabled:opacity-50"
                 onClick={handleCustomSnooze}>
-                {isSnoozing ? "Snoozing..." : "Snooze"}
+                {isSnoozing
+                  ? __("Snoozing...", "pressedmail")
+                  : __("Snooze", "pressedmail")}
               </button>
             </div>
           </div>
@@ -2484,7 +2877,7 @@ export function MobileInboxScreen() {
           <div className="space-y-1">
             {snoozePresets.length === 0 ? (
               <p className="px-3 py-2 text-sm text-muted-foreground">
-                Loading snooze options...
+                {__("Loading snooze options...", "pressedmail")}
               </p>
             ) : (
               snoozePresets.map((preset) => (
@@ -2520,7 +2913,7 @@ export function MobileInboxScreen() {
                 className="h-5 w-5 text-muted-foreground"
                 aria-hidden="true"
               />
-              <span>Pick date/time</span>
+              <span>{__("Pick date/time", "pressedmail")}</span>
             </button>
           </div>
         )}
@@ -2529,15 +2922,23 @@ export function MobileInboxScreen() {
       <MobileSheet
         open={rulesSheetOpen}
         onOpenChange={setRulesSheetOpen}
-        title={`Run rules on ${selectedCount} ${selectedCount === 1 ? "message" : "messages"}`}>
+        title={sprintf(
+          _n(
+            "Run rules on %d message",
+            "Run rules on %d messages",
+            selectedCount,
+            "pressedmail",
+          ),
+          selectedCount,
+        )}>
         {rulesLoading ? (
           <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            Loading rules...
+            {__("Loading rules...", "pressedmail")}
           </div>
         ) : availableRules.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">
-            No enabled rules are available.
+            {__("No enabled rules are available.", "pressedmail")}
           </p>
         ) : (
           <ul role="list" className="space-y-1">
@@ -2567,11 +2968,15 @@ export function MobileInboxScreen() {
         onOpenChange={(open) => {
           if (!open && !ruleRunLoading) setPendingRule(null);
         }}
-        title="Run saved rule?"
+        title={__("Run saved rule?", "pressedmail")}
         description={
           pendingRule
-            ? `Run "${pendingRule.name}" on the selected messages.`
-            : "Run this rule on the selected messages."
+            ? sprintf(
+                /* translators: %s: the name of a saved organize rule. */
+                __("Run %s on the selected messages.", "pressedmail"),
+                pendingRule.name,
+              )
+            : __("Run this rule on the selected messages.", "pressedmail")
         }>
         <div className="flex gap-2 px-1">
           <button
@@ -2579,7 +2984,7 @@ export function MobileInboxScreen() {
             disabled={ruleRunLoading}
             className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted disabled:opacity-50"
             onClick={() => setPendingRule(null)}>
-            Cancel
+            {__("Cancel", "pressedmail")}
           </button>
           <button
             type="button"
@@ -2588,7 +2993,9 @@ export function MobileInboxScreen() {
             onClick={() => {
               void confirmRunRule();
             }}>
-            {ruleRunLoading ? "Running..." : "Run rule"}
+            {ruleRunLoading
+              ? __("Running...", "pressedmail")
+              : __("Run rule", "pressedmail")}
           </button>
         </div>
       </MobileSheet>
@@ -2610,24 +3017,30 @@ export function MobileInboxScreen() {
         onOpenChange={(open) => {
           if (!open) closeConfirmPermanent();
         }}
-        title="Delete permanently?"
+        title={__("Delete permanently?", "pressedmail")}
         description={
           pendingDeleteId
-            ? "This permanently deletes the message and cannot be undone."
-            : "This permanently deletes the selected messages and cannot be undone."
+            ? __(
+                "This permanently deletes the message and cannot be undone.",
+                "pressedmail",
+              )
+            : __(
+                "This permanently deletes the selected messages and cannot be undone.",
+                "pressedmail",
+              )
         }>
         <div className="flex gap-2 px-1">
           <button
             type="button"
             className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted"
             onClick={closeConfirmPermanent}>
-            Cancel
+            {__("Cancel", "pressedmail")}
           </button>
           <button
             type="button"
             className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground active:bg-destructive/90"
             onClick={confirmPermanentDelete}>
-            Delete permanently
+            {__("Delete permanently", "pressedmail")}
           </button>
         </div>
       </MobileSheet>

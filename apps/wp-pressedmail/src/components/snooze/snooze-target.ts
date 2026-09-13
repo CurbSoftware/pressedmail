@@ -20,8 +20,15 @@ export interface SnoozeTargetCandidate {
   date?: unknown;
 }
 
-export const INCOMPLETE_SNOOZE_IDENTITY_ERROR =
-  "The message identity is incomplete. Reload it before snoozing.";
+import { __ } from "@wordpress/i18n";
+
+/** Translated at call time: module-level __() runs before the locale loads. */
+export function incompleteSnoozeIdentityError(): string {
+  return __(
+    "The message identity is incomplete. Reload it before snoozing.",
+    "pressedmail",
+  );
+}
 
 const CANONICAL_POSITIVE_INTEGER = /^[1-9][0-9]*$/;
 const CANONICAL_MESSAGE_ID = /^<[^<>\s"\\]+@[^<>\s"\\]+>$/;

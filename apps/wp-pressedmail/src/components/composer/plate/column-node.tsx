@@ -1,5 +1,7 @@
 'use client';
 
+import { __ } from '@wordpress/i18n';
+
 import * as React from 'react';
 import { setColumns } from '@kit/plate/layout';
 import { Trash2Icon, type LucideProps } from 'lucide-react';
@@ -90,6 +92,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
         <div className="box-content flex h-8 items-center">
           <Button
             className="size-8"
+            aria-label={__('Two equal columns', 'pressedmail')}
             onClick={() => onColumnChange(['50%', '50%'])}
             variant="ghost"
           >
@@ -97,6 +100,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
           </Button>
           <Button
             className="size-8"
+            aria-label={__('Three equal columns', 'pressedmail')}
             onClick={() => onColumnChange(['33%', '33%', '33%'])}
             variant="ghost"
           >
@@ -104,6 +108,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
           </Button>
           <Button
             className="size-8"
+            aria-label={__('Wider left column', 'pressedmail')}
             onClick={() => onColumnChange(['70%', '30%'])}
             variant="ghost"
           >
@@ -111,6 +116,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
           </Button>
           <Button
             className="size-8"
+            aria-label={__('Wider right column', 'pressedmail')}
             onClick={() => onColumnChange(['30%', '70%'])}
             variant="ghost"
           >
@@ -118,6 +124,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
           </Button>
           <Button
             className="size-8"
+            aria-label={__('Wider middle column', 'pressedmail')}
             onClick={() => onColumnChange(['25%', '50%', '25%'])}
             variant="ghost"
           >
@@ -125,7 +132,12 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
           </Button>
 
           <Separator className="mx-1 h-6" orientation="vertical" />
-          <Button className="size-8" variant="ghost" {...buttonProps}>
+          <Button
+            aria-label={__('Delete columns', 'pressedmail')}
+            className="size-8"
+            variant="ghost"
+            {...buttonProps}
+          >
             <Trash2Icon />
           </Button>
         </div>

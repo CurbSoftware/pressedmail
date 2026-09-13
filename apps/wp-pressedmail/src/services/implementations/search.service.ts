@@ -277,6 +277,7 @@ export class SearchService implements ISearchService {
         scope: "emails",
         account_id: options?.accountId,
         folder: options?.folder,
+        read_status: options?.readStatus,
         limit: options?.limit ?? 25,
         offset: options?.offset ?? 0,
         ...getMailboxSourceRequestParams(),
@@ -295,9 +296,13 @@ export class SearchService implements ISearchService {
 
       const data: UnifiedSearchResponse = await response.json();
 
+      if (data.status !== "success") {
+        throw new Error(data.message || "Search failed");
+      }
+
       const result: SearchResult = {
         messages: data.emails || [],
-        total: data.total || data.emails?.length || 0,
+        total: data.total ?? data.emails?.length ?? 0,
         suggestions: [],
         searchTime: Date.now() - startTime,
         fromCache: false,
@@ -312,8 +317,8 @@ export class SearchService implements ISearchService {
 
       return result;
     } catch (error) {
-      console.error("[SearchService] search error:", error);
       return {
+        error: error instanceof Error ? error.message : "Search failed",
         messages: [],
         total: 0,
         suggestions: [],

@@ -6,6 +6,7 @@
  */
 
 import type { ComposeMode } from "@/components/inbox/compose/compose-utils";
+import { plainTextToComposerHtml } from "@/lib/composer/plain-text-content";
 import type { Signature, SignaturePosition } from "@/types/signatures";
 
 // Editable signature container. Emitted as the TipTap `SignatureBlock` node
@@ -42,16 +43,37 @@ export function wrapSignatureContent(
   return `<div data-pm-block="${SIGNATURE_BLOCK}">${separator}<div class="signature-content">${content}</div></div>`;
 }
 
+/** Quoted senders retain their markers; they never belong to this compose. */
+function isInsideQuotedContent(html: string, offset: number): boolean {
+  const prefix = html.slice(0, offset);
+  if (!/blockquote|gmail_quote|data-pm-block\s*=\s*["']?quote/i.test(prefix))
+    return false;
+  const document = new DOMParser().parseFromString(
+    `${prefix}<pm-signature-boundary></pm-signature-boundary>`,
+    "text/html",
+  );
+  const boundaries = document.querySelectorAll("pm-signature-boundary");
+  const boundary = boundaries[boundaries.length - 1];
+  return (
+    !boundary ||
+    Boolean(
+      boundary.closest('blockquote, [data-pm-block="quote"], .gmail_quote'),
+    )
+  );
+}
+
 /**
- * Finds the [start, end) span of the first signature block in `html`, or null.
+ * Finds the [start, end) span of the first authored signature block, or null.
  * Handles both the new node markup (balancing nested <div>s) and the legacy
  * comment-marker format.
  */
 function findSignatureSpan(
   html: string,
 ): { start: number; end: number } | null {
-  const open = SIGNATURE_OPEN_RE.exec(html);
-  if (open) {
+  const candidates = new RegExp(SIGNATURE_OPEN_RE, "gi");
+  let open: RegExpExecArray | null;
+  while ((open = candidates.exec(html)) !== null) {
+    if (isInsideQuotedContent(html, open.index)) continue;
     const start = open.index;
     let depth = 1;
     const tagRe = /<\/?div\b[^>]*>/gi;
@@ -70,13 +92,27 @@ function findSignatureSpan(
     // Unbalanced markup, fall through to legacy detection.
   }
 
-  const legacyStart = html.indexOf(LEGACY_START_MARKER);
-  const legacyEnd = html.indexOf(LEGACY_END_MARKER);
-  if (legacyStart !== -1 && legacyEnd !== -1 && legacyStart < legacyEnd) {
-    return { start: legacyStart, end: legacyEnd + LEGACY_END_MARKER.length };
+  let legacyStart = html.indexOf(LEGACY_START_MARKER);
+  while (legacyStart !== -1) {
+    const legacyEnd = html.indexOf(
+      LEGACY_END_MARKER,
+      legacyStart + LEGACY_START_MARKER.length,
+    );
+    if (legacyEnd !== -1 && !isInsideQuotedContent(html, legacyStart))
+      return { start: legacyStart, end: legacyEnd + LEGACY_END_MARKER.length };
+    legacyStart = html.indexOf(
+      LEGACY_START_MARKER,
+      legacyStart + LEGACY_START_MARKER.length,
+    );
   }
 
   return null;
+}
+
+/** Exact editable block, including nested markup, for automatic-insertion ownership. */
+export function signatureSnapshot(html: string): string | null {
+  const span = findSignatureSpan(html);
+  return span ? html.slice(span.start, span.end) : null;
 }
 
 /**
@@ -119,7 +155,7 @@ export function removeSignature(html: string): string {
  */
 export function replaceSignature(
   html: string,
-  signature: Signature,
+  signature: Pick<Signature, "content" | "content_type">,
   addSeparator = true,
 ): string {
   const bodyWithoutSignature = removeSignature(html);
@@ -134,7 +170,7 @@ export function replaceSignature(
  */
 export function insertSignature(
   html: string,
-  signature: Signature,
+  signature: Pick<Signature, "content" | "content_type">,
   options: SignatureInsertOptions = {},
 ): string {
   const {
@@ -150,7 +186,9 @@ export function insertSignature(
   }
 
   const wrappedSignature = wrapSignatureContent(
-    signature.content,
+    signature.content_type === "plain"
+      ? plainTextToComposerHtml(signature.content)
+      : signature.content,
     addSeparator,
   );
 
@@ -182,7 +220,7 @@ export function getBodyWithoutSignature(html: string): string {
  */
 export function insertSignatureForReply(
   html: string,
-  signature: Signature,
+  signature: Pick<Signature, "content" | "content_type">,
   quotedContentMarker?: string,
 ): string {
   // Boundary markers, in document order. The composer scaffold emits an <hr>
@@ -208,7 +246,12 @@ export function insertSignatureForReply(
     }
   }
 
-  const wrappedSignature = wrapSignatureContent(signature.content, true);
+  const wrappedSignature = wrapSignatureContent(
+    signature.content_type === "plain"
+      ? plainTextToComposerHtml(signature.content)
+      : signature.content,
+    true,
+  );
 
   if (quoteIndex === -1) {
     // No quoted content found, append to end
@@ -241,7 +284,7 @@ export interface ApplySignatureOptions {
  */
 export function applySignature(
   html: string,
-  signature: Signature,
+  signature: Pick<Signature, "content" | "content_type">,
   options: ApplySignatureOptions = {},
 ): string {
   const { mode = "new", replaceExisting = true, placement } = options;

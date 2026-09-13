@@ -20,7 +20,14 @@ export type {
   RegisterSettingsDraft,
   SettingsDraftHandle,
 } from "./settings-draft-handle";
+export { SettingsListRow } from "./settings-list-row";
 export { SettingsSectionCard } from "./settings-section-card";
+// Re-exported through the alias rather than as `./settings-section-description`,
+// unlike every other line here. This module has an edition variant and the
+// alias table matches only the `@/` form, so a relative re-export resolves the
+// Pro map into the Free bundle: the barrel is shared and Free files import it.
+export { settingsSectionDescription } from "@/components/settings-ui/settings-section-description";
+export { SettingsSkeleton } from "./settings-skeleton";
 export { SettingsUsageBar } from "./settings-usage-bar";
 export {
   SettingsNavigationGuardProvider,

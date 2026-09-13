@@ -19,7 +19,7 @@ import {
   AUTH_ERROR_PATTERNS,
 } from "../interfaces/connection-state.interface";
 import {
-  CREDENTIALS_REQUIRED_FALLBACK_MESSAGE,
+  credentialsRequiredFallbackMessage,
   subscribeCredentialsRequired,
 } from "@/lib/credentials-required-events";
 
@@ -449,7 +449,7 @@ if (typeof window !== "undefined") {
       String(accountId),
       typeof detail?.message === "string" && detail.message !== ""
         ? detail.message
-        : CREDENTIALS_REQUIRED_FALLBACK_MESSAGE,
+        : credentialsRequiredFallbackMessage(),
     );
   });
 }

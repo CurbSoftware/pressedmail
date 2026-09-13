@@ -13,7 +13,7 @@ import { SuggestionPlugin } from '@kit/plate/suggestion/react';
 import { CheckIcon, XIcon } from 'lucide-react';
 import { useEditorPlugin, usePluginOption } from '@kit/plate/react';
 import * as React from 'react';
-import { __ } from '@wordpress/i18n';
+import { __, sprintf } from '@wordpress/i18n';
 
 import { Avatar, AvatarFallback, Button } from '@kit/ui/plugin';
 
@@ -28,6 +28,25 @@ import {
   formatCommentDate,
   getUserInitials,
 } from './comment';
+
+
+/** Mark keys are code names; the common ones get a translated label. */
+function formattingName(key: string): string {
+  const names: Record<string, string> = {
+    bold: __('Bold', 'pressedmail'),
+    italic: __('Italic', 'pressedmail'),
+    underline: __('Underline', 'pressedmail'),
+    strikethrough: __('Strikethrough', 'pressedmail'),
+    code: __('Code', 'pressedmail'),
+    subscript: __('Subscript', 'pressedmail'),
+    superscript: __('Superscript', 'pressedmail'),
+    color: __('Text color', 'pressedmail'),
+    backgroundColor: __('Highlight', 'pressedmail'),
+    fontSize: __('Font size', 'pressedmail'),
+    fontFamily: __('Font', 'pressedmail'),
+  };
+  return names[key] ?? key;
+}
 
 export function BlockSuggestionCard({
   idx,
@@ -173,13 +192,17 @@ export function BlockSuggestionCard({
               <div className="flex items-center gap-2">
                 <span className="text-muted-foreground text-sm">
                   {Object.keys(suggestion.properties).map((key) => (
-                    <span key={key}>Un{key}</span>
+                    <span key={key}>
+                      {sprintf(
+                        /* translators: %s: a formatting name, such as Bold. */
+                        __('Remove %s', 'pressedmail'),
+                        formattingName(key),
+                      )}
+                    </span>
                   ))}
 
                   {Object.keys(suggestion.newProperties).map((key) => (
-                    <span key={key}>
-                      {key.charAt(0).toUpperCase() + key.slice(1)}
-                    </span>
+                    <span key={key}>{formattingName(key)}</span>
                   ))}
                 </span>
                 <span className="text-sm">{suggestion.newText}</span>
@@ -203,6 +226,7 @@ export function BlockSuggestionCard({
         {hovering && (
           <div className="absolute top-4 right-4 flex gap-2">
             <Button
+              aria-label={__('Accept suggestion', 'pressedmail')}
               className="size-6 p-1 text-muted-foreground"
               onClick={() => accept(suggestion)}
               variant="ghost"
@@ -211,6 +235,7 @@ export function BlockSuggestionCard({
             </Button>
 
             <Button
+              aria-label={__('Reject suggestion', 'pressedmail')}
               className="size-6 p-1 text-muted-foreground"
               onClick={() => reject(suggestion)}
               variant="ghost"

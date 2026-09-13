@@ -15,8 +15,12 @@ export const PRESSED_OUT_RIBBON_BUTTON_CLASS =
 
 export const PRESSED_OUT_RIBBON_ICON_CLASS = "size-4 shrink-0";
 
+// leading-normal, not leading-tight: truncate sets overflow:hidden, and a 1.25
+// line box over 11px text cut the descenders off, so "Tag" rendered as "Taq".
+// The size stays 11px here: this constant is shared with the phishing safety
+// button, whose test lives outside this workstream's files.
 export const PRESSED_OUT_RIBBON_LABEL_CLASS =
-  "max-w-full truncate text-center text-[11px] leading-tight";
+  "max-w-full truncate text-center text-[11px] leading-normal";
 
 export interface PressedOutRibbonButtonProps extends Omit<
   React.ComponentPropsWithoutRef<"button">,

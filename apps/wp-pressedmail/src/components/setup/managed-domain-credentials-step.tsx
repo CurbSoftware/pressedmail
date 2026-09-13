@@ -234,12 +234,12 @@ export function ManagedDomainCredentialsStep({
           {loading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {__("Testing Connection...", "pressedmail")}
+              {__("Testing connection...", "pressedmail")}
             </>
           ) : connectionStatus?.success ? (
-            __("Connection Tested", "pressedmail")
+            __("Connection tested", "pressedmail")
           ) : (
-            __("Test Connection", "pressedmail")
+            __("Test connection", "pressedmail")
           )}
         </Button>
 
@@ -269,7 +269,7 @@ export function ManagedDomainCredentialsStep({
           onClick={onAddEmail}
           disabled={loading || !connectionStatus?.success}
           className="w-full">
-          {__("Save Account", "pressedmail")}
+          {__("Save account", "pressedmail")}
         </Button>
       </div>
     </div>

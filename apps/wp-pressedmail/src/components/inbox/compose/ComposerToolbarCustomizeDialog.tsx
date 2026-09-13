@@ -63,6 +63,9 @@ export interface ComposerToolbarCustomizeDialogProps {
   /** Which persisted toolbar preference set this dialog edits. */
   target?: "desktop" | "mobile";
   triggerClassName?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
   /** Optional Preferences-page draft; composer surfaces use persisted values. */
   toolbarPreferences?: ComposerToolbarPreferences;
   /** Stages changes in the Preferences-page draft instead of persisting them. */
@@ -78,8 +81,8 @@ export interface ComposerToolbarCustomizeDialogProps {
  * the current surface as a toggle. Toggling writes the shared
  * `composer_toolbar_preset='custom'` + `composer_toolbar_items` preference that
  * every composer reads. Preview is always listed, checked, and locked on (it
- * cannot be removed). AI functions are always listed but stay deactivated until
- * AI is enabled and configured.
+ * cannot be removed). In Pro, AI functions are listed but stay deactivated
+ * until AI is enabled and configured; Free never lists them.
  */
 export function ComposerToolbarCustomizeDialog({
   surface = "email",
@@ -88,29 +91,35 @@ export function ComposerToolbarCustomizeDialog({
   inlineImagesEnabled = true,
   target = "desktop",
   triggerClassName,
+  open: controlledOpen,
+  onOpenChange,
+  hideTrigger = false,
   toolbarPreferences,
   onToolbarPreferencesChange,
 }: ComposerToolbarCustomizeDialogProps) {
   const { preferences, updatePreferences, saving } = useUserPreferences();
   const effectivePreferences = toolbarPreferences ?? preferences;
-  const [open, setOpen] = useState(false);
+  const [localOpen, setLocalOpen] = useState(false);
+  const open = controlledOpen ?? localOpen;
+  const setOpen = onOpenChange ?? setLocalOpen;
   const [selectedTarget, setSelectedTarget] = useState<"desktop" | "mobile">(
     target,
   );
   const isMobileTarget = selectedTarget === "mobile";
   const palettesEnabled = useComposerPalettesEnabled();
 
-  // List every function available on this surface. AI is force-listed
-  // (aiEnabled: true) so it always appears; its interactivity is handled below.
-  // The palette buttons are dropped outright when the Ultimate tier is absent,
-  // so nobody can toggle on a button the toolbar refuses to render.
+  // List every function this build can render. AI is listed only where the
+  // build ships it (never in Free, where a locked Pro switch would breach
+  // wp.org guideline 5); in Pro it stays listed and is switched off until AI
+  // is configured. The palette buttons are dropped outright when the Ultimate
+  // tier is absent, so nobody can toggle on a button the toolbar refuses to render.
   const groups = useMemo(
     () =>
       getComposerToolbarSettingsGroups({
         surface,
         contentBlocksEnabled,
         inlineImagesEnabled,
-        aiEnabled: true,
+        aiEnabled: COMPOSER_AI_TOOLBAR_ENABLED,
       })
         .map((group) => ({
           ...group,
@@ -211,16 +220,18 @@ export function ComposerToolbarCustomizeDialog({
 
   return (
     <>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className={cn("h-7 w-7 p-0", triggerClassName)}
-        aria-label={__("Customize toolbar", "pressedmail")}
-        data-test="composer-toolbar-customize-trigger"
-        onClick={() => setOpen(true)}>
-        <Sliders className="h-3.5 w-3.5" />
-      </Button>
+      {!hideTrigger && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn("h-7 w-7 p-0", triggerClassName)}
+          aria-label={__("Customize toolbar", "pressedmail")}
+          data-test="composer-toolbar-customize-trigger"
+          onClick={() => setOpen(true)}>
+          <Sliders className="h-3.5 w-3.5" />
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           className="h-[min(82vh,42rem)] max-w-[min(92vw,42rem)] grid-rows-[2rem_auto_minmax(0,1fr)_auto] overflow-x-hidden"

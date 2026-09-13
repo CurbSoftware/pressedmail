@@ -7,6 +7,7 @@
  * @since 2.0.0
  */
 
+import { __ } from "@wordpress/i18n";
 import type {
   EmailMessage,
   EmailThread,
@@ -1397,7 +1398,8 @@ export class InboxService implements IInboxOperations {
       }
 
       if (data?.status === "error") {
-        const errorMsg = data.message || "Failed to load messages";
+        const errorMsg =
+          data.message || __("Failed to load messages", "pressedmail");
         const authDetected = isAuthError(errorMsg);
         if (authDetected && this.connectionState) {
           this.connectionState.markUnhealthy(String(requestScopeId), errorMsg);
@@ -1461,7 +1463,9 @@ export class InboxService implements IInboxOperations {
       }
 
       const errorMsg =
-        error instanceof Error ? error.message : "Failed to load messages";
+        error instanceof Error
+          ? error.message
+          : __("Failed to load messages", "pressedmail");
       const authDetected = isAuthError(errorMsg);
 
       if (authDetected && this.connectionState) {
@@ -1798,7 +1802,8 @@ export class InboxService implements IInboxOperations {
           };
         }
         this._hasMore = false;
-        const errorMsg = data.message || "Failed to load messages";
+        const errorMsg =
+          data.message || __("Failed to load messages", "pressedmail");
         const authDetected = isAuthError(errorMsg);
 
         if (authDetected && this.connectionState) {
@@ -2042,7 +2047,9 @@ export class InboxService implements IInboxOperations {
       }
 
       const errorMsg =
-        error instanceof Error ? error.message : "Failed to load messages";
+        error instanceof Error
+          ? error.message
+          : __("Failed to load messages", "pressedmail");
       const authDetected = isAuthError(errorMsg);
 
       if (authDetected && this.connectionState) {
@@ -2193,7 +2200,8 @@ export class InboxService implements IInboxOperations {
 
       if (data?.status === "error") {
         this._hasMore = false;
-        const errorMsg = data.message || "Failed to load more messages";
+        const errorMsg =
+          data.message || __("Failed to load more messages", "pressedmail");
         const authDetected = isAuthError(errorMsg);
 
         if (authDetected && this.connectionState) {
@@ -2322,7 +2330,9 @@ export class InboxService implements IInboxOperations {
       }
 
       const errorMsg =
-        error instanceof Error ? error.message : "Failed to load more";
+        error instanceof Error
+          ? error.message
+          : __("Failed to load more", "pressedmail");
       const authDetected = isAuthError(errorMsg);
       const networkDetected =
         isNetworkFetchError(error) || isRequestTimeoutError(error);
@@ -2500,6 +2510,7 @@ export class InboxService implements IInboxOperations {
     // conversation). Drop them; the refresh below supplies scoped ones.
     if (nextFilterSignature !== previousFilterSignature) {
       this._threadGroups = {};
+      this._currentOffsetStart = 0;
     }
     this.notify();
 
@@ -2520,6 +2531,7 @@ export class InboxService implements IInboxOperations {
     this._filteredMessages = [...this._messages];
     if (previousFilterSignature !== "nofilters") {
       this._threadGroups = {};
+      this._currentOffsetStart = 0;
     }
     this.notify();
 

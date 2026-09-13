@@ -1,5 +1,7 @@
 "use client";
 
+import { __, sprintf } from "@wordpress/i18n";
+
 import { MobileComposeScreen } from "@/admin/pages/mobile/MobileComposeScreen";
 
 interface MobileComposeSheetProps {
@@ -33,7 +35,13 @@ export function MobileComposeSheet({
           replyTo
             ? {
                 to: replyTo.to,
-                subject: replyTo.subject ? `Re: ${replyTo.subject}` : "",
+                subject: replyTo.subject
+                  ? sprintf(
+                      /* translators: %s: the subject of the message being replied to. */
+                      __("Re: %s", "pressedmail"),
+                      replyTo.subject,
+                    )
+                  : "",
               }
             : undefined
         }

@@ -163,12 +163,145 @@ body.toplevel_page_pressedmail-plugin #wpfooter {
   display: none !important;
 }
 
-/* Hide WordPress admin notices on PressedMail pages */
-body.toplevel_page_pressedmail-plugin .notice,
-body.toplevel_page_pressedmail-plugin .notice-warning,
-body.toplevel_page_pressedmail-plugin .update-nag,
-body.toplevel_page_pressedmail-plugin .inline {
-  display: none !important;
+/* Height of the admin screen below the admin bar.
+
+   The bar is 32px on a wide window and 46px from 782px down, where WordPress
+   switches to its own mobile admin layout. Both heights have to come off the
+   viewport: sizing to the wide one on a narrow window hangs the app 14px past
+   the bottom and WordPress grows a second scrollbar. One token, used by every
+   rule below that fills the screen. */
+body.toplevel_page_pressedmail-plugin {
+  --pm-admin-viewport: calc(100vh - 32px);
+}
+
+@media screen and (max-width: 782px) {
+  body.toplevel_page_pressedmail-plugin {
+    --pm-admin-viewport: calc(100vh - 46px);
+  }
+}
+
+/* WordPress admin notices.
+
+   Every notice on this screen used to be display:none, including PressedMail's
+   own "Critical Requirements Not Met" error and its Recheck button, core update
+   and database notices, recovery mode reporting a paused plugin, and anything
+   that happened to carry the generic class "inline". An admin who opened
+   PressedMail on a site with a missing PHP extension saw a broken app and no
+   explanation anywhere.
+
+   So keep the notices and give them a place to sit. #wpbody-content becomes the
+   column: notices at the top, the app taking the rest of the height, and the
+   notice strip scrolling on its own if a site has a wall of them. Immersive mode
+   is left out because it owns the whole viewport by design. */
+body.toplevel_page_pressedmail-plugin:not(.pressedmail-immersive):has(
+    #wpbody-content > :is(.notice, .update-nag),
+    #wpbody-content > :not(#pressedmail-plugin) :is(.notice, .update-nag)
+  )
+  #wpbody-content {
+  display: flex;
+  flex-direction: column;
+  height: var(--pm-admin-viewport);
+  overflow: hidden;
+}
+
+body.toplevel_page_pressedmail-plugin:not(.pressedmail-immersive):has(
+    #wpbody-content > :is(.notice, .update-nag),
+    #wpbody-content > :not(#pressedmail-plugin) :is(.notice, .update-nag)
+  )
+  #pressedmail-plugin {
+  flex: 1 1 auto;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+body.toplevel_page_pressedmail-plugin
+  #wpbody-content
+  > :is(.notice, .update-nag) {
+  flex: 0 0 auto;
+  max-height: 30vh;
+  overflow-y: auto;
+  margin: 12px 16px 0;
+  padding: 4px 12px;
+  border: 1px solid var(--border, #c3c4c7);
+  border-left-width: 4px;
+  border-radius: var(--radius, 4px);
+  background-color: var(--card, #ffffff);
+  color: var(--card-foreground, #1d2327);
+  box-shadow: none;
+}
+
+/* Notice severity keeps reading as severity, in the theme's own colours.
+
+   The stripe is the only thing that says at a glance which kind of notice this
+   is, so it owes 3:1 against the card (WCAG 1.4.11) and the raw fills do not
+   pay it: --warning measures 2.55:1 on the dark card in three palettes. Mixing
+   a fifth of the card's text colour into the fill moves only lightness, and it
+   moves it the right way in both modes because --card-foreground is dark on a
+   light card and light on a dark one. Measured for every palette in both modes
+   by src/styles/accessibility-floor.test.ts, worst case 3.41:1. */
+body.toplevel_page_pressedmail-plugin #wpbody-content > .notice-error {
+  border-left-color: color-mix(
+    in oklch,
+    var(--destructive, #d63638) 80%,
+    var(--card-foreground, #1d2327)
+  );
+}
+
+body.toplevel_page_pressedmail-plugin #wpbody-content > .notice-warning,
+body.toplevel_page_pressedmail-plugin #wpbody-content > .update-nag {
+  border-left-color: color-mix(
+    in oklch,
+    var(--warning, #dba617) 80%,
+    var(--card-foreground, #1d2327)
+  );
+}
+
+body.toplevel_page_pressedmail-plugin #wpbody-content > .notice-success {
+  border-left-color: color-mix(
+    in oklch,
+    var(--success, #00a32a) 80%,
+    var(--card-foreground, #1d2327)
+  );
+}
+
+body.toplevel_page_pressedmail-plugin #wpbody-content > .notice-info {
+  border-left-color: color-mix(
+    in oklch,
+    var(--info, #72aee6) 80%,
+    var(--card-foreground, #1d2327)
+  );
+}
+
+/* A notice sits beside the app, not inside it, so the only custom properties
+   that resolve here are the palette tokens ThemeProvider writes to the document
+   root. --primary is one of them and it is a fill: read as text on the notice
+   card it measures 3.74:1 in the default dark palette. The derived
+   --pm-primary-text that fixes that in the app is declared on the plugin
+   container, so a notice never inherits it. Take the card's own text colour
+   instead, which is the pair the palette already guarantees, and underline the
+   link so it is still a link once it shares that colour. */
+body.toplevel_page_pressedmail-plugin
+  #wpbody-content
+  > :is(.notice, .update-nag)
+  :is(a, a:hover, a:focus):not(.button):not(.button-primary):not(.button-secondary):not(.button-link) {
+  color: var(--card-foreground, #1d2327);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+body.toplevel_page_pressedmail-plugin
+  #wpbody-content
+  > .notice
+  .notice-dismiss::before {
+  color: var(--muted-foreground, #787c82);
+}
+
+body.toplevel_page_pressedmail-plugin
+  #wpbody-content
+  > .notice
+  .notice-dismiss:focus-visible {
+  outline: 2px solid var(--ring, #2271b1);
+  outline-offset: -2px;
 }
 
 /* Make the plugin container fill available space within WP layout */
@@ -176,8 +309,8 @@ body.toplevel_page_pressedmail-plugin .pressedmail-plugin-app,
 body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
   margin: 0 !important;
   padding: 0 !important;
-  min-height: calc(100vh - 32px) !important;
-  height: calc(100vh - 32px) !important;
+  min-height: var(--pm-admin-viewport) !important;
+  height: var(--pm-admin-viewport) !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
@@ -200,11 +333,17 @@ body.toplevel_page_pressedmail-plugin:has(
   overflow: hidden !important;
 }
 
-body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+body.toplevel_page_pressedmail-plugin:has(
+    #pressedmail-plugin[data-pm-shell="phone"]
+  )
   #wpcontent,
-body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+body.toplevel_page_pressedmail-plugin:has(
+    #pressedmail-plugin[data-pm-shell="phone"]
+  )
   #wpbody,
-body.toplevel_page_pressedmail-plugin:has(#pressedmail-plugin[data-pm-shell="phone"])
+body.toplevel_page_pressedmail-plugin:has(
+    #pressedmail-plugin[data-pm-shell="phone"]
+  )
   #wpbody-content {
   overflow: hidden !important;
 }
@@ -276,14 +415,44 @@ body.toplevel_page_pressedmail-plugin
   opacity: 1 !important;
 }
 
-/* Override WordPress default heading colors to use theme-aware foreground */
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h1,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h2,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h3,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h4,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h5,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin h6 {
-  color: var(--foreground) !important;
+/* WordPress styles headings and paragraphs unlayered, in wp-admin/css/common.css
+   (h2, h3 at 1.3em with 1em margins; p with 1em margins). Unlayered beats every
+   Tailwind utility in @layer utilities however specific it is, so authored type
+   sizes, colours and spacing simply did not render: a text-xs muted account
+   heading came out as bold near-black with 20px of air around it, and a
+   space-y-1 empty state sat 21px apart. Forcing the colour with !important on
+   top of that then overrode the muted, primary and destructive headings the
+   components ask for, 22 of them.
+
+   revert-layer rolls the unlayered author declarations back for these
+   properties, which lands on the layered values the components actually
+   authored. Same treatment the portal block below has always had.
+
+   The email reading and composing surfaces are excluded: their paragraph
+   spacing is deliberate, and an email is not ours to re-space. */
+body.toplevel_page_pressedmail-plugin
+  #pressedmail-plugin
+  :where(h1, h2, h3, h4, h5, h6, p):not(
+    :where(
+      .pm-email-content-surface,
+      .pm-email-content-surface *,
+      .pm-email-preview-surface,
+      .pm-email-preview-surface *,
+      .email-html-container,
+      .email-html-container *,
+      .pm-composer-editor,
+      .pm-composer-editor *,
+      [data-slate-editor],
+      [data-slate-editor] *
+    )
+  ) {
+  color: revert-layer;
+  font-size: revert-layer;
+  font-weight: revert-layer;
+  line-height: revert-layer;
+  letter-spacing: revert-layer;
+  margin: revert-layer;
+  padding: revert-layer;
 }
 
 /* WordPress headings are unlayered, while plugin typography utilities live in
@@ -300,16 +469,6 @@ body.toplevel_page_pressedmail-plugin
   letter-spacing: revert-layer;
   margin: revert-layer;
   padding: revert-layer;
-}
-
-/* Ensure card headings use card-foreground */
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h1,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h2,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h3,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h4,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h5,
-body.toplevel_page_pressedmail-plugin #pressedmail-plugin .bg-card h6 {
-  color: var(--card-foreground) !important;
 }
 
 /* Ensure card title icons + text stay inline in settings */

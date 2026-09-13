@@ -42,12 +42,15 @@ export function SettingsSectionCard({
 }: SettingsSectionCardProps) {
   return (
     <Card
-      className={cn("gap-4 rounded-lg bg-card py-4 shadow-sm", className)}
+      className={cn(
+        "gap-4 rounded-none border-0 bg-transparent py-4 ring-0 shadow-none sm:rounded-lg sm:bg-card sm:ring-1 sm:shadow-sm",
+        className,
+      )}
       data-test={dataTest}
       data-testid={dataTest}
       aria-busy={ariaBusy}
       size="sm">
-      <CardHeader className="grid-cols-[1fr_auto] gap-2 px-4">
+      <CardHeader className="grid-cols-[1fr_auto] gap-2 px-0 sm:px-4">
         <div className="min-w-0 space-y-1">
           <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-6">
             <span className="min-w-0">{title}</span>
@@ -63,7 +66,7 @@ export function SettingsSectionCard({
         </div>
         {actions ? <div className="justify-self-end">{actions}</div> : null}
       </CardHeader>
-      <CardContent className={cn("px-4", contentClassName)}>
+      <CardContent className={cn("px-0 sm:px-4", contentClassName)}>
         {children}
       </CardContent>
     </Card>

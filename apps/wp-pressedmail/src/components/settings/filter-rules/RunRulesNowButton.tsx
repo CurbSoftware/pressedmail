@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -48,6 +48,15 @@ interface RunRulesNowButtonProps {
    * all accounts"; `undefined` falls back to the inbox's selected account.
    */
   accountId?: number | null;
+  /**
+   * How many rules the caller is showing.
+   *
+   * The control was only ever disabled while loading or running, so with no
+   * rules saved it opened a picker that could say nothing but "No enabled
+   * rules available". `undefined` means the caller does not know, and the
+   * control stays available.
+   */
+  ruleCount?: number;
 }
 
 const FINAL_RUN_STATUSES = new Set<FilterRuleRunJob["status"]>([
@@ -60,7 +69,10 @@ const FINAL_RUN_STATUSES = new Set<FilterRuleRunJob["status"]>([
 // session, deleted row). Without this the button spun on "Running..." forever.
 const MAX_POLL_FAILURES = 5;
 
-export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
+export function RunRulesNowButton({
+  accountId,
+  ruleCount,
+}: RunRulesNowButtonProps = {}) {
   const { selectedAccountId } = useInbox();
   const [open, setOpen] = useState(false);
   const [rules, setRules] = useState<FilterRule[]>([]);
@@ -285,7 +297,12 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
         onClick={() => {
           void openPicker();
         }}
-        disabled={loading || running}
+        disabled={loading || running || ruleCount === 0}
+        title={
+          ruleCount === 0
+            ? __("Create a rule before running one.", "pressedmail")
+            : undefined
+        }
         data-test="run-rules-now"
         data-testid="run-rules-now">
         {loading || running ? (
@@ -337,7 +354,16 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
             )}
             <span>{reportStatusLabel}</span>
             <span className="text-muted-foreground">
-              {runReport.changedCount ?? 0} {__("changed", "pressedmail")}
+              {sprintf(
+                /* translators: %d: number of messages changed by the run. */
+                _n(
+                  "%d changed",
+                  "%d changed",
+                  runReport.changedCount ?? 0,
+                  "pressedmail",
+                ),
+                runReport.changedCount ?? 0,
+              )}
             </span>
           </Button>
           <Button
@@ -462,7 +488,16 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
                 />
                 <ResultMetric
                   label={__("Failed", "pressedmail")}
-                  value={`${runReport.failedCount ?? 0} ${__("failed", "pressedmail")}`}
+                  value={sprintf(
+                    /* translators: %d: number of messages that failed. */
+                    _n(
+                      "%d failed",
+                      "%d failed",
+                      runReport.failedCount ?? 0,
+                      "pressedmail",
+                    ),
+                    runReport.failedCount ?? 0,
+                  )}
                 />
                 <ResultMetric
                   label={__("Skipped actions", "pressedmail")}
@@ -480,7 +515,11 @@ export function RunRulesNowButton({ accountId }: RunRulesNowButtonProps = {}) {
                 <div className="text-muted-foreground">
                   {reportAccountId === 0
                     ? __("All accounts", "pressedmail")
-                    : `${__("Account", "pressedmail")} ${reportAccountId}`}
+                    : sprintf(
+                        /* translators: %d: internal account id. */
+                        __("Account %d", "pressedmail"),
+                        reportAccountId,
+                      )}
                 </div>
               </div>
               {runReport.unsupportedRules &&

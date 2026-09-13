@@ -112,8 +112,8 @@ export function StepCredentialsWithPolicy({
         <Shield className="h-12 w-12 text-primary mx-auto" />
         <h2 className="text-2xl font-bold">
           {isEditing
-            ? __("Update Account Credentials", "pressedmail")
-            : __("Account Credentials", "pressedmail")}
+            ? __("Update account credentials", "pressedmail")
+            : __("Account credentials", "pressedmail")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {__("Enter your email credentials", "pressedmail")}
@@ -127,7 +127,7 @@ export function StepCredentialsWithPolicy({
       <div className="space-y-4">
         {showEmailInput && (
           <div className="space-y-2">
-            <Label htmlFor="email">{__("Email Address", "pressedmail")}</Label>
+            <Label htmlFor="email">{__("Email address", "pressedmail")}</Label>
             <Input
               autoComplete="off"
               id="email"
@@ -195,13 +195,13 @@ export function StepCredentialsWithPolicy({
 
         <div className="space-y-2">
           <Label htmlFor="displayName">
-            {__("Display Name", "pressedmail")}
+            {__("Display name", "pressedmail")}
           </Label>
           <Input
             autoComplete="off"
             id="displayName"
             data-test="display-name-input"
-            placeholder={__("Your Name", "pressedmail")}
+            placeholder={__("Your name", "pressedmail")}
             value={formData.displayName}
             onChange={(e) =>
               setFormData((prev) => ({
@@ -265,7 +265,7 @@ export function StepCredentialsWithPolicy({
         {showPasswordBlock && (
           <div className="space-y-2">
             <Label htmlFor="password">
-              {__("Password / App Password", "pressedmail")}
+              {__("Password or app password", "pressedmail")}
             </Label>
             <Input
               id="password"

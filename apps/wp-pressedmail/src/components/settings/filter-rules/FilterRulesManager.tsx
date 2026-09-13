@@ -34,7 +34,7 @@ import {
   ChevronUp,
   Filter,
 } from "lucide-react";
-import { __ } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   Button,
   Card,
@@ -63,6 +63,7 @@ import type {
 } from "@/types/filter-rules";
 import {
   ACTION_TYPE_LABELS,
+  CONDITION_FIELD_LABELS,
   RUN_TRIGGER_LABELS,
 } from "@/types/filter-rules";
 import { useFilterRules } from "@/hooks/useFilterRules";
@@ -76,6 +77,8 @@ interface FilterRulesManagerProps {
   sourceFilter?: "manual" | "sweep";
   allowCreate?: boolean;
   className?: string;
+  /** Reports how many rules are visible, so a caller can reflect it. */
+  onRuleCountChange?: (count: number) => void;
 }
 
 export function getNextRuleOrder(
@@ -120,6 +123,7 @@ export function FilterRulesManager({
   sourceFilter,
   allowCreate = true,
   className,
+  onRuleCountChange,
 }: FilterRulesManagerProps) {
   const [folders, setFolders] = React.useState<
     import("@/services/interfaces").ImapFolder[]
@@ -178,6 +182,10 @@ export function FilterRulesManager({
   React.useEffect(() => {
     loadRules();
   }, [loadRules]);
+
+  React.useEffect(() => {
+    onRuleCountChange?.(visibleRules.length);
+  }, [onRuleCountChange, visibleRules.length]);
 
   React.useEffect(() => {
     if (!showEditor || accountOptions.length === 0) return;
@@ -306,12 +314,30 @@ export function FilterRulesManager({
 
   // Get summary of rule conditions
   const getConditionsSummary = (rule: FilterRule): string => {
-    if (rule.conditions.length === 0) return "No conditions";
+    if (rule.conditions.length === 0) {
+      return __("No conditions", "pressedmail");
+    }
     const firstCondition = rule.conditions[0];
     if (rule.conditions.length === 1 && firstCondition) {
-      return `${firstCondition.field} ${firstCondition.operator} "${firstCondition.value}"`;
+      return sprintf(
+        /* translators: 1: field name. 2: operator. 3: value to match. */
+        __('%1$s %2$s "%3$s"', "pressedmail"),
+        CONDITION_FIELD_LABELS[firstCondition.field] ?? firstCondition.field,
+        firstCondition.operator,
+        String(firstCondition.value),
+      );
     }
-    return `${rule.conditions.length} conditions (${rule.conditionLogic.toUpperCase()})`;
+    return sprintf(
+      /* translators: 1: number of conditions. 2: ALL or ANY. */
+      _n(
+        "%1$d condition (%2$s)",
+        "%1$d conditions (%2$s)",
+        rule.conditions.length,
+        "pressedmail",
+      ),
+      rule.conditions.length,
+      rule.conditionLogic.toUpperCase(),
+    );
   };
 
   const createRuleHeaderAction = React.useMemo(
@@ -336,7 +362,7 @@ export function FilterRulesManager({
 
   // Get summary of rule actions
   const getActionsSummary = (rule: FilterRule): string => {
-    if (rule.actions.length === 0) return "No actions";
+    if (rule.actions.length === 0) return __("No actions", "pressedmail");
     return rule.actions
       .map((a) => ACTION_TYPE_LABELS[a.type] || a.type)
       .join(", ");
@@ -372,11 +398,19 @@ export function FilterRulesManager({
       return { label: account.email };
     }
 
-    const title = `${__("Account ID", "pressedmail")} ${scopeAccountId}`;
+    const title = sprintf(
+      /* translators: %d: internal account id. */
+      __("Account ID %d", "pressedmail"),
+      scopeAccountId,
+    );
     return {
       label: __("Unknown account", "pressedmail"),
       title,
-      ariaLabel: `${__("Unknown account", "pressedmail")} (${title})`,
+      ariaLabel: sprintf(
+        /* translators: %s: "Account ID 12". */
+        __("Unknown account (%s)", "pressedmail"),
+        title,
+      ),
     };
   };
 
@@ -438,7 +472,7 @@ export function FilterRulesManager({
             <h3 className="text-base font-medium mb-1.5">
               {sourceFilter === "sweep"
                 ? __("No generated rules yet", "pressedmail")
-                : __("No organize rules yet", "pressedmail")}
+                : __("No rules yet", "pressedmail")}
             </h3>
             <p className="text-sm text-muted-foreground mb-3">
               {sourceFilter === "sweep"
@@ -447,11 +481,11 @@ export function FilterRulesManager({
                     "pressedmail",
                   )
                 : __(
-                    "Create rules to automatically organize your emails",
+                    "Rules sort new mail into folders for you.",
                     "pressedmail",
                   )}
             </p>
-            {canCreateRule && !usingSharedHeaderActions ? (
+            {canCreateRule ? (
               <Button
                 onClick={handleCreate}
                 data-test="filter-rules-create-empty"
@@ -555,7 +589,11 @@ export function FilterRulesManager({
                               className="mt-0.5 flex h-6 w-6 flex-shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
                               data-test={`filter-rule-drag-handle-${rule.id}`}
                               data-testid={`filter-rule-drag-handle-${rule.id}`}
-                              aria-label={`${__("Reorder rule", "pressedmail")} ${rule.name}`}
+                              aria-label={sprintf(
+                                /* translators: %s: the rule's name. */
+                                __("Reorder rule %s", "pressedmail"),
+                                rule.name,
+                              )}
                               {...attributes}
                               {...listeners}>
                               <GripVertical className="h-4 w-4" />
@@ -610,12 +648,26 @@ export function FilterRulesManager({
                                 className="mr-1"
                                 data-test={`filter-rule-toggle-${rule.id}`}
                                 data-testid={`filter-rule-toggle-${rule.id}`}
-                                aria-label={__("Toggle rule", "pressedmail")}
+                                aria-label={sprintf(
+                                  /* translators: %s: the rule's name. */
+                                  rule.enabled
+                                    ? __("Disable rule %s", "pressedmail")
+                                    : __("Enable rule %s", "pressedmail"),
+                                  rule.name,
+                                )}
                               />
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => toggleExpanded(rule.id)}
+                                aria-expanded={isExpanded}
+                                aria-label={sprintf(
+                                  /* translators: %s: the rule's name. */
+                                  isExpanded
+                                    ? __("Hide details for %s", "pressedmail")
+                                    : __("Show details for %s", "pressedmail"),
+                                  rule.name,
+                                )}
                                 className="h-7 w-7 p-0">
                                 {isExpanded ? (
                                   <ChevronUp className="h-4 w-4" />
@@ -627,6 +679,11 @@ export function FilterRulesManager({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleEdit(rule)}
+                                aria-label={sprintf(
+                                  /* translators: %s: the rule's name. */
+                                  __("Edit rule %s", "pressedmail"),
+                                  rule.name,
+                                )}
                                 data-test={`filter-rule-edit-${rule.id}`}
                                 data-testid={`filter-rule-edit-${rule.id}`}
                                 className="h-7 w-7 p-0">
@@ -636,6 +693,11 @@ export function FilterRulesManager({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => setDeleteConfirmRule(rule)}
+                                aria-label={sprintf(
+                                  /* translators: %s: the rule's name. */
+                                  __("Delete rule %s", "pressedmail"),
+                                  rule.name,
+                                )}
                                 data-test={`filter-rule-delete-${rule.id}`}
                                 data-testid={`filter-rule-delete-${rule.id}`}
                                 className="h-7 w-7 p-0 text-destructive hover:text-destructive">
@@ -658,10 +720,16 @@ export function FilterRulesManager({
                             {getRunTriggersSummary(rule)}
                             {rule.runTriggers?.includes("scheduled") &&
                             rule.scheduleIntervalMinutes
-                              ? ` (${__("every", "pressedmail")} ${rule.scheduleIntervalMinutes} ${__(
-                                  "minutes",
-                                  "pressedmail",
-                                )})`
+                              ? ` ${sprintf(
+                                  /* translators: %d: number of minutes between runs. */
+                                  _n(
+                                    "(every %d minute)",
+                                    "(every %d minutes)",
+                                    rule.scheduleIntervalMinutes,
+                                    "pressedmail",
+                                  ),
+                                  rule.scheduleIntervalMinutes,
+                                )}`
                               : ""}
                           </div>
 

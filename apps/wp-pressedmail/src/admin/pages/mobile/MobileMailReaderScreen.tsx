@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __, sprintf } from "@wordpress/i18n";
 import { MoreHorizontal, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -19,6 +20,7 @@ import {
   MobileScreenHeader,
   useHideTabBar,
 } from "@/components/mobile-shell";
+import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { MailDisplay } from "@/components/inbox/mail-display";
 import {
   formatForwardedText,
@@ -47,9 +49,18 @@ import { appMessage } from "@/context/toast";
 
 function prefixedSubject(prefix: "Re" | "Fwd", subject?: string): string {
   const value = subject || "";
-  return value.toLowerCase().startsWith(`${prefix.toLowerCase()}:`)
-    ? value
-    : `${prefix}: ${value}`;
+  if (value.toLowerCase().startsWith(`${prefix.toLowerCase()}:`)) return value;
+  return prefix === "Re"
+    ? sprintf(
+        /* translators: %s: the subject of the message being replied to. */
+        __("Re: %s", "pressedmail"),
+        value,
+      )
+    : sprintf(
+        /* translators: %s: the subject of the message being forwarded. */
+        __("Fwd: %s", "pressedmail"),
+        value,
+      );
 }
 
 function replyAddress(message: EmailMessage): string {
@@ -92,7 +103,19 @@ export function MobileMailReaderScreen() {
     preferences.default_reply_action === "reply_all" ? "reply-all" : "reply";
   const alternateReplyMode: "reply" | "reply-all" =
     preferredReplyMode === "reply-all" ? "reply" : "reply-all";
+  const moreActionsRef = React.useRef<HTMLButtonElement>(null);
   const [actionSheetOpen, setActionSheetOpen] = React.useState(false);
+  const [pendingDelete, setPendingDelete] = React.useState<{
+    identity: string;
+    nextId: string;
+    permanent: boolean;
+  } | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState(false);
+  React.useEffect(() => {
+    setPendingDelete(null);
+    setDeleteError(false);
+  }, [routeId]);
 
   const routeMessage = React.useMemo(() => {
     if (!routeId) return null;
@@ -134,7 +157,10 @@ export function MobileMailReaderScreen() {
 
   const identityFailure = React.useCallback(() => {
     appMessage(
-      "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+      __(
+        "The message identity is incomplete or has changed. Refresh the mailbox and try again.",
+        "pressedmail",
+      ),
       "error",
     );
     if (mounted.current)
@@ -155,7 +181,7 @@ export function MobileMailReaderScreen() {
     };
   }, [clearSelection]);
 
-  const subject = displayMessage?.subject || "(No subject)";
+  const subject = displayMessage?.subject || __("(No subject)", "pressedmail");
   const starred = !!displayMessage?.starred;
 
   const handleStar = React.useCallback(() => {
@@ -289,42 +315,57 @@ export function MobileMailReaderScreen() {
     preferences.after_archive_action,
   ]);
 
-  const handleDelete = React.useCallback(() => {
-    if (!displayMessage) return;
-    // Deleting from Trash expunges the message on the server, so it always
-    // asks first, whatever the confirm-delete preference says.
-    if (isTrashFolder) {
-      if (
-        !window.confirm("Delete this email permanently? This cannot be undone.")
-      ) {
-        return;
-      }
-    } else if (
-      preferences.confirm_delete &&
-      !window.confirm("Delete this email?")
-    ) {
-      return;
-    }
-    const { identity: messageId, nextId } = captureRemoval();
-    if (!messageId) {
+  const performDelete = async (request: NonNullable<typeof pendingDelete>) => {
+    if (deleting) return;
+    if (liveReader.current.displayedIdentity !== request.identity) {
+      setPendingDelete(null);
       identityFailure();
       return;
     }
-    void deleteMessage(messageId, isTrashFolder).then((result) => {
-      if (result.success && !result.requiresRefresh) {
-        finishAfterRemoval(preferences.after_delete_action, messageId, nextId);
+    setDeleting(true);
+    setDeleteError(false);
+    try {
+      const result = await deleteMessage(request.identity, request.permanent);
+      if (result.success) {
+        setPendingDelete(null);
+        if (!result.requiresRefresh) {
+          finishAfterRemoval(
+            preferences.after_delete_action,
+            request.identity,
+            request.nextId,
+          );
+        }
+      } else {
+        setDeleteError(true);
+        appMessage(
+          __("Could not delete the message. Try again.", "pressedmail"),
+          "error",
+        );
       }
-    });
-  }, [
-    deleteMessage,
-    displayMessage,
-    finishAfterRemoval,
-    captureRemoval,
-    identityFailure,
-    isTrashFolder,
-    preferences.after_delete_action,
-    preferences.confirm_delete,
-  ]);
+    } catch {
+      setDeleteError(true);
+      appMessage(
+        __("Could not delete the message. Try again.", "pressedmail"),
+        "error",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleDelete = () => {
+    if (!displayMessage || deleting) return;
+    const captured = captureRemoval();
+    if (!captured.identity) {
+      identityFailure();
+      return;
+    }
+    const request = { ...captured, permanent: isTrashFolder };
+    setDeleteError(false);
+    // Trash expunges on the server, irrespective of the confirmation preference.
+    if (isTrashFolder || preferences.confirm_delete) setPendingDelete(request);
+    else void performDelete(request);
+  };
 
   const handleToggleRead = React.useCallback(() => {
     if (!displayMessage) return;
@@ -339,19 +380,21 @@ export function MobileMailReaderScreen() {
     ? [
         {
           id: "mark-read",
-          label: displayMessage.read ? "Mark as unread" : "Mark as read",
+          label: displayMessage.read
+            ? __("Mark as unread", "pressedmail")
+            : __("Mark as read", "pressedmail"),
           icon: displayMessage.read ? EmailMarkUnreadIcon : EmailMarkReadIcon,
           onAction: handleToggleRead,
         },
         {
           id: "archive",
-          label: "Archive",
+          label: __("Archive", "pressedmail"),
           icon: EmailArchiveIcon,
           onAction: handleArchive,
         },
         {
           id: "delete",
-          label: "Delete",
+          label: __("Delete", "pressedmail"),
           icon: EmailTrashIcon,
           onAction: handleDelete,
           destructive: true,
@@ -367,8 +410,8 @@ export function MobileMailReaderScreen() {
         data-testid="mobile-default-reply-action"
         aria-label={
           preferredReplyMode === "reply-all"
-            ? "Reply to all recipients"
-            : "Reply to sender"
+            ? __("Reply to all recipients", "pressedmail")
+            : __("Reply to sender", "pressedmail")
         }
         onClick={() => openCompose(preferredReplyMode)}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
@@ -377,14 +420,16 @@ export function MobileMailReaderScreen() {
         ) : (
           <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
         )}
-        {preferredReplyMode === "reply-all" ? "Reply All" : "Reply"}
+        {preferredReplyMode === "reply-all"
+          ? __("Reply All", "pressedmail")
+          : __("Reply", "pressedmail")}
       </button>
       <button
         type="button"
         aria-label={
           alternateReplyMode === "reply-all"
-            ? "Reply to all recipients"
-            : "Reply to sender"
+            ? __("Reply to all recipients", "pressedmail")
+            : __("Reply to sender", "pressedmail")
         }
         onClick={() => openCompose(alternateReplyMode)}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
@@ -393,19 +438,22 @@ export function MobileMailReaderScreen() {
         ) : (
           <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
         )}
-        {alternateReplyMode === "reply-all" ? "Reply All" : "Reply"}
+        {alternateReplyMode === "reply-all"
+          ? __("Reply All", "pressedmail")
+          : __("Reply", "pressedmail")}
       </button>
       <button
         type="button"
-        aria-label="Forward message"
+        aria-label={__("Forward message", "pressedmail")}
         onClick={() => openCompose("forward")}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
         <EmailForwardIcon className="h-4 w-4" aria-hidden="true" />
-        Forward
+        {__("Forward", "pressedmail")}
       </button>
       <button
         type="button"
-        aria-label="More actions"
+        ref={moreActionsRef}
+        aria-label={__("More actions", "pressedmail")}
         onClick={() => setActionSheetOpen(true)}
         className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-2 text-foreground active:bg-muted">
         <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
@@ -422,7 +470,11 @@ export function MobileMailReaderScreen() {
             displayMessage ? (
               <button
                 type="button"
-                aria-label={starred ? "Unstar" : "Star"}
+                aria-label={
+                  starred
+                    ? __("Unstar", "pressedmail")
+                    : __("Star", "pressedmail")
+                }
                 onClick={handleStar}
                 className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted">
                 <Star
@@ -439,7 +491,9 @@ export function MobileMailReaderScreen() {
       }>
       {!displayMessage ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-          {isLoading ? "Loading…" : "Message not available"}
+          {isLoading
+            ? __("Loading...", "pressedmail")
+            : __("Message not available", "pressedmail")}
         </p>
       ) : null}
       <MailDisplay
@@ -447,10 +501,51 @@ export function MobileMailReaderScreen() {
         layout="mobile"
         afterMetadata={primaryActionBar}
       />
+      <ConfirmationPanel
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          moreActionsRef.current?.focus();
+        }}
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDelete(null);
+            setDeleteError(false);
+          }
+        }}
+        title={
+          pendingDelete?.permanent
+            ? __("Delete email permanently?", "pressedmail")
+            : __("Delete email?", "pressedmail")
+        }
+        description={
+          <>
+            {pendingDelete?.permanent
+              ? __("This cannot be undone.", "pressedmail")
+              : __("This email will be moved to Trash.", "pressedmail")}
+            {deleteError ? (
+              <span role="alert" className="mt-2 block text-destructive">
+                {__("Could not delete the message. Try again.", "pressedmail")}
+              </span>
+            ) : null}
+          </>
+        }
+        confirmText={
+          pendingDelete?.permanent
+            ? __("Delete permanently", "pressedmail")
+            : __("Delete", "pressedmail")
+        }
+        cancelText={__("Cancel", "pressedmail")}
+        variant="destructive"
+        loading={deleting}
+        onConfirm={() =>
+          pendingDelete ? performDelete(pendingDelete) : undefined
+        }
+      />
       <MobileActionSheet
         open={actionSheetOpen}
         onOpenChange={setActionSheetOpen}
-        title="Message actions"
+        title={__("Message actions", "pressedmail")}
         actions={messageActions}
       />
     </MobileScreen>

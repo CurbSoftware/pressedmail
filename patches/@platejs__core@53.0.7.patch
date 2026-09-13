@@ -1,0 +1,13 @@
+diff --git a/dist/react/index.js b/dist/react/index.js
+index 0d684db30fb34cdb3a3be21c8d7549d8b56a66a3..7f13be38fc7f7eafe571c316bfde19e9223b9658 100644
+--- a/dist/react/index.js
++++ b/dist/react/index.js
+@@ -1150,7 +1150,7 @@ const pipeRenderLeaf = (editor, renderLeafProp) => {
+ 		}
+ 		if (hasActiveComplexRenderLeaf) for (const { key, renderLeaf } of complexRenderLeafEntries) {
+ 			if (!leaf[key]) continue;
+-			const newChildren = renderLeaf(props);
++			const newChildren = React.createElement(renderLeaf, props);
+ 			if (newChildren !== void 0) props.children = newChildren;
+ 		}
+ 		leafPropsPlugins.forEach((plugin) => {

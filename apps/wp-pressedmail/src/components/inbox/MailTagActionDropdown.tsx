@@ -5,7 +5,6 @@ import { __ } from "@wordpress/i18n";
 import { Loader2 } from "lucide-react";
 
 import {
-  Button,
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -56,9 +55,8 @@ export function MailTagActionDropdown({
   align = "start",
 }: MailTagActionDropdownProps) {
   const [open, setOpen] = React.useState(false);
-  const [draftTagIds, setDraftTagIds] = React.useState<number[]>(
-    selectedTagIds,
-  );
+  const [draftTagIds, setDraftTagIds] =
+    React.useState<number[]>(selectedTagIds);
 
   React.useEffect(() => {
     if (open) {
@@ -152,30 +150,42 @@ export function MailTagActionDropdown({
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-border p-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled={disabled || isApplying || draftTagIds.length === 0}
-            onClick={() => setDraftTagIds([])}>
-            {__("Clear selection", "pressedmail")}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled={disabled || isApplying || !hasTagChanges}
-            onClick={handleApply}>
-            {isApplying && (
-              <Loader2
-                className={cn(MAIL_ACTION_ICON_CLASS, "mr-1 animate-spin")}
-              />
-            )}
-            {__("Apply tags", "pressedmail")}
-          </Button>
-        </div>
+        {/*
+          Menu items, not plain buttons. Radix calls preventDefault on Tab
+          inside menu content and moves the arrow keys between registered items
+          only, so a <Button> sitting here could be clicked but never reached
+          from a keyboard: tags could be ticked and never applied, and Escape
+          threw the draft away.
+        */}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          data-test="mail-tag-clear"
+          disabled={disabled || isApplying || draftTagIds.length === 0}
+          onSelect={(event) => {
+            // Clearing is a step, not the commit: keep the menu open.
+            event.preventDefault();
+            setDraftTagIds([]);
+          }}>
+          {__("Clear selection", "pressedmail")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          data-test="mail-tag-apply"
+          disabled={disabled || isApplying || !hasTagChanges}
+          onSelect={(event) => {
+            // Radix closes the menu on select by default. Keep it open until
+            // the write settles: handleApply closes it once the promise
+            // resolves, and the pending state has to stay on screen so a
+            // second apply cannot be fired over the first.
+            event.preventDefault();
+            handleApply();
+          }}>
+          {isApplying && (
+            <Loader2
+              className={cn(MAIL_ACTION_ICON_CLASS, "mr-2 animate-spin")}
+            />
+          )}
+          {__("Apply tags", "pressedmail")}
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useRef } from "react";
+import { __ } from "@wordpress/i18n";
 import { Loader2, Save, X, AlertCircle } from "lucide-react";
 import type {
   Signature,
@@ -90,14 +91,14 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
       setError(null);
 
       if (!name.trim()) {
-        setError("Please enter a name for this signature.");
+        setError(__("Please enter a name for this signature.", "pressedmail"));
         return;
       }
 
       const editorContent = editorRef.current?.getHTML() || content;
 
       if (!editorContent.trim()) {
-        setError("Please enter content for this signature.");
+        setError(__("Please enter content for this signature.", "pressedmail"));
         return;
       }
 
@@ -141,7 +142,9 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
         {/* Header */}
         <div className="px-6 py-3 border-b border-border">
           <h3 className="pm-form-title">
-            {isEditing ? "Edit Signature" : "Create Signature"}
+            {isEditing
+              ? __("Edit Signature", "pressedmail")
+              : __("Create Signature", "pressedmail")}
           </h3>
         </div>
 
@@ -166,9 +169,9 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               surface="signature"
               value={content}
               onChange={setContent}
-              placeholder="Best regards, Your Name"
+              placeholder={__("Best regards, Your Name", "pressedmail")}
               disabled={saving}
-              previewTitle="Signature preview"
+              previewTitle={__("Signature preview", "pressedmail")}
               editorClassName="min-h-[260px]"
             />
 
@@ -177,18 +180,23 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               className="space-y-4 rounded-md border border-border bg-card p-4"
               data-test="signature-settings-card"
               data-testid="signature-settings-card">
-              <label className="pm-label">Settings</label>
+              <label className="pm-label">
+                {__("Settings", "pressedmail")}
+              </label>
 
               {/* Signature Name */}
               <div className="space-y-2">
                 <label htmlFor="signature-name" className="pm-label">
-                  Signature Name
+                  {__("Signature Name", "pressedmail")}
                 </label>
                 <input
                   autoComplete="off"
                   id="signature-name"
                   type="text"
-                  placeholder="e.g., Work Signature, Personal"
+                  placeholder={__(
+                    "e.g., Work Signature, Personal",
+                    "pressedmail",
+                  )}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={saving}
@@ -204,10 +212,13 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   <label
                     htmlFor="signature-default"
                     className="pm-label cursor-pointer">
-                    Set as default
+                    {__("Set as default", "pressedmail")}
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    Add this signature to emails automatically.
+                    {__(
+                      "Add this signature to emails automatically.",
+                      "pressedmail",
+                    )}
                   </p>
                 </div>
                 <button
@@ -230,7 +241,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   <label
                     htmlFor="include-new"
                     className="pm-label cursor-pointer">
-                    New Messages
+                    {__("New Messages", "pressedmail")}
                   </label>
                 </div>
                 <button
@@ -253,7 +264,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   <label
                     htmlFor="include-reply"
                     className="pm-label cursor-pointer">
-                    Replies
+                    {__("Replies", "pressedmail")}
                   </label>
                 </div>
                 <button
@@ -276,7 +287,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   <label
                     htmlFor="include-forward"
                     className="pm-label cursor-pointer">
-                    Forwards
+                    {__("Forwards", "pressedmail")}
                   </label>
                 </div>
                 <button
@@ -306,7 +317,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             data-testid="signature-cancel"
             className="pm-btn-outline">
             <X className="h-4 w-4" />
-            Cancel
+            {__("Cancel", "pressedmail")}
           </button>
           <button
             type="submit"
@@ -319,7 +330,9 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             ) : (
               <Save className="h-4 w-4" />
             )}
-            {isEditing ? "Save Changes" : "Create Signature"}
+            {isEditing
+              ? __("Save Changes", "pressedmail")
+              : __("Create Signature", "pressedmail")}
           </button>
         </div>
       </form>

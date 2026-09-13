@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { __ } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 
 import type { ComposerPaletteLevel } from "@/lib/composer-color-palettes";
@@ -445,7 +446,8 @@ async function fetchPreferences(): Promise<void> {
         setState((prev) => ({
           ...prev,
           loading: false,
-          error: data.message || "Failed to load preferences",
+          error:
+            data.message || __("Failed to load preferences", "pressedmail"),
         }));
       }
     } catch (err) {
@@ -455,7 +457,7 @@ async function fetchPreferences(): Promise<void> {
         loading: false,
         error:
           fetchStartedAtWriteVersion === preferenceWriteVersion
-            ? "Failed to load preferences"
+            ? __("Failed to load preferences", "pressedmail")
             : prev.error,
       }));
     } finally {
@@ -510,7 +512,7 @@ async function updatePreference<K extends keyof UserPreferences>(
         saving: writeVersion === preferenceWriteVersion ? false : prev.saving,
         error:
           writeVersion === preferenceWriteVersion
-            ? data.message || "Failed to update preference"
+            ? data.message || __("Failed to update preference", "pressedmail")
             : prev.error,
       }));
       return false;
@@ -526,7 +528,7 @@ async function updatePreference<K extends keyof UserPreferences>(
       saving: writeVersion === preferenceWriteVersion ? false : prev.saving,
       error:
         writeVersion === preferenceWriteVersion
-          ? "Failed to save preference"
+          ? __("Failed to save preference", "pressedmail")
           : prev.error,
     }));
     return false;
@@ -581,7 +583,7 @@ async function updatePreferences(
         saving: writeVersion === preferenceWriteVersion ? false : prev.saving,
         error:
           writeVersion === preferenceWriteVersion
-            ? data.message || "Failed to update preferences"
+            ? data.message || __("Failed to update preferences", "pressedmail")
             : prev.error,
       }));
       return false;
@@ -597,7 +599,7 @@ async function updatePreferences(
       saving: writeVersion === preferenceWriteVersion ? false : prev.saving,
       error:
         writeVersion === preferenceWriteVersion
-          ? "Failed to save preferences"
+          ? __("Failed to save preferences", "pressedmail")
           : prev.error,
     }));
     return false;

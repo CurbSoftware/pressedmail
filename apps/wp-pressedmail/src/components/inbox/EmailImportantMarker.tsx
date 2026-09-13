@@ -30,7 +30,9 @@ export function EmailImportantMarker({
     <Icon
       className={cn(
         "shrink-0",
-        important ? "text-primary" : "text-muted-foreground/45",
+        // Full muted token, not an opacity of it: /45 measured 2.19:1 on the
+        // light theme, well under the 3:1 minimum for a meaningful glyph.
+        important ? "text-primary" : "text-muted-foreground",
         large ? "h-4 w-4" : "h-3.5 w-3.5",
         className,
       )}

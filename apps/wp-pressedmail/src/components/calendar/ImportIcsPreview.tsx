@@ -1,4 +1,5 @@
 import { parseCalendarDate, getAllDayDisplayEnd } from "./calendar-timezone";
+import { calendarFormatter } from "./calendar-intl";
 import { useEffect, useState } from "react";
 import { __, sprintf } from "@wordpress/i18n";
 import { CalendarPlus, MapPin, Users } from "lucide-react";
@@ -43,9 +44,9 @@ function formatRange(event: IcsPreviewEvent): string {
   const end = event.all_day ? getAllDayDisplayEnd(start, rawEnd) : rawEnd;
   if (Number.isNaN(start.getTime())) return event.start_datetime;
 
-  const formatter = new Intl.DateTimeFormat(undefined, {
+  const formatter = calendarFormatter({
     dateStyle: "medium",
-    timeStyle: event.all_day ? undefined : "short",
+    ...(event.all_day ? {} : { timeStyle: "short" }),
   });
   if (
     Number.isNaN(end.getTime()) ||
@@ -54,7 +55,7 @@ function formatRange(event: IcsPreviewEvent): string {
   ) {
     return formatter.format(start);
   }
-  return `${formatter.format(start)} - ${formatter.format(end)}`;
+  return formatter.formatRange(start, end);
 }
 
 async function requestPreview(

@@ -78,11 +78,11 @@ export const commentPlugin = toTPlatePlugin<CommentConfig>(BaseCommentPlugin, {
       },
     })
   )
+  // No keyboard shortcut: comments live only in editor memory and are never
+  // saved or sent, so Mod+Shift+M used to open a UI whose content was lost.
+  // The plugin stays registered because the AI menu uses its mark transforms.
   .configure({
     node: { component: CommentLeaf },
-    shortcuts: {
-      setDraft: { keys: 'mod+shift+m' },
-    },
   });
 
 export const CommentKit = [commentPlugin];

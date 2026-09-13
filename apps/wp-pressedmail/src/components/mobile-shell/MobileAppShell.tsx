@@ -7,6 +7,7 @@ import { useImmersiveMode } from "@/hooks/useImmersiveMode";
 import { cn } from "@/lib/utils";
 
 import { MobileLayoutProvider } from "./MobileLayoutContext";
+import { useFragmentLinkGuard } from "./useFragmentLinkGuard";
 
 export interface MobileAppShellProps {
   children: React.ReactNode;
@@ -37,6 +38,10 @@ export function MobileAppShell({
   // toggle only reads and flips this afterwards, so the user's choice survives
   // navigation between screens.
   useImmersiveMode(true);
+  // WordPress prints its own "Skip to main content" link above the plugin, and
+  // the hash router treated it as a route. Claim in-page fragments so they
+  // move focus instead of navigating.
+  useFragmentLinkGuard();
 
   return (
     <BackStackProvider>

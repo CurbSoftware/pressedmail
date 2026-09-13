@@ -24,6 +24,7 @@ import {
 
 import {
   SettingsEmptyState,
+  SettingsSkeleton,
   SettingsSaveBar,
   useSettingsGuardedAction,
   useSettingsNavigationGuard,
@@ -197,11 +198,7 @@ export function PreferencesTabView({
         className="@container/preferences-nav w-full min-w-0 space-y-4"
         data-test="preferences-tab"
         data-testid="preferences-tab">
-        <div
-          role="status"
-          className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-          {__("Loading preferences...", "pressedmail")}
-        </div>
+        <SettingsSkeleton label={__("Loading preferences...", "pressedmail")} />
       </div>
     );
   }
@@ -289,13 +286,11 @@ export function PreferencesTabView({
                 data-test={`preference-section-slot-${section.id}`}>
                 <Suspense
                   fallback={
-                    <div
-                      role="status"
-                      className="py-3 text-sm text-muted-foreground"
-                      data-test="preference-section-loading"
-                      data-testid="preference-section-loading">
-                      {__("Loading settings...", "pressedmail")}
-                    </div>
+                    <SettingsSkeleton
+                      label={__("Loading settings...", "pressedmail")}
+                      rows={2}
+                      dataTest="preference-section-loading"
+                    />
                   }>
                   <Section registerDraft={registerDraft} />
                 </Suspense>

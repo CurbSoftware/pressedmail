@@ -26,6 +26,8 @@ import {
   PaintRoller,
   PenTool,
   Printer,
+  MoreHorizontal,
+  Sliders,
   Sparkles,
   Upload,
   Bold,
@@ -87,7 +89,10 @@ import { MoreToolbarButton } from "@/components/composer/plate/more-toolbar-butt
 import { TableToolbarButton } from "@/components/composer/plate/table-toolbar-button";
 import { TurnIntoToolbarButton } from "@/components/composer/plate/turn-into-toolbar-button";
 import { ComposerColorPalette } from "@/components/ui/color-picker/ComposerColorPalette";
-import { ComposerToolbarCustomizeDialog } from "./ComposerToolbarCustomizeDialog";
+import {
+  ComposerToolbarCustomizeDialog,
+  type ComposerToolbarCustomizeDialogProps,
+} from "./ComposerToolbarCustomizeDialog";
 import { cn } from "@/lib/utils";
 import {
   COMPOSER_TOOLBAR_GROUPS,
@@ -227,7 +232,14 @@ export function ComposerEditorToolbar({
       case "block_style":
         return <TurnIntoToolbarButton key={id} />;
       case "font_size":
-        return <FontSizeToolbarButton key={id} />;
+        return (
+          <FontSizeToolbarButton
+            key={id}
+            defaultFontSize={String(
+              Number(preferences.composer_default_font_size) || 14,
+            )}
+          />
+        );
       case "font_family":
         return <FontFamilyDropdown key={id} disabled={disabled} />;
       case "bold":
@@ -344,7 +356,10 @@ export function ComposerEditorToolbar({
 
   return (
     <div
-      className="bg-card text-card-foreground [color-scheme:light_dark] px-1 py-1"
+      className={cn(
+        "bg-card text-card-foreground [color-scheme:light_dark] px-1 py-1",
+        isMobileToolbar && "[&_button]:min-h-11 [&_button]:min-w-11",
+      )}
       aria-disabled={disabled || undefined}
       inert={disabled ? true : undefined}
       data-test="composer-toolbar">
@@ -412,7 +427,7 @@ export function ComposerEditorToolbar({
           )}
 
           {/* Print */}
-          {isEmailSurface && (
+          {isEmailSurface && !isMobileToolbar && (
             <ToolbarGroup>
               <ToolbarButton
                 tooltip={__("Print", "pressedmail")}
@@ -438,24 +453,100 @@ export function ComposerEditorToolbar({
             </ToolbarGroup>
           )}
 
-          {/* Customize */}
-          <ToolbarGroup>
-            <ComposerToolbarCustomizeDialog
-              surface={surface}
-              target={isMobileToolbar ? "mobile" : "desktop"}
-              aiInteractive={aiEnabled}
-              contentBlocksEnabled={contentBlocksAvailable}
-              inlineImagesEnabled={inlineImagesEnabled}
+          {isMobileToolbar ? (
+            <ComposerSecondaryActions
+              disabled={disabled}
+              onPrint={
+                isEmailSurface
+                  ? () =>
+                      printEmailContent({
+                        bcc: recipientsToString(form.bccRecipients),
+                        bodyBackgroundColor: form.bodyBackgroundColor,
+                        cc: recipientsToString(form.ccRecipients),
+                        html: editorRef.current?.getHTML?.() || form.body || "",
+                        mode: "compose",
+                        subject: form.subject,
+                        to: recipientsToString(form.toRecipients),
+                      })
+                  : undefined
+              }
+              customize={{
+                surface,
+                target: "mobile",
+                aiInteractive: aiEnabled,
+                contentBlocksEnabled: contentBlocksAvailable,
+                inlineImagesEnabled,
+              }}
             />
-          </ToolbarGroup>
+          ) : (
+            <ToolbarGroup>
+              <ComposerToolbarCustomizeDialog
+                surface={surface}
+                target={isMobileToolbar ? "mobile" : "desktop"}
+                aiInteractive={aiEnabled}
+                contentBlocksEnabled={contentBlocksAvailable}
+                inlineImagesEnabled={inlineImagesEnabled}
+              />
+            </ToolbarGroup>
+          )}
         </div>
       </Toolbar>
     </div>
   );
 }
 
+function ComposerSecondaryActions({
+  disabled,
+  onPrint,
+  customize,
+}: {
+  disabled: boolean;
+  onPrint?: () => void;
+  customize?: ComposerToolbarCustomizeDialogProps;
+}) {
+  const [customizeOpen, setCustomizeOpen] = React.useState(false);
+  return (
+    <ToolbarGroup>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <ToolbarButton
+            tooltip={__("More actions", "pressedmail")}
+            disabled={disabled}>
+            <MoreHorizontal className="size-4" aria-hidden="true" />
+          </ToolbarButton>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {onPrint && (
+            <DropdownMenuItem className="min-h-11" onSelect={onPrint}>
+              <Printer aria-hidden="true" />
+              {__("Print", "pressedmail")}
+            </DropdownMenuItem>
+          )}
+          {customize && (
+            <DropdownMenuItem
+              className="min-h-11"
+              onSelect={() => setCustomizeOpen(true)}>
+              <Sliders aria-hidden="true" />
+              {__("Customize toolbar", "pressedmail")}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {customize && (
+        <ComposerToolbarCustomizeDialog
+          {...customize}
+          hideTrigger
+          open={customizeOpen}
+          onOpenChange={setCustomizeOpen}
+        />
+      )}
+    </ToolbarGroup>
+  );
+}
+
 export interface ComposerPlainTextToolbarProps {
   form: UseComposeFormReturn;
+  toolbarVariant?: "desktop" | "mobile";
   disabled?: boolean;
   signaturesEnabled: boolean;
   signatures: Signature[];
@@ -468,6 +559,7 @@ export interface ComposerPlainTextToolbarProps {
 export function ComposerPlainTextToolbar({
   form,
   disabled = false,
+  toolbarVariant = "desktop",
   signaturesEnabled,
   signatures,
   onTogglePreview,
@@ -476,7 +568,11 @@ export function ComposerPlainTextToolbar({
 }: ComposerPlainTextToolbarProps) {
   return (
     <div
-      className="bg-card px-1 py-1 text-card-foreground [color-scheme:light_dark]"
+      className={cn(
+        "bg-card px-1 py-1 text-card-foreground [color-scheme:light_dark]",
+        toolbarVariant === "mobile" &&
+          "[&_button]:min-h-11 [&_button]:min-w-11",
+      )}
       aria-disabled={disabled || undefined}
       inert={disabled ? true : undefined}
       data-test="composer-toolbar">
@@ -515,10 +611,10 @@ export function ComposerPlainTextToolbar({
               <FileText className="size-4" />
             </ToolbarButton>
           </ToolbarGroup>
-          <ToolbarGroup>
-            <ToolbarButton
-              tooltip={__("Print", "pressedmail")}
-              onClick={() =>
+          {toolbarVariant === "mobile" ? (
+            <ComposerSecondaryActions
+              disabled={disabled}
+              onPrint={() =>
                 printEmailContent({
                   bcc: recipientsToString(form.bccRecipients),
                   cc: recipientsToString(form.ccRecipients),
@@ -528,10 +624,26 @@ export function ComposerPlainTextToolbar({
                   to: recipientsToString(form.toRecipients),
                 })
               }
-              disabled={disabled}>
-              <Printer className="size-4" />
-            </ToolbarButton>
-          </ToolbarGroup>
+            />
+          ) : (
+            <ToolbarGroup>
+              <ToolbarButton
+                tooltip={__("Print", "pressedmail")}
+                onClick={() =>
+                  printEmailContent({
+                    bcc: recipientsToString(form.bccRecipients),
+                    cc: recipientsToString(form.ccRecipients),
+                    mode: "compose",
+                    subject: form.subject,
+                    text: form.body,
+                    to: recipientsToString(form.toRecipients),
+                  })
+                }
+                disabled={disabled}>
+                <Printer className="size-4" />
+              </ToolbarButton>
+            </ToolbarGroup>
+          )}
         </div>
       </Toolbar>
     </div>

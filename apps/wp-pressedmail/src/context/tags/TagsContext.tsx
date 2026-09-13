@@ -10,10 +10,12 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
   useCallback,
   useMemo,
 } from "react";
+import { __ } from "@wordpress/i18n";
 import type {
   Tag,
   TagCapabilities,
@@ -45,20 +47,15 @@ interface TagsProviderProps {
 const getApiUrl = (): string => routeApiPrefix;
 
 /**
- * Get headers for API requests including WordPress nonce.
+ * JSON request headers. apiFetch adds the REST nonce and same-origin
+ * credentials, so nothing here overrides them.
  */
-const getApiHeaders = (): HeadersInit => {
-  const nonce = window.pressedmailPlugin?.wpApiSettings?.nonce || "";
-  if (!nonce) {
-    console.warn(
-      "[TagsContext] Missing nonce! window.pressedmailPlugin:",
-      window.pressedmailPlugin,
-    );
-  }
-  return {
-    "Content-Type": "application/json",
-  };
-};
+const JSON_HEADERS: HeadersInit = { "Content-Type": "application/json" };
+
+/** Parse a JSON body without turning an HTML error page into a SyntaxError. */
+async function readJson<T>(response: Response): Promise<T | null> {
+  return (await response.json().catch(() => null)) as T | null;
+}
 
 /** Snapshot an explicit physical mailbox reference before starting a request. */
 function requireMessageIdentifier(
@@ -72,7 +69,12 @@ function requireMessageIdentifier(
   });
   if (!ref || Array.isArray(message)) {
     throw Object.assign(
-      new Error("Reload the mailbox before changing or loading message tags."),
+      new Error(
+        __(
+          "Reload the mailbox before changing or loading message tags.",
+          "pressedmail",
+        ),
+      ),
       { code: "message_identity_conflict", requiresRefresh: true },
     );
   }
@@ -88,7 +90,9 @@ function requireMessageBatch(
   messages: MessageIdentifier[],
 ): MessageIdentifier[] {
   if (!Array.isArray(messages) || messages.length === 0) {
-    throw new Error("Select messages before changing their tags.");
+    throw new Error(
+      __("Select messages before changing their tags.", "pressedmail"),
+    );
   }
   // Validate the entire batch, including sparse entries, before any HTTP request.
   return Array.from(messages, requireMessageIdentifier);
@@ -102,11 +106,10 @@ async function postMessageTagOperation(
   const principal = captureRequestPrincipal();
   const response = await apiFetch(`${getApiUrl()}/tags/${path}`, {
     method: "POST",
-    credentials: "include",
-    headers: getApiHeaders(),
+    headers: JSON_HEADERS,
     body: JSON.stringify(payload),
   });
-  const result = await response.json();
+  const result = await readJson<Record<string, unknown>>(response);
   // Body parsing can finish after logout or a cross-tab account change.
   if (!isRequestPrincipalCurrent(principal)) throw new SessionExpiredError();
   if (!response.ok || result?.status !== "success") {
@@ -119,7 +122,7 @@ async function postMessageTagOperation(
       { code: result?.code, status: response.status },
     );
   }
-  return result;
+  return result as Record<string, unknown>;
 }
 
 function requireBatchResults(
@@ -140,7 +143,10 @@ function requireBatchResults(
     counts.success + counts.failed !== messageCount
   ) {
     throw new Error(
-      "The tag result was incomplete. Refresh the mailbox to check its tags.",
+      __(
+        "The tag result was incomplete. Refresh the mailbox to check its tags.",
+        "pressedmail",
+      ),
     );
   }
   return { success: counts.success, failed: counts.failed };
@@ -160,10 +166,15 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
     null,
   );
 
+  // Account switches rerun the fetch; only the newest request may land, or
+  // account A's tags could arrive late and show under account B.
+  const fetchSeqRef = useRef(0);
+
   /**
    * Fetch tags from API.
    */
   const fetchTags = useCallback(async () => {
+    const seq = ++fetchSeqRef.current;
     try {
       setLoading(true);
       setError(null);
@@ -172,29 +183,29 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
         account_id: accountId,
       });
 
-      const response = await apiFetch(url, {
-        credentials: "include",
-        headers: getApiHeaders(),
-      });
+      const response = await apiFetch(url);
+      const data = await readJson<TagsResponse>(response);
+      if (seq !== fetchSeqRef.current) return;
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tags: ${response.statusText}`);
-      }
-
-      const data: TagsResponse = await response.json();
-
-      if (data.status === "error") {
-        throw new Error(data.message || "Failed to fetch tags");
+      if (!response.ok || !data || data.status === "error") {
+        throw new Error(
+          (data && typeof data.message === "string" && data.message) ||
+            __("Could not load tags.", "pressedmail"),
+        );
       }
 
       setTags(data.tags);
       setCapabilities(data.capabilities);
     } catch (err) {
-      console.error("Error fetching tags:", err);
-      setError(err instanceof Error ? err : new Error("Unknown error"));
+      if (seq !== fetchSeqRef.current) return;
+      setError(
+        err instanceof Error && err.message
+          ? err
+          : new Error(__("Could not load tags.", "pressedmail")),
+      );
       setTags([]);
     } finally {
-      setLoading(false);
+      if (seq === fetchSeqRef.current) setLoading(false);
     }
   }, [accountId]);
 
@@ -204,15 +215,17 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
   const createTag = useCallback(async (data: CreateTagData): Promise<Tag> => {
     const response = await apiFetch(`${getApiUrl()}/tags/create`, {
       method: "POST",
-      credentials: "include",
-      headers: getApiHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify(data),
     });
 
-    const result: TagOperationResponse = await response.json();
+    const result = (await readJson<TagOperationResponse>(response)) ??
+      ({ status: "error" } as TagOperationResponse);
 
     if (result.status === "error" || !result.tag) {
-      const error = new Error(result.message || "Failed to create tag");
+      const error = new Error(
+        result.message || __("Failed to create tag", "pressedmail"),
+      );
       (error as Error & { code?: string; data?: unknown }).code = result.code;
       (error as Error & { code?: string; data?: unknown }).data = result.data;
       throw error;
@@ -234,15 +247,17 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
     async (tagId: number, data: UpdateTagData): Promise<Tag> => {
       const response = await apiFetch(`${getApiUrl()}/tags/update/${tagId}`, {
         method: "POST",
-        credentials: "include",
-        headers: getApiHeaders(),
+        headers: JSON_HEADERS,
         body: JSON.stringify(data),
       });
 
-      const result: TagOperationResponse = await response.json();
+      const result = (await readJson<TagOperationResponse>(response)) ??
+      ({ status: "error" } as TagOperationResponse);
 
       if (result.status === "error" || !result.tag) {
-        throw new Error(result.message || "Failed to update tag");
+        throw new Error(
+          result.message || __("Failed to update tag", "pressedmail"),
+        );
       }
 
       // Update local state
@@ -261,14 +276,16 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
   const deleteTag = useCallback(async (tagId: number): Promise<void> => {
     const response = await apiFetch(`${getApiUrl()}/tags/delete/${tagId}`, {
       method: "POST",
-      credentials: "include",
-      headers: getApiHeaders(),
+      headers: JSON_HEADERS,
     });
 
-    const result: TagOperationResponse = await response.json();
+    const result = (await readJson<TagOperationResponse>(response)) ??
+      ({ status: "error" } as TagOperationResponse);
 
-    if (result.status === "error") {
-      throw new Error(result.message || "Failed to delete tag");
+    if (result.status === "error" || !response.ok) {
+      throw new Error(
+        result.message || __("Failed to delete tag", "pressedmail"),
+      );
     }
 
     // Update local state
@@ -298,7 +315,7 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       await postMessageTagOperation(
         "assign",
         { tag_id: tagId, ...message },
-        "Failed to assign tag",
+        __("Failed to assign tag", "pressedmail"),
       );
     },
     [],
@@ -324,7 +341,7 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       await postMessageTagOperation(
         "remove",
         { tag_id: tagId, ...message },
-        "Failed to remove tag",
+        __("Failed to remove tag", "pressedmail"),
       );
     },
     [],
@@ -342,7 +359,7 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       const result = await postMessageTagOperation(
         "batch/assign",
         { tag_id: tagId, messages: refs },
-        "Failed to assign tag",
+        __("Failed to assign tag", "pressedmail"),
       );
       return requireBatchResults(result, refs.length);
     },
@@ -361,7 +378,7 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       const result = await postMessageTagOperation(
         "batch/remove",
         { tag_id: tagId, messages: refs },
-        "Failed to remove tag",
+        __("Failed to remove tag", "pressedmail"),
       );
       return requireBatchResults(result, refs.length);
     },
@@ -387,11 +404,14 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
       const result = await postMessageTagOperation(
         "message",
         message,
-        "Failed to get message tags",
+        __("Failed to get message tags", "pressedmail"),
       );
       if (!Array.isArray(result.tags)) {
         throw new Error(
-          "The message tag result was incomplete. Refresh the mailbox.",
+          __(
+            "The message tag result was incomplete. Refresh the mailbox.",
+            "pressedmail",
+          ),
         );
       }
       return result.tags;
@@ -405,15 +425,17 @@ export const TagsProvider: React.FC<TagsProviderProps> = ({
   const reorderTags = useCallback(async (order: number[]): Promise<void> => {
     const response = await apiFetch(`${getApiUrl()}/tags/reorder`, {
       method: "POST",
-      credentials: "include",
-      headers: getApiHeaders(),
+      headers: JSON_HEADERS,
       body: JSON.stringify({ order }),
     });
 
-    const result: TagOperationResponse = await response.json();
+    const result = (await readJson<TagOperationResponse>(response)) ??
+      ({ status: "error" } as TagOperationResponse);
 
-    if (result.status === "error") {
-      throw new Error(result.message || "Failed to reorder tags");
+    if (result.status === "error" || !response.ok) {
+      throw new Error(
+        result.message || __("Failed to reorder tags", "pressedmail"),
+      );
     }
 
     // Update local state with new order

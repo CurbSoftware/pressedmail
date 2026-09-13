@@ -1,5 +1,7 @@
 'use client';
 
+import { __ } from '@wordpress/i18n';
+
 import { useToggleButton, useToggleButtonState } from '@kit/plate/toggle/react';
 import { ChevronRight } from 'lucide-react';
 import type { PlateElementProps } from '@kit/plate/react';
@@ -26,6 +28,12 @@ export function ToggleElement(props: PlateElementProps) {
         size="icon"
         variant="ghost"
         {...buttonProps}
+        aria-expanded={open}
+        aria-label={
+          open
+            ? __('Collapse section', 'pressedmail')
+            : __('Expand section', 'pressedmail')
+        }
       >
         <ChevronRight
           className={cn(

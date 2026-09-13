@@ -1,6 +1,7 @@
 import type { TEquationElement } from '@kit/plate';
 import type { SlateElementProps } from '@kit/plate/static';
 import { SlateElement } from '@kit/plate/static';
+import { __ } from '@wordpress/i18n';
 
 /**
  * Email-safe static equations. KaTeX HTML relies on its own stylesheet and
@@ -16,7 +17,7 @@ export function EquationElementStatic(
   if (!element.texExpression) {
     return (
       <SlateElement {...props}>
-        <p style={{ color: '#888', fontStyle: 'italic' }}>[Empty equation]</p>
+        <p style={{ color: '#888', fontStyle: 'italic' }}>{__('[Empty equation]', 'pressedmail')}</p>
         {props.children}
       </SlateElement>
     );

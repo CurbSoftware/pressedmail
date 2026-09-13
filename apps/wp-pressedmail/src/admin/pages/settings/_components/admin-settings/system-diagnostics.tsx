@@ -2,19 +2,10 @@ import { __, sprintf } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { CheckCircle, AlertTriangle, Info } from "lucide-react";
-import {
-  Alert,
-  AlertDescription,
-  Badge,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@kit/ui/plugin";
+import { Alert, AlertDescription, Badge } from "@kit/ui/plugin";
 import {
   SettingsEmptyState,
-  SettingsInfoTooltip,
+  SettingsSectionCard,
   settingsInfoDocHrefs,
   settingsInfoTooltips,
 } from "@/components/settings-ui";
@@ -36,6 +27,21 @@ type SyncScheduleInfo = {
   overdue?: boolean;
 };
 
+type CronWorkerInfo = {
+  hook: string;
+  nextRun: number;
+  intervalSeconds: number;
+  events: number;
+  overdue?: boolean;
+  lastRun?: number;
+};
+
+type CronHealthInfo = {
+  workers?: CronWorkerInfo[];
+  wpCronDisabled?: boolean;
+  serverCronCommand?: string;
+};
+
 type PhpLimitsInfo = {
   memory_usage?: string;
   memory_limit?: string;
@@ -50,19 +56,40 @@ type VersionLookupState = "loading" | "available" | "unavailable" | "wporg";
 function HealthRow({
   label,
   value,
-  ok = true,
+  ok,
+  recommended = false,
 }: {
   label: string;
   value: string;
   ok?: boolean;
+  recommended?: boolean;
 }) {
+  const normalized = value.replace(/^(\d+(?:\.\d+)?)\s*([KMG])$/i, "$1 $2B");
   return (
     <div
-      className="flex min-w-0 items-center justify-between gap-3 rounded-md border p-3 text-sm"
+      className="flex min-w-0 items-start justify-between gap-3 border-b border-border py-3 text-sm last:border-b-0"
       data-test="system-health-row"
       data-testid="system-health-row">
-      <span className="min-w-0 text-muted-foreground">{label}</span>
-      <Badge variant={ok ? "outline" : "destructive"}>{value}</Badge>
+      <dt className="min-w-0 text-muted-foreground">{label}</dt>
+      <dd className="flex shrink-0 flex-col items-end gap-1 text-right">
+        <span>{normalized}</span>
+        {ok !== undefined ? (
+          <span
+            className={
+              ok
+                ? "text-success"
+                : recommended
+                  ? "text-warning"
+                  : "text-destructive"
+            }>
+            {ok
+              ? __("Good", "pressedmail")
+              : recommended
+                ? __("Recommended", "pressedmail")
+                : __("Critical", "pressedmail")}
+          </span>
+        ) : null}
+      </dd>
     </div>
   );
 }
@@ -78,8 +105,10 @@ function PluginStatusRow({
 }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border p-3 text-sm">
-      <span className="min-w-0 text-muted-foreground">{label}</span>
-      <Badge variant={destructive ? "destructive" : "outline"}>{value}</Badge>
+      <dt className="min-w-0 text-muted-foreground">{label}</dt>
+      <dd>
+        <Badge variant={destructive ? "destructive" : "outline"}>{value}</Badge>
+      </dd>
     </div>
   );
 }
@@ -93,6 +122,23 @@ function PluginStatusRow({
  */
 function ownsItsUpdates(value: unknown): boolean {
   return value === true || value === "1" || value === 1;
+}
+
+/** Human label for a worker cadence. 0 means a one-shot single event. */
+function formatInterval(seconds: number): string {
+  if (seconds <= 0) {
+    return __("Once", "pressedmail");
+  }
+  if (seconds < 60) {
+    return sprintf(__("Every %d s", "pressedmail"), String(seconds));
+  }
+  if (seconds < 3600) {
+    return sprintf(__("Every %d min", "pressedmail"), String(Math.round(seconds / 60)));
+  }
+  if (seconds < 86400) {
+    return sprintf(__("Every %d h", "pressedmail"), String(Math.round(seconds / 3600)));
+  }
+  return sprintf(__("Every %d d", "pressedmail"), String(Math.round(seconds / 86400)));
 }
 
 export function SystemDiagnostics() {
@@ -119,6 +165,10 @@ export function SystemDiagnostics() {
   const syncSchedule = (
     diagnostics as { syncSchedule?: SyncScheduleInfo } | undefined
   )?.syncSchedule;
+  const cronHealth = (
+    diagnostics as { cronHealth?: CronHealthInfo } | undefined
+  )?.cronHealth;
+  const cronWorkers = cronHealth?.workers ?? [];
   const syncOverdue = syncSchedule?.overdue === true;
   const syncLabel = !syncSchedule
     ? __("Unknown", "pressedmail")
@@ -130,9 +180,12 @@ export function SystemDiagnostics() {
             __("Scheduled · every %d min", "pressedmail"),
             String(syncSchedule.intervalMinutes ?? 0),
           );
-  const extensionEntries = Object.entries(extensions || {}).filter(
-    ([key]) => key !== "imap",
-  );
+  const siteHealthUrl = window.pressedmailPlugin?.adminAjaxUrl
+    ? new URL(
+        "site-health.php",
+        new URL(window.pressedmailPlugin.adminAjaxUrl, window.location.href),
+      ).href
+    : undefined;
   // "Managed by WordPress.org" is a statement about where the edition gets its
   // updates, so it follows the edition. Pro updates come from the licence
   // server; if that lookup cannot run, say "Unavailable" rather than claim
@@ -174,7 +227,9 @@ export function SystemDiagnostics() {
 
     setVersionLookupState("loading");
 
-    apiFetch(`${apiUrl}${getRuntimeRestNamespace()}/updates/check`)
+    apiFetch(`${apiUrl}${getRuntimeRestNamespace()}/updates/check`, {
+      method: "POST",
+    })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`Update lookup failed: ${response.status}`);
@@ -217,258 +272,339 @@ export function SystemDiagnostics() {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-1.5">
-                <span>{__("System Health", "pressedmail")}</span>
-                <SettingsInfoTooltip
-                  tooltip={settingsInfoTooltips.systemHealth}
-                  docHref={settingsInfoDocHrefs.systemHealth}
-                />
-              </CardTitle>
-              <CardDescription>
+      <SettingsSectionCard
+        title={__("System Health", "pressedmail")}
+        description={__(
+          "Server environment and PHP extension status",
+          "pressedmail",
+        )}
+        tooltip={settingsInfoTooltips.systemHealth}
+        docHref={settingsInfoDocHrefs.systemHealth}
+        actions={
+          siteHealthUrl ? (
+            <a className="text-sm text-primary underline" href={siteHealthUrl}>
+              {__("Open WordPress Site Health", "pressedmail")}
+            </a>
+          ) : null
+        }>
+        <dl className="divide-y divide-border">
+          <HealthRow
+            label={__("PHP", "pressedmail")}
+            value={phpVersion?.current || __("Unknown", "pressedmail")}
+            ok={phpVersion?.is_met !== false}
+          />
+          <HealthRow
+            label={__("WordPress", "pressedmail")}
+            value={wpVersion?.current || __("Unknown", "pressedmail")}
+            ok={wpVersion?.is_met !== false}
+          />
+          <HealthRow
+            label={__("Email driver", "pressedmail")}
+            value={imapDriver?.driver || __("Unknown", "pressedmail")}
+          />
+          <HealthRow
+            label={__("PHP IMAP extension", "pressedmail")}
+            value={
+              imapExtension?.loaded
+                ? __("Loaded", "pressedmail")
+                : __("Missing", "pressedmail")
+            }
+            ok={imapExtension?.loaded}
+            recommended
+          />
+          {phpLimits?.memory_usage ? (
+            <HealthRow
+              label={__("Memory usage", "pressedmail")}
+              value={phpLimits.memory_usage}
+            />
+          ) : null}
+          {phpLimits?.memory_limit || memory ? (
+            <HealthRow
+              label={__("Max memory", "pressedmail")}
+              value={phpLimits?.memory_limit || memory?.current || ""}
+              ok={memory?.is_adequate !== false}
+            />
+          ) : null}
+          {phpLimits?.execution_time ? (
+            <HealthRow
+              label={__("Execution time", "pressedmail")}
+              value={phpLimits.execution_time}
+            />
+          ) : null}
+          {phpLimits?.max_execution_time ? (
+            <HealthRow
+              label={__("Max execution time", "pressedmail")}
+              value={phpLimits.max_execution_time}
+            />
+          ) : null}
+          {phpLimits?.post_max_size ? (
+            <HealthRow
+              label={__("Max post size", "pressedmail")}
+              value={phpLimits.post_max_size}
+            />
+          ) : null}
+          {phpLimits?.upload_max_filesize ? (
+            <HealthRow
+              label={__("Max upload size", "pressedmail")}
+              value={phpLimits.upload_max_filesize}
+            />
+          ) : null}
+        </dl>
+      </SettingsSectionCard>
+
+      <SettingsSectionCard
+        title={__("Plugin Status", "pressedmail")}
+        dataTest="plugin-status-diagnostics"
+        contentClassName="space-y-3">
+        <dl className="divide-y divide-border">
+          <PluginStatusRow
+            label={__("Current installed version", "pressedmail")}
+            value={currentVersion}
+          />
+          <PluginStatusRow
+            label={latestReleaseLabel}
+            value={latestVersionLabel}
+          />
+          <PluginStatusRow
+            label={__("Email driver", "pressedmail")}
+            value={imapDriver?.driver || __("Unknown", "pressedmail")}
+          />
+          {syncSchedule ? (
+            <PluginStatusRow
+              label={__("Background sync", "pressedmail")}
+              value={syncLabel}
+              destructive={syncOverdue}
+            />
+          ) : null}
+        </dl>
+
+        {currentVersion.includes("-beta.") ? (
+          <p className="text-xs text-muted-foreground">
+            {__(
+              "This is a Beta build. Its version can be newer than the latest published release.",
+              "pressedmail",
+            )}
+          </p>
+        ) : null}
+        {syncSchedule && syncSchedule.mode === "scheduled" ? (
+          <div
+            className="text-xs text-muted-foreground"
+            data-test="sync-schedule-detail"
+            data-testid="sync-schedule-detail">
+            {syncSchedule.lastRun
+              ? sprintf(
+                  __("Last sync run: %s", "pressedmail"),
+                  new Date(syncSchedule.lastRun * 1000).toLocaleString(),
+                )
+              : __("Last sync run: not yet", "pressedmail")}
+            {syncSchedule.nextRun
+              ? ` · ${sprintf(
+                  __("Next run: %s", "pressedmail"),
+                  new Date(syncSchedule.nextRun * 1000).toLocaleString(),
+                )}`
+              : ""}
+          </div>
+        ) : null}
+
+        {imapMissing ? (
+          <Alert className="bg-muted/50 border-muted">
+            <Info className="h-4 w-4" />
+            <AlertDescription className="text-sm">
+              <span className="font-medium">
+                {__("IMAP PHP extension not installed.", "pressedmail")}
+              </span>{" "}
+              {__(
+                "A socket-based fallback driver is active. For optimal performance, consider installing the PHP IMAP extension.",
+                "pressedmail",
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {imapMissing ? (
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm">
+            <p className="font-medium">
+              {__("Recommended fix", "pressedmail")}
+            </p>
+            {imapExtension.install_cmd ? (
+              <code className="mt-2 block rounded bg-background p-2 text-xs">
+                {imapExtension.install_cmd}
+              </code>
+            ) : (
+              <p className="mt-1 text-muted-foreground">
                 {__(
-                  "Server environment and PHP extension status",
+                  "Install the PHP IMAP extension for your server distribution.",
                   "pressedmail",
                 )}
-              </CardDescription>
-            </div>
+              </p>
+            )}
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-2 lg:grid-cols-2">
-            <HealthRow
-              label={__("PHP", "pressedmail")}
-              value={phpVersion?.current || __("Unknown", "pressedmail")}
-              ok={phpVersion?.is_met !== false}
-            />
-            <HealthRow
-              label={__("WordPress", "pressedmail")}
-              value={wpVersion?.current || __("Unknown", "pressedmail")}
-              ok={wpVersion?.is_met !== false}
-            />
-            <HealthRow
-              label={__("Email driver", "pressedmail")}
-              value={imapDriver?.driver || __("Unknown", "pressedmail")}
-            />
-            <HealthRow
-              label={__("PHP IMAP extension", "pressedmail")}
-              value={
-                imapExtension?.loaded
-                  ? __("Loaded", "pressedmail")
-                  : __("Missing", "pressedmail")
-              }
-              ok={imapExtension?.loaded !== false}
-            />
-            {extensionEntries.map(([key, value]) => {
-              const extension = value as ExtensionInfo;
-              return (
-                <HealthRow
-                  key={key}
-                  label={extension.name}
-                  value={
-                    extension.loaded
-                      ? __("Loaded", "pressedmail")
-                      : __("Missing", "pressedmail")
-                  }
-                  ok={extension.loaded || !extension.required}
-                />
-              );
-            })}
-            {phpLimits?.memory_usage ? (
-              <HealthRow
-                label={__("Memory usage", "pressedmail")}
-                value={phpLimits.memory_usage}
-              />
-            ) : null}
-            {phpLimits?.memory_limit || memory ? (
-              <HealthRow
-                label={__("Max memory", "pressedmail")}
-                value={phpLimits?.memory_limit || memory?.current || ""}
-                ok={memory?.is_adequate !== false}
-              />
-            ) : null}
-            {phpLimits?.execution_time ? (
-              <HealthRow
-                label={__("Execution time", "pressedmail")}
-                value={phpLimits.execution_time}
-              />
-            ) : null}
-            {phpLimits?.max_execution_time ? (
-              <HealthRow
-                label={__("Max execution time", "pressedmail")}
-                value={phpLimits.max_execution_time}
-              />
-            ) : null}
-            {phpLimits?.post_max_size ? (
-              <HealthRow
-                label={__("Max post size", "pressedmail")}
-                value={phpLimits.post_max_size}
-              />
-            ) : null}
-            {phpLimits?.upload_max_filesize ? (
-              <HealthRow
-                label={__("Max upload size", "pressedmail")}
-                value={phpLimits.upload_max_filesize}
-              />
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+        ) : null}
+      </SettingsSectionCard>
 
-      <Card
-        data-test="plugin-status-diagnostics"
-        data-testid="plugin-status-diagnostics"
-        className="rounded-lg border">
-        <CardHeader>
-          <CardTitle className="text-sm">
-            {__("Plugin Status", "pressedmail")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-2 lg:grid-cols-2">
-            <PluginStatusRow
-              label={__("Current installed version", "pressedmail")}
-              value={currentVersion}
-            />
-            <PluginStatusRow
-              label={latestReleaseLabel}
-              value={latestVersionLabel}
-            />
-            <PluginStatusRow
-              label={__("Email driver", "pressedmail")}
-              value={imapDriver?.driver || __("Unknown", "pressedmail")}
-            />
-            {syncSchedule ? (
-              <PluginStatusRow
-                label={__("Background sync", "pressedmail")}
-                value={syncLabel}
-                destructive={syncOverdue}
-              />
-            ) : null}
-          </div>
-
-          {syncSchedule && syncSchedule.mode === "scheduled" ? (
-            <div
-              className="text-xs text-muted-foreground"
-              data-test="sync-schedule-detail"
-              data-testid="sync-schedule-detail">
-              {syncSchedule.lastRun
-                ? sprintf(
-                    __("Last sync run: %s", "pressedmail"),
-                    new Date(syncSchedule.lastRun * 1000).toLocaleString(),
-                  )
-                : __("Last sync run: not yet", "pressedmail")}
-              {syncSchedule.nextRun
-                ? ` · ${sprintf(
-                    __("Next run: %s", "pressedmail"),
-                    new Date(syncSchedule.nextRun * 1000).toLocaleString(),
-                  )}`
-                : ""}
-            </div>
-          ) : null}
-
-          {imapMissing ? (
+      {cronWorkers.length > 0 || cronHealth?.wpCronDisabled ? (
+        <SettingsSectionCard
+          title={__("Scheduled work", "pressedmail")}
+          description={__(
+            "Background workers with something scheduled right now. Workers without a scheduled event are omitted.",
+            "pressedmail",
+          )}
+          dataTest="scheduled-work-diagnostics">
+          {cronHealth?.wpCronDisabled ? (
             <Alert className="bg-muted/50 border-muted">
               <Info className="h-4 w-4" />
               <AlertDescription className="text-sm">
-                <span className="font-medium">
-                  {__("IMAP PHP extension not installed.", "pressedmail")}
-                </span>{" "}
                 {__(
-                  "A socket-based fallback driver is active. For optimal performance, consider installing the PHP IMAP extension.",
+                  "WP-Cron is disabled on this site (DISABLE_WP_CRON), so WordPress will not run scheduled work on page loads. A server cron entry below is required for scheduled mail and rules to fire on time.",
                   "pressedmail",
                 )}
               </AlertDescription>
             </Alert>
           ) : null}
 
-          {imapMissing ? (
-            <div className="rounded-lg border bg-muted/30 p-4 text-sm">
-              <p className="font-medium">
-                {__("Recommended fix", "pressedmail")}
+          {cronWorkers.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table
+              className="w-full text-sm"
+              data-test="cron-worker-table"
+              data-testid="cron-worker-table">
+              <thead>
+                <tr className="border-b text-left text-xs text-muted-foreground">
+                  <th className="py-2 pr-3 font-medium">
+                    {__("Worker", "pressedmail")}
+                  </th>
+                  <th className="py-2 pr-3 font-medium">
+                    {__("Repeats", "pressedmail")}
+                  </th>
+                  <th className="py-2 pr-3 font-medium">
+                    {__("Next run", "pressedmail")}
+                  </th>
+                  <th className="py-2 font-medium">
+                    {__("Last run", "pressedmail")}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {cronWorkers.map((worker) => (
+                  <tr
+                    key={worker.hook}
+                    className="border-b border-border align-top last:border-b-0"
+                    data-test={`cron-worker-${worker.hook}`}>
+                    <td className="py-2 pr-3">
+                      <span className="break-all font-mono text-xs">
+                        {worker.hook}
+                      </span>
+                      {worker.events > 1 ? (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {sprintf(__("%d jobs", "pressedmail"), String(worker.events))}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap">
+                      {formatInterval(worker.intervalSeconds)}
+                    </td>
+                    <td className="py-2 pr-3">
+                      {worker.overdue ? (
+                        <Badge variant="destructive" className="mb-1 mr-2">
+                          {__("Overdue", "pressedmail")}
+                        </Badge>
+                      ) : null}
+                      <span className="whitespace-nowrap">
+                        {worker.nextRun
+                          ? new Date(worker.nextRun * 1000).toLocaleString()
+                          : __("Unknown", "pressedmail")}
+                      </span>
+                    </td>
+                    <td className="py-2 whitespace-nowrap">
+                      {worker.lastRun
+                        ? new Date(worker.lastRun * 1000).toLocaleString()
+                        : __("Not recorded", "pressedmail")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          ) : null}
+
+          {cronHealth?.serverCronCommand ? (
+            <div
+              className="rounded-lg border bg-muted/30 p-4 text-sm"
+              data-test="server-cron-hint"
+              data-testid="server-cron-hint">
+              <p className="font-medium">{__("Server cron", "pressedmail")}</p>
+              <p className="mt-1 text-muted-foreground">
+                {__(
+                  "For exact timing on a busy or low-traffic site, add this line to the server crontab. It is safe alongside WordPress's own cron: the two coordinate through a database lock.",
+                  "pressedmail",
+                )}
               </p>
-              {imapExtension.install_cmd ? (
-                <code className="mt-2 block rounded bg-background p-2 text-xs">
-                  {imapExtension.install_cmd}
-                </code>
-              ) : (
-                <p className="mt-1 text-muted-foreground">
-                  {__(
-                    "Install the PHP IMAP extension for your server distribution.",
-                    "pressedmail",
-                  )}
-                </p>
-              )}
+              <code className="mt-2 block overflow-x-auto rounded bg-background p-2 text-xs whitespace-nowrap">
+                {cronHealth?.serverCronCommand}
+              </code>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {__(
+                  "Use the full path to your wp-cli binary if cron cannot find wp.",
+                  "pressedmail",
+                )}
+              </p>
             </div>
           ) : null}
-        </CardContent>
-      </Card>
+        </SettingsSectionCard>
+      ) : null}
 
       <div className="grid gap-4">
-        <Card
-          data-test="php-extensions-card"
-          data-testid="php-extensions-card"
-          className="h-full rounded-lg border">
-          <CardHeader>
-            <CardTitle className="text-sm">
-              {__("PHP Extensions", "pressedmail")}
-            </CardTitle>
-            <CardDescription>
-              {__("Required server extensions", "pressedmail")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div
-              data-test="php-extensions-grid"
-              data-testid="php-extensions-grid"
-              className="grid gap-2 sm:grid-cols-2">
-              {Object.entries(extensions || {}).map(([key, value]) => {
-                if (key === "imap") return null;
+        <SettingsSectionCard
+          title={__("PHP Extensions", "pressedmail")}
+          description={__("Required server extensions", "pressedmail")}
+          dataTest="php-extensions-card">
+          <div
+            data-test="php-extensions-grid"
+            data-testid="php-extensions-grid"
+            className="grid gap-2 sm:grid-cols-2">
+            {Object.entries(extensions || {}).map(([key, value]) => {
+              if (key === "imap") return null;
 
-                const ext = value as ExtensionInfo;
+              const ext = value as ExtensionInfo;
 
-                return (
-                  <div
-                    key={key}
-                    data-test={`php-extension-${key}`}
-                    data-testid={`php-extension-${key}`}
-                    className="flex min-w-0 items-center gap-2 rounded-md border p-3 text-sm">
-                    {ext.loaded ? (
-                      <CheckCircle
-                        data-test="php-extension-status-icon"
-                        data-testid="php-extension-status-icon"
-                        className="h-4 w-4 shrink-0 text-success"
-                      />
-                    ) : ext.required ? (
-                      <AlertTriangle
-                        data-test="php-extension-status-icon"
-                        data-testid="php-extension-status-icon"
-                        className="h-4 w-4 shrink-0 text-destructive"
-                      />
-                    ) : (
-                      <Info
-                        data-test="php-extension-status-icon"
-                        data-testid="php-extension-status-icon"
-                        className="h-4 w-4 shrink-0 text-muted-foreground"
-                      />
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                      {ext.name}
-                    </span>
-                    {!ext.loaded && !ext.required ? (
-                      <Badge variant="outline" className="shrink-0">
-                        {__("Optional", "pressedmail")}
-                      </Badge>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+              return (
+                <div
+                  key={key}
+                  data-test={`php-extension-${key}`}
+                  data-testid={`php-extension-${key}`}
+                  className="flex min-w-0 items-center gap-2 rounded-md border p-3 text-sm">
+                  {ext.loaded ? (
+                    <CheckCircle
+                      data-test="php-extension-status-icon"
+                      data-testid="php-extension-status-icon"
+                      className="h-4 w-4 shrink-0 text-success"
+                    />
+                  ) : ext.required ? (
+                    <AlertTriangle
+                      data-test="php-extension-status-icon"
+                      data-testid="php-extension-status-icon"
+                      className="h-4 w-4 shrink-0 text-destructive"
+                    />
+                  ) : (
+                    <Info
+                      data-test="php-extension-status-icon"
+                      data-testid="php-extension-status-icon"
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {ext.name}
+                  </span>
+                  {!ext.loaded && !ext.required ? (
+                    <Badge variant="outline" className="shrink-0">
+                      {__("Optional", "pressedmail")}
+                    </Badge>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </SettingsSectionCard>
       </div>
 
       {memory && !memory.is_adequate && (

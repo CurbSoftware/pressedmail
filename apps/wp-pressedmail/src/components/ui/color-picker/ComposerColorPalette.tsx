@@ -84,7 +84,6 @@ export function pushRecentColor(
   return [normalized, ...filtered].slice(0, cap);
 }
 
-
 interface SwatchProps {
   hex: string;
   onPick: (hex: string) => void;
@@ -142,8 +141,7 @@ export function ComposerColorPalette({
     mode === "manager"
       ? activeHues
       : activeHues.filter(
-          (hue) =>
-            !isPaletteDisabled(hue, preferences.disabled_palettes ?? []),
+          (hue) => !isPaletteDisabled(hue, preferences.disabled_palettes ?? []),
         );
   const activeNeutral = getActiveNeutral(resolvedLevel);
   const [draftOpen, setDraftOpen] = useState(false);
@@ -172,8 +170,7 @@ export function ComposerColorPalette({
   const customSlotCount = activeShades.length * COMPOSER_CUSTOM_COLOR_COLUMNS;
   const canAddCustom =
     !isPreview &&
-    customColors.length <
-      Math.min(customSlotCount, COMPOSER_CUSTOM_COLOR_MAX);
+    customColors.length < Math.min(customSlotCount, COMPOSER_CUSTOM_COLOR_MAX);
   const showCustomEditor = !isPreview && draftOpen;
 
   const handleSwatch = useCallback(
@@ -208,14 +205,13 @@ export function ComposerColorPalette({
 
   function commitDraft() {
     if (!draftValid) return;
-    const nextColors =
-      draftIsDuplicate
-        ? [...customColors]
-        : editingIndex === null
-          ? [...customColors, normalizedDraft]
-          : customColors.map((entry, index) =>
-              index === editingIndex ? normalizedDraft : entry,
-            );
+    const nextColors = draftIsDuplicate
+      ? [...customColors]
+      : editingIndex === null
+        ? [...customColors, normalizedDraft]
+        : customColors.map((entry, index) =>
+            index === editingIndex ? normalizedDraft : entry,
+          );
 
     if (isBackgroundEditor) {
       const nextRecentColors = pushRecentColor(recentColors, normalizedDraft);
@@ -243,10 +239,7 @@ export function ComposerColorPalette({
         if (!didSave) {
           // A rejected save rolls the optimistic state back, so without this
           // the new colour just disappeared and the palette looked unchanged.
-          appMessage(
-            __("Could not save that color", "pressedmail"),
-            "error",
-          );
+          appMessage(__("Could not save that color", "pressedmail"), "error");
           return;
         }
         if (isManager) {
@@ -451,7 +444,7 @@ export function ComposerColorPalette({
                                       "pressedmail",
                                     )} ${hex}`}
                                     onClick={() => removeCustom(hex)}
-                                    className="absolute -right-1 -top-1 hidden h-3 w-3 items-center justify-center rounded-full border border-input bg-background text-foreground shadow-xs group-hover:flex">
+                                    className="absolute -right-1 -top-1 hidden h-3 w-3 items-center justify-center rounded-full border border-input bg-background text-foreground shadow-xs after:absolute after:-inset-1.5 after:content-[''] group-hover:flex group-focus-within:flex">
                                     <X className="h-2 w-2" aria-hidden="true" />
                                   </button>
                                 )}

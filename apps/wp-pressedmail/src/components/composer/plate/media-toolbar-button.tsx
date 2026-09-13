@@ -63,53 +63,53 @@ function isSafeImageUrl(value: string): boolean {
   }
 }
 
-const MEDIA_CONFIG: Record<
-  string,
-  {
-    accept: string[];
-    icon: React.ReactNode;
-    title: string;
-    tooltip: string;
-  }
-> = {
-  [KEYS.audio]: {
-    accept: ['audio/*'],
-    icon: <AudioLinesIcon className="size-4" />,
-    title: __('Insert Audio', 'pressedmail'),
-    tooltip: __('Audio', 'pressedmail'),
-  },
-  [KEYS.file]: {
-    accept: ['*'],
-    icon: <FileUpIcon className="size-4" />,
-    title: __('Insert File', 'pressedmail'),
-    tooltip: __('File', 'pressedmail'),
-  },
-  [KEYS.img]: {
-    accept: ['image/*'],
-    icon: <ImageIcon className="size-4" />,
-    title: __('Insert Image', 'pressedmail'),
-    tooltip: __('Image', 'pressedmail'),
-  },
-  [KEYS.video]: {
-    accept: ['video/*'],
-    icon: <FilmIcon className="size-4" />,
-    title: __('Insert Video', 'pressedmail'),
-    tooltip: __('Video', 'pressedmail'),
-  },
-};
+interface MediaConfig {
+  accept: string[];
+  icon: React.ReactNode;
+  title: string;
+  tooltip: string;
+}
 
-const FALLBACK_CONFIG = {
-  accept: ['*'],
-  icon: <FileUpIcon className="size-4" />,
-  title: __('Insert File', 'pressedmail'),
-  tooltip: __('File', 'pressedmail'),
-};
+// Built on call: a module-level __() runs before main.tsx loads the locale
+// catalog, so these titles would always be English.
+function getMediaConfig(nodeType: string): MediaConfig {
+  switch (nodeType) {
+    case KEYS.audio:
+      return {
+        accept: ['audio/*'],
+        icon: <AudioLinesIcon className="size-4" />,
+        title: __('Insert audio', 'pressedmail'),
+        tooltip: __('Audio', 'pressedmail'),
+      };
+    case KEYS.img:
+      return {
+        accept: ['image/*'],
+        icon: <ImageIcon className="size-4" />,
+        title: __('Insert image', 'pressedmail'),
+        tooltip: __('Image', 'pressedmail'),
+      };
+    case KEYS.video:
+      return {
+        accept: ['video/*'],
+        icon: <FilmIcon className="size-4" />,
+        title: __('Insert video', 'pressedmail'),
+        tooltip: __('Video', 'pressedmail'),
+      };
+    default:
+      return {
+        accept: ['*'],
+        icon: <FileUpIcon className="size-4" />,
+        title: __('Insert file', 'pressedmail'),
+        tooltip: __('File', 'pressedmail'),
+      };
+  }
+}
 
 export function MediaToolbarButton({
   nodeType,
   ...props
 }: DropdownMenuProps & { nodeType: string }) {
-  const currentConfig = MEDIA_CONFIG[nodeType] ?? FALLBACK_CONFIG;
+  const currentConfig = getMediaConfig(nodeType);
 
   const editor = useEditorRef();
   const [open, setOpen] = React.useState(false);
@@ -198,7 +198,7 @@ export function MediaUrlDialog({
   open: boolean;
   onOpenChange: (value: boolean) => void;
 }) {
-  const currentConfig = MEDIA_CONFIG[nodeType] ?? FALLBACK_CONFIG;
+  const currentConfig = getMediaConfig(nodeType);
 
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
@@ -218,7 +218,7 @@ function MediaUrlDialogContent({
   nodeType,
   setOpen,
 }: {
-  currentConfig: (typeof MEDIA_CONFIG)[string];
+  currentConfig: MediaConfig;
   nodeType: string;
   setOpen: (value: boolean) => void;
 }) {

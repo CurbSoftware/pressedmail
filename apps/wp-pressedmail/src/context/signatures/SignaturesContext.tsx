@@ -9,11 +9,13 @@
 import React, {
   createContext,
   useContext,
+  useRef,
   useState,
   useCallback,
   useMemo,
   useEffect,
 } from "react";
+import { __, sprintf } from "@wordpress/i18n";
 import type {
   Signature,
   SignatureCapabilities,
@@ -49,6 +51,11 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
   const [error, setError] = useState<Error | null>(null);
   const [capabilities, setCapabilities] =
     useState<SignatureCapabilities | null>(null);
+  // The list refetches whenever the account changes. Without a generation
+  // check, two overlapping requests settle in whatever order the network
+  // returns them, so the earlier account's signatures could overwrite the
+  // later one's while `loading` had already gone false.
+  const fetchGenerationRef = useRef(0);
 
   /**
    * Get API base URL.
@@ -60,6 +67,9 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
    */
   const fetchSignatures = useCallback(
     async (filterAccountId?: number) => {
+      const generation = ++fetchGenerationRef.current;
+      const isCurrent = () => generation === fetchGenerationRef.current;
+
       try {
         setLoading(true);
         setError(null);
@@ -75,10 +85,17 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch signatures: ${response.statusText}`);
+          throw new Error(
+            sprintf(
+              /* translators: %s: HTTP status text. */
+              __("Your signatures could not be loaded: %s", "pressedmail"),
+              response.statusText,
+            ),
+          );
         }
 
         const data = await response.json();
+        if (!isCurrent()) return;
 
         if (data.status === "success") {
           setSignatures(data.signatures || []);
@@ -86,14 +103,22 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
             setCapabilities(data.capabilities);
           }
         } else {
-          throw new Error(data.message || "Failed to fetch signatures");
+          throw new Error(
+            data.message ||
+              __("Your signatures could not be loaded.", "pressedmail"),
+          );
         }
       } catch (err) {
+        if (!isCurrent()) return;
         console.error("Error fetching signatures:", err);
-        setError(err instanceof Error ? err : new Error("Unknown error"));
+        setError(
+          err instanceof Error
+            ? err
+            : new Error(__("Something went wrong.", "pressedmail")),
+        );
         setSignatures([]);
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
     },
     [accountId],
@@ -188,7 +213,10 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         console.error("Error creating signature:", err);
         return {
           success: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error:
+            err instanceof Error
+              ? err.message
+              : __("Something went wrong.", "pressedmail"),
         };
       }
     },
@@ -231,7 +259,10 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         console.error("Error updating signature:", err);
         return {
           success: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error:
+            err instanceof Error
+              ? err.message
+              : __("Something went wrong.", "pressedmail"),
         };
       }
     },
@@ -271,7 +302,10 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         console.error("Error deleting signature:", err);
         return {
           success: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error:
+            err instanceof Error
+              ? err.message
+              : __("Something went wrong.", "pressedmail"),
         };
       }
     },
@@ -313,7 +347,10 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         console.error("Error setting default signature:", err);
         return {
           success: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error:
+            err instanceof Error
+              ? err.message
+              : __("Something went wrong.", "pressedmail"),
         };
       }
     },
@@ -354,7 +391,10 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         console.error("Error reordering signatures:", err);
         return {
           success: false,
-          error: err instanceof Error ? err.message : "Unknown error",
+          error:
+            err instanceof Error
+              ? err.message
+              : __("Something went wrong.", "pressedmail"),
         };
       }
     },
@@ -366,10 +406,13 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
    */
   const refreshCapabilities = useCallback(async () => {
     try {
-      const response = await apiFetch(`${getApiUrl()}/signatures/capabilities`, {
-        credentials: "include",
-        headers: getApiHeaders(),
-      });
+      const response = await apiFetch(
+        `${getApiUrl()}/signatures/capabilities`,
+        {
+          credentials: "include",
+          headers: getApiHeaders(),
+        },
+      );
 
       if (!response.ok) {
         return;

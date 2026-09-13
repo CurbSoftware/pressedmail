@@ -13,6 +13,10 @@ import {
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 
 import SettingsLayout from "./layout";
+import {
+  SETTINGS_NAV_ACTIVE_CLASS,
+  SETTINGS_NAV_INDICATOR_CLASS,
+} from "@/lib/sidebar-navigation-styles";
 import { FreeMobileSettingsList } from "./free-mobile-settings-list";
 import {
   useFreeSettingsSections,
@@ -83,10 +87,14 @@ function FreeDesktopSettings() {
               return (
                 <div key={group} className="px-4 pb-4 pt-4">
                   {groupIndex > 0 ? <Separator className="mb-3" /> : null}
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <h2
+                    id={`pm-settings-group-${group}`}
+                    className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     {GROUP_LABELS[group]}
-                  </p>
-                  <nav className="mt-3 space-y-1">
+                  </h2>
+                  <nav
+                    aria-labelledby={`pm-settings-group-${group}`}
+                    className="mt-3 space-y-1">
                     {groupSections.map((section) => {
                       const Icon = section.icon;
                       const isActive = section.id === activeId;
@@ -95,13 +103,20 @@ function FreeDesktopSettings() {
                           key={section.id}
                           type="button"
                           variant="ghost"
+                          aria-current={isActive ? "page" : undefined}
                           className={cn(
-                            "w-full justify-start gap-2 text-sm",
-                            isActive && "bg-accent text-foreground",
+                            "gap-2 text-sm",
+                            SETTINGS_NAV_INDICATOR_CLASS,
+                            isActive && SETTINGS_NAV_ACTIVE_CLASS,
                           )}
                           onClick={() => selectSection(section.id)}
                           data-test={`settings-tab-${section.id}`}>
-                          <Icon className="h-4 w-4" />
+                          <Icon
+                            className={cn(
+                              "h-4 w-4",
+                              isActive && "text-primary",
+                            )}
+                          />
                           <span className="truncate">{section.label}</span>
                         </Button>
                       );

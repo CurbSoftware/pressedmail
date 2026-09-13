@@ -33,7 +33,8 @@ import {
   ToolbarButton,
 } from '@/components/composer/toolbar';
 
-const items = [
+// Built on call: a module-level __() runs before the locale catalog loads.
+const getItems = () => [
   { icon: AlignLeftIcon, label: __('Align left', 'pressedmail'), value: 'left' },
   { icon: AlignCenterIcon, label: __('Align center', 'pressedmail'), value: 'center' },
   { icon: AlignRightIcon, label: __('Align right', 'pressedmail'), value: 'right' },
@@ -41,6 +42,7 @@ const items = [
 ];
 
 export function AlignToolbarButton(props: DropdownMenuProps) {
+  const items = getItems();
   const { editor, tf } = useEditorPlugin(TextAlignPlugin);
   const value =
     useSelectionFragmentProp({

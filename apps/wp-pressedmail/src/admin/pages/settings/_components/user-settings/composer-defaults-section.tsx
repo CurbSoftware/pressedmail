@@ -49,10 +49,14 @@ export function ComposerDefaultsSection({
     <SettingsSectionCard
       dataTest="preference-section-composer-defaults"
       title={__("Composer defaults", "pressedmail")}
-      description={__(
-        "Starting format, font, signature placement, and Pro send helpers.",
-        "pressedmail",
-      )}
+      description={
+        __IS_PRO__
+          ? __(
+              "Starting format, font, signature placement, and send helpers.",
+              "pressedmail",
+            )
+          : __("Starting format, font, and signature placement.", "pressedmail")
+      }
       tooltip={settingsInfoTooltips.composer}
       docHref={settingsInfoDocHrefs.composer}>
       <PreferenceSelectRow

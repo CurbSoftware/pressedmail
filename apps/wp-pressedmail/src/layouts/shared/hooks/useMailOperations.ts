@@ -623,7 +623,9 @@ export function useMailOperations(): UseMailOperationsReturn {
   // ============== Loading Operations ==============
 
   const refreshMessages = useCallback(async () => {
-    appMessage("Refreshing messages from server...", "warning");
+    // No toast: refreshing is a routine action, the spinner and the Syncing
+    // state already say it is happening, and this one was untranslated English
+    // dressed up as a warning.
     await inbox.refreshMessages();
   }, [inbox]);
 

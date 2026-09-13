@@ -10,7 +10,9 @@ import { __ } from '@wordpress/i18n';
  * this build), unlike the `has-[...]` arbitrary variants that are not.
  */
 export const BlockPlaceholderKit = [
-  BlockPlaceholderPlugin.configure({
+  // A function, so the hint is translated when an editor is created, after
+  // the locale catalog has loaded, not when this module is first imported.
+  BlockPlaceholderPlugin.configure(() => ({
     options: {
       className:
         'before:absolute before:cursor-text before:text-muted-foreground/80 before:content-[attr(placeholder)]',
@@ -19,5 +21,5 @@ export const BlockPlaceholderKit = [
       },
       query: ({ path }) => path.length === 1,
     },
-  }),
+  })),
 ];

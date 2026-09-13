@@ -34,9 +34,10 @@ export function EmailRulesTab() {
   const [accountsFailed, setAccountsFailed] = useState(false);
   const [reloadAccounts, setReloadAccounts] = useState(0);
   const [activeRulesTab, setActiveRulesTab] = useState("manual");
+  const [ruleCount, setRuleCount] = useState<number | undefined>(undefined);
   const runRulesHeaderAction = useMemo(
-    () => <RunRulesNowButton accountId={null} />,
-    [],
+    () => <RunRulesNowButton accountId={null} ruleCount={ruleCount} />,
+    [ruleCount],
   );
   const usingSharedHeaderActions = useSettingsHeaderAction(
     "email-rules:run",
@@ -121,7 +122,7 @@ export function EmailRulesTab() {
 
       {!usingSharedHeaderActions ? (
         <div className="flex justify-end">
-          <RunRulesNowButton accountId={null} />
+          <RunRulesNowButton accountId={null} ruleCount={ruleCount} />
         </div>
       ) : null}
 
@@ -148,6 +149,7 @@ export function EmailRulesTab() {
             accountId={null}
             accountOptions={accounts}
             sourceFilter="manual"
+            onRuleCountChange={setRuleCount}
           />
         </UnderlineTabsContent>
         <UnderlineTabsContent value="generated">

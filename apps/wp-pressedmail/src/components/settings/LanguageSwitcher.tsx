@@ -14,6 +14,7 @@ import { __ } from "@wordpress/i18n";
 import { appMessage } from "@/context/toast";
 import { useSettingsGuardedAction } from "@/components/settings-ui";
 import { cn } from "@/lib/utils";
+import { toBcp47 } from "@/lib/i18n-boot";
 import { useLocale } from "@/hooks/useLocale";
 
 interface LanguageSwitcherProps {
@@ -69,7 +70,7 @@ export function LanguageSwitcher({
           });
         }}>
         {locales.map((entry) => (
-          <option key={entry.wp} value={entry.wp}>
+          <option key={entry.wp} value={entry.wp} lang={toBcp47(entry.wp)}>
             {entry.nativeLabel}
           </option>
         ))}

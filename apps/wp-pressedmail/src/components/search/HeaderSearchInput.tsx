@@ -96,12 +96,20 @@ const EMPTY_CALENDAR_DRAFT: DraftCalendarFilters = {
   allDay: false,
 };
 
+/**
+ * Local calendar date as YYYY-MM-DD. toISOString() would give the UTC date,
+ * so a filter built from local midnight came back a day earlier east of UTC
+ * and moved again on every reopen.
+ */
 function toDateInputValue(date?: Date): string {
   if (!date || Number.isNaN(date.getTime())) {
     return "";
   }
 
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function filtersToDraft(filters: AdvancedSearchFilters): DraftFilters {
@@ -386,7 +394,7 @@ function extractEventDate(suggestion: SearchSuggestion): string | null {
 
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
-  return parsed.toISOString().slice(0, 10);
+  return toDateInputValue(parsed);
 }
 
 function suggestionPath(suggestion: SearchSuggestion): string | null {

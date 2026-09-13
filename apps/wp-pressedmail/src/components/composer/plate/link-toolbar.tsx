@@ -150,6 +150,7 @@ export function LinkFloatingToolbar({
       <button
         className={buttonVariants({ size: 'sm', variant: 'ghost' })}
         type="button"
+        aria-label={__('Remove link', 'pressedmail')}
         {...unlinkButtonProps}
       >
         <Unlink width={18} />

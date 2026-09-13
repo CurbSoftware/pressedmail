@@ -100,7 +100,7 @@ export function TagFilterSection({
       setEditing(null);
       setIsCreating(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save tag");
+      setError(err instanceof Error ? err.message : __("Could not save the tag.", "pressedmail"));
     }
   };
 
@@ -110,7 +110,7 @@ export function TagFilterSection({
       await deleteTag(deleteTarget.id);
       setDeleteTarget(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete tag");
+      setError(err instanceof Error ? err.message : __("Could not delete the tag.", "pressedmail"));
     }
   };
 

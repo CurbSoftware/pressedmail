@@ -44,6 +44,12 @@ export interface DateTimeSelectorProps {
   "data-test"?: string;
   "data-testid"?: string;
   "aria-invalid"?: boolean;
+  /**
+   * The element holding the field's error text. A caller that shows an error
+   * owns the message, so it has to be able to point the control at it; without
+   * this the picker drops the prop and the error is never announced.
+   */
+  "aria-describedby"?: string;
 }
 
 function pad(value: number): string {
@@ -349,6 +355,7 @@ export function DateTimeSelector({
   "data-test": dataTest,
   "data-testid": dataTestIdProp,
   "aria-invalid": ariaInvalid,
+  "aria-describedby": ariaDescribedBy,
 }: DateTimeSelectorProps) {
   const dataTestId = dataTest ?? dataTestIdProp;
   const [open, setOpen] = useState(false);
@@ -386,6 +393,7 @@ export function DateTimeSelector({
           variant="outline"
           disabled={disabled}
           aria-invalid={ariaInvalid}
+          aria-describedby={ariaDescribedBy}
           aria-required={required}
           data-test={dataTestId}
           data-testid={dataTestId}

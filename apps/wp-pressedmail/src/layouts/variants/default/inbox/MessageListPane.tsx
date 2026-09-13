@@ -69,6 +69,7 @@ export function MessageListPane({
     loadMore,
     loadPage,
     selectedAccountId,
+    selectedFolder,
     error: inboxError,
   } = useInbox();
   const { totalCount } = useInboxState();
@@ -84,6 +85,8 @@ export function MessageListPane({
     () => getMessageFilterSignature(activeFilters),
     [activeFilters],
   );
+  // A search that matched nothing is not an empty folder.
+  const searchTerm = activeFilters?.searchTerm?.trim() || undefined;
 
   const requestPage = React.useCallback(
     (page: number) => {
@@ -102,7 +105,17 @@ export function MessageListPane({
 
     setCurrentPage(1);
     requestPage(1);
-  }, [isPagination, filterSignature, requestPage, selectedAccountId]);
+    // selectedFolder belongs here: a folder switch reloads from offset 0, so
+    // holding the old page number made the footer claim "Page 3 of N" over
+    // page-1 rows and sent Next to page 4, skipping two pages of the new
+    // folder. (pageSize rides along inside requestPage's identity.)
+  }, [
+    isPagination,
+    filterSignature,
+    requestPage,
+    selectedAccountId,
+    selectedFolder,
+  ]);
 
   const sortedMessages = React.useMemo(() => {
     return sortEmailMessages(filteredMessages, {
@@ -119,6 +132,17 @@ export function MessageListPane({
       : totalItems;
   const totalPages = Math.max(1, Math.ceil(effectiveTotal / pageSize));
   const safeCurrentPage = Math.min(currentPage, totalPages);
+  // A sweep or a bulk move can shrink the folder below the page being viewed.
+  // safeCurrentPage only clamps what is displayed; load the last real page so
+  // the user is not stranded looking at nothing.
+  React.useEffect(() => {
+    if (!isPagination) return;
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+      requestPage(totalPages);
+    }
+  }, [currentPage, isPagination, requestPage, totalPages]);
+
   const currentPageIds = React.useMemo(
     () => sortedMessages.map((msg) => getMessageIdentityKey(msg)),
     [sortedMessages],
@@ -181,11 +205,10 @@ export function MessageListPane({
             <MailListSkeleton count={10} />
           ) : displayMessages.length === 0 ? (
             <InboxEmptyState
-              title={
-                inboxError
-                  ? __("Failed to load messages", "pressedmail")
-                  : undefined
-              }
+              folder={selectedFolder}
+              variant={inboxError ? "error" : searchTerm ? "search" : "empty"}
+              error={inboxError ?? undefined}
+              searchTerm={searchTerm}
             />
           ) : (
             <MailList

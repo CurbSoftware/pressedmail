@@ -19,7 +19,7 @@ import { router } from "./routes.free";
 export function EditionApp() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+      <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
         <AdminSettingsProvider>
           <UIThemeProvider initialTheme="pressedm" isPro={false}>
             <LayoutProvider>

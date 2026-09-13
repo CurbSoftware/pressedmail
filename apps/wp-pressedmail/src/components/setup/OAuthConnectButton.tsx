@@ -52,6 +52,9 @@ export function OAuthConnectButton({
   const sessionGenerationRef = React.useRef(0);
   const sessionAbortRef = React.useRef<AbortController | null>(null);
   const popupRef = React.useRef<Window | null>(null);
+  // True once the popup has been sent to the provider. Until then it is still
+  // our own about:blank and closing it is both safe and necessary.
+  const popupNavigatedRef = React.useRef(false);
   const pollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -76,7 +79,19 @@ export function OAuthConnectButton({
   // Chrome log "Cross-Origin-Opener-Policy policy would block the window.close
   // call" on every attempt. Dropping the handle is the whole cleanup.
   const releaseActivePopup = React.useCallback(() => {
+    const popup = popupRef.current;
     popupRef.current = null;
+
+    // Before the popup navigates it is a same-origin about:blank we opened, so
+    // COOP has not severed the handle and close() still works. A start-URL
+    // failure used to strand that blank window for the user to hunt down.
+    if (popup && !popupNavigatedRef.current) {
+      try {
+        popup.close();
+      } catch {
+        // The window is already gone; nothing left to release.
+      }
+    }
   }, []);
 
   const isCurrentSession = React.useCallback((generation: number) => {
@@ -249,6 +264,7 @@ export function OAuthConnectButton({
     cancelOAuthSession();
     const generation = sessionGenerationRef.current;
     doneRef.current = false;
+    popupNavigatedRef.current = false;
     // Open synchronously in the click handler so popup blockers allow it.
     const popup = window.open(
       "about:blank",
@@ -270,13 +286,16 @@ export function OAuthConnectButton({
     sessionAbortRef.current = controller;
     setBusy(true);
 
-    const url =
-      oauthStartUrlRouteApi(provider) +
-      (accountId ? `?accountId=${accountId}` : "");
+    const url = oauthStartUrlRouteApi(provider);
 
     void (async () => {
       try {
-        const response = await apiFetch(url, { signal: controller.signal });
+        const response = await apiFetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accountId: accountId ?? 0 }),
+          signal: controller.signal,
+        });
         if (!isCurrentSession(generation)) {
           return;
         }
@@ -288,6 +307,7 @@ export function OAuthConnectButton({
           return;
         }
         if (payload?.status === "success" && payload.data?.url) {
+          popupNavigatedRef.current = true;
           popup.location.href = payload.data.url;
           pollStatusAfterClose(generation, controller.signal);
           return;

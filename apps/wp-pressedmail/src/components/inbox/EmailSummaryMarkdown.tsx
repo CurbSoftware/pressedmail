@@ -8,6 +8,9 @@ interface EmailSummaryMarkdownProps {
 }
 
 const summaryMarkdownComponents: Components = {
+  // Never an <img>: rendering one would fetch a remote URL chosen by whoever
+  // wrote the email being summarised. The alt text stands in for it.
+  img: ({ alt }) => (alt ? <span>{alt}</span> : null),
   h1: ({ children }) => (
     <h2 className="mb-2 text-base font-semibold leading-6 text-foreground">
       {children}
@@ -67,7 +70,10 @@ const summaryMarkdownComponents: Components = {
     <a
       href={href}
       target="_blank"
-      rel="noreferrer"
+      // nofollow and noopener as well as noreferrer: the destination came from
+      // a model reading someone else's email, so it is never endorsed and never
+      // gets a handle on this window.
+      rel="noopener noreferrer nofollow"
       className="font-medium text-primary underline underline-offset-2">
       {children}
     </a>
@@ -84,6 +90,13 @@ export function EmailSummaryMarkdown({
         "text-sm leading-6 text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         className,
       )}>
+      {/*
+        No images, ever. This is model output about an email whose body the
+        model read, so a sender can ask for an image in the summary and get one
+        rendered in the top-level wp-admin document: a read receipt and the
+        viewer's IP address, from a message whose remote images are blocked.
+        The alt text is kept as text, so nothing is silently dropped either.
+      */}
       <ReactMarkdown components={summaryMarkdownComponents} skipHtml>
         {markdown}
       </ReactMarkdown>

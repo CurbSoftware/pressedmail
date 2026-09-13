@@ -43,6 +43,8 @@ export function BackStackProvider({ children }: { children: React.ReactNode }) {
         path: location.pathname,
         title: incomingTitle,
       };
+      // Tab destinations start a fresh in-app trail without rewriting browser history.
+      if (location.state?.pmMobileTabRoot === true) return [entry];
       // Consuming mailto/share query fields replaces the current browser entry.
       // Counting it as a push makes later exit deltas overshoot the real trail.
       if (navigationType === "REPLACE") {

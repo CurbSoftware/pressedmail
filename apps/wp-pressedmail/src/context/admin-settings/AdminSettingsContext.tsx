@@ -123,43 +123,42 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
     null,
   );
   const [whitelabelSettings, setWhitelabelSettings] =
-    useState<EffectiveWhitelabelRuntime | null>(
-      readEffectiveWhitelabelRuntime,
-    );
+    useState<EffectiveWhitelabelRuntime | null>(readEffectiveWhitelabelRuntime);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   /**
    * Fetch plugin settings from API.
    */
+  /**
+   * Fetch the site-wide plugin settings.
+   *
+   * Every failure path throws so `fetchSettings` records it. Substituting
+   * DEFAULT_PLUGIN_SETTINGS here used to turn an unreachable endpoint into a
+   * confident "remote images allowed, uploads allowed, downloads allowed",
+   * which is the opposite of what an administrator may have configured.
+   */
   const fetchPluginSettings = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await apiFetch(`${routeApiPrefix}/plugin/settings`, {
-        credentials: "include",
-        headers: getApiHeaders(),
-        signal,
-      });
+    const response = await apiFetch(`${routeApiPrefix}/plugin/settings`, {
+      credentials: "include",
+      headers: getApiHeaders(),
+      signal,
+    });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch plugin settings: ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.status === "success" && data.settings) {
-        setPluginSettings({
-          ...DEFAULT_PLUGIN_SETTINGS,
-          ...data.settings,
-        });
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw err;
-      }
-
-      console.error("Error fetching plugin settings:", err);
-      // Use defaults on error
-      setPluginSettings(DEFAULT_PLUGIN_SETTINGS);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch plugin settings: ${response.status}`);
     }
+
+    const data = await response.json();
+
+    if (data.status !== "success" || !data.settings) {
+      throw new Error("Plugin settings response carried no settings");
+    }
+
+    setPluginSettings({
+      ...DEFAULT_PLUGIN_SETTINGS,
+      ...data.settings,
+    });
   }, []);
 
   /**
@@ -223,24 +222,39 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
     };
   }, []);
 
+  // A request still in flight and a request that failed are different states.
+  // In flight, the permissive answer keeps the composer usable for the moment
+  // it takes to load. Once the request has failed the real values are unknown,
+  // and answering "allowed" would hand out a permission the site may forbid.
+  const settingsUnavailable = pluginSettings === null && error !== null;
+
   // Computed values
   const canUploadAttachments = useMemo(() => {
-    return pluginSettings?.allow_user_attachment_uploads ?? true;
-  }, [pluginSettings]);
+    if (pluginSettings) {
+      return pluginSettings.allow_user_attachment_uploads;
+    }
+    return !settingsUnavailable;
+  }, [pluginSettings, settingsUnavailable]);
 
   const canUseMediaLibraryAttachments = useMemo(() => {
-    return pluginSettings?.allow_media_library_attachments ?? true;
-  }, [pluginSettings]);
+    if (pluginSettings) {
+      return pluginSettings.allow_media_library_attachments;
+    }
+    return !settingsUnavailable;
+  }, [pluginSettings, settingsUnavailable]);
 
   const canDownloadAttachments = useMemo(() => {
-    return pluginSettings?.allow_user_attachment_downloads ?? true;
-  }, [pluginSettings]);
+    if (pluginSettings) {
+      return pluginSettings.allow_user_attachment_downloads;
+    }
+    return !settingsUnavailable;
+  }, [pluginSettings, settingsUnavailable]);
 
   const canShowExternalImages = useMemo(() => {
     // Fail-closed while settings are still loading: never flash the per-user
     // "auto-load images" tile visible (or reveal remote images) before the
     // admin "Allow remote images" value is known.
-    return pluginSettings ? (pluginSettings.allow_external_images ?? true) : false;
+    return pluginSettings ? pluginSettings.allow_external_images : false;
   }, [pluginSettings]);
 
   const areProPalettesDisabled = useMemo(() => {
@@ -256,9 +270,7 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
   }, [whitelabelSettings]);
 
   const allowUserLayoutSwitching = useMemo(() => {
-    return (
-      whitelabelSettings?.appearance.allow_user_layout_switching ?? true
-    );
+    return whitelabelSettings?.appearance.allow_user_layout_switching ?? true;
   }, [whitelabelSettings]);
 
   const allowUserThemeSwitching = useMemo(() => {

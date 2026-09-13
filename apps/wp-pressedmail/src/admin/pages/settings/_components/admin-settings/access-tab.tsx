@@ -1,18 +1,12 @@
 import { __, _n, sprintf } from "@wordpress/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { UserCheck } from "lucide-react";
 
+import { Badge, Checkbox, Label } from "@kit/ui/plugin";
 import {
-  Badge,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  Checkbox,
-  Label,
-} from "@kit/ui/plugin";
-import { SettingsSaveState } from "@/components/settings-ui";
+  SettingsSaveState,
+  SettingsSkeleton,
+  SettingsSectionCard,
+} from "@/components/settings-ui";
 import { routeApiPrefix } from "@/context/Strings";
 import {
   notifyAutosaveError,
@@ -192,74 +186,69 @@ export function AccessRolesCard({
   }, [draftHandle, registerDraft]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <UserCheck className="h-5 w-5" />
-          {__("PressedMail App Access", "pressedmail")}
-          <SettingsSaveState status={saveStatus} />
-        </CardTitle>
-        <CardDescription>
-          {__(
-            "Choose which WordPress roles can open PressedMail. Administrators always have access.",
-            "pressedmail",
-          )}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {error ? (
-          <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
-
-        {loading ? (
-          <div className="flex items-center justify-center py-4 text-sm text-muted-foreground">
-            {__("Loading roles...", "pressedmail")}
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {roles.map((role) => (
-              <div
-                key={role.slug}
-                className="flex items-center gap-3 rounded-lg border p-3">
-                <Checkbox
-                  id={`access-role-${role.slug}`}
-                  checked={role.allowed}
-                  disabled={role.locked || saving}
-                  onCheckedChange={(checked) =>
-                    toggleRole(role.slug, checked === true)
-                  }
-                />
-                <Label
-                  htmlFor={`access-role-${role.slug}`}
-                  className="flex min-w-0 flex-1 items-center gap-2 text-sm">
-                  <span className="truncate">{role.name}</span>
-                  {role.locked ? (
-                    <Badge variant="secondary" className="text-xs">
-                      {__("Required", "pressedmail")}
-                    </Badge>
-                  ) : null}
-                </Label>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs text-muted-foreground">
-            {sprintf(
-              _n(
-                "%d role allowed.",
-                "%d roles allowed.",
-                selectedSlugs.length,
-                "pressedmail",
-              ),
-              selectedSlugs.length,
-            )}
-          </p>
+    <SettingsSectionCard
+      title={__("PressedMail App Access", "pressedmail")}
+      description={__(
+        "Choose which WordPress roles can open PressedMail. Administrators always have access.",
+        "pressedmail",
+      )}
+      actions={<SettingsSaveState status={saveStatus} />}
+      contentClassName="space-y-4">
+      {error ? (
+        <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
         </div>
-      </CardContent>
-    </Card>
+      ) : null}
+
+      {loading ? (
+        <SettingsSkeleton
+          label={__("Loading roles...", "pressedmail")}
+          className="border-0 bg-transparent p-0 shadow-none"
+          dataTest="access-roles-loading"
+          rows={2}
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {roles.map((role) => (
+            <div
+              key={role.slug}
+              className="flex items-center gap-3 rounded-lg border p-3">
+              <Checkbox
+                id={`access-role-${role.slug}`}
+                checked={role.allowed}
+                disabled={role.locked || saving}
+                onCheckedChange={(checked) =>
+                  toggleRole(role.slug, checked === true)
+                }
+              />
+              <Label
+                htmlFor={`access-role-${role.slug}`}
+                className="flex min-w-0 flex-1 items-center gap-2 text-sm">
+                <span className="truncate">{role.name}</span>
+                {role.locked ? (
+                  <Badge variant="secondary" className="text-xs">
+                    {__("Required", "pressedmail")}
+                  </Badge>
+                ) : null}
+              </Label>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          {sprintf(
+            _n(
+              "%d role allowed.",
+              "%d roles allowed.",
+              selectedSlugs.length,
+              "pressedmail",
+            ),
+            selectedSlugs.length,
+          )}
+        </p>
+      </div>
+    </SettingsSectionCard>
   );
 }

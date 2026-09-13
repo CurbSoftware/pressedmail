@@ -52,7 +52,13 @@ export interface EmailMessage {
   name?: string;
   email?: string;
   msg_no?: string | number;
-  read: boolean;
+  /**
+   * Read state. Absent when the server has not observed the message's \Seen
+   * flag, which is every live detail fetch whose provider returned no Seen
+   * value. The reading pane merges a detail into its list row with
+   * array_replace, so an absent flag leaves the previously known state alone.
+   */
+  read?: boolean;
   starred?: boolean;
   /** Whether the sender marked this email as high priority (read-only) */
   important?: boolean;

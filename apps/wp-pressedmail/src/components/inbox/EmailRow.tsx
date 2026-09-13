@@ -1,5 +1,5 @@
 import * as React from "react";
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import { Paperclip, Star } from "lucide-react";
 import { ScheduledFolderIcon } from "@/components/icons/FolderIcons";
 
@@ -52,6 +52,19 @@ export interface EmailRowProps {
   isDragging?: boolean;
   isPartOfDrag?: boolean;
   threadGrouped?: boolean;
+  /**
+   * Roving tabindex position supplied by the list grid: 0 for the row that
+   * currently holds the grid's tab stop, -1 for the rest. Defaults to 0 so a
+   * row rendered outside a managed grid stays reachable.
+   */
+  tabIndex?: number;
+  /**
+   * 1-based position of this row in the whole grid, column header included.
+   * Only the lists that page or lazy-load set it: they declare an
+   * aria-rowcount covering rows that are not in the DOM, and aria-rowindex is
+   * what makes that count mean anything to a screen reader.
+   */
+  rowIndex?: number;
   rowRef?: React.Ref<HTMLElement>;
   rowStyle?: React.CSSProperties;
   dragHandleProps?: React.HTMLAttributes<HTMLElement>;
@@ -79,6 +92,53 @@ function stopPropagation(event: React.MouseEvent) {
   event.stopPropagation();
 }
 
+/**
+ * dnd-kit hands a drag handle its own keyboard affordances (role, tabindex and
+ * pick-up instructions). The email drag context registers a PointerSensor only,
+ * so those attributes promise a keyboard drag that cannot happen and leave a
+ * dead tab stop on the sender of every row. Drop them and keep the pointer
+ * listeners. Restore them the day a KeyboardSensor is registered.
+ */
+function pointerOnlyDragProps(
+  props: React.HTMLAttributes<HTMLElement> | undefined,
+): React.HTMLAttributes<HTMLElement> | undefined {
+  if (!props) return props;
+
+  const {
+    role: _role,
+    tabIndex: _tabIndex,
+    "aria-roledescription": _roleDescription,
+    "aria-describedby": _describedBy,
+    "aria-disabled": _disabled,
+    ...pointerProps
+  } = props as React.HTMLAttributes<HTMLElement> & {
+    "aria-roledescription"?: string;
+  };
+
+  return pointerProps;
+}
+
+/**
+ * One row name that carries the state a sighted user reads at a glance. The
+ * row is a grid row, not a button, so its controls stay reachable and announce
+ * themselves; the name only has to cover what the cells cannot say.
+ */
+function buildRowLabel(row: {
+  senderName: string;
+  subject: string;
+  dateLabel: string;
+  isUnread: boolean;
+}): string {
+  return sprintf(
+    /* translators: 1: read state, 2: sender name, 3: subject, 4: date. */
+    __("%1$s message from %2$s: %3$s, %4$s", "pressedmail"),
+    row.isUnread ? __("Unread", "pressedmail") : __("Read", "pressedmail"),
+    row.senderName,
+    row.subject,
+    row.dateLabel,
+  );
+}
+
 function RowStar({
   message,
   starred,
@@ -99,11 +159,13 @@ function RowStar({
     <button
       type="button"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent",
-        large ? "h-5 w-5" : "h-4 w-4",
+        // 24px minimum target (WCAG 2.5.8). The glyph stays small; the hit area
+        // does not. Resting colour is the full muted token: the old /45 opacity
+        // measured 2.19:1 on white, under the 3:1 floor for a control.
+        "inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent",
         starred
           ? "text-[var(--theme-starred,#f59e0b)]"
-          : "text-muted-foreground/45 hover:text-[var(--theme-starred,#f59e0b)]",
+          : "text-muted-foreground hover:text-[var(--theme-starred,#f59e0b)]",
       )}
       data-starred={starred ? "true" : undefined}
       onClick={handleClick}
@@ -152,11 +214,9 @@ function RowImportant({
     <button
       type="button"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent",
-        large ? "h-5 w-5" : "h-4 w-4",
-        important
-          ? "text-primary"
-          : "text-muted-foreground/45 hover:text-primary",
+        // Same 24px target and full-strength resting colour as the star.
+        "inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent",
+        important ? "text-primary" : "text-muted-foreground hover:text-primary",
       )}
       data-test="email-row-important-toggle"
       data-testid="email-row-important-toggle"
@@ -213,7 +273,7 @@ function RowFlags({
           data-test="email-row-unread-dot"
           data-testid="email-row-unread-dot"
           className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
-          aria-label={__("Unread", "pressedmail")}
+          aria-hidden="true"
         />
       )}
     </>
@@ -289,7 +349,8 @@ function AccountBadge({
   return (
     <Badge
       variant="outline"
-      className="h-4 max-w-24 truncate px-1 py-0 text-[9px] font-normal text-muted-foreground"
+      // 9px was below the 12px legibility floor this app holds itself to.
+      className="h-5 max-w-24 truncate px-1 py-0 text-xs font-normal text-muted-foreground"
       title={badge.title}
       data-test="message-account-badge"
       data-testid="email-row-account-badge">
@@ -422,6 +483,13 @@ function handleKeySelect(
   message: EmailMessage,
   onSelect?: (message: EmailMessage) => void,
 ) {
+  // Only the row itself opens the message. Without this guard, Enter or Space
+  // on the star, the checkbox, a tag or any other control inside the row was
+  // swallowed here and opened the message instead of doing its own job.
+  if (event.target !== event.currentTarget) {
+    return;
+  }
+
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
     onSelect?.(message);
@@ -458,6 +526,8 @@ export function EmailRow({
   isDragging,
   isPartOfDrag,
   threadGrouped,
+  tabIndex,
+  rowIndex,
   rowRef,
   rowStyle,
   dragHandleProps,
@@ -488,6 +558,9 @@ export function EmailRow({
   const showUnreadDot =
     row.isUnread &&
     (unreadIndicator === "dot" || unreadIndicator === "dot_and_bold");
+  const rowLabel = buildRowLabel(row);
+  const handleProps = pointerOnlyDragProps(dragHandleProps);
+  const rowTabIndex = tabIndex ?? 0;
 
   if (variant === "pressedg-table") {
     return (
@@ -497,10 +570,17 @@ export function EmailRow({
         data-test={testId ?? "email-row-pressedg-table"}
         data-testid={testId ?? "email-row-pressedg-table"}
         data-row-variant={variant}
+        data-message-row="true"
         data-thread-grouped={threadGrouped || undefined}
-        aria-label={`Email from ${row.senderName}: ${row.subject}`}
+        // A table row inside the list's role="grid" table. It used to carry a
+        // click handler and nothing else, so this layout could not be operated
+        // from a keyboard at all.
+        tabIndex={rowTabIndex}
+        aria-selected={Boolean(selected)}
+        aria-rowindex={rowIndex}
+        aria-label={rowLabel}
         className={cn(
-          "group cursor-pointer border-b border-border/60 border-l-2 border-l-transparent transition-colors hover:bg-muted/50",
+          "group cursor-pointer border-b border-border/60 border-l-2 border-l-transparent outline-none transition-colors hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
           getDensityClass(density ?? "dense"),
           showPressedGDetails && "h-auto min-h-[4.5rem]",
           selected && "bg-primary/5 hover:bg-primary/5 border-l-primary",
@@ -510,6 +590,7 @@ export function EmailRow({
           className,
         )}
         onClick={() => onSelect?.(message)}
+        onKeyDown={(event) => handleKeySelect(event, message, onSelect)}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}>
         {enableSelection && (
@@ -539,12 +620,12 @@ export function EmailRow({
                 data-test="email-row-unread-dot"
                 data-testid="email-row-unread-dot"
                 className="absolute -left-1 -top-0.5 h-1.5 w-1.5 -translate-x-full translate-y-1/2 shrink-0 rounded-full bg-primary"
-                aria-label={__("Unread", "pressedmail")}
+                aria-hidden="true"
               />
             )}
             <AccountBadge badge={row.accountBadge} />
             <span
-              {...dragHandleProps}
+              {...handleProps}
               data-test="drag-handle"
               data-testid="email-row-sender"
               className={cn(
@@ -678,14 +759,21 @@ export function EmailRow({
     <div
       ref={rowRef as React.Ref<HTMLDivElement>}
       style={rowStyle}
-      role="button"
-      tabIndex={0}
+      // A grid row, not a button. Children of role="button" are presentational
+      // to assistive tech, which hid the star, the importance toggle and the
+      // selection checkbox from screen reader users and made axe report
+      // nested-interactive on every row.
+      role="row"
+      tabIndex={rowTabIndex}
+      aria-selected={Boolean(selected)}
+      aria-rowindex={rowIndex}
       data-test={variant === "default-flat" ? "message-item" : "email-row"}
       data-testid={testId ?? `email-row-${variant}`}
       data-row-variant={variant}
+      data-message-row="true"
       data-thread-grouped={threadGrouped || undefined}
       data-bulk-selected={bulkSelected || undefined}
-      aria-label={`Email from ${row.senderName}: ${row.subject}`}
+      aria-label={rowLabel}
       className={cn(
         "group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] gap-2 border-b border-border/60 border-l-2 border-l-transparent px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
         getDensityClass(density ?? "comfortable"),
@@ -706,6 +794,7 @@ export function EmailRow({
       onMouseLeave={onMouseLeave}
       onKeyDown={(event) => handleKeySelect(event, message, onSelect)}>
       <div
+        role="gridcell"
         data-test="message-left-checkbox"
         data-testid="message-left-checkbox"
         className="flex items-start justify-center pt-0.5"
@@ -713,7 +802,9 @@ export function EmailRow({
         {selectionSlot}
       </div>
 
-      <div className="flex min-w-0 flex-col justify-center gap-0.5 overflow-hidden">
+      <div
+        role="gridcell"
+        className="flex min-w-0 flex-col justify-center gap-0.5 overflow-hidden">
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex min-w-0 items-center gap-1.5">
             <RowFlags
@@ -723,14 +814,13 @@ export function EmailRow({
             />
             <AccountBadge badge={row.accountBadge} />
             <span
-              {...dragHandleProps}
+              {...handleProps}
               data-test="drag-handle"
               data-testid="email-row-sender"
               className={cn(
                 "min-w-0 truncate text-sm text-foreground touch-none",
                 emphasizeUnread ? "font-semibold" : "font-medium",
-                dragHandleProps &&
-                  (isDragging ? "cursor-grabbing" : "cursor-grab"),
+                handleProps && (isDragging ? "cursor-grabbing" : "cursor-grab"),
               )}>
               {row.senderName}
             </span>
@@ -787,34 +877,13 @@ export function EmailRow({
       </div>
 
       <div
+        role="gridcell"
         data-test="message-right-rail"
         data-testid="message-right-rail"
-        className="flex min-w-[4.75rem] flex-col items-end justify-between gap-1">
-        <div className="relative flex h-6 items-center justify-end gap-1">
-          {/* Persistent indicators (phishing + summary). Always visible, even
-              on hover. The hover-action overlay opens to their LEFT via
-              right-full so it never covers them and causes no reflow. */}
-          <div
-            data-test="message-right-rail-indicators"
-            data-testid="message-right-rail-indicators"
-            className="relative z-10 flex items-center justify-end gap-1"
-            onClick={stopPropagation}>
-            {rightRailSlot}
-            {showHoverActions && (
-              <div
-                data-test="email-row-hover-actions"
-                data-testid="email-row-hover-actions"
-                className="absolute right-full top-0 mr-1 hidden items-center rounded-sm bg-background/95 group-hover:flex">
-                <HoverActions
-                  message={message}
-                  actions={actions}
-                  hoverActionsSlot={hoverActionsSlot}
-                  extraHoverActionsSlot={extraHoverActionsSlot}
-                />
-              </div>
-            )}
-          </div>
-        </div>
+        // The date leads this column so it sits on the sender's line, the way
+        // every mail client puts it. It used to be pushed to a third line by an
+        // always-present indicator slot above it.
+        className="flex min-w-[4.75rem] flex-col items-end gap-1">
         <span
           data-test="email-row-date"
           data-testid="email-row-date"
@@ -834,6 +903,33 @@ export function EmailRow({
           )}
           {row.dateLabel}
         </span>
+        <div className="relative flex items-center justify-end gap-1">
+          {/* Persistent indicators (phishing + summary). Always visible, even
+              on hover. The hover-action overlay opens to their LEFT via
+              right-full so it never covers them and causes no reflow. */}
+          <div
+            data-test="message-right-rail-indicators"
+            data-testid="message-right-rail-indicators"
+            className="relative z-10 flex items-center justify-end gap-1"
+            onClick={stopPropagation}>
+            {rightRailSlot}
+            {showHoverActions && (
+              <div
+                data-test="email-row-hover-actions"
+                data-testid="email-row-hover-actions"
+                // focus-within, not hover alone: keyboard focus reaching one of
+                // these actions has to reveal them too.
+                className="absolute right-full top-0 mr-1 hidden items-center rounded-sm bg-background/95 group-hover:flex group-focus-within:flex">
+                <HoverActions
+                  message={message}
+                  actions={actions}
+                  hoverActionsSlot={hoverActionsSlot}
+                  extraHoverActionsSlot={extraHoverActionsSlot}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -7,11 +7,13 @@ import { Link2 } from 'lucide-react';
 import type { TMediaEmbedElement } from '@kit/plate';
 import type { PlateElementProps } from '@kit/plate/react';
 import { PlateElement, withHOC } from '@kit/plate/react';
+import { __ } from '@wordpress/i18n';
 
 import { cn } from '@/lib/utils';
 
 import { Caption, CaptionTextarea } from './caption';
 import { MediaToolbar } from './media-toolbar';
+import { safeMediaUrl } from './safe-media-url';
 import {
   mediaResizeHandleVariants,
   Resizable,
@@ -22,7 +24,8 @@ import {
  * Embed node, simplified from the template: video providers render a plain
  * <iframe> (no react-lite-youtube-embed/react-tweet/react-player deps,
  * three heavy libraries for an email composer); anything else renders a link
- * card. Email serialization downgrades every embed to an anchor.
+ * card. Email serialization downgrades every embed to an anchor. A URL that is
+ * not http(s) renders as inert text: no iframe, no link.
  */
 export const MediaEmbedElement = withHOC(
   ResizableProvider,
@@ -39,6 +42,12 @@ export const MediaEmbedElement = withHOC(
     });
     const width = useResizableValue('width');
     const url = props.element.url;
+    const href = safeMediaUrl(url);
+    const frameUrl = isVideo ? safeMediaUrl(embed?.url) : undefined;
+    const cardClassName = cn(
+      'flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm',
+      focused && selected && 'ring-2 ring-ring ring-offset-2',
+    );
 
     return (
       <MediaToolbar plugin={MediaEmbedPlugin}>
@@ -61,7 +70,7 @@ export const MediaEmbedElement = withHOC(
                 options={{ direction: 'left' }}
               />
 
-              {isVideo && embed?.url ? (
+              {frameUrl ? (
                 <div className="relative pb-[56.25%]">
                   <iframe
                     allowFullScreen
@@ -69,23 +78,28 @@ export const MediaEmbedElement = withHOC(
                       'absolute left-0 top-0 size-full rounded-sm border-0',
                       focused && selected && 'ring-2 ring-ring ring-offset-2',
                     )}
-                    src={embed.url}
-                    title="embed"
+                    src={frameUrl}
+                    title={__('Embedded video', 'pressedmail')}
                   />
                 </div>
-              ) : (
+              ) : href ? (
                 <a
                   className={cn(
-                    'flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-primary underline underline-offset-2 hover:bg-muted',
-                    focused && selected && 'ring-2 ring-ring ring-offset-2',
+                    cardClassName,
+                    'text-primary underline underline-offset-2 hover:bg-muted',
                   )}
-                  href={url}
+                  href={href}
                   rel="noopener noreferrer"
                   target="_blank"
                 >
-                  <Link2 className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{url}</span>
+                  <Link2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{href}</span>
                 </a>
+              ) : (
+                <span className={cn(cardClassName, 'text-muted-foreground')}>
+                  <Link2 aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="truncate">{url}</span>
+                </span>
               )}
 
               <ResizeHandle
@@ -95,7 +109,7 @@ export const MediaEmbedElement = withHOC(
             </Resizable>
 
             <Caption align={align} style={{ width }}>
-              <CaptionTextarea placeholder="Write a caption…" />
+              <CaptionTextarea placeholder={__('Write a caption…', 'pressedmail')} />
             </Caption>
           </figure>
 

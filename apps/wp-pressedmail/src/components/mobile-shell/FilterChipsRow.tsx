@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 
 import { cn } from "@/lib/utils";
 
@@ -19,7 +20,12 @@ export interface FilterChipsRowProps {
 
 /**
  * Horizontally scrollable row of filter chips, snap-to-start. Used at the top
- * of list screens (Inbox: All/Unread/Starred/…, Calendar: Day/Week/Month/…).
+ * of list screens (Search: All/Unread, ...).
+ *
+ * Same geometry as the inbox chips: a 32px visual chip whose hittable area is
+ * grown to 44px by an absolutely positioned ::after with negative insets. The
+ * chips used to be 28px with no pointer target at all, which is under the
+ * 44px mobile floor the craft gate enforces.
  */
 export function FilterChipsRow({
   chips,
@@ -30,7 +36,7 @@ export function FilterChipsRow({
   return (
     <div
       role="toolbar"
-      aria-label="Filters"
+      aria-label={__("Filters", "pressedmail")}
       className={cn(
         "flex w-full snap-x snap-mandatory items-center gap-2 overflow-x-auto px-3 py-2",
         "pm-momentum-scroll pm-no-tap-highlight",
@@ -45,7 +51,9 @@ export function FilterChipsRow({
             aria-pressed={active}
             onClick={() => onSelect(chip.id)}
             className={cn(
-              "pm-no-tap-highlight inline-flex h-7 shrink-0 snap-start items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+              "pm-no-tap-highlight relative inline-flex h-8 shrink-0 snap-start items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+              "after:absolute after:-inset-1.5 after:content-['']",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card text-muted-foreground active:bg-muted",

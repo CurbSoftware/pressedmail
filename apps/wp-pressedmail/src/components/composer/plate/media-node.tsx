@@ -21,6 +21,7 @@ import { cn } from '@/lib/utils';
 import { Caption, CaptionTextarea } from './caption';
 import { MediaUrlInput } from './media-url-input';
 import { MediaToolbar } from './media-toolbar';
+import { safeMediaUrl } from './safe-media-url';
 import {
   mediaResizeHandleVariants,
   Resizable,
@@ -32,7 +33,8 @@ import {
  * ports, minus react-player/react-lite-youtube-embed, embed URLs render via
  * a plain <iframe>, uploads via native <video>). Email serialization
  * downgrades all of these to links (media-node-static.tsx) since clients
- * can't play inline media.
+ * can't play inline media. Every URL passes safeMediaUrl first, so a pasted
+ * javascript: node renders nothing clickable.
  */
 export const VideoElement = withHOC(
   ResizableProvider,
@@ -50,7 +52,8 @@ export const VideoElement = withHOC(
       urlParsers: [parseVideoUrl],
     });
     const width = useResizableValue('width');
-    const showEmbedFrame = !isUpload && isVideo && embed?.url;
+    const frameUrl =
+      !isUpload && isVideo ? safeMediaUrl(embed?.url) : undefined;
 
     const { isDragging, handleRef } = useDraggable({
       element: props.element,
@@ -98,13 +101,13 @@ export const VideoElement = withHOC(
                   options={{ direction: 'right' }}
                 />
 
-                {showEmbedFrame ? (
+                {frameUrl ? (
                   <div className="relative pb-[56.25%]" ref={handleRef}>
                     <iframe
                       allowFullScreen
                       className="absolute left-0 top-0 size-full rounded-sm border-0"
-                      src={embed.url}
-                      title="video"
+                      src={frameUrl}
+                      title={__('Embedded video', 'pressedmail')}
                     />
                   </div>
                 ) : (
@@ -112,7 +115,7 @@ export const VideoElement = withHOC(
                     <video
                       className="w-full max-w-full rounded-sm object-cover px-0"
                       controls
-                      src={unsafeUrl}
+                      src={safeMediaUrl(unsafeUrl)}
                     />
                   </div>
                 )}
@@ -158,7 +161,7 @@ export const AudioElement = withHOC(
           contentEditable={false}
         >
           <div className="h-16 rounded-sm">
-            <audio className="size-full" controls src={unsafeUrl} />
+            <audio className="size-full" controls src={safeMediaUrl(unsafeUrl)} />
           </div>
 
           <Caption align={align} style={{ width: '100%' }}>
@@ -202,13 +205,12 @@ export const FileElement = withHOC(
           )}
           contentEditable={false}
           download={name}
-          href={unsafeUrl}
+          href={safeMediaUrl(unsafeUrl)}
           rel="noopener noreferrer"
-          role="button"
           target="_blank"
         >
           <div className="flex items-center gap-1 p-1">
-            <FileUp className="size-5" />
+            <FileUp aria-hidden="true" className="size-5" />
             <div>{name}</div>
           </div>
 

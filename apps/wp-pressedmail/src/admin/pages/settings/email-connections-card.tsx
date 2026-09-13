@@ -42,19 +42,25 @@ import {
 } from "@kit/ui/plugin";
 import {
   SettingsEmptyState,
+  SettingsSkeleton,
   SettingsHeaderActionButton,
   useSettingsHeaderAction,
 } from "@/components/settings-ui";
+// Brand names are not translated; the generic entries are. iCloud and Proton
+// Mail are offered by the setup flow (setup/providers.ts), so leaving them out
+// here showed the raw slug "icloud" as a provider name.
 const PROVIDER_LABELS: Record<string, string> = {
   gmail: "Gmail",
   outlook: "Outlook",
   yahoo: "Yahoo Mail",
-  custom: "Custom IMAP/SMTP",
-  other: "Other",
+  icloud: "iCloud",
+  protonmail: "Proton Mail",
+  custom: __("Custom IMAP/SMTP", "pressedmail"),
+  other: __("Other", "pressedmail"),
 };
 
 const getProviderLabel = (provider?: string) => {
-  if (!provider) return "Email";
+  if (!provider) return __("Email", "pressedmail");
   return PROVIDER_LABELS[provider] || provider;
 };
 
@@ -62,13 +68,17 @@ const PERMISSION_LABELS: Record<
   string,
   { label: string; variant: "default" | "secondary" | "outline" }
 > = {
-  view_only: { label: "View Only", variant: "outline" },
-  reply: { label: "Can Reply", variant: "secondary" },
-  full: { label: "Full Access", variant: "default" },
+  view_only: { label: __("View Only", "pressedmail"), variant: "outline" },
+  reply: { label: __("Can Reply", "pressedmail"), variant: "secondary" },
+  full: { label: __("Full Access", "pressedmail"), variant: "default" },
 };
 
 const getPermissionBadge = (permission?: string) => {
-  if (!permission) return { label: "Unknown", variant: "secondary" as const };
+  if (!permission)
+    return {
+      label: __("Unknown", "pressedmail"),
+      variant: "secondary" as const,
+    };
   return (
     PERMISSION_LABELS[permission] || {
       label: permission,
@@ -362,9 +372,9 @@ export function EmailConnectionsCard() {
   );
 
   return (
-    <Card>
+    <Card className="rounded-none border-0 bg-transparent ring-0 shadow-none sm:rounded-lg sm:bg-card sm:ring-1 sm:shadow-sm">
       {!usingSharedHeaderActions ? (
-        <CardHeader>
+        <CardHeader className="px-0 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
               <h3 className="text-lg font-medium text-foreground">
@@ -388,7 +398,7 @@ export function EmailConnectionsCard() {
           </div>
         </CardHeader>
       ) : null}
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-0 sm:px-6">
         {error ? (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
@@ -402,25 +412,35 @@ export function EmailConnectionsCard() {
         ) : null}
 
         {ownedAccounts.length === 0 && sharedAccounts.length === 0 ? (
-          <SettingsEmptyState
-            icon={<Mail className="h-5 w-5" />}
-            title={__("No email connections yet", "pressedmail")}
-            description={
-              hasLoaded
-                ? __(
-                    "Add your first email address to start syncing messages.",
-                    "pressedmail",
-                  )
-                : __("Loading your existing connections...", "pressedmail")
-            }
-          />
+          !hasLoaded ? (
+            <SettingsSkeleton
+              label={__("Loading your existing connections", "pressedmail")}
+              rows={2}
+            />
+          ) : (
+            <SettingsEmptyState
+              icon={<Mail className="h-5 w-5" />}
+              title={__("No email connections yet", "pressedmail")}
+              description={
+                hasLoaded
+                  ? __(
+                      "Add your first email address to start syncing messages.",
+                      "pressedmail",
+                    )
+                  : __("Loading your existing connections...", "pressedmail")
+              }
+            />
+          )
         ) : (
           <div className="space-y-6">
             {/* Owned Accounts Section */}
             {ownedAccounts.length > 0 && (
               <div>
                 {isMobile ? (
-                  <ul data-pm-mobile-cards role="list" className="space-y-2">
+                  <ul
+                    data-pm-mobile-cards
+                    role="list"
+                    className="divide-y divide-border">
                     {ownedAccounts.map((account) => {
                       const provider = getProviderLabel(account.provider);
                       const isPending = pendingAccountId === account.id;
@@ -439,12 +459,12 @@ export function EmailConnectionsCard() {
                           key={account.id}
                           data-test="email-account-card"
                           data-testid="email-account-card"
-                          className="rounded-lg border p-4">
+                          className="py-4">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
+                            <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5">
                                 <span
-                                  className="block truncate text-sm font-medium text-foreground"
+                                  className="block break-words text-sm font-medium text-foreground"
                                   title={getDisplayName(account)}>
                                   {getDisplayName(account)}
                                 </span>
@@ -458,20 +478,14 @@ export function EmailConnectionsCard() {
                                 ) : null}
                               </div>
                               <span
-                                className="block truncate text-sm text-muted-foreground"
+                                className="block break-all text-sm text-muted-foreground"
                                 title={account.email}>
                                 {account.email}
                               </span>
+                              <span className="block text-xs text-muted-foreground">
+                                {provider}
+                              </span>
                             </div>
-                            {/* No truncate: Badge is inline-flex + justify-center
-                                + overflow-hidden, so text-overflow never applies
-                                and the label crops mid-glyph with no ellipsis
-                                rather than truncating. Provider names are a
-                                closed, short vocabulary, so let it size to its
-                                content and let the email beside it shrink. */}
-                            <Badge variant="outline" className="shrink-0">
-                              {provider}
-                            </Badge>
                           </div>
 
                           <div className="mt-2">
@@ -511,7 +525,7 @@ export function EmailConnectionsCard() {
                                 __("Edit email account %s", "pressedmail"),
                                 account.email,
                               )}
-                              className="h-9 w-9 p-0"
+                              className="pm-touch-target h-11 w-11 p-0"
                               onClick={() => openEditDialog(account)}
                               disabled={disableActions}
                               data-test={`account-edit-${account.email}`}
@@ -519,13 +533,13 @@ export function EmailConnectionsCard() {
                               <PencilLine className="h-4 w-4" />
                             </Button>
                             <Button
-                              variant="destructive"
+                              variant="ghost"
                               size="sm"
                               aria-label={sprintf(
                                 __("Delete email account %s", "pressedmail"),
                                 account.email,
                               )}
-                              className="h-9 w-9 p-0"
+                              className="pm-touch-target h-11 w-11 p-0"
                               onClick={() => openDeleteDialog(account)}
                               disabled={disableActions}
                               data-test={`account-delete-${account.email}`}
@@ -608,11 +622,7 @@ export function EmailConnectionsCard() {
                                 </span>
                               </td>
                               <td className="whitespace-nowrap px-4 py-3 pr-6">
-                                <Badge
-                                  variant="outline"
-                                  >
-                                  {provider}
-                                </Badge>
+                                <Badge variant="outline">{provider}</Badge>
                               </td>
                               <td className="max-w-[14rem] overflow-hidden whitespace-nowrap px-4 py-3">
                                 <AccountSignatureControl
@@ -782,9 +792,7 @@ export function EmailConnectionsCard() {
                             </Badge>
                           </div>
                           <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <Badge variant="outline">
-                              {provider}
-                            </Badge>
+                            <Badge variant="outline">{provider}</Badge>
                             <Badge variant={permissionBadge.variant}>
                               {permissionBadge.label}
                             </Badge>
@@ -848,9 +856,7 @@ export function EmailConnectionsCard() {
                                 {account.email}
                               </td>
                               <td className="px-4 py-3 pr-6">
-                                <Badge variant="outline">
-                                  {provider}
-                                </Badge>
+                                <Badge variant="outline">{provider}</Badge>
                               </td>
                               <td className="px-4 py-3">
                                 <Badge variant={permissionBadge.variant}>

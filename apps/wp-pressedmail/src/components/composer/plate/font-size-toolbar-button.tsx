@@ -26,7 +26,9 @@ import {
   FONT_SIZE_STEP_BUTTON_CLASS,
 } from '@/components/composer/toolbar';
 
-const DEFAULT_FONT_SIZE = '16';
+// Unmarked body text renders at the composer's base size, which the caller
+// passes from the "Composer default font size" preference.
+const DEFAULT_FONT_SIZE = '14';
 const MIN_FONT_SIZE = 1;
 const MAX_FONT_SIZE = 300;
 
@@ -53,8 +55,13 @@ const FONT_SIZES = [
   '96',
 ] as const;
 
-export function FontSizeToolbarButton() {
-  const [inputValue, setInputValue] = React.useState(DEFAULT_FONT_SIZE);
+export function FontSizeToolbarButton({
+  defaultFontSize = DEFAULT_FONT_SIZE,
+}: {
+  /** Size unmarked paragraphs render at, so the readout matches the body. */
+  defaultFontSize?: string;
+} = {}) {
+  const [inputValue, setInputValue] = React.useState(defaultFontSize);
   const [isFocused, setIsFocused] = React.useState(false);
   const { editor, tf } = useEditorPlugin(FontSizePlugin);
 
@@ -67,10 +74,10 @@ export function FontSizeToolbarButton() {
 
     const [block] = editor.api.block<TElement>() || [];
 
-    if (!block?.type) return DEFAULT_FONT_SIZE;
+    if (!block?.type) return defaultFontSize;
 
-    return FONT_SIZE_MAP[block.type] ?? DEFAULT_FONT_SIZE;
-  }, []);
+    return FONT_SIZE_MAP[block.type] ?? defaultFontSize;
+  }, [defaultFontSize]);
 
   const displayValue = isFocused ? inputValue : cursorFontSize;
 

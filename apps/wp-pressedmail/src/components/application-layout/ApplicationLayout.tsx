@@ -6,15 +6,8 @@ import {
   type CSSProperties,
 } from "react";
 import { useLocation, useNavigate, Outlet } from "react-router-dom";
-import {
-  CircleHelp,
-  Folder,
-  Inbox,
-  LayoutGrid,
-  MoreHorizontal,
-  Settings2,
-  UserCircle2,
-} from "lucide-react";
+import { Inbox, MoreHorizontal } from "lucide-react";
+import { __ } from "@wordpress/i18n";
 
 import { DynamicHeader } from "@/components/application-layout/DynamicHeader.active";
 import { ComposeNavigationBlocker } from "./ComposeNavigationBlocker";
@@ -57,7 +50,6 @@ import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { useWpAdminChrome } from "@/hooks/useWpAdminChrome";
 import { getPersistedPaneState } from "@/lib/open-pane-persistence";
 import {
-  MobileActionSheet,
   MobileAppShell,
   MobileTabBar,
   useApplyShellMode,
@@ -88,6 +80,33 @@ const SPEED_DIAL_PLACEMENTS: Record<
   "bottom-center": "fixed-bottom-center",
   "bottom-right": "fixed-bottom-right",
 };
+
+function AutomationPauseNotice() {
+  if (window.pressedmailPlugin?.automationPaused !== true) return null;
+  return (
+    <div
+      role="region"
+      aria-label={__("Site automation status", "pressedmail")}
+      className="shrink-0 border-b bg-muted px-4 py-2 text-sm text-foreground">
+      {__IS_PRO__
+        ? __(
+            "Automatic mailbox work is paused on this site. Send now still works; Undo Send is unavailable.",
+            "pressedmail",
+          )
+        : __(
+            "Automatic mailbox work is paused on this site. Send now still works.",
+            "pressedmail",
+          )}{" "}
+      {window.pressedmailPlugin.automationReviewUrl && (
+        <a
+          className="font-medium text-primary underline"
+          href={window.pressedmailPlugin.automationReviewUrl}>
+          {__("Review this site", "pressedmail")}
+        </a>
+      )}
+    </div>
+  );
+}
 
 const ApplicationLayout = () => {
   const { adminBarHeight } = useWpAdminChrome();
@@ -128,7 +147,6 @@ const ApplicationLayout = () => {
   // label as a trailing status fragment.
   const { currentTask: currentProcessTask, activeTasks } = useProcessQueue();
   const activityPanelOpen = useActivityPanelOpen();
-  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [connectionStatus, setConnectionStatus] =
     useState<AppStatusBarConnectionStatus>(() =>
       typeof navigator !== "undefined" && navigator.onLine === false
@@ -205,46 +223,6 @@ const ApplicationLayout = () => {
       ? null
       : (SPEED_DIAL_PLACEMENTS[preferences.speed_dial_position] ??
         "fixed-bottom-right");
-  const moreActions = useMemo(
-    () => [
-      {
-        id: "accounts",
-        label: "Accounts",
-        description: "Manage connected mail accounts.",
-        icon: UserCircle2,
-        onAction: () => navigate("/accounts"),
-      },
-      {
-        id: "folders",
-        label: "Folders",
-        description: "Browse folders and mailbox views.",
-        icon: Folder,
-        onAction: () => navigate("/folders"),
-      },
-      {
-        id: "settings",
-        label: "Settings",
-        description: "Preferences, signatures, and security.",
-        icon: Settings2,
-        onAction: () => navigate("/settings"),
-      },
-      {
-        id: "install",
-        label: "Add to Home Screen",
-        description: "Install PressedMail from your browser.",
-        icon: LayoutGrid,
-        onAction: () => navigate("/install"),
-      },
-      {
-        id: "help",
-        label: "Help & Docs",
-        description: "Install, mailto, and troubleshooting help.",
-        icon: CircleHelp,
-        onAction: () => navigate("/help"),
-      },
-    ],
-    [navigate],
-  );
 
   useEffect(() => {
     if (!hasPath) {
@@ -306,12 +284,17 @@ const ApplicationLayout = () => {
 
   const tabItems = useMemo<MobileTabItem[]>(() => {
     const items: MobileTabItem[] = [
-      { id: "inbox", label: "Inbox", to: "/inbox", icon: Inbox },
+      {
+        id: "inbox",
+        label: __("Inbox", "pressedmail"),
+        to: "/inbox",
+        icon: Inbox,
+      },
     ];
     if (typeof __ENABLE_CALENDAR__ !== "undefined" && __ENABLE_CALENDAR__) {
       items.push({
         id: "calendar",
-        label: "Calendar",
+        label: __("Calendar", "pressedmail"),
         to: "/calendar",
         icon: CalendarHeaderIcon,
       });
@@ -319,17 +302,16 @@ const ApplicationLayout = () => {
     if (typeof __ENABLE_CONTACTS__ !== "undefined" && __ENABLE_CONTACTS__) {
       items.push({
         id: "contacts",
-        label: "Contacts",
+        label: __("Contacts", "pressedmail"),
         to: "/contacts",
         icon: ContactsHeaderIcon,
       });
     }
     items.push({
       id: "more",
-      kind: "action",
-      label: "More",
+      to: "/more",
+      label: __("More", "pressedmail"),
       icon: MoreHorizontal,
-      onAction: () => setMoreSheetOpen(true),
     });
     return items;
   }, []);
@@ -349,32 +331,32 @@ const ApplicationLayout = () => {
                   <MobileTabBar
                     items={tabItems}
                     centerAction={{
-                      label: "Compose",
+                      label: __("Compose", "pressedmail"),
                       icon: EmailComposeNewIcon,
                       onAction: () => navigate("/compose"),
                     }}
                   />
                 }>
-                <main className="flex-1 min-h-0 overflow-hidden bg-background">
-                  <LayoutNavigationShell>
-                    <Outlet />
-                  </LayoutNavigationShell>
+                <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background">
+                  <AutomationPauseNotice />
+                  <div className="flex-1 min-h-0">
+                    <LayoutNavigationShell>
+                      <Outlet />
+                    </LayoutNavigationShell>
+                  </div>
                 </main>
-                <MobileActionSheet
-                  open={moreSheetOpen}
-                  onOpenChange={setMoreSheetOpen}
-                  title="More"
-                  actions={moreActions}
-                />
               </MobileAppShell>
             ) : (
               <div className="flex h-full w-full flex-col overflow-hidden">
                 {/* Dynamic header - renders layout-specific header based on current layout */}
                 <DynamicHeader />
-                <main className="flex-1 min-h-0 overflow-hidden bg-background">
-                  <LayoutNavigationShell>
-                    <Outlet />
-                  </LayoutNavigationShell>
+                <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background">
+                  <AutomationPauseNotice />
+                  <div className="flex-1 min-h-0">
+                    <LayoutNavigationShell>
+                      <Outlet />
+                    </LayoutNavigationShell>
+                  </div>
                 </main>
                 <AppStatusBar
                   itemCount={statusItemCount}

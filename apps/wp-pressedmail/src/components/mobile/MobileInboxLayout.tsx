@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import {
   Inbox,
   Send,
@@ -40,6 +41,9 @@ import {
   getMessageListRowKeys,
 } from "@/lib/message-identity";
 
+/** Keystroke settling time before a search reaches the server. */
+const SEARCH_DEBOUNCE_MS = 350;
+
 interface MobileInboxLayoutProps {
   accounts: EmailAccount[];
 }
@@ -63,19 +67,24 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
     selectFolder: selectSharedFolder,
     selectedNav,
   } = useSharedFolderOperations();
-  const { applyFilters } = useFilterOperations();
-  const { searchLocal } = useInboxSearchOperations();
+  const { activeFilters, applyFilters } = useFilterOperations();
+  const { setSearchTerm: setServiceSearchTerm } = useInboxSearchOperations();
 
   const [currentView, setCurrentView] = React.useState<MobileView>("list");
   const [showFolders, setShowFolders] = React.useState(false);
   const [showCompose, setShowCompose] = React.useState(false);
-  const [searchTerm, setSearchTerm] = React.useState("");
-  const [showSearch, setShowSearch] = React.useState(false);
+  const [searchTerm, setSearchTerm] = React.useState(
+    activeFilters.searchTerm ?? "",
+  );
+  const [showSearch, setShowSearch] = React.useState(Boolean(searchTerm));
+  const [appliedSearch, setAppliedSearch] = React.useState(searchTerm.trim());
+  const trimmedSearch = searchTerm.trim();
+  const searchPending =
+    appliedSearch !== trimmedSearch || (Boolean(trimmedSearch) && isLoading);
 
-  // When searching, filter messages locally; otherwise show all messages
-  const displayMessages = searchTerm
-    ? searchLocal(searchTerm)
-    : filteredMessages;
+  // A query must reach the server before the loaded mailbox page can be shown
+  // as matches. Keep stale results hidden through debounce and loading.
+  const displayMessages = searchPending ? [] : filteredMessages;
   const displayMessageKeys = React.useMemo(
     () => getMessageListRowKeys(displayMessages),
     [displayMessages],
@@ -97,6 +106,56 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
+  };
+
+  // Debounced so a search is one request per pause, not one per keystroke.
+  // Read through a ref because applyFilters is rebuilt on every inbox render,
+  // and a dependency on it would restart the timer forever.
+  const searchLive = React.useRef({
+    activeFilters,
+    applyFilters,
+    setServiceSearchTerm,
+  });
+  searchLive.current = { activeFilters, applyFilters, setServiceSearchTerm };
+  const enteredSearch = React.useRef(searchTerm.trim());
+  const ownedSearch = React.useRef(searchTerm.trim());
+
+  React.useEffect(() => {
+    if (appliedSearch === trimmedSearch) return;
+    const timer = window.setTimeout(() => {
+      const next = { ...searchLive.current.activeFilters };
+      delete next.searchTerm;
+      if (trimmedSearch) next.searchTerm = trimmedSearch;
+      searchLive.current.setServiceSearchTerm(trimmedSearch);
+      searchLive.current.applyFilters(next);
+      ownedSearch.current = trimmedSearch;
+      setAppliedSearch(trimmedSearch);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [appliedSearch, trimmedSearch]);
+
+  React.useEffect(
+    () => () => {
+      const live = searchLive.current;
+      if (
+        ownedSearch.current === enteredSearch.current ||
+        live.activeFilters.searchTerm !== ownedSearch.current
+      )
+        return;
+      const next = { ...live.activeFilters };
+      delete next.searchTerm;
+      if (enteredSearch.current) next.searchTerm = enteredSearch.current;
+      live.setServiceSearchTerm(enteredSearch.current);
+      live.applyFilters(next);
+    },
+    [],
+  );
+
+  // Closing the search bar drops the term with it, so the mailbox is never
+  // left filtered by a field nobody can see.
+  const toggleSearch = () => {
+    if (showSearch) setSearchTerm("");
+    setShowSearch(!showSearch);
   };
 
   const handleSelectMessage = async (mail: EmailMessage) => {
@@ -155,7 +214,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
     if (mail.name) return mail.name;
     if (mail.email) return mail.email;
     if (mail.from) return mail.from;
-    return "Unknown";
+    return __("Unknown", "pressedmail");
   };
 
   return (
@@ -165,18 +224,22 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
         {currentView === "detail" ? (
           <>
             <button
+              type="button"
               onClick={handleBackToList}
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
-              <ChevronLeft className="h-5 w-5" />
-              Back
+              className="pm-touch-target flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+              {__("Back", "pressedmail")}
             </button>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => refreshMessages()}
                 disabled={isLoading}
-                className="rounded-full p-2 hover:bg-muted">
+                aria-label={__("Refresh messages", "pressedmail")}
+                className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
                 <EmailRefreshIcon
                   className={cn("h-5 w-5", isLoading && "animate-spin")}
+                  aria-hidden="true"
                 />
               </button>
             </div>
@@ -184,23 +247,33 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
         ) : (
           <>
             <button
+              type="button"
               onClick={() => setShowFolders(!showFolders)}
-              className="flex items-center gap-2 text-sm font-medium">
-              <Menu className="h-5 w-5" />
-              <span className="capitalize">{selectedNav || "Inbox"}</span>
+              aria-expanded={showFolders}
+              className="pm-touch-target flex items-center gap-2 text-sm font-medium">
+              <Menu className="h-5 w-5" aria-hidden="true" />
+              <span className="capitalize">
+                {selectedNav || __("Inbox", "pressedmail")}
+              </span>
             </button>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setShowSearch(!showSearch)}
-                className="rounded-full p-2 hover:bg-muted">
-                <Search className="h-5 w-5" />
+                type="button"
+                onClick={toggleSearch}
+                aria-expanded={showSearch}
+                aria-label={__("Search mail", "pressedmail")}
+                className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
+                <Search className="h-5 w-5" aria-hidden="true" />
               </button>
               <button
+                type="button"
                 onClick={() => refreshMessages()}
                 disabled={isLoading}
-                className="rounded-full p-2 hover:bg-muted">
+                aria-label={__("Refresh messages", "pressedmail")}
+                className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
                 <EmailRefreshIcon
                   className={cn("h-5 w-5", isLoading && "animate-spin")}
+                  aria-hidden="true"
                 />
               </button>
             </div>
@@ -214,10 +287,18 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       {showSearch && currentView === "list" && (
         <div className="border-b border-border bg-card px-4 py-2">
           <div className="relative">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input autoComplete="off"
-              type="text"
-              placeholder="Search emails..."
+            <Search
+              className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <label className="sr-only" htmlFor="pm-mobile-layout-search">
+              {__("Search mail", "pressedmail")}
+            </label>
+            <input
+              autoComplete="off"
+              id="pm-mobile-layout-search"
+              type="search"
+              placeholder={__("Search mail", "pressedmail")}
               value={searchTerm}
               onChange={handleSearch}
               className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -231,14 +312,18 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       {currentView === "list" && (
         <div className="flex border-b border-border bg-card">
           <button
-            onClick={() => applyFilters({ readStatus: "all" })}
+            onClick={() =>
+              applyFilters({ ...activeFilters, readStatus: "all" })
+            }
             className="flex-1 py-3 text-center text-sm font-medium text-muted-foreground hover:text-foreground">
-            All
+            {__("All", "pressedmail")}
           </button>
           <button
-            onClick={() => applyFilters({ readStatus: "unread" })}
+            onClick={() =>
+              applyFilters({ ...activeFilters, readStatus: "unread" })
+            }
             className="flex-1 py-3 text-center text-sm font-medium text-muted-foreground hover:text-foreground">
-            Unread
+            {__("Unread", "pressedmail")}
           </button>
         </div>
       )}
@@ -250,7 +335,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
           className="max-h-[70vh] overflow-y-auto rounded-t-2xl p-0">
           <SheetHeader className="sticky top-0 border-b border-border bg-card p-4">
             <SheetTitle className="text-left text-lg font-semibold">
-              Folders
+              {__("Folders", "pressedmail")}
             </SheetTitle>
           </SheetHeader>
           <div className="p-2">
@@ -263,8 +348,8 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                     ? "bg-primary/10 text-primary"
                     : "hover:bg-muted",
                 )}>
-                <Inbox className="h-5 w-5" />
-                <span className="flex-1">Inbox</span>
+                <Inbox className="h-5 w-5" aria-hidden="true" />
+                <span className="flex-1">{__("Inbox", "pressedmail")}</span>
                 <span className="text-sm text-muted-foreground">
                   {fallbackInboxCount}
                 </span>
@@ -284,7 +369,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                         ? "bg-primary/10 text-primary"
                         : "hover:bg-muted",
                     )}>
-                    <FolderIcon className="h-5 w-5" />
+                    <FolderIcon className="h-5 w-5" aria-hidden="true" />
                     <span className="flex-1">{folder.name}</span>
                     <span className="text-sm text-muted-foreground">
                       {count}
@@ -305,7 +390,13 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       <div className="flex-1 overflow-hidden">
         {currentView === "list" ? (
           <div className="h-full overflow-y-auto">
-            {isLoading && displayMessages.length === 0 ? (
+            {searchPending ? (
+              <p
+                role="status"
+                className="p-4 text-center text-sm text-muted-foreground">
+                {__("Searching this folder...", "pressedmail")}
+              </p>
+            ) : isLoading && displayMessages.length === 0 ? (
               <MailListSkeleton count={10} />
             ) : (
               <>
@@ -320,52 +411,63 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                         // so keep the archive/delete affordances off rather
                         // than promising an action that never runs.
                         disabled>
-                        <button
-                          onClick={() => handleSelectMessage(mail)}
-                          className={cn(
-                            "flex w-full flex-col gap-1 p-4 text-left transition-colors",
-                            getMessageIdentityKey(selectedMessage) === id
-                              ? "bg-primary/5"
-                              : "hover:bg-muted/50",
-                          )}>
-                          <div className="flex items-start justify-between gap-2">
-                            <span
-                              className={cn(
-                                "text-sm",
-                                !mail.read && "font-semibold",
-                              )}>
-                              {getFromDisplay(mail)}
-                            </span>
-                            <span className="shrink-0 text-xs text-muted-foreground">
-                              {mail.date
-                                ? new Date(mail.date).toLocaleDateString()
-                                : ""}
-                            </span>
-                          </div>
-                          <div className="flex min-w-0 items-center gap-1.5">
-                            <span
-                              className={cn(
-                                "min-w-0 truncate text-sm",
-                                !mail.read
-                                  ? "font-medium text-foreground"
-                                  : "text-muted-foreground",
-                              )}>
-                              {mail.subject || "(No subject)"}
-                            </span>
-                            <EmailTagBadges
-                              tags={mail.tags}
-                              maxVisible={2}
-                              onTagClick={(tag) =>
-                                applyFilters({ tags: [String(tag.id)] })
-                              }
-                            />
-                          </div>
-                          {mail.snippet && (
-                            <span className="line-clamp-2 text-xs text-muted-foreground">
-                              {mail.snippet}
-                            </span>
-                          )}
-                        </button>
+                        <div className="p-4">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectMessage(mail)}
+                            className={cn(
+                              "flex w-full flex-col gap-1 rounded-sm text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              getMessageIdentityKey(selectedMessage) === id
+                                ? "bg-primary/5"
+                                : "hover:bg-muted/50",
+                            )}>
+                            <div className="flex items-start justify-between gap-2">
+                              <span
+                                className={cn(
+                                  "text-sm",
+                                  !mail.read && "font-semibold",
+                                )}>
+                                {getFromDisplay(mail)}
+                              </span>
+                              <span className="shrink-0 text-xs text-muted-foreground">
+                                {mail.date
+                                  ? new Date(mail.date).toLocaleDateString()
+                                  : ""}
+                              </span>
+                            </div>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  "min-w-0 truncate text-sm",
+                                  !mail.read
+                                    ? "font-medium text-foreground"
+                                    : "text-muted-foreground",
+                                )}>
+                                {mail.subject ||
+                                  __("(No subject)", "pressedmail")}
+                              </span>
+                            </div>
+                            {mail.snippet && (
+                              <span className="line-clamp-2 text-xs text-muted-foreground">
+                                {mail.snippet}
+                              </span>
+                            )}
+                          </button>
+                          {mail.tags?.length ? (
+                            <div className="mt-1">
+                              <EmailTagBadges
+                                tags={mail.tags}
+                                maxVisible={2}
+                                onTagClick={(tag) =>
+                                  applyFilters({
+                                    ...activeFilters,
+                                    tags: [String(tag.id)],
+                                  })
+                                }
+                              />
+                            </div>
+                          ) : null}
+                        </div>
                       </SwipeActions>
                     );
                   })}
@@ -376,7 +478,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                   className="flex h-20 items-center justify-center">
                   {!hasMore && displayMessages.length > 0 && (
                     <p className="text-xs text-muted-foreground">
-                      No more emails
+                      {__("No more emails", "pressedmail")}
                     </p>
                   )}
                 </div>
@@ -393,9 +495,11 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       {/* Floating Compose Button */}
       {currentView === "list" && (
         <button
+          type="button"
           onClick={() => setShowCompose(true)}
+          aria-label={__("New message", "pressedmail")}
           className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90">
-          <EmailComposeNewIcon className="h-6 w-6" />
+          <EmailComposeNewIcon className="h-6 w-6" aria-hidden="true" />
         </button>
       )}
 

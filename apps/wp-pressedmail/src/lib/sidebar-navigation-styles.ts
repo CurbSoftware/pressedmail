@@ -21,3 +21,9 @@ export const SIDEBAR_NAV_MARKER_CLASS = "h-3.5 w-3.5 shrink-0";
  */
 export const SIDEBAR_NAV_ROW_ACTION_CLASS =
   "-my-1 flex h-6 w-6 items-center justify-center rounded-sm";
+
+// The bar marks selection independently of the background and text color.
+export const SETTINGS_NAV_INDICATOR_CLASS =
+  "w-full justify-start border-l-[3px] border-l-transparent";
+export const SETTINGS_NAV_ACTIVE_CLASS =
+  "border-l-primary bg-accent text-primary";

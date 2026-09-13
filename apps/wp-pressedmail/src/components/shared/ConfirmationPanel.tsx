@@ -37,6 +37,8 @@ export interface ConfirmationPanelProps {
   onConfirm: () => void | Promise<void>;
   /** Optional callback when user cancels */
   onCancel?: () => void;
+  /** Restore focus when the opener was a menu item that has unmounted. */
+  onCloseAutoFocus?: (event: Event) => void;
   /** Text for confirm button */
   confirmText?: string;
   /** Text for cancel button */
@@ -56,6 +58,7 @@ export function ConfirmationPanel({
   description,
   onConfirm,
   onCancel,
+  onCloseAutoFocus,
   confirmText = "Confirm",
   cancelText = "Cancel",
   variant = "default",
@@ -82,7 +85,9 @@ export function ConfirmationPanel({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent className="max-w-md">
+      <AlertDialogContent
+        className="max-w-md"
+        onCloseAutoFocus={onCloseAutoFocus}>
         <AlertDialogHeader>
           <AlertDialogTitle>
             <AlertDialogTitleRow

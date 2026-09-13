@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useMemo } from "react";
+import { __ } from "@wordpress/i18n";
 import {
   Popover,
   PopoverArrow,
@@ -26,7 +27,7 @@ interface SignatureSelectorProps {
   onSelect: (signature: Signature | null) => void;
   /** Account ID to filter signatures */
   accountId?: number | null;
-  /** Placeholder text */
+  /** Placeholder text. Defaults to a translated "Select signature". */
   placeholder?: string;
   /** Whether selector is disabled */
   disabled?: boolean;
@@ -44,7 +45,7 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
   value,
   onSelect,
   accountId = null,
-  placeholder = "Select signature",
+  placeholder,
   disabled = false,
   className,
   context,
@@ -54,6 +55,7 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
   const { loading } = useSignatures();
   const signatures = useAccountSignatures(accountId);
   const [open, setOpen] = useState(false);
+  const placeholderLabel = placeholder ?? __("Select signature", "pressedmail");
 
   // Filter signatures based on context
   const filteredSignatures = useMemo(() => {
@@ -95,7 +97,9 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
           "w-[200px]",
           className,
         )}>
-        <span className="text-muted-foreground">Loading...</span>
+        <span className="text-muted-foreground">
+          {__("Loading...", "pressedmail")}
+        </span>
         <ChevronDown className="h-4 w-4 text-muted-foreground" />
       </button>
     );
@@ -128,7 +132,7 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
                 <span className="truncate">{selectedSignature.name}</span>
               </>
             ) : (
-              <span className="text-muted-foreground">{placeholder}</span>
+              <span className="text-muted-foreground">{placeholderLabel}</span>
             )}
           </span>
           <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
@@ -153,7 +157,9 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
               "hover:bg-muted",
               value === null && "bg-primary/10",
             )}>
-            <span className="text-muted-foreground">No signature</span>
+            <span className="text-muted-foreground">
+              {__("No signature", "pressedmail")}
+            </span>
             {value === null && (
               <Check className="ml-auto h-4 w-4 text-primary" />
             )}
@@ -205,8 +211,8 @@ export const SignatureSelector: React.FC<SignatureSelectorProps> = ({
                   "hover:bg-muted",
                   "transition-colors",
                 )}>
-                <Settings className="h-3 w-3" />
-                Manage Signatures
+                <Settings className="h-3 w-3" aria-hidden="true" />
+                {__("Manage Signatures", "pressedmail")}
               </button>
             </div>
           </>
@@ -282,8 +288,10 @@ export const InlineSignatureSelector: React.FC<
             "disabled:opacity-50 disabled:cursor-not-allowed",
             className,
           )}>
-          <PenTool className="h-4 w-4" />
-          <span className="hidden sm:inline">Signature</span>
+          <PenTool className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">
+            {__("Signature", "pressedmail")}
+          </span>
           <ChevronDown className="h-3 w-3" />
         </button>
       </PopoverTrigger>
@@ -305,7 +313,9 @@ export const InlineSignatureSelector: React.FC<
               "text-sm transition-colors",
               "hover:bg-muted",
             )}>
-            <span className="text-muted-foreground">No signature</span>
+            <span className="text-muted-foreground">
+              {__("No signature", "pressedmail")}
+            </span>
           </button>
 
           {/* Divider */}

@@ -18,7 +18,7 @@ import type { ProviderKey, SetupFormData, SetupFormErrors } from "../types";
 
 export interface ProviderAuthOptions {
   appPassword: boolean;
-  oauth: "active" | "coming-soon" | "none";
+  oauth: "active" | "none";
 }
 
 type ProviderEntry = [ProviderKey, (typeof PROVIDERS)[ProviderKey]];
@@ -85,12 +85,12 @@ export function StepProviderSelect({
                 <div
                   data-test="provider-coming-soon-badge"
                   data-testid="provider-coming-soon-badge"
-                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   {__("Coming soon", "pressedmail")}
                 </div>
               ) : null}
               {provider.experimental ? (
-                <div className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <div className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   {__("Experimental", "pressedmail")}
                 </div>
               ) : null}
@@ -129,7 +129,7 @@ export function StepProviderSelect({
                   <KeyRound className="mr-1.5 size-3.5" aria-hidden="true" />
                   {key === "custom"
                     ? __("Set up", "pressedmail")
-                    : __("App Password", "pressedmail")}
+                    : __("App password", "pressedmail")}
                 </Button>
               ) : null}
 
@@ -150,17 +150,6 @@ export function StepProviderSelect({
                       ? __("Sign in with Google", "pressedmail")
                       : __("Sign in with OAuth", "pressedmail")}
                 </Button>
-              ) : __IS_PRO__ && authOptions.oauth === "coming-soon" ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                  className="h-8 w-full cursor-not-allowed text-xs disabled:pointer-events-auto"
-                  data-test={`provider-${key}-oauth-coming-soon`}>
-                  <LogIn className="mr-1.5 size-3.5" aria-hidden="true" />
-                  {__("OAuth, coming soon", "pressedmail")}
-                </Button>
               ) : null}
             </div>
           ) : null}
@@ -171,9 +160,12 @@ export function StepProviderSelect({
               target="_blank"
               rel="noopener noreferrer"
               data-test={`provider-${key}-docs`}
-              className="mt-1 inline-flex cursor-pointer items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-              <BookOpen className="size-3" aria-hidden="true" />
+              className="mt-1 inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+              <BookOpen className="size-3.5" aria-hidden="true" />
               {__("Setup docs", "pressedmail")}
+              <span className="sr-only">
+                {__("(opens in a new tab)", "pressedmail")}
+              </span>
             </a>
           ) : null}
         </CardContent>
@@ -186,8 +178,8 @@ export function StepProviderSelect({
       <div className="flex flex-col items-center text-center space-y-4">
         <h2 className="text-2xl font-bold text-foreground">
           {isEditing
-            ? __("Edit Email Account", "pressedmail")
-            : __("Add an Email Account.", "pressedmail")}
+            ? __("Edit email account", "pressedmail")
+            : __("Add an email account", "pressedmail")}
         </h2>
         <p className="text-sm text-muted-foreground">
           {__(

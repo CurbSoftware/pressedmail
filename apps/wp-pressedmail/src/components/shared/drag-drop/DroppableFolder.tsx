@@ -12,6 +12,7 @@
  */
 
 import * as React from "react";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import { useDroppable } from "@dnd-kit/core";
 import { cn } from "@/lib/utils";
 import { useDragDropContext } from "./DragDropProvider";
@@ -55,7 +56,7 @@ function FolderSyncingSpinner({ className }: { className?: string }) {
     <Loader2
       data-test="folder-syncing-indicator"
       data-testid="folder-syncing-indicator"
-      aria-label="Syncing"
+      aria-label={__("Syncing", "pressedmail")}
       className={cn("h-3 w-3 shrink-0 animate-spin text-primary", className)}
     />
   );
@@ -98,6 +99,32 @@ export function DroppableFolder({
         : String(unseenCount)
       : undefined;
 
+  // The unread count is part of what this row says. Sighted users read it from
+  // the badge (or the tooltip when collapsed); the accessible name has to carry
+  // it too, or a screen reader announces "Inbox" whether or not 38 messages are
+  // waiting.
+  const accessibleLabel =
+    unseenCount === undefined || !(countPartial || unseenCount > 0)
+      ? label
+      : countPartial
+        ? sprintf(
+            /* translators: 1: folder name, 2: capped unread count. */
+            __("%1$s, more than %2$d unread", "pressedmail"),
+            label,
+            2000,
+          )
+        : sprintf(
+            /* translators: 1: folder name, 2: number of unread messages. */
+            _n(
+              "%1$s, %2$d unread message",
+              "%1$s, %2$d unread messages",
+              unseenCount,
+              "pressedmail",
+            ),
+            label,
+            unseenCount,
+          );
+
   if (isCollapsed) {
     const tooltipLabel =
       unseenCount !== undefined && (countPartial || unseenCount > 0)
@@ -111,7 +138,8 @@ export function DroppableFolder({
           data-test="folder-item"
           data-testid="folder-item"
           data-folder={id}
-          aria-label={label}
+          aria-current={isActive ? "page" : undefined}
+          aria-label={accessibleLabel}
           className={cn(
             "flex h-9 w-9 items-center justify-center rounded-md transition-all",
             isActive && !isDragging
@@ -153,6 +181,7 @@ export function DroppableFolder({
       data-test="folder-item"
       data-testid="folder-item"
       data-folder={id}
+      aria-current={isActive ? "page" : undefined}
       className={cn(
         SIDEBAR_NAV_ITEM_CLASS,
         "w-full transition-all",

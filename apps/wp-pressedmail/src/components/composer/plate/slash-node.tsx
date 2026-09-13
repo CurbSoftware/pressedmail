@@ -79,7 +79,8 @@ const insertBlockNode = (editor: PlateEditor, node: object) => {
   editor.tf.focus();
 };
 
-const groups: SlashGroup[] = [
+// Built on call: a module-level __() runs before the locale catalog loads.
+const getGroups = (): SlashGroup[] => [
   {
     group: __('Basic blocks', 'pressedmail'),
     items: [
@@ -302,7 +303,7 @@ export function SlashInputElement(
             {__('No results', 'pressedmail')}
           </InlineComboboxEmpty>
 
-          {groups.map(({ group, items }) => (
+          {getGroups().map(({ group, items }) => (
             <InlineComboboxGroup key={group}>
               <InlineComboboxGroupLabel>{group}</InlineComboboxGroupLabel>
 

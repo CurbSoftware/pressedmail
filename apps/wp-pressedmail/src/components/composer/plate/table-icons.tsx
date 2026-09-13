@@ -2,7 +2,9 @@
 
 /**
  * Border icons for the table borders dropdown (vendored verbatim from the
- * Plate playground table-icons.tsx). SVG-only, no app dependencies.
+ * Plate playground table-icons.tsx). SVG-only, no app dependencies. Decorative:
+ * every menu item that uses one carries its own translated text, so the
+ * playground's English <title> names are gone.
  */
 import type { LucideProps } from 'lucide-react';
 
@@ -14,9 +16,9 @@ export function BorderAllIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border All</title>
       <path
         clipRule="evenodd"
         d="M0.25 1C0.25 0.585786 0.585786 0.25 1 0.25H14C14.4142 0.25 14.75 0.585786 14.75 1V14C14.75 14.4142 14.4142 14.75 14 14.75H1C0.585786 14.75 0.25 14.4142 0.25 14V1ZM1.75 1.75V13.25H13.25V1.75H1.75Z"
@@ -44,9 +46,9 @@ export function BorderBottomIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border Bottom</title>
       <path
         clipRule="evenodd"
         d="M1 13.25L14 13.25V14.75L1 14.75V13.25Z"
@@ -91,9 +93,9 @@ export function BorderLeftIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border Left</title>
       <path
         clipRule="evenodd"
         d="M1.75 1L1.75 14L0.249999 14L0.25 1L1.75 1Z"
@@ -138,9 +140,9 @@ export function BorderNoneIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border None</title>
       <rect fill="currentColor" height="1" rx=".5" width="1" x="7" y="5.025" />
       <rect fill="currentColor" height="1" rx=".5" width="1" x="13" y="5.025" />
       <rect fill="currentColor" height="1" rx=".5" width="1" x="7" y="3.025" />
@@ -186,9 +188,9 @@ export function BorderRightIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border Right</title>
       <path
         clipRule="evenodd"
         d="M13.25 1L13.25 14L14.75 14L14.75 1L13.25 1Z"
@@ -233,9 +235,9 @@ export function BorderTopIcon(props: LucideProps) {
       viewBox="0 0 15 15"
       width="15"
       xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
       {...props}
     >
-      <title>Border Top</title>
       <path
         clipRule="evenodd"
         d="M14 1.75L1 1.75L1 0.249999L14 0.25L14 1.75Z"

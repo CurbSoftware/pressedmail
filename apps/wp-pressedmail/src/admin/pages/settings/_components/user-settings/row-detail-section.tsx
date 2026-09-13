@@ -84,14 +84,16 @@ export function RowDetailSection({
         }
         dataTest="pref-email-list-preview"
       />
-      <PreferenceSwitchRow
-        title={__("Account badge", "pressedmail")}
-        checked={draft.email_list_show_account_badge}
-        onCheckedChange={(checked) =>
-          patchDraft({ email_list_show_account_badge: checked })
-        }
-        dataTest="pref-email-list-show-account-badge"
-      />
+      {!__SINGLE_MAILBOX__ ? (
+        <PreferenceSwitchRow
+          title={__("Account badge", "pressedmail")}
+          checked={draft.email_list_show_account_badge}
+          onCheckedChange={(checked) =>
+            patchDraft({ email_list_show_account_badge: checked })
+          }
+          dataTest="pref-email-list-show-account-badge"
+        />
+      ) : null}
       <PreferenceSwitchRow
         title={__("Attachment icon", "pressedmail")}
         checked={draft.email_list_show_attachment_icon}

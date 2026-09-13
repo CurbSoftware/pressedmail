@@ -5,12 +5,13 @@ PressedMail WordPress plugin (`assets/admin/dist/`), published to satisfy
 the WordPress.org Plugin Directory's reviewable-source requirement.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Monorepo source tag: `pressedmail-v1.0.30`
+Public tag: `v1.0.31`
 
 See [BUILD.md](./BUILD.md) for the toolchain and build steps.
 
 ```sh
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
 pnpm build
 ```
 

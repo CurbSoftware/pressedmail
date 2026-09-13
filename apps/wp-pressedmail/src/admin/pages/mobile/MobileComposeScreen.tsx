@@ -54,7 +54,7 @@ function consumeIncomingPayload() {
 /**
  * Routed full-screen mobile compose surface. The shell owns navigation and the
  * shared composer owns addressing, toolbar, rich text, attachments, drafts,
- * templates, signatures, and send behavior.
+ * signatures and send behavior.
  */
 interface MobileComposeScreenProps {
   onClose?: () => void;
@@ -87,7 +87,7 @@ export function MobileComposeScreen({
   const pendingIncoming = React.useRef(false);
   const handledIncoming = React.useRef<typeof location | null>(null);
   const { archiveMessage } = useMessageOperations();
-  const { accounts, selectedAccount } = useAppContext();
+  const { selectedAccount } = useAppContext();
   const { selectedFolder } = useFolderOperations();
   const { selectedMessage } = useInboxState();
   const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
@@ -260,10 +260,9 @@ export function MobileComposeScreen({
       disableEdgeSwipeBack={isDirty}
       header={
         <MobileScreenHeader
-          title={form.modeTitle || "New message"}
+          title={form.modeTitle || __("New message", "pressedmail")}
           hideTitle
           onBack={form.handleDiscard}
-          onCancel={form.handleDiscard}
           trailing={
             <div className="flex items-center gap-0.5">
               {/* Explicit save (desktop parity: ComposerHeaderActions Save
@@ -272,13 +271,13 @@ export function MobileComposeScreen({
                 type="button"
                 onClick={() => void form.handleSaveDraft()}
                 data-test="save-draft-button"
+                data-testid="save-draft-button"
                 data-saving={form.isSavingDraft ? "true" : undefined}
                 aria-busy={form.isSavingDraft || undefined}
                 aria-label={__("Save draft", "pressedmail")}
                 disabled={form.isSavingDraft || isDeliveryPending}
                 className={cn(
-                  "pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-2",
-                  form.isSavingDraft ? "text-muted-foreground" : "text-primary",
+                  "pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-2 text-muted-foreground disabled:opacity-50",
                 )}>
                 {form.isSavingDraft ? (
                   <Loader2
@@ -302,16 +301,13 @@ export function MobileComposeScreen({
                 type="button"
                 onClick={() => void form.handleSend()}
                 data-test="send-button"
+                data-testid="send-button"
                 data-sending={form.isSending ? "true" : undefined}
                 aria-busy={form.isSending || undefined}
                 disabled={!form.canSend || isDeliveryPending}
                 className={cn(
                   "pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold",
-                  form.isSending
-                    ? "text-success"
-                    : !form.canSend
-                      ? "text-muted-foreground"
-                      : "text-primary",
+                  "bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50",
                 )}>
                 {form.isSending ? (
                   <Loader2
@@ -338,33 +334,6 @@ export function MobileComposeScreen({
         </span>
       )}
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex items-center border-b border-border bg-card px-4 py-3">
-          <label
-            htmlFor="pm-mobile-compose-from"
-            className="w-16 shrink-0 text-sm text-muted-foreground">
-            From
-          </label>
-          {accounts.length > 1 ? (
-            <select
-              id="pm-mobile-compose-from"
-              value={form.fromAccount}
-              onChange={(event) => form.setFromAccount(event.target.value)}
-              disabled={isDeliveryPending}
-              className="min-w-0 flex-1 bg-transparent text-sm outline-none disabled:text-muted-foreground">
-              {accounts.map((account) => (
-                <option key={account.id ?? account.email} value={account.email}>
-                  {account.email}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <span
-              id="pm-mobile-compose-from"
-              className="min-w-0 flex-1 truncate text-sm">
-              {form.fromAccount || "No account selected"}
-            </span>
-          )}
-        </div>
         <ComposerContent
           form={form}
           editorRef={editorRef}

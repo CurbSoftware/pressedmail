@@ -29,11 +29,11 @@ const TooltipContent: React.FC<TooltipContentProps> = ({
   sideOffset = 4,
   ...props
 }) => {
-  const { themeClass, isDark, style } = useThemeClass();
+  const { themeClass, isDark, style, lang } = useThemeClass();
 
   // Dark mode CSS uses `.dark .theme-class` selector, so we need nested wrappers
   const tooltipContent = (
-    <div className={themeClass} data-pm-portal style={style}>
+    <div className={themeClass} data-pm-portal lang={lang} style={style}>
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
         className={cn(

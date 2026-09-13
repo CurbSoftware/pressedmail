@@ -10,6 +10,14 @@ import {
 } from "react";
 import { PluginThemeScopeProvider } from "@kit/ui/plugin";
 
+import {
+  DARK_STATUS_TEXT_LIGHTNESS,
+  LIGHT_STATUS_TEXT_LIGHTNESS,
+  STATUS_TEXT_TOKEN_SOURCES,
+  themeTextUtilityCss,
+  withOklchLightness,
+} from "./status-text-tokens";
+
 interface ThemeStyles {
   container: string;
   mailListContainer: string;
@@ -39,6 +47,7 @@ interface ThemeProviderProps {
 
 const DEFAULT_THEME = "pressedm";
 const STORAGE_KEY = "pressedmail-selected-theme";
+export const THEME_OVERRIDE_STYLE_ID = "pm-theme-overrides";
 export const FREE_THEME_IDS = [DEFAULT_THEME, "contrast"] as const;
 const AVAILABLE_THEMES = [...FREE_THEME_IDS];
 const EMPTY_STYLES: ThemeStyles = {
@@ -76,9 +85,9 @@ function storedTheme(initialTheme: string, persistTheme: boolean): string {
   }
 }
 
-function applyThemeClass(themeId: string): void {
-  if (typeof document === "undefined") return;
-  const roots = [
+/** Everything a theme applies to: both app roots, the body, and open portals. */
+function themeRoots(): HTMLElement[] {
+  return [
     document.body,
     document.getElementById("pressedmail-plugin"),
     document.getElementById("pressedmail-plugin-frontend"),
@@ -86,12 +95,68 @@ function applyThemeClass(themeId: string): void {
       "[data-radix-portal], [data-pm-portal]",
     ),
   ].filter((root): root is HTMLElement => root instanceof HTMLElement);
+}
 
-  for (const root of roots) {
+function applyThemeClass(themeId: string): void {
+  if (typeof document === "undefined") return;
+
+  for (const root of themeRoots()) {
     for (const className of Array.from(root.classList)) {
       if (className.endsWith("-theme")) root.classList.remove(className);
     }
     root.classList.add(`${themeId}-theme`);
+  }
+}
+
+/**
+ * Give the status and primary colours a text-safe variant and point the text
+ * utilities at it.
+ *
+ * The Free themes are plain CSS, so nothing here reads a palette registry: the
+ * applied fill is read back off the element and only its lightness moves. Free
+ * used to skip this entirely, which left `.text-warning` resolving to the fill
+ * and status text sitting at 3.17:1 to 3.87:1 on the dark card. Free is the
+ * edition on wordpress.org, so it is the one that had to be fixed.
+ *
+ * A fill that is not OKLCH leaves its token unset, and the CSS falls back to
+ * the fill, so an unparsed colour renders as it did before instead of losing
+ * its colour.
+ */
+function applyStatusTextTokens(isDark: boolean): void {
+  if (typeof document === "undefined") return;
+
+  const roots = themeRoots();
+  const source = roots.find((root) => root !== document.body) ?? document.body;
+  const computed = window.getComputedStyle(source);
+  const lightness = isDark
+    ? DARK_STATUS_TEXT_LIGHTNESS
+    : LIGHT_STATUS_TEXT_LIGHTNESS;
+
+  for (const [token, fill] of Object.entries(STATUS_TEXT_TOKEN_SOURCES)) {
+    const base = computed.getPropertyValue(fill).trim();
+    const derived = base ? withOklchLightness(base, lightness) : "";
+
+    for (const root of roots) {
+      if (derived && derived !== base) {
+        root.style.setProperty(token, derived);
+      } else {
+        root.style.removeProperty(token);
+      }
+    }
+  }
+
+  let styleEl = document.getElementById(THEME_OVERRIDE_STYLE_ID);
+
+  if (!styleEl) {
+    styleEl = document.createElement("style");
+    styleEl.id = THEME_OVERRIDE_STYLE_ID;
+    document.head.appendChild(styleEl);
+  }
+
+  const css = themeTextUtilityCss();
+
+  if (styleEl.textContent !== css) {
+    styleEl.textContent = css;
   }
 }
 
@@ -129,7 +194,8 @@ export function ThemeProvider({
 
   useEffect(() => {
     applyThemeClass(currentTheme);
-  }, [currentTheme]);
+    applyStatusTextTokens(isDark);
+  }, [currentTheme, isDark]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

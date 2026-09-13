@@ -1,18 +1,12 @@
 import { __ } from "@wordpress/i18n";
 import { ThemedMailLayout } from "@/components/inbox/themed-mail-layout";
-import { mails } from "@/admin/pages/inbox/data";
 import { useAppContext } from "@/context/AppProvider";
 import Wizard from "@/context/SetupWizardWidget";
 import { useInboxSurfaceBoot } from "@/hooks/useInboxSurfaceBoot";
 import { useVisibleBodyPrefetch } from "@/hooks/useVisibleBodyPrefetch";
 import { AlertCircle, Loader2 } from "lucide-react";
 
-import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-  Button,
-} from "@kit/ui/plugin";
+import { Alert, AlertDescription, AlertTitle, Button } from "@kit/ui/plugin";
 
 export default function MailPage() {
   const {
@@ -81,11 +75,10 @@ export default function MailPage() {
       {showWizard ? (
         <Wizard onComplete={onComplete} isLoading={isLoading} />
       ) : (
-        <ThemedMailLayout
-          accounts={accounts}
-          mails={mails}
-          defaultCollapsed={false}
-        />
+        // Messages come from InboxContext. The `mails` prop used to carry a
+        // 302-line fixture of invented people, which every layout ignored and
+        // the Pro bundle shipped to customers.
+        <ThemedMailLayout accounts={accounts} defaultCollapsed={false} />
       )}
     </div>
   );

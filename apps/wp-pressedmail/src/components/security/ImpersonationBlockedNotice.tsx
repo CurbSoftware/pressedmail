@@ -1,3 +1,4 @@
+import { __ } from "@wordpress/i18n";
 import { ShieldAlert } from "lucide-react";
 
 interface ImpersonationBlockedNoticeProps {
@@ -27,14 +28,16 @@ export function ImpersonationBlockedNotice({
           <ShieldAlert className="h-7 w-7" aria-hidden="true" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
-          Mailbox access paused
+          {__("Mailbox access paused", "pressedmail")}
         </h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           {message}
         </p>
         <p className="text-xs text-muted-foreground/80">
-          This protects connected email accounts from being opened through an
-          impersonated session. It can be changed under Settings → Security.
+          {__(
+            "This keeps connected email accounts from being opened through a switched session. Sign in with your own account to read your email.",
+            "pressedmail",
+          )}
         </p>
       </div>
     </div>

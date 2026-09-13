@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Plus, UserCircle2 } from "lucide-react";
+import { __ } from "@wordpress/i18n";
+import { Plus, Settings2, UserCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
@@ -9,11 +10,11 @@ import { useAppContext } from "@/context/AppProvider";
 import { cn } from "@/lib/utils";
 
 /**
- * Full-content-area account selector reached from the inbox hamburger. Owns the
- * account-switching concern only, folders and tags live on the Folders tab, so
- * this screen never lists them. Selecting an account switches the active mailbox
- * and returns to the inbox; the shell header + bottom tab bar stay visible and
- * the standard Back button comes from MobileScreenHeader.
+ * Full-content-area account selector. Owns the account-switching concern only,
+ * folders and tags live on the Folders screen, so this screen never lists
+ * them. Selecting an account switches the active mailbox and returns to the
+ * inbox; the shell header + bottom tab bar stay visible and the standard Back
+ * button comes from MobileScreenHeader.
  */
 export function MobileAccountsScreen() {
   const navigate = useNavigate();
@@ -41,7 +42,10 @@ export function MobileAccountsScreen() {
   };
 
   return (
-    <MobileScreen header={<MobileScreenHeader title="Accounts" />}>
+    <MobileScreen
+      header={
+        <MobileScreenHeader title={__("Switch account", "pressedmail")} />
+      }>
       <div className="px-3 py-4">
         <ul role="list" className="flex flex-col gap-1">
           {rows.map((account) => {
@@ -60,10 +64,10 @@ export function MobileAccountsScreen() {
                     <UserCircle2 className="h-6 w-6" aria-hidden="true" />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium">
+                    <span className="break-words text-sm font-medium">
                       {account.label || account.email}
                     </span>
-                    <span className="truncate text-xs text-muted-foreground">
+                    <span className="break-all text-xs text-muted-foreground">
                       {account.email}
                     </span>
                   </span>
@@ -88,12 +92,21 @@ export function MobileAccountsScreen() {
                 className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2 text-left text-muted-foreground active:bg-muted">
                 <Plus className="h-5 w-5" aria-hidden="true" />
                 <span className="text-sm font-medium">
-                  {__SINGLE_MAILBOX__ ? "Connect mailbox" : "Add account"}
+                  {__SINGLE_MAILBOX__
+                    ? __("Connect mailbox", "pressedmail")
+                    : __("Add account", "pressedmail")}
                 </span>
               </button>
             </li>
           )}
         </ul>
+        <button
+          type="button"
+          onClick={() => navigate("/settings/accounts")}
+          className="pm-touch-target pm-no-tap-highlight mt-4 flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm font-medium text-foreground active:bg-muted">
+          <Settings2 className="h-5 w-5" aria-hidden="true" />
+          {__("Manage accounts", "pressedmail")}
+        </button>
       </div>
     </MobileScreen>
   );

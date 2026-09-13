@@ -1,7 +1,7 @@
 "use client";
 
-import { __ } from "@wordpress/i18n";
-import { ArrowUpDown, Eye } from "lucide-react";
+import { __, sprintf } from "@wordpress/i18n";
+import { ArrowDown, ArrowUp, Eye } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
@@ -31,12 +31,6 @@ export interface EmailListHeaderProps {
   className?: string;
 }
 
-const sortLabels: Record<EmailListSortColumn, string> = {
-  from: __("From", "pressedmail"),
-  subject: __("Subject", "pressedmail"),
-  date: __("Date", "pressedmail"),
-};
-
 function SortButton({
   column,
   sort,
@@ -48,8 +42,33 @@ function SortButton({
   onSortChange: (sort: EmailListSortState) => void;
   className?: string;
 }) {
+  const sortLabels: Record<EmailListSortColumn, string> = {
+    from: __("From", "pressedmail"),
+    subject: __("Subject", "pressedmail"),
+    date: __("Date", "pressedmail"),
+  };
   const active = sort.column === column;
   const label = sortLabels[column];
+  const ascending = active && sort.order === "asc";
+  const DirectionIcon = ascending ? ArrowUp : ArrowDown;
+
+  // The name is built from the visible label so speech users can say what they
+  // see (WCAG 2.5.3), and it carries the direction, which nothing used to say:
+  // the icon was a two-way arrow whichever way the list was sorted.
+  const name = active
+    ? sprintf(
+        /* translators: 1: column label, 2: sort direction. */
+        __("Sort by %1$s, %2$s", "pressedmail"),
+        label,
+        ascending
+          ? __("ascending", "pressedmail")
+          : __("descending", "pressedmail"),
+      )
+    : sprintf(
+        /* translators: %s: column label. */
+        __("Sort by %s", "pressedmail"),
+        label,
+      );
 
   return (
     <Button
@@ -62,9 +81,14 @@ function SortButton({
         className,
       )}
       onClick={() => onSortChange(getNextEmailListSortState(sort, column))}
-      aria-label={`Sort by ${column}`}>
+      aria-label={name}
+      data-test={`email-list-sort-${column}`}
+      data-testid={`email-list-sort-${column}`}
+      data-sort-direction={active ? sort.order : undefined}>
       <span className="truncate">{label}</span>
-      {active && <ArrowUpDown className="h-4 w-4 shrink-0" />}
+      {active && (
+        <DirectionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />
+      )}
     </Button>
   );
 }

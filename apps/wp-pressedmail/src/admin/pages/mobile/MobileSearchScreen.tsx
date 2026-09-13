@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useNavigate } from "react-router-dom";
+import { __, _n, sprintf } from "@wordpress/i18n";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   FilterChipsRow,
@@ -10,20 +11,31 @@ import {
   MobileSearchInput,
   useHideTabBar,
 } from "@/components/mobile-shell";
-import { useInboxState, useMessageOperations } from "@/context/InboxContext";
+import {
+  useFolderOperations,
+  useInboxState,
+  useMessageOperations,
+  useSearchOperations,
+} from "@/context/InboxContext";
+import { buildEmailRowViewModel } from "@/components/inbox/email-row-model";
 import { getReadableMessagePreview } from "@/lib/email-content-normalization";
 import {
   getMessageIdentityKey,
   getMessageListRowKeys,
 } from "@/lib/message-identity";
 import { cn } from "@/lib/utils";
+import type { SearchResult } from "@/services/interfaces";
+import { PaginationFooter } from "@/layouts/shared/components/footer-system";
 import type { EmailMessage } from "@/types";
+
+/** Keystroke settling time before a search reaches the server. */
+const SEARCH_DEBOUNCE_MS = 350;
 
 function getFromDisplay(mail: EmailMessage): string {
   if (mail.name) return mail.name;
   if (mail.email) return mail.email;
   if (mail.from) return mail.from;
-  return "Unknown";
+  return __("Unknown", "pressedmail");
 }
 
 function SearchResultRow({
@@ -34,6 +46,9 @@ function SearchResultRow({
   onOpen: () => void;
 }) {
   const preview = getReadableMessagePreview(mail);
+  // The desktop row model, so a result reads "9:03 AM" / "Thu" / "Sep 9"
+  // rather than the raw "9/10/2026" every row used to show.
+  const model = buildEmailRowViewModel(mail);
   return (
     <button
       type="button"
@@ -49,7 +64,7 @@ function SearchResultRow({
           {getFromDisplay(mail)}
         </span>
         <span className="shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-          {mail.date ? new Date(mail.date).toLocaleDateString() : ""}
+          {model.dateLabel}
         </span>
       </div>
       <span
@@ -57,7 +72,7 @@ function SearchResultRow({
           "min-w-0 truncate text-sm",
           !mail.read ? "font-medium text-foreground" : "text-muted-foreground",
         )}>
-        {mail.subject || "(No subject)"}
+        {mail.subject || __("(No subject)", "pressedmail")}
       </span>
       {preview ? (
         <span className="line-clamp-2 text-xs text-muted-foreground">
@@ -68,107 +83,212 @@ function SearchResultRow({
   );
 }
 
+/** Searches synced mail across folders without changing the inbox's filters or page. */
 export function MobileSearchScreen() {
   useHideTabBar(true);
   const navigate = useNavigate();
-  const { messages, isLoading } = useInboxState();
+  const [params, setParams] = useSearchParams();
+  const { selectedAccountId } = useInboxState();
+  const { selectedFolder } = useFolderOperations();
   const { selectMessage } = useMessageOperations();
-  const [query, setQuery] = React.useState("");
-  const [scope, setScope] = React.useState<"all" | "unread">("all");
+  const { search } = useSearchOperations();
+  const query = params.get("q") ?? "";
+  const trimmed = query.trim();
+  const unread = params.get("unread") === "1";
+  const currentFolderOnly = params.get("folderScope") === "current";
+  const requestedPage = Number(params.get("page"));
+  const page =
+    Number.isSafeInteger(requestedPage) && requestedPage > 0
+      ? requestedPage
+      : 1;
+  const pageSize = 25;
+  const [retry, setRetry] = React.useState(0);
+  const [answer, setAnswer] = React.useState<{
+    key: string;
+    result: SearchResult;
+  } | null>(null);
+  const key = JSON.stringify([
+    trimmed,
+    unread,
+    currentFolderOnly ? selectedFolder : "",
+    selectedAccountId,
+    page,
+    retry,
+  ]);
+  const liveSearch = React.useRef(search);
+  liveSearch.current = search;
 
-  const results = React.useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) return [];
+  const updateQuery = (name: string, value: string) => {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        if (value) next.set(name, value);
+        else next.delete(name);
+        if (name !== "page") next.delete("page");
+        return next;
+      },
+      { replace: true },
+    );
+  };
 
-    return messages.filter((mail) => {
-      if (scope === "unread" && mail.read) return false;
-      return [
-        getFromDisplay(mail),
-        mail.subject,
-        getReadableMessagePreview(mail),
-        mail.from,
-        mail.email,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery);
-    });
-  }, [messages, query, scope]);
+  React.useEffect(() => {
+    if (trimmed.length < 2) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await liveSearch.current(trimmed, {
+          accountId: selectedAccountId ?? undefined,
+          folder: currentFolderOnly ? selectedFolder : undefined,
+          readStatus: unread ? "unread" : undefined,
+          offset: (page - 1) * pageSize,
+          limit: pageSize,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) setAnswer({ key, result });
+      } catch (error) {
+        if (!controller.signal.aborted)
+          setAnswer({
+            key,
+            result: {
+              messages: [],
+              total: 0,
+              suggestions: [],
+              error: error instanceof Error ? error.message : "Search failed",
+            },
+          });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    currentFolderOnly,
+    key,
+    page,
+    selectedAccountId,
+    selectedFolder,
+    trimmed,
+    unread,
+  ]);
 
+  const ready = answer?.key === key ? answer.result : null;
+  const searching = trimmed.length >= 2 && !ready;
+  const error = ready?.error;
+  const results = ready && !error ? ready.messages : [];
   const resultKeys = React.useMemo(
     () => getMessageListRowKeys(results),
     [results],
   );
-
-  const handleOpen = React.useCallback(
-    (mail: EmailMessage) => {
-      const id = getMessageIdentityKey(mail);
-      void selectMessage(mail);
-      navigate(`/inbox/m/${encodeURIComponent(id)}`);
-    },
-    [navigate, selectMessage],
-  );
+  const handleOpen = (mail: EmailMessage) => {
+    void selectMessage(mail);
+    navigate(`/inbox/m/${encodeURIComponent(getMessageIdentityKey(mail))}`);
+  };
 
   return (
     <MobileScreen
       header={
         <MobileScreenHeader
-          title="Search"
-          onCancel={() => {
-            setQuery("");
-            navigate("/inbox");
-          }}
+          title={__("Search", "pressedmail")}
+          onCancel={() => navigate("/inbox")}
         />
+      }
+      footer={
+        ready && !error && (ready.total > pageSize || page > 1) ? (
+          <PaginationFooter
+            currentPage={page}
+            totalItems={ready.total}
+            serverTotalItems={ready.total}
+            pageSize={pageSize}
+            hasMore={page * pageSize < ready.total}
+            onPageChange={(next) => updateQuery("page", String(next))}
+          />
+        ) : null
       }>
       <div className="flex min-h-full flex-col">
-        <div className="border-b border-border px-3 py-2">
+        <div className="space-y-2 border-b border-border px-3 py-2">
           <MobileSearchInput
             id="pm-mobile-dedicated-search"
-            label="Search mail"
-            placeholder="Search mail"
+            label={__("Search mail", "pressedmail")}
+            placeholder={__("Search mail", "pressedmail")}
             value={query}
-            onChange={setQuery}
-            onClear={() => setQuery("")}
+            onChange={(value) => updateQuery("q", value)}
+            onClear={() => updateQuery("q", "")}
             autoFocus
           />
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            {__("Search in", "pressedmail")}
+            <select
+              aria-label={__("Search folders", "pressedmail")}
+              value={currentFolderOnly ? "current" : "all"}
+              onChange={(event) =>
+                updateQuery(
+                  "folderScope",
+                  event.target.value === "current" ? "current" : "",
+                )
+              }
+              className="pm-touch-target min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground">
+              <option value="all">{__("All folders", "pressedmail")}</option>
+              <option value="current">{selectedFolder}</option>
+            </select>
+          </label>
         </div>
         <FilterChipsRow
-          value={scope}
+          value={unread ? "unread" : "all"}
           chips={[
-            { id: "all", label: "All" },
-            { id: "unread", label: "Unread" },
+            { id: "all", label: __("All", "pressedmail") },
+            { id: "unread", label: __("Unread", "pressedmail") },
           ]}
-          onSelect={(next) => {
-            if (next === "all" || next === "unread") {
-              setScope(next);
-            }
-          }}
+          onSelect={(next) =>
+            updateQuery("unread", next === "unread" ? "1" : "")
+          }
         />
-        {isLoading ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            Loading messages...
+        {error ? (
+          <div role="alert" className="space-y-3 px-4 py-6 text-center">
+            <p className="text-sm text-destructive">
+              {__("Could not search your mail. Try again.", "pressedmail")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setRetry((value) => value + 1)}
+              className="pm-touch-target rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground">
+              {__("Retry", "pressedmail")}
+            </button>
+          </div>
+        ) : (
+          <p
+            role="status"
+            aria-live="polite"
+            className={cn(
+              "px-4 text-center text-sm text-muted-foreground",
+              "py-3",
+            )}>
+            {searching
+              ? __("Searching your mailbox...", "pressedmail")
+              : trimmed.length < 2
+                ? __(
+                    "Enter at least two characters to search synced mail by sender, subject, or preview.",
+                    "pressedmail",
+                  )
+                : ready?.total === 0
+                  ? __("No messages match your search", "pressedmail")
+                  : sprintf(
+                      _n(
+                        "%d result",
+                        "%d results",
+                        ready?.total ?? 0,
+                        "pressedmail",
+                      ),
+                      ready?.total ?? 0,
+                    )}
           </p>
-        ) : null}
-        {!query.trim() ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            Search by sender, subject, or message text
-          </p>
-        ) : null}
-        {query.trim() && results.length === 0 && !isLoading ? (
-          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-            No messages match your search
-          </p>
-        ) : null}
+        )}
         <ul role="list" className="divide-y divide-border">
-          {results.map((mail, index) => {
-            const id = getMessageIdentityKey(mail);
-            return (
-              <li key={resultKeys[index] ?? id}>
-                <SearchResultRow mail={mail} onOpen={() => handleOpen(mail)} />
-              </li>
-            );
-          })}
+          {results.map((mail, index) => (
+            <li key={resultKeys[index] ?? getMessageIdentityKey(mail)}>
+              <SearchResultRow mail={mail} onOpen={() => handleOpen(mail)} />
+            </li>
+          ))}
         </ul>
       </div>
     </MobileScreen>

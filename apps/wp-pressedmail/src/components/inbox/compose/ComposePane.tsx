@@ -22,6 +22,7 @@ import {
   restoreWordPressChrome,
 } from "@/hooks/useImmersiveMode";
 import { useComposeForm } from "@/hooks/compose/v2/useComposeForm";
+import { useModalPanel } from "@/hooks/compose/useModalPanel";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { ComposerContent } from "./ComposerContent";
 import type { EmailEditorRef } from "@/components/composer";
@@ -115,12 +116,15 @@ export function ComposePane({
   // the plugin can stack. If the user was already immersive we leave it alone;
   // otherwise the chrome goes back on the way out.
   const restoreChromeRef = useRef(false);
+  // Which control opened the overlay, so focus can go back to it on return.
+  const openerRef = useRef<"popout" | "full" | null>(null);
 
   const enterFullView = useCallback(() => {
     if (!isImmersiveModeActive()) {
       enableImmersiveMode();
       restoreChromeRef.current = true;
     }
+    openerRef.current ??= "full";
     setPaneMode("full");
   }, []);
 
@@ -129,8 +133,11 @@ export function ComposePane({
       restoreWordPressChrome();
       restoreChromeRef.current = false;
     }
+    if (next === "popout") openerRef.current ??= "popout";
     setPaneMode(next);
   }, []);
+
+  const returnToPane = useCallback(() => leaveFullView("pane"), [leaveFullView]);
 
   // Closing or sending while still in full view must not strand the user in a
   // chrome-less wp-admin.
@@ -163,12 +170,33 @@ export function ComposePane({
 
   // Switching view unmounts the button that was focused (the Full view button
   // only renders while not in full view), which drops focus to <body> and
-  // loses the keyboard user's place mid-message. Park focus on the panel.
+  // loses the keyboard user's place mid-message. Park focus on the panel, and
+  // on the way back to the pane hand it to the control that opened the overlay.
   const panelRef = useRef<HTMLDivElement>(null);
+  const wasOverlayRef = useRef(false);
   useEffect(() => {
-    if (!isOverlayMode) return;
-    panelRef.current?.focus();
+    if (isOverlayMode) {
+      wasOverlayRef.current = true;
+      panelRef.current?.focus();
+      return;
+    }
+    if (!wasOverlayRef.current) return;
+    wasOverlayRef.current = false;
+    const opener = openerRef.current ?? "popout";
+    openerRef.current = null;
+    panelRef.current
+      ?.querySelector<HTMLElement>(`[data-compose-view-trigger="${opener}"]`)
+      ?.focus();
   }, [isOverlayMode, paneMode]);
+
+  // A real modal while popped out or full view: the page behind is inert, Tab
+  // wraps, and Escape goes back to the pane (the draft stays open there, so
+  // nothing needs confirming).
+  const handleOverlayKeyDown = useModalPanel({
+    panelRef,
+    active: isOverlayMode,
+    onEscape: returnToPane,
+  });
 
   return (
     <>
@@ -219,7 +247,8 @@ export function ComposePane({
           !isOverlayMode && "h-full",
           !isOverlayMode && className,
         )}
-        style={isOverlayMode ? panelStyle : DOCKED_EDITOR_STYLE}>
+        style={isOverlayMode ? panelStyle : DOCKED_EDITOR_STYLE}
+        onKeyDown={handleOverlayKeyDown}>
         <ComposerContent
           form={form}
           editorRef={editorRef}
@@ -229,7 +258,7 @@ export function ComposePane({
           showReturnToPane={isOverlayMode}
           showFullView={!isFullView}
           onPopOut={() => leaveFullView("popout")}
-          onReturnToPane={() => leaveFullView("pane")}
+          onReturnToPane={returnToPane}
           onFullView={enterFullView}
           className="h-full w-full"
         />

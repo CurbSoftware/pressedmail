@@ -20,6 +20,8 @@ import type { Contact } from "@/types/contacts";
  * Search result with metadata.
  */
 export interface SearchResult {
+  /** Search failure, distinct from a successful empty result. */
+  error?: string;
   /** Matching messages */
   messages: EmailMessage[];
   /** Total count (may be more than returned if paginated) */
@@ -40,6 +42,8 @@ export interface SearchOptions {
   accountId?: string | number;
   /** Folder to search within (optional) */
   folder?: string;
+  /** Restrict the result set by read state. */
+  readStatus?: "read" | "unread";
   /** Maximum results to return */
   limit?: number;
   /** Offset for pagination */

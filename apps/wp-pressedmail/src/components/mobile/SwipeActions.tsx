@@ -37,8 +37,13 @@ export function SwipeActions({
   const [currentX, setCurrentX] = React.useState(0);
   const [isDragging, setIsDragging] = React.useState(false);
   const [direction, setDirection] = React.useState<SwipeDirection>(null);
+  // A drag that turned out to be a scroll. Archive and delete are destructive
+  // and there is no undo in this layout, so a flick down the list must never
+  // land on one: once the vertical travel dominates, the gesture is over.
+  const scrolling = React.useRef(false);
+  const startY = React.useRef(0);
 
-  const offset = isDragging ? currentX - startX : 0;
+  const offset = isDragging && !scrolling.current ? currentX - startX : 0;
   const absOffset = Math.abs(offset);
   const isOverThreshold = absOffset > threshold;
 
@@ -49,6 +54,8 @@ export function SwipeActions({
 
     setStartX(touch.clientX);
     setCurrentX(touch.clientX);
+    startY.current = touch.clientY;
+    scrolling.current = false;
     setIsDragging(true);
   };
 
@@ -58,14 +65,24 @@ export function SwipeActions({
 
     const touch = e.touches[0];
     if (!touch) return;
+    if (scrolling.current) return;
 
     const x = touch.clientX;
+    const dx = x - startX;
+    const dy = touch.clientY - startY.current;
+    // Same rule the shell's edge-swipe uses: vertical travel that beats the
+    // horizontal travel (and clears a 24px slop) is a scroll, not a swipe.
+    if (Math.abs(dy) > Math.max(24, Math.abs(dx))) {
+      scrolling.current = true;
+      setDirection(null);
+      setCurrentX(startX);
+      return;
+    }
     setCurrentX(x);
 
-    const diff = x - startX;
-    if (diff > 0) {
+    if (dx > 0) {
       setDirection("right");
-    } else if (diff < 0) {
+    } else if (dx < 0) {
       setDirection("left");
     }
   };
@@ -74,7 +91,7 @@ export function SwipeActions({
     if (disabled) return;
     if (!isDragging) return;
 
-    if (isOverThreshold) {
+    if (isOverThreshold && !scrolling.current) {
       if (direction === "left" && onDelete) {
         onDelete();
       } else if (direction === "right" && onArchive) {
@@ -86,12 +103,25 @@ export function SwipeActions({
     setStartX(0);
     setCurrentX(0);
     setDirection(null);
+    scrolling.current = false;
+    startY.current = 0;
+  };
+
+  const handleTouchCancel = () => {
+    setIsDragging(false);
+    setStartX(0);
+    setCurrentX(0);
+    setDirection(null);
+    scrolling.current = false;
+    startY.current = 0;
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (disabled) return;
     setStartX(e.clientX);
     setCurrentX(e.clientX);
+    startY.current = e.clientY;
+    scrolling.current = false;
     setIsDragging(true);
   };
 
@@ -135,10 +165,14 @@ export function SwipeActions({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden"
+      // The browser keeps vertical panning; horizontal drags still reach these
+      // handlers. Without it the shell's `touch-action: manipulation` leaves
+      // the list scrolling and the swipe fighting for the same finger.
+      className="relative touch-pan-y overflow-hidden"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}

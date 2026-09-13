@@ -1,5 +1,7 @@
 'use client';
 
+import { __ } from '@wordpress/i18n';
+import { Paperclip } from 'lucide-react';
 import type React from 'react';
 import { type TElement } from '@kit/plate';
 import { PlateElement } from '@kit/plate/react';
@@ -32,9 +34,9 @@ export function AttachmentCardNode({
       element={element}
       {...props}
     >
-      <span className="pm-attachment-icon">📎</span>
+      <Paperclip aria-hidden="true" className="pm-attachment-icon size-3.5" />
       <span className="pm-attachment-label">
-        {a.filename || 'attachment'}
+        {a.filename || __('Attachment', 'pressedmail')}
         {a.size ? ` (${a.size})` : ''}
       </span>
       {children}

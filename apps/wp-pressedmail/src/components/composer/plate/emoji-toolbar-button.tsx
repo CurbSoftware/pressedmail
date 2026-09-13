@@ -54,12 +54,71 @@ import {
 import { cn } from '@/lib/utils';
 import { ToolbarButton } from '@/components/composer/toolbar';
 
+import { useEmojiData } from './emoji-data';
+
+type EmojiToolbarButtonProps = {
+  options?: EmojiDropdownMenuOptions;
+} & React.ComponentPropsWithoutRef<typeof ToolbarButton>;
+
+/**
+ * @platejs/emoji ships English labels. Built on call, because the locale
+ * catalog loads after this module is imported.
+ */
+function translatePickerStrings(
+  base: UseEmojiPickerType['i18n'],
+): UseEmojiPickerType['i18n'] {
+  return {
+    ...base,
+    categories: {
+      ...base.categories,
+      activity: __('Activity', 'pressedmail'),
+      custom: __('Custom', 'pressedmail'),
+      flags: __('Flags', 'pressedmail'),
+      foods: __('Food and drink', 'pressedmail'),
+      frequent: __('Frequently used', 'pressedmail'),
+      nature: __('Animals and nature', 'pressedmail'),
+      objects: __('Objects', 'pressedmail'),
+      people: __('Smileys and people', 'pressedmail'),
+      places: __('Travel and places', 'pressedmail'),
+      symbols: __('Symbols', 'pressedmail'),
+    },
+    clear: __('Clear search', 'pressedmail'),
+    pick: __('Pick an emoji', 'pressedmail'),
+    search: __('Search emoji', 'pressedmail'),
+    searchNoResultsSubtitle: __('Try another word.', 'pressedmail'),
+    searchNoResultsTitle: __('No emoji found', 'pressedmail'),
+    searchResult: __('Search results', 'pressedmail'),
+  };
+}
+
 export function EmojiToolbarButton({
   options,
   ...props
-}: {
-  options?: EmojiDropdownMenuOptions;
-} & React.ComponentPropsWithoutRef<typeof ToolbarButton>) {
+}: EmojiToolbarButtonProps) {
+  const data = useEmojiData();
+
+  if (!data) {
+    // The picker builds a page-wide library from the first data it sees, so
+    // it waits, disabled in the same spot, until the emoji set has loaded.
+    return (
+      <ToolbarButton
+        isDropdown
+        tooltip={__('Emoji', 'pressedmail')}
+        {...props}
+        disabled
+      >
+        <SmileIcon />
+      </ToolbarButton>
+    );
+  }
+
+  return <EmojiPickerToolbarButton options={options} {...props} />;
+}
+
+function EmojiPickerToolbarButton({
+  options,
+  ...props
+}: EmojiToolbarButtonProps) {
   const { emojiPickerState, isOpen, setIsOpen } =
     useEmojiDropdownMenuState(options);
 
@@ -80,6 +139,7 @@ export function EmojiToolbarButton({
     >
       <EmojiPicker
         {...emojiPickerState}
+        i18n={translatePickerStrings(emojiPickerState.i18n)}
         isOpen={isOpen}
         setIsOpen={setIsOpen}
         settings={options?.settings}

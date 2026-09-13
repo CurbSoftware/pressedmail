@@ -7,9 +7,9 @@
  */
 
 import React, { useState, useCallback, useMemo } from "react";
+import { __, sprintf } from "@wordpress/i18n";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -48,6 +48,7 @@ import {
   useSettingsHeaderAction,
   settingsInfoDocHrefs,
   settingsInfoTooltips,
+  SettingsSkeleton,
 } from "@/components/settings-ui";
 
 interface SignatureManagerProps {
@@ -57,6 +58,18 @@ interface SignatureManagerProps {
   hideHeader?: boolean;
   /** Additional class names */
   className?: string;
+}
+
+/**
+ * Label for the create action.
+ *
+ * The one-slot build used to label it with the bare noun "Signature", which
+ * reads as a heading rather than something you can press.
+ */
+function createActionLabel(): string {
+  return __SINGLE_SIGNATURE__
+    ? __("Add signature", "pressedmail")
+    : __("New Signature", "pressedmail");
 }
 
 export const SignatureManager: React.FC<SignatureManagerProps> = ({
@@ -84,6 +97,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
   );
   const [isCreating, setIsCreating] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<Signature | null>(null);
+  const [deleteError, setDeleteError] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Filter signatures by account if specified
@@ -144,9 +158,17 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
     if (!deleteConfirm) return;
 
     setSaving(true);
+    setDeleteError("");
     try {
-      await deleteSignature(deleteConfirm.id);
-      setDeleteConfirm(null);
+      const result = await deleteSignature(deleteConfirm.id);
+      if (result.success) {
+        setDeleteConfirm(null);
+      } else {
+        setDeleteError(
+          result.error ||
+            __("The signature could not be deleted. Try again.", "pressedmail"),
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -160,7 +182,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
     return (
       <SettingsHeaderActionButton
         icon={PlusCircle}
-        label={__SINGLE_SIGNATURE__ ? "Signature" : "New Signature"}
+        label={createActionLabel()}
         onClick={handleCreate}
         disabled={!canCreate || loading}
         dataTest="signature-new"
@@ -199,12 +221,14 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
 
   return (
     <div className={cn("space-y-4", className)}>
-      {/* Card */}
-      <div className="rounded-lg border bg-card border-border">
+      {/* No outer card: this already renders inside the settings shell's own
+          surface, and a bordered card around bordered cards cost 24px a side
+          on a phone. */}
+      <div>
         {/* Header */}
         {!usingSharedHeaderActions &&
         (!hideHeader || showHeaderCreateAction) ? (
-          <div className="p-4 border-b border-border sm:p-5">
+          <div className="mb-4 border-b border-border pb-4">
             <div className="flex items-center justify-between">
               {!hideHeader ? (
                 <div className="flex items-center gap-3">
@@ -213,19 +237,24 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
                   </div>
                   <div>
                     <h3 className="flex items-center gap-1.5 text-lg font-semibold">
-                      <span>Email Signatures</span>
+                      <span>{__("Email Signatures", "pressedmail")}</span>
                       <SettingsInfoTooltip
                         tooltip={settingsInfoTooltips.emailSignatures}
                         docHref={settingsInfoDocHrefs.emailSignatures}
                       />
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      Create and manage your email signatures
+                      {__(
+                        "Create and manage your email signatures",
+                        "pressedmail",
+                      )}
                     </p>
                   </div>
                 </div>
               ) : (
-                <h3 className="text-lg font-semibold">Signatures</h3>
+                <h3 className="text-lg font-semibold">
+                  {__("Signatures", "pressedmail")}
+                </h3>
               )}
               {showHeaderCreateAction && !signatureSlotFilled ? (
                 <Button
@@ -235,7 +264,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
                   data-test="signature-new"
                   data-testid="signature-new">
                   <PlusCircle className="mr-2 h-4 w-4" />
-                  {__SINGLE_SIGNATURE__ ? "Signature" : "New Signature"}
+                  {createActionLabel()}
                 </Button>
               ) : null}
             </div>
@@ -243,10 +272,12 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
         ) : null}
 
         {/* Content */}
-        <div className="p-4 sm:p-5">
+        <div>
           {/* Error State */}
           {error && (
-            <div className="mb-4 flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
+            <div
+              role="alert"
+              className="mb-4 flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-destructive">
               <AlertCircle className="h-4 w-4" />
               <span className="text-sm">{error.message}</span>
             </div>
@@ -254,17 +285,22 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
 
           {/* Loading State */}
           {loading && (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
+            <SettingsSkeleton
+              label={__("Loading signatures", "pressedmail")}
+              dataTest="signatures-loading"
+              rows={2}
+            />
           )}
 
           {/* Empty State */}
           {!loading && filteredSignatures.length === 0 && (
             <SettingsEmptyState
               icon={<PenTool className="h-6 w-6" />}
-              title="No signatures yet"
-              description="Create a signature that can be added automatically when composing email."
+              title={__("No signatures yet", "pressedmail")}
+              description={__(
+                "Create a signature that can be added automatically when composing email.",
+                "pressedmail",
+              )}
               actions={
                 canCreate && !usingSharedHeaderActions ? (
                   <Button
@@ -273,7 +309,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
                     data-test="signature-new-empty"
                     data-testid="signature-new-empty">
                     <PlusCircle className="mr-2 h-4 w-4" />
-                    Create Signature
+                    {__("Create Signature", "pressedmail")}
                   </Button>
                 ) : null
               }
@@ -302,7 +338,12 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
       {/* Delete Confirmation Dialog */}
       <AlertDialog
         open={!!deleteConfirm}
-        onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        onOpenChange={(open) => {
+          if (!open && !saving) {
+            setDeleteConfirm(null);
+            setDeleteError("");
+          }
+        }}>
         <AlertDialogContent
           className="sm:max-w-sm"
           data-test="signature-delete-dialog"
@@ -311,22 +352,36 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
             <AlertDialogTitle>
               <AlertDialogTitleRow variant="destructive">
                 <Trash2 />
-                <span>Delete Signature</span>
+                <span>{__("Delete Signature", "pressedmail")}</span>
               </AlertDialogTitleRow>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteConfirm?.name}"? This
-              action cannot be undone.
+              {deleteConfirm
+                ? sprintf(
+                    /* translators: %s: the signature's name. */
+                    __(
+                      'Are you sure you want to delete "%s"? This action cannot be undone.',
+                      "pressedmail",
+                    ),
+                    deleteConfirm.name,
+                  )
+                : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {deleteError ? (
+            <p role="alert" className="text-sm text-destructive">
+              {deleteError}
+            </p>
+          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel
               disabled={saving}
               data-test="signature-delete-cancel"
               data-testid="signature-delete-cancel">
-              Cancel
+              {__("Cancel", "pressedmail")}
             </AlertDialogCancel>
-            <AlertDialogAction
+            <Button
+              type="button"
               onClick={handleDelete}
               disabled={saving}
               data-test="signature-delete-confirm"
@@ -337,8 +392,8 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
               ) : (
                 <Trash2 className="mr-2 h-4 w-4" />
               )}
-              Delete
-            </AlertDialogAction>
+              {__("Delete", "pressedmail")}
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -359,14 +414,23 @@ interface SignatureStatusIndicatorProps {
   signatureId: number;
   kind: "new" | "reply" | "forward";
   label: string;
+  stateLabel: string;
   active: boolean;
   icon: React.ComponentType<{ className?: string }>;
 }
 
+/**
+ * Whether this signature is used for one kind of message.
+ *
+ * These are not controls, and they used to say so with border colour alone:
+ * WCAG 1.4.1 does not accept colour as the only carrier of meaning, and a
+ * screen reader was told nothing at all. The state is spelled out in text.
+ */
 const SignatureStatusIndicator: React.FC<SignatureStatusIndicatorProps> = ({
   signatureId,
   kind,
   label,
+  stateLabel,
   active,
   icon: Icon,
 }) => (
@@ -380,8 +444,9 @@ const SignatureStatusIndicator: React.FC<SignatureStatusIndicatorProps> = ({
         ? "border-primary bg-primary/5 text-foreground"
         : "border-border bg-muted/30 text-muted-foreground",
     )}>
-    <Icon className="h-3 w-3 shrink-0" />
+    <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
     <span className="truncate">{label}</span>
+    <span className="sr-only">{stateLabel}</span>
   </span>
 );
 
@@ -403,73 +468,110 @@ const SignatureCard: React.FC<SignatureCardProps> = ({
         "hover:border-primary/20",
         "transition-colors",
       )}>
-      {/* Rendered preview */}
+      {/* Identity first: the name is what the card is, so it reads before the
+          sample rather than under it. */}
+      <div className="flex items-start justify-between gap-2">
+        <h4
+          className="min-w-0 truncate text-sm font-medium"
+          title={signature.name}>
+          {signature.name}
+        </h4>
+
+        {/* Actions stay visible. They used to be opacity-0 until :hover, and
+            the compiled CSS wraps group-hover in @media (hover:hover), so on a
+            phone they could not be reached at all. */}
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            title={__("Edit", "pressedmail")}
+            aria-label={sprintf(
+              /* translators: %s: the signature's name. */
+              __("Edit signature %s", "pressedmail"),
+              signature.name,
+            )}
+            data-test={`signature-card-edit-${signature.id}`}
+            data-testid={`signature-card-edit-${signature.id}`}
+            className={cn(
+              "pm-touch-target inline-flex items-center justify-center rounded-md transition-colors",
+              "text-muted-foreground hover:bg-accent hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}>
+            <Edit2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            title={__("Delete", "pressedmail")}
+            aria-label={sprintf(
+              /* translators: %s: the signature's name. */
+              __("Delete signature %s", "pressedmail"),
+              signature.name,
+            )}
+            data-test={`signature-card-delete-${signature.id}`}
+            data-testid={`signature-card-delete-${signature.id}`}
+            className={cn(
+              "pm-touch-target inline-flex items-center justify-center rounded-md transition-colors",
+              "text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+
+      {/* Rendered preview. Sized to its content: a fixed 16:9 box left a
+          three-line signature sitting in 170px of empty space. */}
       <div
         data-test={`signature-card-preview-${signature.id}`}
         data-testid={`signature-card-preview-${signature.id}`}
-        className="aspect-video w-full overflow-hidden rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+        className="max-h-40 w-full overflow-y-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
         {hasContent ? (
           <SignaturePreview signature={signature} />
         ) : (
-          <span className="text-muted-foreground italic">No content</span>
+          <span className="italic text-muted-foreground">
+            {__("No content", "pressedmail")}
+          </span>
         )}
       </div>
 
-      {/* Identity */}
-      <h4 className="truncate text-sm font-medium" title={signature.name}>
-        {signature.name}
-      </h4>
-
-      <div className="grid grid-cols-3 gap-2">
+      <div className="mt-auto grid grid-cols-3 gap-2">
         <SignatureStatusIndicator
           signatureId={signature.id}
           kind="new"
-          label="New"
+          label={__("New", "pressedmail")}
+          stateLabel={
+            signature.include_for_new
+              ? __("Used for new messages", "pressedmail")
+              : __("Not used for new messages", "pressedmail")
+          }
           active={signature.include_for_new}
           icon={Mail}
         />
         <SignatureStatusIndicator
           signatureId={signature.id}
           kind="reply"
-          label="Reply"
+          label={__("Reply", "pressedmail")}
+          stateLabel={
+            signature.include_for_reply
+              ? __("Used for replies", "pressedmail")
+              : __("Not used for replies", "pressedmail")
+          }
           active={signature.include_for_reply}
           icon={EmailReplyIcon}
         />
         <SignatureStatusIndicator
           signatureId={signature.id}
           kind="forward"
-          label="Forward"
+          label={__("Forward", "pressedmail")}
+          stateLabel={
+            signature.include_for_forward
+              ? __("Used for forwards", "pressedmail")
+              : __("Not used for forwards", "pressedmail")
+          }
           active={signature.include_for_forward}
           icon={EmailForwardIcon}
         />
-      </div>
-
-      {/* Actions */}
-      <div className="absolute right-2 top-2 flex items-center gap-1 rounded-md border border-border bg-card/95 p-1 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-        <button
-          type="button"
-          onClick={onEdit}
-          title="Edit"
-          data-test={`signature-card-edit-${signature.id}`}
-          data-testid={`signature-card-edit-${signature.id}`}
-          className={cn(
-            "p-1.5 rounded-md transition-colors",
-            "text-muted-foreground hover:text-foreground hover:bg-accent",
-          )}>
-          <Edit2 className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          title="Delete"
-          data-test={`signature-card-delete-${signature.id}`}
-          data-testid={`signature-card-delete-${signature.id}`}
-          className={cn(
-            "p-1.5 rounded-md transition-colors",
-            "text-muted-foreground hover:text-destructive hover:bg-destructive/10",
-          )}>
-          <Trash2 className="h-4 w-4" />
-        </button>
       </div>
     </div>
   );

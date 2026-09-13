@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import { Plus, UserCircle2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -38,7 +39,10 @@ export function MobileAccountSheet({
   onAddAccount,
 }: MobileAccountSheetProps) {
   return (
-    <MobileSheet open={open} onOpenChange={onOpenChange} title="Accounts">
+    <MobileSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={__("Accounts", "pressedmail")}>
       <ul role="list" className="flex flex-col gap-1">
         {accounts.map((account) => {
           const active = account.id === selectedAccountId;
@@ -94,7 +98,9 @@ export function MobileAccountSheet({
               }}
               className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg border border-dashed border-border px-3 py-2 text-left text-muted-foreground active:bg-muted">
               <Plus className="h-5 w-5" aria-hidden="true" />
-              <span className="text-sm font-medium">Add account</span>
+              <span className="text-sm font-medium">
+                {__("Add account", "pressedmail")}
+              </span>
             </button>
           </li>
         )}

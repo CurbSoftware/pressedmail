@@ -16,7 +16,6 @@ import type {
   CreateFilterRuleData,
   UpdateFilterRuleData,
   FilterRuleOperationResult,
-  FilterMatchResult,
   ConditionLogic,
   FilterRuleRunJob,
   FilterRuleRunPreview,
@@ -608,39 +607,6 @@ export function ruleAppliesToMessageAccount(
 }
 
 /**
- * Match a message against all filter rules and return matching rules.
- */
-export function matchMessageAgainstRules(
-  message: EmailMessage,
-  rules: FilterRule[],
-): FilterMatchResult {
-  const enabledRules = rules
-    .filter((r) => r.enabled && ruleAppliesToMessageAccount(r, message))
-    .sort((a, b) => a.priority - b.priority);
-
-  const matchedRules: FilterRule[] = [];
-  const actionsToApply: FilterAction[] = [];
-
-  for (const rule of enabledRules) {
-    if (matchRuleConditions(message, rule.conditions, rule.conditionLogic)) {
-      matchedRules.push(rule);
-      actionsToApply.push(...rule.actions);
-
-      // Stop processing if this rule says to
-      if (rule.stopProcessing) {
-        break;
-      }
-    }
-  }
-
-  return {
-    matched: matchedRules.length > 0,
-    matchedRules,
-    actionsToApply,
-  };
-}
-
-/**
  * Test a rule against a message without applying actions.
  */
 export function testRule(
@@ -665,6 +631,5 @@ export default {
   startFilterRuleRun,
   fetchFilterRuleRun,
   cancelFilterRuleRun,
-  matchMessageAgainstRules,
   testRule,
 };

@@ -282,7 +282,12 @@ export function SystemDiagnostics() {
         docHref={settingsInfoDocHrefs.systemHealth}
         actions={
           siteHealthUrl ? (
-            <a className="text-sm text-primary underline" href={siteHealthUrl}>
+            // `inline-flex min-h-6` is the 24px target floor. A bare inline
+            // anchor at text-sm measures 22px tall, which the craft gate fails
+            // as HF-TARGET and which is genuinely awkward to hit with a mouse.
+            <a
+              className="inline-flex min-h-6 items-center text-sm text-primary underline"
+              href={siteHealthUrl}>
               {__("Open WordPress Site Health", "pressedmail")}
             </a>
           ) : null

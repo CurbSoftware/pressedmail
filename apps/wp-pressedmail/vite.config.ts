@@ -265,6 +265,50 @@ function wordpressBuildConfig(): Plugin {
           modulePreload: false,
           rollupOptions: {
             input: currentConfig.input,
+            output: {
+              // The entry keeps Vite's content hash, like every other chunk.
+              //
+              // It used to be pinned to `assets/main.js` so that WordPress could
+              // resolve the script's translations by a stable md5. That was
+              // redundant: `Admin.php::translation_relative_path()` already maps
+              // the registered entry to that stable path before core computes
+              // anything, so the name on disk never reaches the lookup. Pinning
+              // it cost more than it bought, because every lazy chunk imports
+              // the entry by a query-less relative path (`from"./main.js"`)
+              // while WordPress loads it as `main.js?ver=<mtime>`: two module
+              // identities for one file. The second one is whatever the CDN has,
+              // and this origin sends `max-age=315360000`, so after an update a
+              // browser ran the previous build's entry, asked for chunk names
+              // that no longer existed, and the Pro More screen died with
+              // "Failed to fetch dynamically imported module".
+              //
+              // A content hash makes the entry immutable like the rest of the
+              // bundle, and every build's chunks import the entry that was built
+              // with them.
+              entryFileNames: "assets/[name]-[hash].js",
+              // The syntax-highlighting grammars get their own chunk, and the
+              // reason is not bundle size.
+              //
+              // WP-CLI extracts strings from JavaScript with Peast, which has a
+              // bracket-counting bug in Scanner::reconsumeCurrentTokenAsRegexp():
+              // when the token after a `/` is a closing bracket, the
+              // compensation is skipped and the scan later fails on a legitimate
+              // bracket. A regex whose first body character is `]`, `}` or `)`
+              // triggers it, and highlight.js carries three: two in the PHP
+              // grammar and one in Swift, reached through lowlight's `common`
+              // set. Peast then refuses the whole file, and WP-CLI extracts
+              // nothing from it at all, so the interface's 1,653 strings never
+              // reach translate.wordpress.org.
+              //
+              // Isolating the grammars moves those bytes out of the entry chunk.
+              // A grammar holds no translatable strings, so the chunk that
+              // cannot be parsed costs nothing, and the chunk that can be
+              // parsed is the one carrying the interface.
+              manualChunks: (id) =>
+                id.includes('highlight.js') || id.includes('lowlight')
+                  ? 'highlight-grammars'
+                  : undefined,
+            },
             treeshake:
               variant === "free"
                 ? {

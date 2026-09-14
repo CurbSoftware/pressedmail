@@ -31,7 +31,15 @@ export default function MailPage() {
   // Show loading state
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center bg-background">
+      // The boot marker exists so a test can tell a loaded screen from a
+      // mounted one. `#pressedmail-plugin` is visible throughout this branch,
+      // so a harness that waits for the root and then screenshots captures
+      // whatever is here: the visual suite did exactly that, and three phone
+      // baselines were committed as empty screens that the product renders
+      // perfectly well once the account list arrives.
+      <div
+        className="flex h-full items-center justify-center bg-background"
+        data-test="mail-boot-loading">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
           <p className="text-sm text-muted-foreground">

@@ -123,7 +123,7 @@ function PricingCard({
     (plan.buttonVariant === 'cyan' ||
       plan.buttonVariant === 'gold' ||
       plan.buttonVariant === 'purple') &&
-      'bg-primary text-primary-foreground hover:bg-primary/90',
+      'bg-primary text-primary-foreground hover:bg-primary-hover',
     plan.buttonClassName,
   );
 

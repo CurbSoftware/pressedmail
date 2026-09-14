@@ -22,6 +22,7 @@
     --checkbox-border: oklch(0.691 0.023 236.924);
     --checkbox-background: transparent;
     --primary: oklch(0.52 0.11 222);
+    --primary-hover: oklch(0.5 0.11 222);
     --primary-foreground: oklch(0.98 0.02 201);
     --secondary: oklch(0.957 0.003 247.859);
     --secondary-foreground: oklch(0.194 0.039 255.586);
@@ -71,6 +72,7 @@
     --checkbox-background: transparent;
     /* Darkened from website 0.61 so near-white fg clears WCAG AA (4.96:1). */
     --primary: oklch(0.52 0.11 222);
+    --primary-hover: oklch(0.5 0.11 222);
     --primary-foreground: oklch(0.98 0.02 201);
     --secondary: oklch(0.257 0.025 253.728);
     --secondary-foreground: oklch(0.98 0.004 236.496);

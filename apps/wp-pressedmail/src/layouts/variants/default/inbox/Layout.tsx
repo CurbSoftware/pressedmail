@@ -58,7 +58,7 @@ import { FolderRecoveryActions } from "@/components/inbox/FolderRecoveryActions"
 import { FolderPane } from "./FolderPane";
 import { MessageListPane } from "./MessageListPane";
 import { MessageListToolbar } from "./MessageListToolbar";
-import type { ListOptions } from "./menus/ListOptionsModal";
+import type { ListOptions } from "./menus/list-options";
 
 const FOLDER_PANE_COLLAPSE_THRESHOLD = 13;
 

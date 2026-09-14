@@ -1,4 +1,3 @@
-export { SettingsAdvancedSection } from "./settings-advanced-section";
 export {
   settingsInfoTooltips,
   settingsInfoDocHrefs,
@@ -12,7 +11,6 @@ export {
 } from "./settings-header-actions";
 export { SettingsHeaderActionButton } from "./SettingsHeaderActionButton";
 export type { SettingsHeaderActionButtonProps } from "./SettingsHeaderActionButton";
-export { SettingsPageHeader } from "./settings-page-header";
 export { SettingsRow } from "./settings-row";
 export { SettingsSaveBar } from "./settings-save-bar";
 export { SettingsSaveState } from "./settings-save-state";
@@ -28,7 +26,6 @@ export { SettingsSectionCard } from "./settings-section-card";
 // Pro map into the Free bundle: the barrel is shared and Free files import it.
 export { settingsSectionDescription } from "@/components/settings-ui/settings-section-description";
 export { SettingsSkeleton } from "./settings-skeleton";
-export { SettingsUsageBar } from "./settings-usage-bar";
 export {
   SettingsNavigationGuardProvider,
   useSettingsGuardedAction,

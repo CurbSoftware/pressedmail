@@ -1635,7 +1635,9 @@ function HeaderAttachmentChip({
           type="button"
           size="icon"
           variant="ghost"
-          className="h-5 w-5 shrink-0 p-0 text-muted-foreground"
+          // h-6 w-6 is the 24px target floor. At h-5 w-5 these two controls
+          // measured 20x20 and the craft gate failed them as HF-TARGET.
+          className="h-6 w-6 shrink-0 p-0 text-muted-foreground"
           onClick={() => onAddToCalendar(index)}
           aria-label={sprintf(
             __("Add %s to calendar", "pressedmail"),
@@ -1650,7 +1652,9 @@ function HeaderAttachmentChip({
         type="button"
         size="icon"
         variant="ghost"
-        className="h-5 w-5 shrink-0 p-0 text-muted-foreground"
+        // h-6 w-6 is the 24px target floor. At h-5 w-5 these two controls
+        // measured 20x20 and the craft gate failed them as HF-TARGET.
+        className="h-6 w-6 shrink-0 p-0 text-muted-foreground"
         onClick={() => downloadAttachment(attachment, downloadContext, index)}
         disabled={!canDownload}
         aria-label={downloadLabel}

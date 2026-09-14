@@ -13,7 +13,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         custom: '',
-        default: 'bg-primary text-primary-foreground hover:bg-primary/80',
+        // `hover:bg-primary/80` composited the fill toward whatever is behind
+        // it, and for a filled button that means lightening it. Light text on a
+        // lightened fill loses contrast: at 80% the pair falls from 5.06:1 to
+        // 3.48:1, under the 4.5 floor, so the button was least readable exactly
+        // while someone was pointing at it. `--primary-hover` is a real token
+        // per palette, chosen to move away from the foreground rather than
+        // toward it.
+        default: 'bg-primary text-primary-foreground hover:bg-primary-hover',
         outline:
           'border-border bg-background hover:bg-muted hover:text-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 aria-expanded:bg-muted aria-expanded:text-foreground shadow-xs',
         secondary:

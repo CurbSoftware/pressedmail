@@ -185,7 +185,7 @@ export function SiteNavigation({ freePluginUrl, features }: SiteNavigationProps)
                     data-umami-event-nav-label="features-primary"
                     data-umami-event-nav-location="desktop"
                     data-umami-event-nav-target={features.actions.primary.href}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-9 w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors"
+                    className="bg-primary text-primary-foreground hover:bg-primary-hover inline-flex h-9 w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors"
                   >
                     {features.actions.primary.label}
                   </Link>

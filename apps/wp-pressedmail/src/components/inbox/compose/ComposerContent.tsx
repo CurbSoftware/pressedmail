@@ -544,6 +544,12 @@ export function ComposerContent({
                 initialHtml={form.body || ""}
                 disabled={isExclusiveOperationPending}
                 aiEnabled={aiEnabled}
+                // The signature and auto-reply surfaces have always passed this;
+                // this one did not, so the message body was the only editable in
+                // the product with no accessible name. axe rates it serious
+                // (`aria-input-field-name`), and a placeholder is not a name: it
+                // disappears the moment someone types.
+                ariaLabel={__("Message body", "pressedmail")}
                 placeholder={__("Write your message…", "pressedmail")}
                 onChange={form.setBody}
                 onReady={(ref) => {

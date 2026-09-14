@@ -148,6 +148,7 @@
     "**/vendor/**/CONTRIBUTING.md",
     "**/vendor/**/UPGRADE.md",
     "languages/*.po",
+    "languages/*-free.pot",
     "**/phpunit.xml",
     "**/phpunit.xml.dist",
     "**/vite-dev-server.json",

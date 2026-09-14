@@ -6,6 +6,3 @@ export type { StepCredentialsProps } from "./StepCredentials";
 
 export { StepServerSettings } from "./StepServerSettings";
 export type { StepServerSettingsProps } from "./StepServerSettings";
-
-export { StepTestConnection } from "./StepTestConnection";
-export type { StepTestConnectionProps } from "./StepTestConnection";

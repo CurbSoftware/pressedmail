@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.0.31`
+Public tag: `v1.0.32`
 
 ## Layout
 

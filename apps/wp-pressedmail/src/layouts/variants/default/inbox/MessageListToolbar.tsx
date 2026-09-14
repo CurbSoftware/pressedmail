@@ -15,7 +15,7 @@ import {
   EmailListHeader,
   type EmailListSortState,
 } from "@/components/inbox/EmailListHeader";
-import type { ListOptions } from "./menus/ListOptionsModal";
+import type { ListOptions } from "./menus/list-options";
 
 export interface MessageListToolbarProps {
   listOptions: ListOptions;

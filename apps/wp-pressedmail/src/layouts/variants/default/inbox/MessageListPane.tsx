@@ -38,7 +38,7 @@ import {
 import { useEmailListMode } from "@/hooks/useEmailListMode";
 import { useMobile } from "@/hooks/useMobile";
 import { PaginationBar } from "./PaginationBar";
-import type { ListOptions } from "./menus/ListOptionsModal";
+import type { ListOptions } from "./menus/list-options";
 
 export interface MessageListPaneProps {
   /** Callback to open the folder sheet on mobile */

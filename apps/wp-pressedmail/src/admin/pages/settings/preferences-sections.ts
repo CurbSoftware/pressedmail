@@ -88,7 +88,6 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
       "email_list_show_attachment_icon",
       "email_list_unread_indicator",
       "email_list_date_grouping",
-      "email_list_grouping",
     ],
     Component: lazy(async () => {
       const module =
@@ -137,7 +136,6 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
       "composer_default_font",
       "composer_default_font_size",
       "composer_signature_placement",
-      "composer_reply_signature_behavior",
       "composer_ai_default_tone",
       "undo_send_enabled",
       "undo_send_delay_seconds",

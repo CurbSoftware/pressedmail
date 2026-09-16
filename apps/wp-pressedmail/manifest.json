@@ -376,10 +376,6 @@
               "contrast"
             ]
           },
-          "email_accounts": {
-            "enabled": true,
-            "limit": -1
-          },
           "users": {
             "enabled": true,
             "limit": -1
@@ -422,7 +418,6 @@
             "enabled": false,
             "limit": 0
           },
-          "signature_rules": false,
           "sender_aliases": {
             "enabled": false,
             "limit": 0

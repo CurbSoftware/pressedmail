@@ -18,7 +18,6 @@ import type {
 } from "@/types/features";
 
 const AVAILABLE_FEATURES = new Set<FeatureId>([
-  "email_accounts",
   "sites",
   "users",
   "tags",

@@ -21,7 +21,6 @@ export interface Signature {
   name: string;
   content: string;
   content_type: SignatureContentType;
-  is_default: boolean;
   is_active: boolean;
   include_for_new: boolean;
   include_for_reply: boolean;
@@ -55,7 +54,6 @@ export interface CreateSignatureData {
   content: string;
   content_type?: SignatureContentType;
   account_id?: number | null;
-  is_default?: boolean;
   include_for_new?: boolean;
   include_for_reply?: boolean;
   include_for_forward?: boolean;
@@ -69,7 +67,6 @@ export interface UpdateSignatureData {
   content?: string;
   content_type?: SignatureContentType;
   account_id?: number | null;
-  is_default?: boolean;
   is_active?: boolean;
   include_for_new?: boolean;
   include_for_reply?: boolean;
@@ -93,8 +90,6 @@ export interface SignaturesContextValue {
   fetchSignatures: (accountId?: number) => Promise<void>;
   /** Get a single signature */
   getSignature: (signatureId: number) => Promise<Signature | null>;
-  /** Get default signature for account */
-  getDefaultSignature: (accountId?: number) => Promise<Signature | null>;
   /** Create a new signature */
   createSignature: (
     data: CreateSignatureData,
@@ -106,10 +101,6 @@ export interface SignaturesContextValue {
   ) => Promise<{ success: boolean; signature?: Signature; error?: string }>;
   /** Delete a signature */
   deleteSignature: (
-    signatureId: number,
-  ) => Promise<{ success: boolean; error?: string }>;
-  /** Set signature as default */
-  setDefault: (
     signatureId: number,
   ) => Promise<{ success: boolean; error?: string }>;
   /** Reorder signatures */

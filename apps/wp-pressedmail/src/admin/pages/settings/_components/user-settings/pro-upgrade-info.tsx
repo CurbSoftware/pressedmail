@@ -104,7 +104,7 @@ const PRO_CATEGORIES: ProCategory[] = [
     ),
     features: [
       __("Scheduled send", "pressedmail"),
-      __("Conditional signature rules", "pressedmail"),
+      __("Undo send", "pressedmail"),
     ],
   },
   {

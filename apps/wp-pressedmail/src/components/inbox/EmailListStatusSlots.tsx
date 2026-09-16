@@ -1,4 +1,4 @@
-import { getMessageRequestId } from "@/lib/message-identity";
+import { getMessageIdentityKey } from "@/lib/message-identity";
 import { cn } from "@/lib/utils";
 import type { EmailMessage } from "@/types";
 import { PhishingIndicator } from "@/components/phishing/PhishingIndicator";
@@ -55,7 +55,7 @@ export function EmailListStatusSlots({
             slotClassName,
           )}>
           <PhishingIndicator
-            messageId={getMessageRequestId(message)}
+            messageId={getMessageIdentityKey(message)}
             className={phishingClassName}
           />
         </span>

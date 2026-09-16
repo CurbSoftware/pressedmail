@@ -72,7 +72,6 @@ export interface ManifestBuildConfig {
   constants: Record<string, boolean | string>;
   devConstants: Record<string, boolean | string>;
   exclude_php: string[];
-  exclude_react: string[];
   fileRenames?: Record<string, string>;
   replacements?: Record<string, Record<string, string>>;
   featureFlags: ManifestBuildFeatureFlags;

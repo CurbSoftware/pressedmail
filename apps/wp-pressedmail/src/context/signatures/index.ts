@@ -9,7 +9,6 @@ export {
   useSignatures,
   useSignatureCapabilities,
   useCanCreateSignature,
-  useDefaultSignature,
   useAccountSignatures,
 } from "./SignaturesContext";
 

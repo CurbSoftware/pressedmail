@@ -194,7 +194,6 @@ declare const __ENABLE_AUTO_FOLLOWUPS__: boolean;
 declare const __ENABLE_AUTO_REPLIES__: boolean;
 
 /** Conditional signatures (Pro) */
-declare const __ENABLE_SIGNATURE_RULES__: boolean;
 
 /** Multiple sender identities (Pro) */
 declare const __ENABLE_SENDER_ALIASES__: boolean;

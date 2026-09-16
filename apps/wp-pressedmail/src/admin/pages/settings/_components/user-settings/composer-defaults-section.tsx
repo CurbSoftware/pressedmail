@@ -11,7 +11,6 @@ import {
   type ComposerDefaultFont,
   type ComposerDefaultFontSize,
   type ComposerDefaultFormat,
-  type ComposerReplySignatureBehavior,
   type ComposerSignaturePlacement,
   type UndoSendDelaySeconds,
 } from "@/hooks/useUserPreferences";
@@ -27,7 +26,6 @@ export const COMPOSER_DEFAULT_KEYS = [
   "composer_default_font",
   "composer_default_font_size",
   "composer_signature_placement",
-  "composer_reply_signature_behavior",
   "composer_ai_default_tone",
   "undo_send_enabled",
   "undo_send_delay_seconds",
@@ -120,23 +118,6 @@ export function ComposerDefaultsSection({
           })
         }
         dataTest="pref-composer-signature-placement"
-      />
-      <PreferenceSelectRow
-        title={__("Signatures on replies", "pressedmail")}
-        value={draft.composer_reply_signature_behavior}
-        options={PREFERENCE_ALLOWED_VALUES.composer_reply_signature_behavior}
-        labels={{
-          include: __("Include on replies", "pressedmail"),
-          new_messages_only: __("New messages only", "pressedmail"),
-          none: __("Never", "pressedmail"),
-        }}
-        onValueChange={(value) =>
-          patchDraft({
-            composer_reply_signature_behavior:
-              value as ComposerReplySignatureBehavior,
-          })
-        }
-        dataTest="pref-composer-reply-signature-behavior"
       />
       {__IS_PRO__ && aiAvailable ? (
         <PreferenceSelectRow

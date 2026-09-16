@@ -13,12 +13,13 @@ interface ComposerAttachmentChipsProps {
 }
 
 /**
- * Compact, removable attachment chips rendered beside the subject input.
+ * Compact, removable attachment chips rendered under the subject row.
  *
  * Replaces the old full-width tray that sat below the editor canvas; chips wrap
- * within the subject row so an added attachment is visible immediately next to
- * the subject line. `form.attachments` / `form.removeAttachment` remain the
- * single source of truth, this is a presentational component.
+ * within the subject block so an added attachment is visible immediately
+ * without competing with the subject field for width. `form.attachments` /
+ * `form.removeAttachment` remain the single source of truth, this is a
+ * presentational component.
  */
 export function ComposerAttachmentChips({
   attachments,

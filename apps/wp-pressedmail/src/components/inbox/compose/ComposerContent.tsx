@@ -421,7 +421,15 @@ export function ComposerContent({
           autoFocusTo={form.mode === "new"}
         />
 
-        {/* ── 4. Subject ── */}
+        {/* ── 4. Subject ──
+            The field and the importance/attach cluster share one row, the way
+            the To field shares its row with Cc and Bcc. The cluster carries the
+            same sizing rule as those toggles: 28px under a mouse, 44px under a
+            coarse pointer, instead of 44px keyed off the viewport, which is what
+            made the row too wide for a narrow pane. What keeps the field off its
+            7.5rem floor is the shell's flex-wrap and the field's own min-w-30: a
+            pane too narrow for both drops the cluster to a second line rather
+            than squeezing the field. */}
         <div
           className="border-b border-border bg-transparent px-4 py-2"
           data-test="subject-row">

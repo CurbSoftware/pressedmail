@@ -294,7 +294,6 @@ export type FeatureId =
   | "email_tracking"
   | "auto_followups"
   | "auto_replies"
-  | "signature_rules"
   | "sender_aliases"
   | "snippets"
   | "content_blocks"
@@ -569,7 +568,6 @@ export const FeatureIds = {
   EMAIL_TRACKING: "email_tracking",
   AUTO_FOLLOWUPS: "auto_followups",
   AUTO_REPLIES: "auto_replies",
-  SIGNATURE_RULES: "signature_rules",
   SENDER_ALIASES: "sender_aliases",
   SNIPPETS: "snippets",
   CONTENT_BLOCKS: "content_blocks",

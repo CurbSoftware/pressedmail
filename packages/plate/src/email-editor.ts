@@ -236,6 +236,19 @@ export function createPlateEmailHtmlCache(): PlateEmailHtmlCache {
       dirty = false;
       return true;
     },
+    /**
+     * Adopt HTML that was just set programmatically as the current content.
+     *
+     * The DOM trails a programmatic `setValue` by a render, so without this a
+     * caller reading `getHtml()` in the same commit gets the content from
+     * before the set. Reserving a sequence also discards any serialization
+     * already in flight for the old value.
+     */
+    commitProgrammaticHtml(html) {
+      sequence += 1;
+      cachedHtml = html;
+      dirty = false;
+    },
     cancelPendingSerialization() {
       sequence += 1;
     },
@@ -331,6 +344,7 @@ export function createPlateEmailEditorController<TValue = Value>({
         html,
         ...options,
       });
+      cache.commitProgrammaticHtml(html);
     },
     insertContent(html, options) {
       insertPlateEmailHtmlContent({
@@ -349,6 +363,11 @@ export function createPlateEmailEditorController<TValue = Value>({
       }
 
       options.setValue(value as TValue);
+      // The editor's Slate value holds the document now; its DOM still shows
+      // the previous content until React re-renders. Anyone reading getHtml()
+      // before then (the composer's mount effect does, and it writes what it
+      // reads back into the body) must not be handed the stale DOM.
+      cache.commitProgrammaticHtml(html);
       return true;
     },
     captureSelection(selection) {
@@ -453,19 +472,25 @@ export function publishPlateEmailEditorRef<TRef = PlateEmailEditorRef>({
   onReady,
   forwardedRef,
 }: PlateEmailEditorRefPublisherOptions<TRef>): PlateEmailEditorRefCleanup {
-  onReady?.(editorRef);
-
+  // Publish the ref before notifying. A ready handler that catches the editor
+  // up (useComposeForm flushes the composed body this way) reads the ref it was
+  // handed, and the assignment has to have landed by then or the catch-up is
+  // skipped for good: it is a one-shot.
   if (typeof forwardedRef === 'function') {
     forwardedRef(editorRef);
+    onReady?.(editorRef);
     return () => forwardedRef(null);
   }
 
   if (forwardedRef) {
     forwardedRef.current = editorRef;
+    onReady?.(editorRef);
     return () => {
       forwardedRef.current = null;
     };
   }
+
+  onReady?.(editorRef);
 
   return () => {};
 }
@@ -627,6 +652,8 @@ export interface PlateEmailHtmlCache {
   markDirty: () => void;
   reserveSerialization: () => number;
   commitSerializedHtml: (sequence: number, html: string) => boolean;
+  /** Adopt HTML that was just set programmatically as the current content. */
+  commitProgrammaticHtml: (html: string) => void;
   cancelPendingSerialization: () => void;
   getCurrentHtml: (domHtml?: string | null) => string;
 }

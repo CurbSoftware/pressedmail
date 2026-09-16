@@ -34,7 +34,7 @@ import {
 } from "@/components/icons/MailActionIcons";
 import { useSignatures, useCanCreateSignature } from "../../context/signatures";
 import { SignatureEditor } from "./SignatureEditor";
-import { SignaturePreview } from "./SignatureSelector";
+import { SignaturePreview } from "./SignaturePreview";
 import type {
   Signature,
   CreateSignatureData,
@@ -52,8 +52,6 @@ import {
 } from "@/components/settings-ui";
 
 interface SignatureManagerProps {
-  /** Optional account ID filter */
-  accountId?: number | null;
   /** Hide the page-level header when an outer shell already renders it */
   hideHeader?: boolean;
   /** Additional class names */
@@ -73,7 +71,6 @@ function createActionLabel(): string {
 }
 
 export const SignatureManager: React.FC<SignatureManagerProps> = ({
-  accountId,
   hideHeader = false,
   className,
 }) => {
@@ -100,12 +97,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
   const [deleteError, setDeleteError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Filter signatures by account if specified
-  const filteredSignatures = accountId
-    ? signatures.filter(
-        (sig) => sig.account_id === accountId || sig.account_id === null,
-      )
-    : signatures;
+  const filteredSignatures = signatures;
   const handleCreate = useCallback(() => {
     if (canCreate) {
       setIsCreating(true);
@@ -132,11 +124,8 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
           }
           return result;
         } else {
-          const createData = data as CreateSignatureData;
-          if (accountId) {
-            createData.account_id = accountId;
-          }
-          const result = await createSignature(createData);
+          // Account binding is written on the Accounts settings page, not here.
+          const result = await createSignature(data as CreateSignatureData);
           if (result.success) {
             setIsCreating(false);
           }
@@ -146,7 +135,7 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
         setSaving(false);
       }
     },
-    [editingSignature, accountId, createSignature, updateSignature],
+    [editingSignature, createSignature, updateSignature],
   );
 
   const handleCancel = useCallback(() => {
@@ -213,7 +202,6 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
           onSave={handleSave}
           onCancel={handleCancel}
           saving={saving}
-          accountId={accountId}
         />
       </div>
     );

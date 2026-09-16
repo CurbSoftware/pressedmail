@@ -217,13 +217,6 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
-      find: /^@\/components\/signatures\/SignatureRulesManager\.pro$/,
-      replacement: pick(
-        "./src/components/signatures/SignatureRulesManager.free.tsx",
-        "./src/components/signatures/SignatureRulesManager.pro.tsx",
-      ),
-    },
-    {
       find: /^@\/components\/inbox\/compose\/ComposerScheduleActions\.active$/,
       replacement: pick(
         "./src/components/inbox/compose/ComposerScheduleActions.free.tsx",

@@ -1,8 +1,17 @@
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { CheckCircle, AlertTriangle, Info } from "lucide-react";
-import { Alert, AlertDescription, Badge } from "@kit/ui/plugin";
+import {
+  Alert,
+  AlertDescription,
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@kit/ui/plugin";
+import { getCalendarLocale } from "@/components/calendar/calendar-intl";
 import {
   SettingsEmptyState,
   SettingsSectionCard,
@@ -36,10 +45,21 @@ type CronWorkerInfo = {
   lastRun?: number;
 };
 
+/**
+ * The plugin's own wp-cron entry, as the Diagnostics panel reports it.
+ *
+ * `nextRun` of 0 means no recurrence is armed; `lastRun` of 0 means it has not
+ * completed a pass yet. Both are unix seconds, from the server.
+ */
+type CronDispatchInfo = {
+  lastRun?: number;
+  nextRun?: number;
+};
+
 type CronHealthInfo = {
   workers?: CronWorkerInfo[];
   wpCronDisabled?: boolean;
-  serverCronCommand?: string;
+  dispatch?: CronDispatchInfo;
 };
 
 type PhpLimitsInfo = {
@@ -133,15 +153,63 @@ function formatInterval(seconds: number): string {
     return sprintf(__("Every %d s", "pressedmail"), String(seconds));
   }
   if (seconds < 3600) {
-    return sprintf(__("Every %d min", "pressedmail"), String(Math.round(seconds / 60)));
+    return sprintf(
+      __("Every %d min", "pressedmail"),
+      String(Math.round(seconds / 60)),
+    );
   }
   if (seconds < 86400) {
-    return sprintf(__("Every %d h", "pressedmail"), String(Math.round(seconds / 3600)));
+    return sprintf(
+      __("Every %d h", "pressedmail"),
+      String(Math.round(seconds / 3600)),
+    );
   }
-  return sprintf(__("Every %d d", "pressedmail"), String(Math.round(seconds / 86400)));
+  return sprintf(
+    __("Every %d d", "pressedmail"),
+    String(Math.round(seconds / 86400)),
+  );
 }
 
+/**
+ * A dispatcher pass runs every minute, so three missed passes is where calling
+ * it healthy would be a lie rather than a rounding error.
+ */
+const DISPATCH_STALE_SECONDS = 180;
+
+/**
+ * How long ago a unix-seconds stamp was, in the plugin's own locale.
+ *
+ * Minutes and seconds here, not days: the whole point of the row is to show a
+ * live heartbeat, and `Intl.RelativeTimeFormat` is what words "38 seconds ago"
+ * in the reader's language.
+ */
+function formatSince(timestamp: number, nowSeconds: number): string {
+  const seconds = Math.max(0, nowSeconds - timestamp);
+  const relative = new Intl.RelativeTimeFormat(getCalendarLocale(), {
+    numeric: "auto",
+    style: "long",
+  });
+  if (seconds < 60) return relative.format(-seconds, "second");
+  if (seconds < 3600)
+    return relative.format(-Math.floor(seconds / 60), "minute");
+  if (seconds < 86400)
+    return relative.format(-Math.floor(seconds / 3600), "hour");
+  return relative.format(-Math.floor(seconds / 86400), "day");
+}
+
+/**
+ * How often the heartbeat is re-measured.
+ *
+ * The dispatcher runs once a minute, so anything finer is noise. 0 means the
+ * clock has not been read yet, which the caller renders as an absolute time.
+ */
+const HEARTBEAT_TICK_MS = 15_000;
+
 export function SystemDiagnostics() {
+  // Reading the clock during render is impure, so the heartbeat is measured
+  // after mount and re-measured on a timer. A settings tab left open would
+  // otherwise keep claiming a pass that happened an hour ago.
+  const [nowSeconds, setNowSeconds] = useState(0);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [versionLookupState, setVersionLookupState] =
     useState<VersionLookupState>("loading");
@@ -169,6 +237,80 @@ export function SystemDiagnostics() {
     diagnostics as { cronHealth?: CronHealthInfo } | undefined
   )?.cronHealth;
   const cronWorkers = cronHealth?.workers ?? [];
+  const overdueWorkers = cronWorkers.filter(
+    (worker) => worker.overdue === true,
+  );
+
+  // PressedMail's own wp-cron entry. This replaced a printed crontab line: the
+  // command was install-specific and most administrators cannot run it, so the
+  // panel reports whether background work is actually happening instead.
+  const dispatch = cronHealth?.dispatch;
+  const dispatchLastRun = dispatch?.lastRun ?? 0;
+  const dispatchNextRun = dispatch?.nextRun ?? 0;
+  const dispatchStale =
+    nowSeconds > 0 &&
+    dispatchLastRun > 0 &&
+    nowSeconds - dispatchLastRun > DISPATCH_STALE_SECONDS;
+  const dispatchState: "disabled" | "missing" | "never" | "stale" | "ok" =
+    cronHealth?.wpCronDisabled
+      ? "disabled"
+      : dispatchNextRun === 0
+        ? "missing"
+        : dispatchLastRun === 0
+          ? "never"
+          : dispatchStale
+            ? "stale"
+            : "ok";
+  // The disabled case is the one explanation the panel owes a reader even when
+  // the server sends no dispatch block at all: it is the reason nothing runs,
+  // and the card exists to say so. Every other note describes a heartbeat, so
+  // it is only shown once there is one to describe.
+  const showDispatchNote =
+    dispatchState === "disabled" || dispatch !== undefined;
+  const dispatchBadge = {
+    disabled: {
+      label: __("Not running", "pressedmail"),
+      variant: "destructive" as const,
+    },
+    // The recurrence re-arms on the next request, so this is usually a
+    // snapshot of a moment rather than a lasting fault.
+    missing: {
+      label: __("Not scheduled", "pressedmail"),
+      variant: "destructive" as const,
+    },
+    never: {
+      label: __("Waiting for first run", "pressedmail"),
+      variant: "secondary" as const,
+    },
+    stale: {
+      label: __("Delayed", "pressedmail"),
+      variant: "destructive" as const,
+    },
+    ok: {
+      label: __("Running normally", "pressedmail"),
+      variant: "success" as const,
+    },
+  }[dispatchState];
+  const dispatchNote = {
+    disabled: __(
+      "WP-Cron is switched off on this site (DISABLE_WP_CRON), so WordPress runs no scheduled work at all. Background mail will not start until it is switched back on.",
+      "pressedmail",
+    ),
+    missing: __(
+      "No background task is scheduled right now. PressedMail re-arms it on the next page load; if this line stays, WordPress cron itself is not running.",
+      "pressedmail",
+    ),
+    never: __(
+      "No background pass has completed yet. The first one runs within a minute of any visit to the site, and this line updates after it.",
+      "pressedmail",
+    ),
+    stale: __(
+      "The last background pass was over three minutes ago, so scheduled work is not running on time. A site with little traffic is the usual cause: any visit lets WordPress catch up.",
+      "pressedmail",
+    ),
+    ok: null,
+  }[dispatchState];
+
   const syncOverdue = syncSchedule?.overdue === true;
   const syncLabel = !syncSchedule
     ? __("Unknown", "pressedmail")
@@ -198,6 +340,13 @@ export function SystemDiagnostics() {
           ? __("Unavailable", "pressedmail")
           : __("Managed by WordPress.org", "pressedmail")
         : latestVersion || __("Unavailable", "pressedmail");
+
+  useEffect(() => {
+    const tick = () => setNowSeconds(Math.floor(Date.now() / 1000));
+    tick();
+    const timer = window.setInterval(tick, HEARTBEAT_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -447,113 +596,163 @@ export function SystemDiagnostics() {
         ) : null}
       </SettingsSectionCard>
 
-      {cronWorkers.length > 0 || cronHealth?.wpCronDisabled ? (
+      {cronWorkers.length > 0 || cronHealth?.wpCronDisabled || dispatch ? (
         <SettingsSectionCard
-          title={__("Scheduled work", "pressedmail")}
+          title={__("Background tasks", "pressedmail")}
           description={__(
-            "Background workers with something scheduled right now. Workers without a scheduled event are omitted.",
+            "Scheduled mail work: sends, reminders, rules and mailbox sync.",
             "pressedmail",
           )}
           dataTest="scheduled-work-diagnostics">
-          {cronHealth?.wpCronDisabled ? (
-            <Alert className="bg-muted/50 border-muted">
-              <Info className="h-4 w-4" />
+          {/*
+            Guarded on `dispatch` itself, not on the derived numbers. A partial
+            upgrade (new admin bundle beside an older server payload) sends no
+            dispatch block, and defaulting that to zero would render "Not
+            scheduled" for a site that is running fine.
+          */}
+          {dispatch ? (
+            <div
+              className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
+              data-test="background-task-summary"
+              data-testid="background-task-summary">
+              <Badge variant={dispatchBadge.variant}>
+                {dispatchBadge.label}
+              </Badge>
+              <p className="text-muted-foreground">
+                {__("Last check", "pressedmail")}{" "}
+                <span className="text-foreground">
+                  {dispatchLastRun === 0
+                    ? __("Not yet", "pressedmail")
+                    : nowSeconds > 0
+                      ? formatSince(dispatchLastRun, nowSeconds)
+                      : new Date(dispatchLastRun * 1000).toLocaleTimeString()}
+                </span>
+              </p>
+              <p className="text-muted-foreground">
+                {__("Next check", "pressedmail")}{" "}
+                <span className="text-foreground">
+                  {dispatchNextRun > 0
+                    ? new Date(dispatchNextRun * 1000).toLocaleTimeString()
+                    : __("Not scheduled", "pressedmail")}
+                </span>
+              </p>
+            </div>
+          ) : null}
+
+          {overdueWorkers.length > 0 ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
               <AlertDescription className="text-sm">
-                {__(
-                  "WP-Cron is disabled on this site (DISABLE_WP_CRON), so WordPress will not run scheduled work on page loads. A server cron entry below is required for scheduled mail and rules to fire on time.",
-                  "pressedmail",
+                {sprintf(
+                  _n(
+                    "%d background task is overdue.",
+                    "%d background tasks are overdue.",
+                    overdueWorkers.length,
+                    "pressedmail",
+                  ),
+                  String(overdueWorkers.length),
                 )}
               </AlertDescription>
             </Alert>
           ) : null}
 
-          {cronWorkers.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table
-              className="w-full text-sm"
-              data-test="cron-worker-table"
-              data-testid="cron-worker-table">
-              <thead>
-                <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="py-2 pr-3 font-medium">
-                    {__("Worker", "pressedmail")}
-                  </th>
-                  <th className="py-2 pr-3 font-medium">
-                    {__("Repeats", "pressedmail")}
-                  </th>
-                  <th className="py-2 pr-3 font-medium">
-                    {__("Next run", "pressedmail")}
-                  </th>
-                  <th className="py-2 font-medium">
-                    {__("Last run", "pressedmail")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {cronWorkers.map((worker) => (
-                  <tr
-                    key={worker.hook}
-                    className="border-b border-border align-top last:border-b-0"
-                    data-test={`cron-worker-${worker.hook}`}>
-                    <td className="py-2 pr-3">
-                      <span className="break-all font-mono text-xs">
-                        {worker.hook}
-                      </span>
-                      {worker.events > 1 ? (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {sprintf(__("%d jobs", "pressedmail"), String(worker.events))}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-3 whitespace-nowrap">
-                      {formatInterval(worker.intervalSeconds)}
-                    </td>
-                    <td className="py-2 pr-3">
-                      {worker.overdue ? (
-                        <Badge variant="destructive" className="mb-1 mr-2">
-                          {__("Overdue", "pressedmail")}
-                        </Badge>
-                      ) : null}
-                      <span className="whitespace-nowrap">
-                        {worker.nextRun
-                          ? new Date(worker.nextRun * 1000).toLocaleString()
-                          : __("Unknown", "pressedmail")}
-                      </span>
-                    </td>
-                    <td className="py-2 whitespace-nowrap">
-                      {worker.lastRun
-                        ? new Date(worker.lastRun * 1000).toLocaleString()
-                        : __("Not recorded", "pressedmail")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {showDispatchNote && dispatchNote ? (
+            <Alert className="bg-muted/50 border-muted">
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-sm">
+                {dispatchNote}
+              </AlertDescription>
+            </Alert>
           ) : null}
 
-          {cronHealth?.serverCronCommand ? (
-            <div
-              className="rounded-lg border bg-muted/30 p-4 text-sm"
-              data-test="server-cron-hint"
-              data-testid="server-cron-hint">
-              <p className="font-medium">{__("Server cron", "pressedmail")}</p>
-              <p className="mt-1 text-muted-foreground">
-                {__(
-                  "For exact timing on a busy or low-traffic site, add this line to the server crontab. It is safe alongside WordPress's own cron: the two coordinate through a database lock.",
-                  "pressedmail",
-                )}
-              </p>
-              <code className="mt-2 block overflow-x-auto rounded bg-background p-2 text-xs whitespace-nowrap">
-                {cronHealth?.serverCronCommand}
-              </code>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {__(
-                  "Use the full path to your wp-cli binary if cron cannot find wp.",
-                  "pressedmail",
-                )}
-              </p>
-            </div>
+          {cronWorkers.length > 0 ? (
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-2">
+                  {sprintf(
+                    /* translators: %d: number of scheduled background workers. */
+                    _n(
+                      "Show %d worker",
+                      "Show %d workers",
+                      cronWorkers.length,
+                      "pressedmail",
+                    ),
+                    String(cronWorkers.length),
+                  )}
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="overflow-x-auto">
+                  <table
+                    className="w-full text-sm"
+                    data-test="cron-worker-table"
+                    data-testid="cron-worker-table">
+                    <thead>
+                      <tr className="border-b text-left text-xs text-muted-foreground">
+                        <th className="py-2 pr-3 font-medium">
+                          {__("Worker", "pressedmail")}
+                        </th>
+                        <th className="py-2 pr-3 font-medium">
+                          {__("Repeats", "pressedmail")}
+                        </th>
+                        <th className="py-2 pr-3 font-medium">
+                          {__("Next run", "pressedmail")}
+                        </th>
+                        <th className="py-2 font-medium">
+                          {__("Last run", "pressedmail")}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cronWorkers.map((worker) => (
+                        <tr
+                          key={worker.hook}
+                          className="border-b border-border align-top last:border-b-0"
+                          data-test={`cron-worker-${worker.hook}`}>
+                          <td className="py-2 pr-3">
+                            <span className="break-all font-mono text-xs">
+                              {worker.hook}
+                            </span>
+                            {worker.events > 1 ? (
+                              <span className="ml-2 text-xs text-muted-foreground">
+                                {sprintf(
+                                  __("%d jobs", "pressedmail"),
+                                  String(worker.events),
+                                )}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-3 whitespace-nowrap">
+                            {formatInterval(worker.intervalSeconds)}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {worker.overdue ? (
+                              <Badge
+                                variant="destructive"
+                                className="mb-1 mr-2">
+                                {__("Overdue", "pressedmail")}
+                              </Badge>
+                            ) : null}
+                            <span className="whitespace-nowrap">
+                              {worker.nextRun
+                                ? new Date(
+                                    worker.nextRun * 1000,
+                                  ).toLocaleString()
+                                : __("Unknown", "pressedmail")}
+                            </span>
+                          </td>
+                          <td className="py-2 whitespace-nowrap">
+                            {worker.lastRun
+                              ? new Date(worker.lastRun * 1000).toLocaleString()
+                              : __("Not recorded", "pressedmail")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           ) : null}
         </SettingsSectionCard>
       ) : null}

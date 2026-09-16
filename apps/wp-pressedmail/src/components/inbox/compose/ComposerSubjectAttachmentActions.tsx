@@ -75,7 +75,7 @@ export function ComposerSubjectAttachmentActions({
 
   return (
     <div
-      className="ml-1 flex shrink-0 items-center gap-1"
+      className="flex shrink-0 items-center gap-1"
       data-test="subject-attachment-actions">
       {/* Sender-set importance: stamps cross-provider priority headers on send. */}
       <PressedTooltip
@@ -90,7 +90,7 @@ export function ComposerSubjectAttachmentActions({
           variant="ghost"
           size="icon"
           className={cn(
-            "h-11 w-11 lg:h-7 lg:w-7",
+            "h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
             isImportant && "text-primary",
           )}
           onClick={() => setIsImportant(!isImportant)}
@@ -111,7 +111,7 @@ export function ComposerSubjectAttachmentActions({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-11 w-11 lg:h-7 lg:w-7"
+              className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
               onClick={handleAttachClick}
               disabled={isDeliveryPending}
               aria-label={__("Attach files", "pressedmail")}
@@ -151,7 +151,7 @@ export function ComposerSubjectAttachmentActions({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-11 w-11 lg:h-7 lg:w-7"
+            className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
             onClick={() => void handleMediaLibraryAttachment()}
             disabled={isDeliveryPending}
             aria-label={__("Attach from Media Library", "pressedmail")}

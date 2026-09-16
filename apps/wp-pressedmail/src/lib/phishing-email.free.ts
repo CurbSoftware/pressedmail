@@ -2,7 +2,7 @@
  * Free-edition phishing helpers: inert.
  *
  * Phishing detection is Pro. The generic message helpers that shared inbox
- * components need (`getMessageRequestId`, `resolveMessageAccountId`) moved to
+ * components need (`getMessageIdentityKey`, `resolveMessageAccountId`) moved to
  * `lib/message-identity.ts`, so only the phishing-specific data shaping remains
  * here and it never needs to run in Free.
  */
@@ -13,7 +13,6 @@ import type { PhishingEmailData } from "@/types/phishing";
 // places, so the stub must keep the surface identical or the Free build fails.
 export {
   getMessageIdentityKey,
-  getMessageRequestId,
   resolveMessageAccountId,
 } from "@/lib/message-identity";
 

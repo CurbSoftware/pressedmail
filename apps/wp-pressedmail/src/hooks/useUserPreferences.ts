@@ -86,10 +86,6 @@ export type ComposerDefaultFormat = "rich_text" | "plain_text";
 export type ComposerDefaultFont = "system" | "sans" | "serif" | "mono";
 export type ComposerDefaultFontSize = "12" | "14" | "16" | "18";
 export type ComposerSignaturePlacement = "end" | "before_quote";
-export type ComposerReplySignatureBehavior =
-  | "include"
-  | "new_messages_only"
-  | "none";
 export type UndoSendDelaySeconds = 15 | 30 | 60;
 export type ComposerToolbarPreset =
   | "simple"
@@ -179,7 +175,6 @@ export const PREFERENCE_ALLOWED_VALUES = {
   composer_default_font: ["system", "sans", "serif", "mono"],
   composer_default_font_size: ["12", "14", "16", "18"],
   composer_signature_placement: ["end", "before_quote"],
-  composer_reply_signature_behavior: ["include", "new_messages_only", "none"],
   undo_send_delay_seconds: [15, 30, 60],
   composer_toolbar_preset: [
     "simple",
@@ -262,7 +257,6 @@ export interface UserPreferences {
   composer_default_font: ComposerDefaultFont;
   composer_default_font_size: ComposerDefaultFontSize;
   composer_signature_placement: ComposerSignaturePlacement;
-  composer_reply_signature_behavior: ComposerReplySignatureBehavior;
   composer_confirm_unsaved_close: boolean;
   /** Pro only: queue outbound messages briefly so the user can undo before delivery. */
   undo_send_enabled: boolean;
@@ -342,7 +336,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   composer_default_font: "system",
   composer_default_font_size: "14",
   composer_signature_placement: "end",
-  composer_reply_signature_behavior: "include",
   composer_confirm_unsaved_close: true,
   undo_send_enabled: false,
   undo_send_delay_seconds: 15,

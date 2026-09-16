@@ -129,9 +129,13 @@ function FreeDesktopSettings() {
         </aside>
 
         <section className="flex min-w-0 flex-1 flex-col">
+          {/* Keep this in step with settings-shell.tsx: the title row and the
+              content well have to agree or the two editions drift apart again.
+              1248 is 1280 minus px-4 on both sides, 1504 is 1536 minus the
+              same. */}
           <PageTopBar
             className="py-1.5"
-            contentClassName="min-h-[40px]"
+            contentClassName="mx-auto w-full max-w-[1248px] min-h-[40px] 2xl:max-w-[1504px]"
             icon={
               activeSection ? <activeSection.icon className="h-5 w-5" /> : null
             }
@@ -140,7 +144,7 @@ function FreeDesktopSettings() {
             actions={headerActions}
           />
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-7xl px-3 pb-6 pt-4 sm:px-5 lg:px-6">
+            <div className="mx-auto w-full max-w-7xl px-4 pb-6 pt-4 2xl:max-w-[96rem]">
               <SettingsHeaderActionsProvider
                 key={activeId}
                 onActionsChange={setHeaderActions}>

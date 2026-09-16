@@ -301,30 +301,25 @@ export function EmailConnectionsCard() {
     setSignatureError(null);
 
     try {
-      if (currentSignature) {
-        const clearResult = await updateSignature(currentSignature.id, {
-          account_id: null,
-        });
-
-        if (!clearResult.success) {
-          throw new Error(
-            clearResult.error ??
-              __("Failed to clear the current signature.", "pressedmail"),
-          );
-        }
+      // One call, whichever way it goes: assigning a signature to an account
+      // releases whatever else was bound to it server-side, so there is no
+      // clear step and no window where the account has none. "No signature"
+      // clears the current binding.
+      const target = signature ?? currentSignature;
+      if (!target) {
+        closeSignatureDialog();
+        return;
       }
 
-      if (signature) {
-        const assignResult = await updateSignature(signature.id, {
-          account_id: Number(account.id),
-        });
+      const result = await updateSignature(target.id, {
+        account_id: signature ? Number(account.id) : null,
+      });
 
-        if (!assignResult.success) {
-          throw new Error(
-            assignResult.error ??
-              __("Failed to assign the selected signature.", "pressedmail"),
-          );
-        }
+      if (!result.success) {
+        throw new Error(
+          result.error ??
+            __("Failed to update signature assignment.", "pressedmail"),
+        );
       }
 
       setSignatureDialogAccount(null);

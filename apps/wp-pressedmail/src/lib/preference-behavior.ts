@@ -210,19 +210,6 @@ function domainFromAddress(value: string): string | null {
   return match?.[1] ?? null;
 }
 
-export function shouldInsertComposerSignature(
-  behavior: UserPreferences["composer_reply_signature_behavior"],
-  mode: "new" | "reply" | "reply-all" | "forward",
-): boolean {
-  if (behavior === "none") {
-    return false;
-  }
-  if (behavior === "new_messages_only") {
-    return mode === "new";
-  }
-  return true;
-}
-
 export function emailListDateGroupKey(
   iso: string | undefined,
   grouping: EmailListDateGrouping,

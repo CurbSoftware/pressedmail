@@ -9,7 +9,6 @@ import {
   PREFERENCE_ALLOWED_VALUES,
   type EmailListDateGrouping,
   type EmailListDensityPreference,
-  type EmailListGroupingPreference,
   type EmailListPreviewPreference,
   type EmailListUnreadIndicator,
 } from "@/hooks/useUserPreferences";
@@ -20,6 +19,11 @@ import {
 } from "./preference-controls";
 import { usePreferenceSectionDraft } from "./use-preference-section-draft";
 
+/**
+ * Conversation grouping is deliberately absent. It has one control, the INBOX
+ * row in the header's theme popover, and a second select here meant the page
+ * and the popover could disagree about the same stored value.
+ */
 export const ROW_DETAIL_KEYS = [
   "email_list_density",
   "email_list_preview",
@@ -27,7 +31,6 @@ export const ROW_DETAIL_KEYS = [
   "email_list_show_attachment_icon",
   "email_list_unread_indicator",
   "email_list_date_grouping",
-  "email_list_grouping",
 ] as const;
 
 export function RowDetailSection({
@@ -133,21 +136,6 @@ export function RowDetailSection({
           })
         }
         dataTest="pref-email-list-date-grouping"
-      />
-      <PreferenceSelectRow
-        title={__("Conversation grouping", "pressedmail")}
-        value={draft.email_list_grouping}
-        options={PREFERENCE_ALLOWED_VALUES.email_list_grouping}
-        labels={{
-          list: __("One row per message", "pressedmail"),
-          threads: __("Group by conversation", "pressedmail"),
-        }}
-        onValueChange={(value) =>
-          patchDraft({
-            email_list_grouping: value as EmailListGroupingPreference,
-          })
-        }
-        dataTest="pref-email-list-grouping"
       />
     </SettingsSectionCard>
   );

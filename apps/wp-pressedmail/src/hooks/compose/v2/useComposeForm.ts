@@ -62,11 +62,7 @@ import {
   getUserPreferencesSnapshot,
   useUserPreferences,
 } from "@/hooks/useUserPreferences";
-import {
-  hasExternalRecipient,
-  shouldConfirmSend,
-  shouldInsertComposerSignature,
-} from "@/lib/preference-behavior";
+import { hasExternalRecipient, shouldConfirmSend } from "@/lib/preference-behavior";
 import {
   prepareEmailHtmlForSend,
   unwrapEmailBodyHtml,
@@ -721,7 +717,6 @@ export function useComposeForm({
   }, [resolveSendingAccount]);
 
   const { preferences: composerPreferences } = useUserPreferences();
-  const signatureRulesEnabled = useFeatureAvailable("signature_rules");
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -964,31 +959,14 @@ export function useComposeForm({
         ? "html"
         : defaultContentType))
     : localContentType;
-  const {
-    signature: boundSignature,
-    shouldInsertForMode,
-    ready: signatureReady,
-    failed: signatureLookupFailed,
-  } = useSignatureBinding({
+  const { signature: boundSignature, shouldInsertForMode } = useSignatureBinding({
     accountId: getSendingAccountId(),
     mode,
-    rulesEnabled: signaturesEnabled && signatureRulesEnabled,
-    recipients: [...toRecipients, ...ccRecipients]
-      .filter((recipient) => recipient.type !== "list")
-      .map((recipient) => recipient.email),
-    subject,
-    folder:
-      composerContext?.composeData.replySource?.folder ??
-      composerContext?.composeData.draftFolder ??
-      "",
-    session: composeSessionVersion,
   });
-  const shouldInsertSignature =
-    shouldInsertForMode &&
-    shouldInsertComposerSignature(
-      composerPreferences.composer_reply_signature_behavior,
-      mode,
-    );
+  // The signature's own New messages / Replies / Forwards switches are the only
+  // gate on auto-insert. There is no global override and no default signature:
+  // the account the mail is sent from decides which signature applies.
+  const shouldInsertSignature = shouldInsertForMode;
 
   const receiptValue = isContextMode
     ? (composerContext!.composeData.readReceipt ?? {
@@ -1242,11 +1220,7 @@ export function useComposeForm({
     // Only the unchanged block we inserted belongs to automation. A picked,
     // edited, deleted, or externally restored signature belongs to the author.
     if (snapshot(currentBody) !== automatic.snapshot) automatic.locked = true;
-    if (
-      signatureReady !== false &&
-      !signatureLookupFailed &&
-      !automatic.locked
-    ) {
+    if (!automatic.locked) {
       const signature =
         signaturesEnabled && shouldInsertSignature ? boundSignature : null;
       const choice = signature
@@ -1298,8 +1272,6 @@ export function useComposeForm({
     }
   }, [
     boundSignature,
-    signatureReady,
-    signatureLookupFailed,
     isSending,
     isScheduling,
     isDiscarding,
@@ -1833,20 +1805,6 @@ export function useComposeForm({
       if (operationGateRef.current) {
         return false;
       }
-      if (
-        operation === "delivery" &&
-        signatureReady === false &&
-        !automaticSignatureRef.current.locked
-      ) {
-        appMessage(
-          __(
-            "Wait for the signature lookup to finish, or choose a signature from the toolbar.",
-            "pressedmail",
-          ),
-          "error",
-        );
-        return false;
-      }
       if (pendingInlineImageUploadsRef.current > 0) {
         appMessage(
           __("Wait for the image upload to finish.", "pressedmail"),
@@ -1860,7 +1818,7 @@ export function useComposeForm({
       }
       return true;
     },
-    [signatureReady],
+    [],
   );
 
   const releaseComposeOperation = useCallback(
@@ -3516,23 +3474,30 @@ export function useComposeForm({
         return;
       }
       if (editorReadyFlushedRef.current) return;
-      editorReadyFlushedRef.current = true;
 
       const composed = latestBodyRef.current;
-      if (composed && editorRef.current) {
-        editorRef.current.setContent?.(composed);
-        if (
-          !automaticSignatureRef.current.locked &&
-          automaticSignatureRef.current.snapshot !== null
-        ) {
-          automaticSignatureRef.current.snapshot = signatureSnapshot(
-            editorRef.current.getHTML?.() ?? composed,
-          );
-        }
-        editorRef.current.focusStart?.();
+      if (!composed) {
+        // Nothing to flush yet. Leave the one-shot unspent so the composed
+        // body still lands if the editor signals ready again.
+        return;
       }
+
+      // Flush through the handle we were handed. Reading it back off the
+      // forwarded ref raced the publisher that assigns it, and losing that
+      // race used to burn the one-shot and leave the body out of the editor.
+      editor.setContent?.(composed);
+      editorReadyFlushedRef.current = true;
+      if (
+        !automaticSignatureRef.current.locked &&
+        automaticSignatureRef.current.snapshot !== null
+      ) {
+        automaticSignatureRef.current.snapshot = signatureSnapshot(
+          editor.getHTML?.() ?? composed,
+        );
+      }
+      editor.focusStart?.();
     },
-    [editorRef],
+    [],
   );
 
   const handleSignatureSelect = useCallback(

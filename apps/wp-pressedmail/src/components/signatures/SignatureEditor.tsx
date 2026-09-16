@@ -30,8 +30,6 @@ interface SignatureEditorProps {
   onCancel: () => void;
   /** Whether save is in progress */
   saving?: boolean;
-  /** Account ID to associate with signature */
-  accountId?: number | null;
 }
 
 export const SignatureEditor: React.FC<SignatureEditorProps> = ({
@@ -39,7 +37,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
   onSave,
   onCancel,
   saving = false,
-  accountId,
 }) => {
   const [name, setName] = useState(signature?.name || "");
   const [content, setContent] = useState(
@@ -54,9 +51,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
   const [includeForForward, setIncludeForForward] = useState(
     signature?.include_for_forward ?? true,
   );
-  // Auto-attach is an explicit opt-in: a signature is only added to emails
-  // automatically when it is the default. New signatures start off NOT default.
-  const [isDefault, setIsDefault] = useState(signature?.is_default ?? false);
   const [error, setError] = useState<string | null>(null);
   const editorRef = useRef<EmailEditorRef>(null);
 
@@ -69,7 +63,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
         includeForNew: signature?.include_for_new ?? true,
         includeForReply: signature?.include_for_reply ?? true,
         includeForForward: signature?.include_for_forward ?? true,
-        isDefault: signature?.is_default ?? false,
       }),
     [signature],
   );
@@ -79,7 +72,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     includeForNew,
     includeForReply,
     includeForForward,
-    isDefault,
   });
   const { guardedAction, guardDialog } = useUnsavedChangesGuard({
     dirty: currentSnapshot !== initialSnapshot,
@@ -106,15 +98,10 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
         name: name.trim(),
         content: editorContent.trim(),
         content_type: "html",
-        is_default: isDefault,
         include_for_new: includeForNew,
         include_for_reply: includeForReply,
         include_for_forward: includeForForward,
       };
-
-      if (!isEditing && accountId) {
-        (data as CreateSignatureData).account_id = accountId;
-      }
 
       const result = await onSave(data);
 
@@ -125,12 +112,9 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
     [
       name,
       content,
-      isDefault,
       includeForNew,
       includeForReply,
       includeForForward,
-      accountId,
-      isEditing,
       onSave,
     ],
   );
@@ -206,34 +190,8 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                 />
               </div>
 
-              {/* Set as default (auto-attach opt-in) */}
-              <div className="flex items-center justify-between gap-3 border-b border-border pb-4">
-                <div className="space-y-0.5">
-                  <label
-                    htmlFor="signature-default"
-                    className="pm-label cursor-pointer">
-                    {__("Set as default", "pressedmail")}
-                  </label>
-                  <p className="text-xs text-muted-foreground">
-                    {__(
-                      "Add this signature to emails automatically.",
-                      "pressedmail",
-                    )}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  id="signature-default"
-                  aria-checked={isDefault}
-                  onClick={() => setIsDefault(!isDefault)}
-                  disabled={saving}
-                  data-test="signature-default-toggle"
-                  data-testid="signature-default-toggle"
-                  className="pm-toggle">
-                  <span className="pm-toggle-thumb" />
-                </button>
-              </div>
+              {/* Auto-attach is decided by the account binding, set on the
+                  Accounts settings page, and by the switches below. */}
 
               {/* New Messages */}
               <div className="flex items-center justify-between">

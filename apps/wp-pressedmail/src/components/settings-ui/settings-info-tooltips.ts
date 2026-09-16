@@ -24,8 +24,7 @@ export const settingsInfoTooltips = {
   pluginUpdates: "Manage the plugin update channel and check for new releases.",
   readingActions:
     "When messages are marked read, default reply, and what happens after delete or archive.",
-  rowDetail:
-    "Density, preview text, badges, and conversation grouping on inbox rows.",
+  rowDetail: "Density, preview text, and badges on inbox rows.",
   composerBehavior:
     "Quoted originals, auto-formatting, unsaved-close prompts, and toolbar layout.",
   alertBehavior:

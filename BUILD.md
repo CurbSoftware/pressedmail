@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.0.32`
+Public tag: `v1.1.0`
 
 ## Layout
 
@@ -52,10 +52,36 @@ executes remote code.
 
 ## PHP and Composer
 
-This tree is the source for the compiled admin interface only. The
-plugin's PHP needs no build step: the WordPress plugin zip ships its own
-readable `includes/`, `database/` and `libs/` sources alongside the
-Composer `vendor/` tree it loads.
+This tree is the source for the compiled admin interface. The plugin PHP
+ships read as-is in the plugin zip: there is nothing to compile, and the
+`includes/`, `database/` and `libs/` files in the zip are the files the
+plugin runs.
+
+Those files load the Composer `vendor/` tree the zip also ships, and one
+vendored library in it is patched before the zip is written. The package
+builder applies
+`scripts/releases/patches/webklex-6.2.0-imap-values.patch` to
+`webklex/php-imap` 6.2.0 through
+`scripts/releases/patch-pressedmail-webklex.mjs`, after its own
+`composer install`. It changes only
+`ImapProtocol::decodeLine`, whose upstream form splits a quoted string
+on spaces alone and so merges BODYSTRUCTURE and ENVELOPE values that end
+just before `)`, or that sit either side of a `)(` list boundary.
+
+This tree cannot reproduce that file on its own: only the compiled
+interface is published here, so there is no `composer.json` and no
+`vendor/` to install into. The zip ships the patched file, and
+`scripts/releases/patch-pressedmail-webklex.mjs` records its SHA-256 as
+`PATCHED_FILE_SHA256`, so a distributed copy can be checked against the
+reviewed bytes without running Composer.
+
+The diff, its rationale and the licensing note are published in
+`scripts/releases/patches/`, alongside Webklex's MIT license. The
+regression fixture and test named in that note check the change in the
+development tree and are not part of this one.
+
+Webklex's file attribution and the vendor LICENSE are unchanged in the
+zip.
 
 ## Third-party assets
 

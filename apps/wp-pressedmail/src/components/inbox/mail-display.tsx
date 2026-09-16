@@ -40,7 +40,6 @@ import { parseSenderEmail, parseSenderName } from "@/lib/mail-utils";
 import { useMessagePhishingAutoScan } from "@/hooks/useMessagePhishingAutoScan";
 import { useSenderContact } from "@/hooks/useSenderContact";
 import {
-  getMessageRequestId,
   getMessageIdentityKey,
   getMessageIdentityRef,
   resolveMessageAccountId,
@@ -272,7 +271,11 @@ export function MailDisplay({
   const summaryRecord = aiSummariesAvailable ? getSummary(mail) : null;
   const hasCachedAISummary =
     summaryRecord?.status === "success" && Boolean(summaryRecord.summary);
-  const mailId = React.useMemo(() => getMessageRequestId(mail), [mail]);
+  // Every per-message cache this pane reads is keyed by the account-qualified
+  // mailbox identity (tags below, summaries, phishing analysis). A bare IMAP
+  // UID is not a cache key: the phishing cache rejects it outright, which is
+  // why the fish badge used to render nothing.
+  const mailKey = React.useMemo(() => getMessageIdentityKey(mail), [mail]);
   const tagIdentity = getMessageIdentityRef(mail);
   const tagIdentityKey = getMessageIdentityKey(tagIdentity);
   const tagScopeRef = React.useRef({ key: tagIdentityKey });
@@ -372,7 +375,7 @@ export function MailDisplay({
 
   React.useEffect(() => {
     setShowAISummary(false);
-  }, [mailId]);
+  }, [mailKey]);
 
   React.useEffect(() => {
     if (hasCachedAISummary) {
@@ -1115,7 +1118,7 @@ export function MailDisplay({
                 ) : null}
                 {__ENABLE_PHISHING_DETECTION__ ? (
                   <PhishingResultBadge
-                    messageId={mailId}
+                    messageId={mailKey}
                     className="h-5 shrink-0"
                   />
                 ) : null}
@@ -1190,11 +1193,17 @@ export function MailDisplay({
               data-test="message-detail-subject-divider"
               className="my-2 h-px w-full bg-border/40"
             />
+            {/*
+              Subject on its own line, attachments under it. They used to share
+              one wrapping row (basis-64 against basis-72), so a wide pane put
+              them side by side and both got squeezed: the subject wrapped onto
+              extra lines and the filenames truncated against the chips.
+            */}
             <div
-              className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 text-sm"
+              className="flex min-w-0 flex-col items-stretch gap-2 text-sm"
               data-test="message-detail-subject">
               <div
-                className="flex min-w-0 flex-1 basis-64 items-center gap-1.5"
+                className="flex min-w-0 items-center gap-1.5"
                 data-test="message-detail-subject-line">
                 {!actionsInToolbar && aiSummariesAvailable ? (
                   <div
@@ -1574,7 +1583,7 @@ function HeaderAttachmentList({
   return (
     <div
       data-test="message-detail-attachments"
-      className="flex min-w-0 flex-1 basis-72 flex-wrap items-center gap-1.5 text-xs">
+      className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
       {adminNotice}
       {attachments.map((att, idx) => (
         <HeaderAttachmentChip

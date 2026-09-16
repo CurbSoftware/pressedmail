@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
@@ -247,9 +247,14 @@ function createKitPlateDependencyAlias(entrypoint: string) {
 }
 
 function wordpressBuildConfig(): Plugin {
+  let resolvedOutDir = "";
+
   return {
     name: "pressedmail:wp-build-config",
     enforce: "pre",
+    configResolved(resolved) {
+      resolvedOutDir = resolved.build.outDir;
+    },
     config(existingConfig, env) {
       const outDir =
         env.command === "serve"
@@ -324,6 +329,39 @@ function wordpressBuildConfig(): Plugin {
           devSourcemap: true,
         },
       };
+    },
+    // Vite's manifest keys every module it treated as an entry, including lazy
+    // modules resolved outside this app. Under pnpm those keys are the resolved
+    // store path (`../../node_modules/.pnpm/<pkg>@<version>_<hash>/...`), so the
+    // shipped manifest published the local install layout and told a reviewer
+    // nothing about the plugin.
+    //
+    // Nothing reads them. `libs/assets.php` loads one named entry
+    // (`src/admin/main.tsx`) and follows neither `imports` nor `dynamicImports`,
+    // so an out-of-root key is unreachable weight in the package. Keep the
+    // manifest to what the app itself owns.
+    closeBundle() {
+      if (!resolvedOutDir) return;
+
+      const manifestPath = path.join(resolvedOutDir, "manifest.json");
+
+      if (!existsSync(manifestPath)) return;
+
+      const manifest: Record<string, unknown> = JSON.parse(
+        readFileSync(manifestPath, "utf8"),
+      );
+      const inAppRoot = Object.entries(manifest).filter(
+        ([key]) => !key.startsWith(".."),
+      );
+
+      if (inAppRoot.length === Object.keys(manifest).length) return;
+
+      // Match Vite's own output: two-space indent, no trailing newline.
+      writeFileSync(
+        manifestPath,
+        JSON.stringify(Object.fromEntries(inAppRoot), null, 2),
+        "utf8",
+      );
     },
   };
 }

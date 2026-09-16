@@ -62,10 +62,7 @@ import {
   resolveJunkMoveTarget,
   resolveTrashMoveTarget,
 } from "@/lib/bulk-mail-actions";
-import {
-  getMessageRequestId,
-  resolveMessageAccountId,
-} from "@/lib/message-identity";
+import { resolveMessageAccountId } from "@/lib/message-identity";
 import { toPhishingEmailData } from "@/lib/phishing-email";
 import { usePhishing } from "@/context/phishing/PhishingContext";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";

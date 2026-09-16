@@ -153,36 +153,6 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
   );
 
   /**
-   * Get default signature for account.
-   */
-  const getDefaultSignature = useCallback(
-    async (filterAccountId?: number): Promise<Signature | null> => {
-      try {
-        const accId = filterAccountId ?? accountId;
-        const url = buildApiUrl(`${getApiUrl()}/signatures/default`, {
-          account_id: accId,
-        });
-
-        const response = await apiFetch(url, {
-          credentials: "include",
-          headers: getApiHeaders(),
-        });
-
-        if (!response.ok) {
-          return null;
-        }
-
-        const data = await response.json();
-        return data.status === "success" ? data.signature : null;
-      } catch (err) {
-        console.error("Error fetching default signature:", err);
-        return null;
-      }
-    },
-    [getApiUrl, accountId],
-  );
-
-  /**
    * Create a new signature.
    */
   const createSignature = useCallback(
@@ -200,8 +170,17 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         const result = await response.json();
 
         if (result.status === "success") {
-          // Update local state
-          setSignatures((prev) => [...prev, result.signature]);
+          // Update local state. A signature created already bound to an account
+          // releases any other signature the server had bound to it.
+          setSignatures((prev) => [
+            ...prev.map((sig) =>
+              result.signature.account_id != null &&
+              Number(sig.account_id) === Number(result.signature.account_id)
+                ? { ...sig, account_id: null }
+                : sig,
+            ),
+            result.signature,
+          ]);
           if (result.capabilities) {
             setCapabilities(result.capabilities);
           }
@@ -245,11 +224,22 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         const result = await response.json();
 
         if (result.status === "success") {
-          // Update local state
+          // Update local state. Binding a signature to an account unbinds any
+          // other signature the server just released from that account, so the
+          // cache has to follow: the composer resolves the sending signature
+          // from this list, and a stale second binding here is exactly the
+          // accounts-page-versus-composer disagreement this enforces away.
           setSignatures((prev) =>
-            prev.map((sig) =>
-              sig.id === signatureId ? result.signature : sig,
-            ),
+            prev.map((sig) => {
+              if (sig.id === signatureId) return result.signature;
+              if (
+                result.signature.account_id != null &&
+                Number(sig.account_id) === Number(result.signature.account_id)
+              ) {
+                return { ...sig, account_id: null };
+              }
+              return sig;
+            }),
           );
           return { success: true, signature: result.signature };
         }
@@ -300,51 +290,6 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         return { success: false, error: result.message };
       } catch (err) {
         console.error("Error deleting signature:", err);
-        return {
-          success: false,
-          error:
-            err instanceof Error
-              ? err.message
-              : __("Something went wrong.", "pressedmail"),
-        };
-      }
-    },
-    [getApiUrl],
-  );
-
-  /**
-   * Set signature as default.
-   */
-  const setDefault = useCallback(
-    async (
-      signatureId: number,
-    ): Promise<{ success: boolean; error?: string }> => {
-      try {
-        const response = await apiFetch(
-          `${getApiUrl()}/signatures/set-default/${signatureId}`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: getApiHeaders(),
-          },
-        );
-
-        const result = await response.json();
-
-        if (result.status === "success") {
-          // Update local state - set new default and unset old
-          setSignatures((prev) =>
-            prev.map((sig) => ({
-              ...sig,
-              is_default: sig.id === signatureId,
-            })),
-          );
-          return { success: true };
-        }
-
-        return { success: false, error: result.message };
-      } catch (err) {
-        console.error("Error setting default signature:", err);
         return {
           success: false,
           error:
@@ -440,11 +385,9 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
       capabilities,
       fetchSignatures,
       getSignature,
-      getDefaultSignature,
       createSignature,
       updateSignature,
       deleteSignature,
-      setDefault,
       reorderSignatures,
       refreshCapabilities,
     }),
@@ -455,11 +398,9 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
       capabilities,
       fetchSignatures,
       getSignature,
-      getDefaultSignature,
       createSignature,
       updateSignature,
       deleteSignature,
-      setDefault,
       reorderSignatures,
       refreshCapabilities,
     ],
@@ -497,14 +438,6 @@ export const useSignatureCapabilities = (): SignatureCapabilities | null => {
 export const useCanCreateSignature = (): boolean => {
   const { capabilities } = useSignatures();
   return capabilities?.create ?? true;
-};
-
-/**
- * Hook to get the default signature.
- */
-export const useDefaultSignature = (): Signature | null => {
-  const { signatures } = useSignatures();
-  return signatures.find((sig) => sig.is_default) ?? null;
 };
 
 /**

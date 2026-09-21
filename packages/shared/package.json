@@ -2,6 +2,7 @@
   "name": "@kit/shared",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-2.0-or-later",
   "scripts": {},
   "exports": {
     "./analytics": "./src/analytics/index.ts",

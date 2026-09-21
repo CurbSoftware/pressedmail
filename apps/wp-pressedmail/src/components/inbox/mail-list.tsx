@@ -62,8 +62,14 @@ import {
   useDraggableEmail,
   useDragDropContext,
 } from "@/components/shared/drag-drop";
+import { useFeatureEnabled } from "@/context/features";
+import {
+  useMailOperations,
+  type MailOperationResult,
+} from "@/layouts/shared/hooks/useMailOperations";
+import { isImportantActionAvailable } from "@/lib/inbox-action-visibility";
 
-import { Badge } from "@kit/ui/plugin";
+import { Badge, toast } from "@kit/ui/plugin";
 interface MailListProps {
   items?: EmailMessage[];
   /** Whether selection checkboxes are enabled */
@@ -127,6 +133,16 @@ const FOLDER_NAMES = [
   "important",
 ];
 
+/**
+ * Row count from which offscreen rows stop being laid out.
+ *
+ * Below this the browser's layout work is not the problem and the extra style
+ * is one more thing to reason about. At and above it, the list is long enough
+ * that skipping offscreen rows is the difference between a scroll that keeps up
+ * and one that does not. The mobile list uses the same threshold.
+ */
+const DEFERRED_PAINT_ROWS = 200;
+
 interface MailListItemProps {
   item: EmailMessage;
   index: number;
@@ -142,6 +158,11 @@ interface MailListItemProps {
   enableSelection: boolean;
   onSelect: (item: EmailMessage) => void;
   onStarClick: (e: React.MouseEvent, messageId: string) => void;
+  /**
+   * Absent when the build cannot persist importance, which leaves the chevron
+   * a static marker rather than a control that would 404.
+   */
+  onImportantClick?: (e: React.MouseEvent, message: EmailMessage) => void;
   showDetails: boolean;
   density: "loose" | "comfortable" | "compact" | "dense";
   showPreview: boolean;
@@ -155,6 +176,12 @@ interface MailListItemProps {
   /** Count displayed only on the newest row in a conversation. */
   threadCount?: number;
   threadGrouped?: boolean;
+  /**
+   * Let the browser skip layout and paint for offscreen rows. Set once the list
+   * is long enough that the browser's own work is the cost, not the network or
+   * the cache.
+   */
+  deferredPaint?: boolean;
 }
 
 function resolveTagAccountId(
@@ -180,6 +207,7 @@ const MailListItem = memo(
     enableSelection,
     onSelect,
     onStarClick,
+    onImportantClick,
     showDetails,
     density,
     showPreview,
@@ -192,6 +220,7 @@ const MailListItem = memo(
     onTagRemove,
     threadCount,
     threadGrouped,
+    deferredPaint,
   }: MailListItemProps) {
     const { rowRef, handleListeners, handleAttributes, isDragging, rowStyle } =
       useDraggableEmail({ message: item });
@@ -248,6 +277,7 @@ const MailListItem = memo(
         isDragging={isDragging}
         isPartOfDrag={isPartOfDrag}
         threadGrouped={threadGrouped}
+        deferredPaint={deferredPaint}
         dragHandleProps={{
           ...handleListeners,
           ...handleAttributes,
@@ -257,7 +287,7 @@ const MailListItem = memo(
         }}
         selectionSlot={
           enableSelection ? (
-            <SelectionCheckbox messageId={messageKey} message={item} small />
+            <SelectionCheckbox messageId={messageKey} message={item} />
           ) : null
         }
         rightRailSlot={
@@ -281,6 +311,9 @@ const MailListItem = memo(
           // resolve back to an account, folder and generation.
           onToggleStar: (message, event) =>
             onStarClick(event, getMessageIdentityKey(message)),
+          onToggleImportant: onImportantClick
+            ? (message, event) => onImportantClick(event, message)
+            : undefined,
         }}
         onTagClick={onTagClick}
         onTagRemove={(tag) => onTagRemove(item, tag)}
@@ -297,6 +330,7 @@ const MailListItem = memo(
       prev.index === next.index &&
       prev.onSelect === next.onSelect &&
       prev.onStarClick === next.onStarClick &&
+      prev.onImportantClick === next.onImportantClick &&
       prev.showDetails === next.showDetails &&
       prev.density === next.density &&
       prev.showPreview === next.showPreview &&
@@ -308,7 +342,8 @@ const MailListItem = memo(
       prev.onTagClick === next.onTagClick &&
       prev.onTagRemove === next.onTagRemove &&
       prev.threadCount === next.threadCount &&
-      prev.threadGrouped === next.threadGrouped
+      prev.threadGrouped === next.threadGrouped &&
+      prev.deferredPaint === next.deferredPaint
     );
   },
 );
@@ -331,6 +366,13 @@ export function MailList({
   const { requestNavigation } = useComposer();
   const { preferences } = useUserPreferences();
   const { filterByTag, removeMessageTag } = useEmailMessageTagActions();
+  const { toggleImportant } = useMailOperations();
+  // Importance is persisted by the Pro smart-inbox route only, so Free renders
+  // the marker without the control rather than a button that always 404s.
+  const importantAvailable = isImportantActionAvailable({
+    isFreeBuild: __IS_FREE__,
+    smartInboxEnabled: useFeatureEnabled("smart_inbox"),
+  });
 
   const handleStarClick = useCallback(
     (e: React.MouseEvent, messageId: string) => {
@@ -338,6 +380,34 @@ export function MailList({
       void toggleStar(messageId);
     },
     [toggleStar],
+  );
+
+  const runRowOperation = useCallback(
+    async (
+      operation: () => Promise<MailOperationResult>,
+      fallbackMessage: string,
+    ): Promise<void> => {
+      try {
+        const result = await operation();
+        if (!result.success) {
+          toast.error(result.error || fallbackMessage);
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : fallbackMessage);
+      }
+    },
+    [],
+  );
+
+  const handleImportantClick = useCallback(
+    (e: React.MouseEvent, message: EmailMessage) => {
+      e.stopPropagation();
+      void runRowOperation(
+        () => toggleImportant(message),
+        __("Failed to update importance", "pressedmail"),
+      );
+    },
+    [runRowOperation, toggleImportant],
   );
 
   const guardedSelect = useCallback(
@@ -457,6 +527,9 @@ export function MailList({
               enableSelection={enableSelection}
               onSelect={guardedSelect}
               onStarClick={handleStarClick}
+              onImportantClick={
+                importantAvailable ? handleImportantClick : undefined
+              }
               showDetails={showDetails}
               density={density}
               showPreview={showPreview}
@@ -469,6 +542,7 @@ export function MailList({
               onTagRemove={handleTagRemove}
               threadCount={threadMeta?.isNewest ? threadMeta.count : undefined}
               threadGrouped={threadMeta?.isThreaded}
+              deferredPaint={messagesToDisplay.length > DEFERRED_PAINT_ROWS}
             />
           </Fragment>
         );

@@ -483,7 +483,6 @@ const SignatureCard: React.FC<SignatureCardProps> = ({
             className={cn(
               "pm-touch-target inline-flex items-center justify-center rounded-md transition-colors",
               "text-muted-foreground hover:bg-accent hover:text-foreground",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}>
             <Edit2 className="h-4 w-4" aria-hidden="true" />
           </button>
@@ -501,7 +500,6 @@ const SignatureCard: React.FC<SignatureCardProps> = ({
             className={cn(
               "pm-touch-target inline-flex items-center justify-center rounded-md transition-colors",
               "text-muted-foreground hover:bg-destructive/10 hover:text-destructive",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}>
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </button>

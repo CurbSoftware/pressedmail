@@ -40,7 +40,7 @@ export function SettingsInfoTooltip({
               // footprint the old 24px box left behind (24 - 2*4). Nothing
               // moves, and there is no visible box to grow because hover only
               // changes the glyph colour.
-              "-m-3.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "-m-3.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
               className,
             )}>
             <Info className="h-3.5 w-3.5" aria-hidden="true" />

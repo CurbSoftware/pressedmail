@@ -8,6 +8,7 @@ import {
   type ProcessTask,
   type ProcessTaskStatus,
 } from "@/services/process-queue.service";
+import { abortClientOp } from "@/lib/bulk-activity";
 
 /**
  * Shared, visibility-aware poller for the PressedMail process / activity queue.
@@ -22,8 +23,8 @@ import {
  * immediate catch-up on `visibilitychange`. While any task is active
  * (queued/running) we poll on a short interval; when nothing is active we stop
  * the interval and resume on the next enqueue/refresh or when the tab regains
- * focus. The `GET /process-queue` request also drains the queue server-side, so
- * each poll both reports AND advances progress.
+ * focus. The `GET /process-queue` request only reports; WP-Cron and the worker
+ * chain advance the queue.
  */
 
 const ACTIVE_POLL_INTERVAL_MS = 2500;
@@ -209,6 +210,9 @@ export function useProcessQueue(): UseProcessQueueResult {
   }, []);
 
   const cancel = useCallback(async (taskId: number) => {
+    // A bulk AI op running in this tab stops its in-flight request now rather
+    // than after that request finishes.
+    abortClientOp(taskId);
     // Optimistic: flag the row as cancel-requested immediately, then refresh.
     setState({
       tasks: state.tasks.map((task) =>
@@ -217,6 +221,9 @@ export function useProcessQueue(): UseProcessQueueResult {
     });
     try {
       await cancelProcessTask(taskId);
+    } catch {
+      // The task may have finished between the click and the request; the
+      // refresh below shows what actually happened.
     } finally {
       refreshProcessQueue();
     }

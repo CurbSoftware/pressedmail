@@ -25,6 +25,19 @@ export interface EmailMessageTag {
 
 export type EmailContentType = "html" | "plain";
 
+/**
+ * Who decided a message is important: the sender's own high-priority header,
+ * the provider's importance marker, or the user's own toggle. Null or absent
+ * means the message is not important and there is nothing to explain.
+ */
+export type EmailImportanceSource = "sender" | "provider" | "override";
+
+export interface DraftDocument {
+  version: 1;
+  dialect: "markdown" | "rich_text";
+  value: import("@kit/plate").Value;
+}
+
 export interface EmailMessage {
   id: string | number;
   uid?: string | number;
@@ -41,6 +54,10 @@ export interface EmailMessage {
   htmlBody?: string;
   plainBody?: string;
   textBody?: string;
+  /** Site-local editor state for this exact IMAP draft. Never part of MIME. */
+  draftDocument?: DraftDocument;
+  /** The site copy of this draft's editor structure passed its retention window. */
+  draftDocumentExpired?: boolean;
   /** Normalized MIME body kind (camelCase and REST-compatible snake_case). */
   contentType?: EmailContentType;
   content_type?: EmailContentType;
@@ -64,6 +81,11 @@ export interface EmailMessage {
   important?: boolean;
   /** Legacy backend key for sender-marked high priority rows. */
   is_important?: boolean;
+  /**
+   * Why `important` is set. Null when the message is not important, so a row
+   * can say who flagged it instead of a bare "Important".
+   */
+  importanceSource?: EmailImportanceSource | null;
   labels?: string[];
   /** User-defined tags applied to this message (cross-folder classification). */
   tags?: EmailMessageTag[];
@@ -202,6 +224,8 @@ export interface ComposeData {
   contactLists?: ContactListRecipientDescriptor[];
   subject: string;
   body: string;
+  draftDocument?: DraftDocument;
+  draftDocumentExpired?: boolean;
   /** MIME body mode. Missing legacy drafts are treated as HTML. */
   contentType?: EmailContentType;
   /** Persisted compose intent so forwards do not reopen as new messages. */
@@ -222,6 +246,8 @@ export interface ComposeData {
   draftMessageId?: string;
   /** False when the server reported attachments without exact MIME part coordinates. */
   draftAttachmentManifestComplete?: boolean;
+  /** One-shot: set when a server draft is opened, cleared by the composer once it records the clean state. */
+  draftOpened?: boolean;
   scheduledEmailId?: number;
   scheduledAccountId?: number;
   scheduledAt?: string;

@@ -36,6 +36,8 @@ export interface OperationResult {
   success: boolean;
   /** Error message if operation failed */
   error?: string;
+  /** A provider mutation succeeded, but a local draft document was lost or cleanup needs retry. */
+  warning?: string;
   /** Updated message data (if applicable) */
   message?: EmailMessage;
 }

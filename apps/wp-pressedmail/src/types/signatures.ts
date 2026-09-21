@@ -17,7 +17,8 @@ export type SignatureContentType = "html" | "plain";
 export interface Signature {
   id: number;
   user_id: number;
-  account_id: number | null;
+  /** Accounts this signature sends with. Several may share one signature. */
+  account_ids: number[];
   name: string;
   content: string;
   content_type: SignatureContentType;
@@ -53,7 +54,8 @@ export interface CreateSignatureData {
   name: string;
   content: string;
   content_type?: SignatureContentType;
-  account_id?: number | null;
+  /** Accounts to assign on create. Omit to leave the signature unassigned. */
+  account_ids?: number[];
   include_for_new?: boolean;
   include_for_reply?: boolean;
   include_for_forward?: boolean;
@@ -66,7 +68,8 @@ export interface UpdateSignatureData {
   name?: string;
   content?: string;
   content_type?: SignatureContentType;
-  account_id?: number | null;
+  /** The full set of accounts the signature should serve. Replaces the old one. */
+  account_ids?: number[];
   is_active?: boolean;
   include_for_new?: boolean;
   include_for_reply?: boolean;

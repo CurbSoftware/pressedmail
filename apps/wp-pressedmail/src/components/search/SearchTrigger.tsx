@@ -57,7 +57,6 @@ export function SearchTrigger({ className, placeholder }: SearchTriggerProps) {
       className={cn(
         "flex items-center gap-2 px-3 h-9 border border-input rounded-md bg-muted/40 cursor-pointer transition-all",
         "hover:bg-muted/60 hover:border-input/80",
-        "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         className,
       )}
       aria-label={__("Open search", "pressedmail")}>

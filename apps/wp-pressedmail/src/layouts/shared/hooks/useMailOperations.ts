@@ -40,6 +40,7 @@ export type ComposeMode = "new" | "reply" | "replyAll" | "forward";
 export interface MailOperationResult {
   success: boolean;
   error?: string;
+  warning?: string;
   requiresRefresh?: boolean;
 }
 
@@ -193,12 +194,14 @@ export function useMailOperations(): UseMailOperationsReturn {
           result = {
             success: r.success,
             error: r.error,
+            warning: r.warning,
             requiresRefresh: r.requiresRefresh,
           };
         } else {
           const r = await serviceMessageOps.batchMarkRead(ids);
           result = {
             success: r.success,
+            warning: r.warning,
             requiresRefresh: r.requiresRefresh,
             error:
               r.error ||
@@ -228,6 +231,7 @@ export function useMailOperations(): UseMailOperationsReturn {
           return {
             success: result.success,
             error: result.error,
+            warning: result.warning,
             requiresRefresh: result.requiresRefresh,
           };
         } else {
@@ -235,6 +239,7 @@ export function useMailOperations(): UseMailOperationsReturn {
           return {
             success: result.success,
             requiresRefresh: result.requiresRefresh,
+            warning: result.warning,
             error:
               result.error ||
               (result.failedIds.length > 0

@@ -16,7 +16,18 @@ export function CalloutElementStatic({ children, ...props }: SlateElementProps) 
   const icon = (props.element.icon as string) || '💡';
 
   return (
-    <SlateElement {...props}>
+    <SlateElement
+      {...props}
+      attributes={{
+        ...props.attributes,
+        'data-pm-block': 'callout',
+        ...(props.element.backgroundColor
+          ? { 'data-background': String(props.element.backgroundColor) }
+          : {}),
+        ...(props.element.icon
+          ? { 'data-icon': String(props.element.icon) }
+          : {}),
+      }}>
       <table
         style={{
           width: '100%',

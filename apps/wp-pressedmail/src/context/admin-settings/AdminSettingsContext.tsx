@@ -17,7 +17,7 @@ import React, {
 } from "react";
 import { routeApiPrefix } from "../Strings";
 import { apiFetch } from "@/lib/api-client";
-import type { ThemeColorVariables } from "@/components/themes/theme-variables";
+import type { ThemeColorVariables } from "@/types/theme";
 import type {
   AppearanceMode,
   EffectiveWhitelabelRuntime,

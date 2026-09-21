@@ -8,9 +8,6 @@ export type {
 export { PressedMailRichTextEditor } from "./PressedMailRichTextEditor";
 export type { PressedMailRichTextEditorProps } from "./PressedMailRichTextEditor";
 
-export { PluginComposerEditor } from "./PluginComposerEditor";
-export type { PluginComposerEditorProps } from "./PluginComposerEditor";
-
 export { ComposerEditorPlugins } from "./plate-composer-plugins";
 export { ComposerReactPlugins } from "./plate-composer-react-kit";
 

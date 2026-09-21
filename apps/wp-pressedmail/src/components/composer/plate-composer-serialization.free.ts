@@ -5,6 +5,7 @@ import {
   sanitizePlateEmailEditorHtml,
 } from "@kit/plate/email-editor";
 
+import { parseComposerHtmlInert } from "@/lib/composer/composer-html-inert";
 import { serializeComposerValueToPlainText } from "@/lib/composer/plain-text-serialization";
 import {
   getTableCellBorderStyleAttribute,
@@ -157,6 +158,33 @@ function serializeTable(node: ComposerNode): string {
   return `<table style="border-collapse:collapse">${rows.join("")}</table>`;
 }
 
+
+/**
+ * A marker property read from draft HTML, which arrives from IMAP.
+ *
+ * The parser is the only bound on these: an oversized value would become a node
+ * property, and the server's own document validator would then reject the
+ * user's next save over it. Anything outside the shape the node can hold is
+ * dropped, so the element falls back to what it already displays.
+ */
+function markerProperty(
+  value: string | undefined,
+  pattern: RegExp,
+): string | undefined {
+  if (typeof value !== "string" || value.length === 0 || value.length > 64) {
+    return undefined;
+  }
+  return pattern.test(value) ? value : undefined;
+}
+
+// The dash sits last and the slash is unescaped: inside a character class a
+// slash needs no escape, and a dash between two class members would otherwise
+// become a range endpoint rather than a literal.
+const MARKER_DATE = /^[0-9A-Za-z:+. /-]{1,64}$/;
+const MARKER_WIDTH = /^[0-9]{1,4}(?:\.[0-9]{1,3})?(?:px|%|em|rem)?$/;
+const MARKER_COLOR = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,24}|rgba?\([0-9.,% ]{1,32}\))$/;
+const MARKER_ICON = /^.{1,16}$/u;
+
 function serializeNode(node: ComposerNode): string {
   if (typeof node.text === "string") return serializeText(node);
 
@@ -204,16 +232,18 @@ function serializeNode(node: ComposerNode): string {
           : "#f4f4f5";
       const icon =
         typeof node.icon === "string" ? `${escapeHtml(node.icon)} ` : "";
-      return `<div style="background-color:${escapeAttribute(background)};padding:12px">${icon}${children}</div>`;
+      return `<div data-pm-block="callout"${optionalAttribute("data-background", background)}${optionalAttribute("data-icon", typeof node.icon === "string" ? node.icon : undefined)} style="background-color:${escapeAttribute(background)};padding:12px">${icon}${children}</div>`;
     }
-    case "date":
-      return escapeHtml(node.date ?? children);
+    case "date": {
+      const value = typeof node.date === "string" ? node.date : "";
+      return `<span data-pm-block="date"${optionalAttribute("data-date", value)}>${escapeHtml(value)}</span>`;
+    }
     case "toggle":
-      return `<div>${children}</div>`;
+      return `<div data-pm-block="toggle">${children}</div>`;
     case "column_group":
-      return `<table role="presentation" style="table-layout:fixed;width:100%"><tbody><tr>${children}</tr></tbody></table>`;
+      return `<table role="presentation" data-pm-block="column_group" style="table-layout:fixed;width:100%"><tbody><tr>${children}</tr></tbody></table>`;
     case "column":
-      return `<td${optionalAttribute("style", node.width ? `width:${String(node.width)}` : undefined)}>${children}</td>`;
+      return `<td data-pm-block="column"${optionalAttribute("data-width", node.width ? String(node.width) : undefined)}${optionalAttribute("style", node.width ? `width:${String(node.width)}` : undefined)}>${children}</td>`;
     case "tr":
       return `<tr>${children}</tr>`;
     case "td":
@@ -361,6 +391,11 @@ function domNodeToComposerNodes(
   if (tag === "code") nextMarks.code = true;
 
   if (
+    // An authoring marker outranks the tag. A marked span is a date or an
+    // attachment, not inline text, and flattening it here would drop the marker
+    // before anything read it: that was why a saved attachment came back as its
+    // filename alone.
+    !node.dataset.pmBlock &&
     [
       "strong",
       "b",
@@ -432,6 +467,58 @@ function domNodeToComposerNodes(
     ];
   }
 
+  // The block markers a Rich Text draft carries so it reopens as the blocks it
+  // was written with. The visible HTML underneath each one is what a recipient
+  // client renders; these attributes are what the composer reads back.
+  if (pmBlock === "toggle") {
+    return [{ type: "toggle", children }];
+  }
+  if (pmBlock === "callout") {
+    return [
+      {
+        type: "callout",
+        ...(markerProperty(node.dataset.background, MARKER_COLOR)
+          ? { backgroundColor: node.dataset.background }
+          : {}),
+        ...(markerProperty(node.dataset.icon, MARKER_ICON)
+          ? { icon: node.dataset.icon }
+          : {}),
+        children,
+      },
+    ];
+  }
+  if (pmBlock === "date") {
+    return [
+      {
+        type: "date",
+        date:
+          markerProperty(node.dataset.date, MARKER_DATE) ??
+          (node.textContent ?? "").slice(0, 64),
+        children: [{ text: "" }],
+      },
+    ];
+  }
+  if (pmBlock === "column_group") {
+    // The columns are written inside a real table row, because that is what a
+    // recipient client needs, but the authoring tree holds them directly under
+    // the group. Unwrap the row rather than reintroducing it as a node.
+    const columns = children.flatMap((child) =>
+      child.type === "tr" ? (child.children ?? []) : [child],
+    );
+    return [{ type: "column_group", children: columns }];
+  }
+  if (pmBlock === "column") {
+    return [
+      {
+        type: "column",
+        ...(markerProperty(node.dataset.width, MARKER_WIDTH)
+          ? { width: node.dataset.width }
+          : {}),
+        children,
+      },
+    ];
+  }
+
   if (tag === "a") {
     return [{ type: "a", url: node.getAttribute("href") ?? "", children }];
   }
@@ -496,7 +583,9 @@ export function deserializeLegacyHtmlToPlateValue(
   if (!hasPlateEmailHtmlContent(html)) return createPlateEmailEmptyValue();
   if (editorApi) {
     try {
-      return editorApi.html.deserialize({ element: html });
+      return editorApi.html.deserialize({
+        element: parseComposerHtmlInert(html) as unknown as string,
+      });
     } catch {
       // Use the small browser parser below when the live editor rejects input.
     }

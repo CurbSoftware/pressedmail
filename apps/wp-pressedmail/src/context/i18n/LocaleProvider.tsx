@@ -1,13 +1,13 @@
 /**
  * Locale Provider
  *
- * Owns the plugin-scoped UI language for the React SPA. Because `__()` is not
- * reactive, switching language bumps a version counter that re-keys the child
- * subtree, forcing every component to re-render with the new strings.
+ * Owns the plugin-scoped UI language for the React SPA. WordPress loads script
+ * translations before the bundle runs, so a saved language change reloads the
+ * page to update both static and rendered strings consistently.
  *
- * The starting language comes from the server: the user's PressedMail choice,
- * or their WordPress profile language. Nothing is guessed from the browser and
- * nothing is written to their profile until they pick a language themselves.
+ * The starting language comes from the server's resolved user choice or
+ * WordPress profile language. Only catalogues the server can load are offered.
+ * The eight bundled catalogues currently cover core controls, not the full UI.
  *
  * @since 3.0.0
  */
@@ -24,47 +24,17 @@ import {
   readServerLocale,
   readAvailableLocales,
   persistLocale,
-  applyLocaleData,
   describeLocale,
   toBcp47,
 } from "@/lib/i18n-boot";
 
-// Module-level version store: every setLocaleData bumps the version so the
-// keyed subtree below re-mounts and re-evaluates all __() calls.
-const listeners = new Set<() => void>();
-let version = 0;
-
-function bumpVersion(): void {
-  version += 1;
-  listeners.forEach((listener) => listener());
-}
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getVersion(): number {
-  return version;
-}
-
 /**
- * The languages worth offering: the ones this site has a catalogue for, plus
- * the active one so the control always shows what is in use. Offering a
- * language with no catalogue only renames the setting; every string stays
- * English. The active one can be a WordPress profile language PressedMail
- * carries no label for, so it is named through `Intl.DisplayNames` rather than
- * printed as a slug.
+ * Offer only languages the server certifies as available. A missing runtime
+ * list must not turn every incomplete translation into a picker option.
  */
-function offeredLocales(active: string): readonly SupportedLocale[] {
+function offeredLocales(): readonly SupportedLocale[] {
   const available = readAvailableLocales();
-  if (available.length === 0) {
-    return SUPPORTED_LOCALES;
-  }
-
-  const wanted = new Set([...available, active].filter(Boolean));
+  const wanted = new Set([DEFAULT_WP_LOCALE, ...available]);
 
   return [
     ...SUPPORTED_LOCALES.filter((entry) => wanted.has(entry.wp)),
@@ -77,7 +47,7 @@ function offeredLocales(active: string): readonly SupportedLocale[] {
 interface LocaleContextValue {
   /** Active WordPress locale slug. */
   locale: string;
-  /** Persist + apply a new locale (live, no reload). */
+  /** Persist a new locale and reload with WordPress's script translations. */
   setLocale: (wp: string) => Promise<boolean>;
   /** Supported locales for a switcher. */
   locales: readonly SupportedLocale[];
@@ -90,17 +60,20 @@ interface LocaleContextValue {
 const DEFAULT_CONTEXT: LocaleContextValue = {
   locale: DEFAULT_WP_LOCALE,
   setLocale: async () => false,
-  locales: SUPPORTED_LOCALES,
+  locales: [SUPPORTED_LOCALES[0]!],
   saving: false,
 };
 
 const LocaleContext = React.createContext<LocaleContextValue>(DEFAULT_CONTEXT);
 
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
-  const v = React.useSyncExternalStore(subscribe, getVersion, getVersion);
-  const [locale, setLocaleState] = React.useState<string>(
-    () => readServerLocale() || DEFAULT_WP_LOCALE,
-  );
+  const [locale] = React.useState<string>(() => {
+    const resolved = readServerLocale();
+    return resolved === DEFAULT_WP_LOCALE ||
+      readAvailableLocales().includes(resolved)
+      ? resolved
+      : DEFAULT_WP_LOCALE;
+  });
   const [saving, setSaving] = React.useState(false);
 
   const setLocale = React.useCallback(async (wp: string) => {
@@ -111,17 +84,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
         return false;
       }
 
-      setLocaleState(result.locale);
-
-      if (result.catalog) {
-        // The catalog came back with the response: swap it in place.
-        applyLocaleData(result.catalog);
-        bumpVersion();
-      } else {
-        // WordPress prints the script translations for the locale it resolves
-        // per request, so the new language arrives with the next page load.
-        window.location.reload();
-      }
+      window.location.reload();
 
       return true;
     } finally {
@@ -130,7 +93,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = React.useMemo<LocaleContextValue>(
-    () => ({ locale, setLocale, locales: offeredLocales(locale), saving }),
+    () => ({ locale, setLocale, locales: offeredLocales(), saving }),
     [locale, setLocale, saving],
   );
 
@@ -140,7 +103,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
         {/* WCAG 3.1.2: PressedMail can run in a different language from the
           wp-admin around it, and a screen reader needs to be told, or it reads
           the whole interface with the wrong pronunciation rules. */}
-        <div style={{ display: "contents" }} key={v} lang={toBcp47(locale)}>
+        <div style={{ display: "contents" }} lang={toBcp47(locale)}>
           {children}
         </div>
       </PluginThemeScopeProvider>

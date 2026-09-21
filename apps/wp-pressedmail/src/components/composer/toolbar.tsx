@@ -32,7 +32,7 @@ export const FONT_SIZE_STEP_BUTTON_CLASS =
   'h-7 w-7 inline-flex items-center justify-center hover:bg-muted';
 
 export const FONT_SIZE_INPUT_CLASS =
-  'h-7 w-12 border-x border-border bg-transparent px-0 text-center text-xs tabular-nums outline-none focus-visible:ring-0';
+  'h-7 w-12 border-x border-border bg-transparent px-0 text-center text-xs tabular-nums outline-none';
 
 /* ─── Toolbar Root ─── */
 
@@ -91,8 +91,8 @@ export function ToolbarGroup({ children, className, ...props }: React.ComponentP
 const toolbarButtonVariants = cva(
   cn(
     'inline-flex items-center justify-center rounded-md text-sm font-medium',
-    'ring-offset-background transition-colors focus-visible:outline-none',
-    'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+    'ring-offset-background transition-colors',
+    '',
     'disabled:pointer-events-none disabled:opacity-50',
     '[&_svg:not([data-icon])]:size-4',
   ),

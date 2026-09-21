@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _x, sprintf } from "@wordpress/i18n";
 import { MoreHorizontal, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -41,6 +41,8 @@ import {
   parseAccountQualifiedToken,
   getMessageIdentityKey,
 } from "@/lib/message-identity";
+import { getFolderRole } from "@/lib/bulk-mail-actions";
+import { isDraftMessage } from "@/lib/draft-compose";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 import type { EmailMessage } from "@/types";
@@ -91,6 +93,7 @@ export function MobileMailReaderScreen() {
     toggleStar,
     archiveMessage,
     deleteMessage,
+    moveMessage,
     markAsRead,
     markAsUnread,
     clearSelection,
@@ -138,12 +141,12 @@ export function MobileMailReaderScreen() {
   liveReader.current = { routeId, displayedIdentity, messages, inbox };
   const mounted = React.useRef(true);
 
-  // Permanent deletion follows the message's physical mailbox, including
-  // consolidated folders with different provider paths.
-  const isTrashFolder = React.useMemo(() => {
+  // Permanent deletion and reply restore follow the message's physical
+  // mailbox, including consolidated folders with different provider paths.
+  const physicalFolder = React.useMemo(() => {
     const ref = getMessageIdentityRef(displayMessage);
-    if (!ref) return false;
-    const folder = folders.find((candidate) =>
+    if (!ref) return undefined;
+    return folders.find((candidate) =>
       candidate.sourceFolders?.length
         ? candidate.sourceFolders.some(
             (source) =>
@@ -152,8 +155,13 @@ export function MobileMailReaderScreen() {
         : candidate.accountId === ref.accountId &&
           candidate.path === ref.folder,
     );
-    return folder?.systemType === "trash" || folder?.type === "trash";
   }, [displayMessage, folders]);
+  const isTrashFolder =
+    physicalFolder?.systemType === "trash" || physicalFolder?.type === "trash";
+  const physicalRole = physicalFolder ? getFolderRole(physicalFolder) : null;
+  const restoreBeforeReply =
+    (physicalRole === "trash" || physicalRole === "spam") &&
+    !isDraftMessage(displayMessage);
 
   const identityFailure = React.useCallback(() => {
     appMessage(
@@ -190,12 +198,30 @@ export function MobileMailReaderScreen() {
   }, [displayMessage, toggleStar]);
 
   const openCompose = React.useCallback(
-    (mode: "reply" | "reply-all" | "forward") => {
+    async (mode: "reply" | "reply-all" | "forward") => {
       if (!displayMessage) return;
       const ref = getMessageIdentityRef(displayMessage);
       if (!ref) {
         identityFailure();
         return;
+      }
+      // Nothing is answered from Trash or Spam: restore to the Inbox first.
+      // The move retires this UID, so the reply carries no replySource.
+      if (restoreBeforeReply) {
+        const result = await moveMessage(
+          getMessageIdentityKey(displayMessage),
+          "INBOX",
+        );
+        if (!result.success || result.requiresRefresh) {
+          if (!result.requiresRefresh) {
+            appMessage(
+              result.error ||
+                __("That did not work. Try again.", "pressedmail"),
+              "error",
+            );
+          }
+          return;
+        }
       }
       const sourceAccount = accounts.find(
         (account) => String(account.id) === String(ref.accountId),
@@ -237,12 +263,14 @@ export function MobileMailReaderScreen() {
           is_reply: true,
           inReplyTo: displayMessage.messageId ?? displayMessage.message_id,
           references: displayMessage.references,
-          replySource: {
-            identity: getMessageIdentityKey(displayMessage),
-            accountId: ref.accountId,
-            folder: ref.folder,
-            uid: ref.uid,
-          },
+          replySource: restoreBeforeReply
+            ? undefined
+            : {
+                identity: getMessageIdentityKey(displayMessage),
+                accountId: ref.accountId,
+                folder: ref.folder,
+                uid: ref.uid,
+              },
         });
       }
       navigate("/compose");
@@ -250,9 +278,11 @@ export function MobileMailReaderScreen() {
     [
       accounts,
       displayMessage,
+      moveMessage,
       navigate,
       preferredContentType,
       identityFailure,
+      restoreBeforeReply,
       setComposeData,
     ],
   );
@@ -388,7 +418,7 @@ export function MobileMailReaderScreen() {
         },
         {
           id: "archive",
-          label: __("Archive", "pressedmail"),
+          label: _x("Archive", "verb", "pressedmail"),
           icon: EmailArchiveIcon,
           onAction: handleArchive,
         },
@@ -413,7 +443,7 @@ export function MobileMailReaderScreen() {
             ? __("Reply to all recipients", "pressedmail")
             : __("Reply to sender", "pressedmail")
         }
-        onClick={() => openCompose(preferredReplyMode)}
+        onClick={() => void openCompose(preferredReplyMode)}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
         {preferredReplyMode === "reply-all" ? (
           <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
@@ -431,7 +461,7 @@ export function MobileMailReaderScreen() {
             ? __("Reply to all recipients", "pressedmail")
             : __("Reply to sender", "pressedmail")
         }
-        onClick={() => openCompose(alternateReplyMode)}
+        onClick={() => void openCompose(alternateReplyMode)}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
         {alternateReplyMode === "reply-all" ? (
           <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
@@ -445,7 +475,7 @@ export function MobileMailReaderScreen() {
       <button
         type="button"
         aria-label={__("Forward message", "pressedmail")}
-        onClick={() => openCompose("forward")}
+        onClick={() => void openCompose("forward")}
         className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
         <EmailForwardIcon className="h-4 w-4" aria-hidden="true" />
         {__("Forward", "pressedmail")}

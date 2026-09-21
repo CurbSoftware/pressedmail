@@ -26,6 +26,7 @@ import {
   MoveUpLeft,
   MoveUpRight,
   Palette,
+  Rows3,
   Sun,
   SunMoon,
 } from "lucide-react";
@@ -53,6 +54,7 @@ import { useTheme as useColorTheme } from "@/components/themes/ThemeProvider";
 import { useTypographySettings } from "@/hooks/useTypographySettings";
 import {
   useUserPreferences,
+  type EmailListGroupingPreference,
   type SpeedDialPosition,
 } from "@/hooks/useUserPreferences";
 
@@ -81,6 +83,23 @@ const FREE_THEME_SWATCHES: Array<{
       light: { primary: "#111111", secondary: "#f5f5f5", accent: "#000000" },
       dark: { primary: "#fafafa", secondary: "#1a1a1a", accent: "#ededed" },
     },
+  },
+];
+
+const GROUPING_OPTIONS: Array<{
+  value: EmailListGroupingPreference;
+  label: string;
+  dataTest: string;
+}> = [
+  {
+    value: "list",
+    label: __("List", "pressedmail"),
+    dataTest: "inbox-grouping-list",
+  },
+  {
+    value: "threads",
+    label: __("Threaded", "pressedmail"),
+    dataTest: "inbox-grouping-threads",
   },
 ];
 
@@ -267,6 +286,35 @@ export function FreeThemePopover() {
         </div>
 
         <Separator className="my-3" />
+
+        {/*
+          Conversation grouping. The Pro popover carries the same row, and the
+          two popovers are the only control for the key, one per edition.
+        */}
+        <div className="mb-3">
+          <SectionLabel icon={Rows3}>{__("Inbox", "pressedmail")}</SectionLabel>
+          <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted p-1">
+            {GROUPING_OPTIONS.map(({ value, label, dataTest }) => {
+              const selected =
+                (preferences.email_list_grouping ?? "list") === value;
+              return (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={selected ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  aria-pressed={selected}
+                  data-test={dataTest}
+                  onClick={() =>
+                    void updatePreference("email_list_grouping", value)
+                  }>
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
 
         <div
           className="grid grid-cols-2 items-start gap-3"

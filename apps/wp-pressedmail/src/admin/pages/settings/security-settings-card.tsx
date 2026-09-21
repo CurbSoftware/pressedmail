@@ -126,6 +126,7 @@ export function SecuritySettingsCard() {
   const [message, setMessage] = useState<Message | null>(null);
   const [cacheConfirmOpen, setCacheConfirmOpen] = useState(false);
   const [cacheBusy, setCacheBusy] = useState(false);
+  const [cachePurgeFailed, setCachePurgeFailed] = useState(false);
 
   // --- Lock setup / management state (immediate actions, not draft-saved) ---
   const [setupPassphrase, setSetupPassphrase] = useState("");
@@ -348,19 +349,8 @@ export function SecuritySettingsCard() {
     }
   }, [updatePreference]);
 
-  const confirmDisableEmailCache = useCallback(async () => {
+  const clearStoredEmailContent = useCallback(async () => {
     setCacheBusy(true);
-
-    const ok = await updatePreference("cache_email_body_content", false);
-    if (!ok) {
-      setCacheBusy(false);
-      setCacheConfirmOpen(false);
-      notifyAutosaveError();
-      return;
-    }
-
-    // Preference is now off, so stop new body persistence and purge bodies
-    // already cached for this user.
     try {
       const response = await apiFetch(
         `${getApiUrl()}${getRuntimeRestNamespace()}/performance/clear-body-cache`,
@@ -377,15 +367,30 @@ export function SecuritySettingsCard() {
         throw new Error(data.message || "purge failed");
       }
 
+      setCachePurgeFailed(false);
       notifyAutosaveSuccess("user-email-cache");
     } catch (error) {
       console.error("Failed to purge cached email bodies:", error);
+      setCachePurgeFailed(true);
       notifyAutosaveError();
     } finally {
       setCacheBusy(false);
-      setCacheConfirmOpen(false);
     }
-  }, [updatePreference]);
+  }, []);
+
+  const confirmDisableEmailCache = useCallback(async () => {
+    setCacheBusy(true);
+    const ok = await updatePreference("cache_email_body_content", false);
+    if (!ok) {
+      setCachePurgeFailed(true);
+      setCacheBusy(false);
+      setCacheConfirmOpen(false);
+      notifyAutosaveError();
+      return;
+    }
+    setCacheConfirmOpen(false);
+    await clearStoredEmailContent();
+  }, [clearStoredEmailContent, updatePreference]);
 
   const handleEmailCacheToggle = useCallback(
     (next: boolean) => {
@@ -846,6 +851,18 @@ export function SecuritySettingsCard() {
                     "pressedmail",
                   )}
                 </p>
+                {!isEmailCacheOn && (
+                  <div className="space-y-1 pt-2">
+                    {cachePurgeFailed && (
+                      <p role="alert" className="text-xs text-destructive">
+                        {__("Stored content could not be cleared. Your email and Rich Text draft documents remain inaccessible while caching is off. Retry the cleanup.", "pressedmail")}
+                      </p>
+                    )}
+                    <Button type="button" variant="outline" size="sm" disabled={cacheBusy} onClick={() => void clearStoredEmailContent()}>
+                      {__("Clear stored email content", "pressedmail")}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">

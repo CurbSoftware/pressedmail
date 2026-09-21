@@ -26,6 +26,14 @@ const ADVANCE_TIMEOUT_MS = 45_000;
 /** The FULL background-queue drain endpoint; bounded but can run a live-IMAP job, so give it room. */
 const PROCESS_QUEUE_TIMEOUT_MS = 30_000;
 
+/**
+ * Diagnostics' "Run now" runs a whole dispatcher pass (its own 25-job / 45-second
+ * budget), and the administrator is watching a spinner for it, so the client
+ * waits past the server's own ceiling instead of aborting a pass that is still
+ * working.
+ */
+const RUN_NOW_TIMEOUT_MS = 60_000;
+
 export interface AdvanceSyncResult {
   advanced: number;
   remaining: number;
@@ -93,6 +101,76 @@ export async function processQueueSync(): Promise<void> {
 }
 
 /**
+ * Diagnostics' "Run now": ask for one full dispatcher pass on /sync/process-queue.
+ *
+ * The same route as {@link processQueueSync}, but `manual` selects the
+ * dispatcher's own pass (every worker, the dispatcher's job count and time
+ * budget) rather than the two-job inline nudge, and the server answers with the
+ * heartbeat that pass just wrote so the panel can update without a reload.
+ *
+ * Unlike the driver's drain this one is attended, so it reports failure instead
+ * of swallowing it: a button that silently does nothing is worse than a button
+ * that says it could not.
+ *
+ * @returns The dispatcher's status after a completed pass.
+ */
+export async function runBackgroundPassNow(): Promise<{
+  lastRun: number;
+  nextRun: number;
+  loopback: boolean | null;
+  hasMailbox?: boolean;
+}> {
+  const response = await apiFetch(
+    buildApiUrl(`${routeApiPrefix}/sync/process-queue`),
+    {
+      method: "POST",
+      credentials: "include",
+      headers: getHeaders(),
+      body: JSON.stringify({ manual: true }),
+    },
+    { timeoutMs: RUN_NOW_TIMEOUT_MS },
+  );
+
+  // A 403 that survives apiFetch's nonce self-heal is a real permission or
+  // security failure: the administrator cannot run this pass.
+  if (response.status === 403) {
+    throw new PermissionError();
+  }
+  if (!response.ok) {
+    throw new Error(`The background pass failed (${response.status}).`);
+  }
+
+  const body = (await response.json().catch(() => ({}))) as {
+    data?: {
+      dispatch?: {
+        lastRun?: number;
+        nextRun?: number;
+        loopback?: unknown;
+        hasMailbox?: boolean;
+      };
+    };
+  };
+  const dispatch = body.data?.dispatch;
+  if (!dispatch || !Number(dispatch.lastRun)) {
+    throw new Error(
+      "The background pass did not return a completed heartbeat.",
+    );
+  }
+
+  return {
+    lastRun: Number(dispatch.lastRun ?? 0),
+    nextRun: Number(dispatch.nextRun ?? 0),
+    loopback:
+      dispatch.loopback === true || dispatch.loopback === false
+        ? dispatch.loopback
+        : null,
+    ...(typeof dispatch.hasMailbox === "boolean"
+      ? { hasMailbox: dispatch.hasMailbox }
+      : {}),
+  };
+}
+
+/**
  * Manual "Refresh": push the given account(s) to the FRONT of the sync queue and start
  * advancing immediately. Pass a single id (single-account view) or the active set
  * (combined inbox). Best-effort, never throws into the UI.
@@ -102,8 +180,7 @@ export async function refreshAccountSync(accountIds: number[]): Promise<void> {
   if (ids.length === 0) {
     return;
   }
-  const body =
-    ids.length === 1 ? { account_id: ids[0] } : { account_ids: ids };
+  const body = ids.length === 1 ? { account_id: ids[0] } : { account_ids: ids };
   try {
     await apiFetch(buildApiUrl(`${routeApiPrefix}/sync/refresh-account`), {
       method: "POST",

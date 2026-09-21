@@ -586,7 +586,7 @@ export function FilterRulesManager({
                             <button
                               ref={setActivatorNodeRef}
                               type="button"
-                              className="mt-0.5 flex h-6 w-6 flex-shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+                              className="mt-0.5 flex h-6 w-6 flex-shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground active:cursor-grabbing"
                               data-test={`filter-rule-drag-handle-${rule.id}`}
                               data-testid={`filter-rule-drag-handle-${rule.id}`}
                               aria-label={sprintf(

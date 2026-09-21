@@ -12,6 +12,7 @@ import {
   PlateContainer,
   PlateContent,
   usePlateEditor,
+  type PlateEditor,
 } from "@kit/plate/react";
 import type { Value, Descendant } from "@kit/plate";
 import { TextApi } from "@kit/plate";
@@ -29,8 +30,13 @@ import {
 } from "@kit/plate/email-editor";
 
 import { cn } from "@/lib/utils";
-import { ComposerReactPlugins } from "./plate-composer-react-kit";
+import { createInertHtmlDeserializer } from "@/lib/composer/composer-html-inert";
+import { buildComposerReactPlugins } from "./plate-composer-dialect";
 import { getComposerDomHtml } from "./plate-composer-dom";
+import {
+  insertSignatureBlockInDocument,
+  removeSignatureBlockInDocument,
+} from "./signature-document";
 import { ComposerAIKit } from "@/components/composer/plate/ai-kit.active";
 import { ComposerCopilotKit } from "@/components/composer/plate/copilot-kit.active";
 import {
@@ -38,6 +44,7 @@ import {
   serializePlateValueToPlainText,
 } from "@/components/composer/plate-composer-serialization.active";
 import type {
+  ComposerSignatureCommand,
   EmailEditorRef,
   PressedMailPlateComposerProps,
 } from "./plate-composer-types";
@@ -69,6 +76,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       onReady,
       className,
       contentStyle,
+      dialect = "markdown",
     },
     ref,
   ) {
@@ -84,20 +92,45 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
     const plugins = useMemo(
       () =>
         createPlateEmailEditorPluginKit({
-          basePlugins: ComposerReactPlugins,
+          basePlugins: buildComposerReactPlugins(dialect),
           aiEnabled,
           aiPlugins: ComposerAIKit,
           copilotPlugins: ComposerCopilotKit,
         }),
-      [aiEnabled],
+      [aiEnabled, dialect],
     );
+
+    // A dialect change rebuilds the editor from a different plugin set, which
+    // is a new editor holding nothing. Hand the rebuild the document the old
+    // editor is holding, or the switch silently empties the message.
+    //
+    // Hold the EDITOR, not its value. Slate replaces `editor.children` on
+    // every edit rather than mutating it, so a captured array is a snapshot of
+    // the last commit and a keystroke typed since then is simply not in it.
+    // The editor object is stable, and reading `.children` off it happens at
+    // the moment the switch is made, which is the only moment that is correct.
+    const liveEditorRef = useRef<PlateEditor | null>(null);
 
     const editor = usePlateEditor(
       createPlateEmailUsePlateEditorOptions({
         plugins,
-        initialValue,
+        initialValue: (liveEditorRef.current?.children ?? initialValue) as
+          | Value
+          | null
+          | undefined,
       }),
-      [aiEnabled],
+      [aiEnabled, dialect],
+    );
+
+    useEffect(() => {
+      liveEditorRef.current = editor;
+    });
+
+    // Everything that turns an HTML string into editor nodes goes through this
+    // wrapper, so nothing is ever parsed into the live document.
+    const inertDeserializer = useMemo(
+      () => (editor ? createInertHtmlDeserializer(editor.api.html) : null),
+      [editor],
     );
 
     const setDocumentValue = useCallback(
@@ -162,9 +195,9 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
 
     // Deserialize initial HTML on mount
     useEffect(() => {
-      if (editor) {
+      if (editor && inertDeserializer && !initialValue) {
         editorController.hydrateInitialHtml(initialHtml, {
-          deserializer: editor.api.html,
+          deserializer: inertDeserializer,
           setValue: setDocumentValue,
         });
       }
@@ -172,13 +205,14 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
 
     // Expose the imperative API once the editor exists.
     useEffect(() => {
-      if (!editor) return;
+      if (!editor || !inertDeserializer) return;
       const editorRef = createPlateEmailEditorRef<Value, Descendant>({
         controller: editorController,
         getDomHtml: () => getComposerDomHtml(contentContainerRef.current),
         getPlainText: () =>
           serializePlateValueToPlainText(editor.children as Value),
-        deserializer: editor.api.html,
+        getValue: () => editor.children as Value,
+        deserializer: inertDeserializer,
         setValue: setDocumentValue,
         insertNodes: (value) => editor.tf.insertNodes(value),
         insertText: (text) => editor.tf.insertText(text),
@@ -187,12 +221,19 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
         insertInlineNode: (node) =>
           editor.tf.insertNodes(node as unknown as Descendant),
       });
+      // The signature command is app-side: it edits the document model, which
+      // the shared ref only reaches through HTML.
+      const signatureCommand: ComposerSignatureCommand = {
+        insertSignatureBlock: (signature, placement) =>
+          insertSignatureBlockInDocument(editor, signature, placement),
+        removeSignatureBlock: () => removeSignatureBlockInDocument(editor),
+      };
       return publishPlateEmailEditorRef({
-        editorRef,
+        editorRef: Object.assign(editorRef, signatureCommand),
         onReady: onReadyRef.current,
         forwardedRef: ref,
       });
-    }, [editor, ref, editorController, setDocumentValue]);
+    }, [editor, ref, editorController, setDocumentValue, inertDeserializer]);
 
     const handleContainerClick = useCallback(
       (event: React.MouseEvent<HTMLDivElement>) => {

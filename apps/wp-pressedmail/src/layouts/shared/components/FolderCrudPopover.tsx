@@ -2,15 +2,14 @@
 
 import * as React from "react";
 import { __, sprintf } from "@wordpress/i18n";
-import {
-  Button,
-  Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  cn,
-} from "@kit/ui/plugin";
+import { Button, Input, Popover, PopoverTrigger, cn } from "@kit/ui/plugin";
 import { FolderPlus, Loader2, Pencil, Trash2, X } from "lucide-react";
+import {
+  PressedOverlayBody,
+  PressedOverlayError,
+  PressedOverlayFooter,
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 import type { FolderOperationResult } from "@/layouts/shared/hooks/useFolderOperations";
 import type { ImapFolder } from "@/services/interfaces";
 import { getEligibleFolderParents } from "./ProviderFolderTree";
@@ -280,14 +279,14 @@ export function FolderCrudPopover({
       <PopoverTrigger asChild className={triggerClassName}>
         {children}
       </PopoverTrigger>
-      <PopoverContent
+      <PressedPopoverContent
+        size="menu"
         role="dialog"
         align={align}
         side={side}
-        className="w-72 max-w-[calc(100vw-2rem)] rounded-md border-border bg-popover p-0 text-popover-foreground shadow-lg"
         data-test="folder-crud-popover"
         data-testid="folder-crud-popover">
-        <div className="flex items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
             {mode === "create" ? (
               <FolderPlus className="h-4 w-4 shrink-0 text-primary" />
@@ -309,7 +308,7 @@ export function FolderCrudPopover({
         </div>
 
         {mode === "manage" && view === "menu" && (
-          <div className="space-y-2 p-3">
+          <PressedOverlayBody className="space-y-2">
             {isSystem ? (
               <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
                 {__(
@@ -342,78 +341,80 @@ export function FolderCrudPopover({
                 </Button>
               </div>
             )}
-          </div>
+          </PressedOverlayBody>
         )}
 
         {view === "form" && (
-          <div className="space-y-3 p-3">
-            {accountId !== undefined && (
+          <>
+            <PressedOverlayBody className="space-y-3">
+              {accountId !== undefined && (
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="folder-crud-parent"
+                    className="text-xs font-medium text-muted-foreground">
+                    {__("Parent folder", "pressedmail")}
+                  </label>
+                  <select
+                    id="folder-crud-parent"
+                    value={parentId ?? ""}
+                    disabled={loading}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setParentId(value === "" ? null : Number(value));
+                    }}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground">
+                    <option value="">{__("Root", "pressedmail")}</option>
+                    {parentOptions.map((option) => (
+                      <option key={option.folderId} value={option.folderId}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <label
-                  htmlFor="folder-crud-parent"
+                  htmlFor="folder-crud-name"
                   className="text-xs font-medium text-muted-foreground">
-                  {__("Parent folder", "pressedmail")}
+                  {__("Folder name", "pressedmail")}
                 </label>
-                <select
-                  id="folder-crud-parent"
-                  value={parentId ?? ""}
+                <Input
+                  autoComplete="off"
+                  ref={inputRef}
+                  id="folder-crud-name"
+                  value={name}
                   disabled={loading}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setParentId(value === "" ? null : Number(value));
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
+                    setName(event.currentTarget.value);
+                    if (error) setError(null);
                   }}
-                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <option value="">{__("Root", "pressedmail")}</option>
-                  {parentOptions.map((option) => (
-                    <option key={option.folderId} value={option.folderId}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
+                    if (event.key === "Enter" && !loading) {
+                      void handleSubmit();
+                    }
+                    if (event.key === "Escape" && !loading) {
+                      if (mode === "manage") setView("menu");
+                      else setOpen(false);
+                    }
+                  }}
+                  placeholder={__("e.g., Receipts", "pressedmail")}
+                  className={cn("h-8", error && "border-destructive")}
+                />
               </div>
-            )}
-            <div className="space-y-1.5">
-              <label
-                htmlFor="folder-crud-name"
-                className="text-xs font-medium text-muted-foreground">
-                {__("Folder name", "pressedmail")}
-              </label>
-              <Input
-                autoComplete="off"
-                ref={inputRef}
-                id="folder-crud-name"
-                value={name}
-                disabled={loading}
-                onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                  setName(event.currentTarget.value);
-                  if (error) setError(null);
-                }}
-                onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
-                  if (event.key === "Enter" && !loading) {
-                    void handleSubmit();
-                  }
-                  if (event.key === "Escape" && !loading) {
-                    if (mode === "manage") setView("menu");
-                    else setOpen(false);
-                  }
-                }}
-                placeholder={__("e.g., Receipts", "pressedmail")}
-                className={cn("h-8", error && "border-destructive")}
-              />
-            </div>
-            {pathPreview && (
-              <p
-                className="truncate rounded-md bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
-                title={pathPreview}>
-                {pathPreview}
-              </p>
-            )}
-            {error && (
-              <p className="text-xs text-destructive" role="alert">
-                {error}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
+              {pathPreview && (
+                <p
+                  className="truncate rounded-md bg-muted/50 px-2 py-1.5 text-xs text-muted-foreground"
+                  title={pathPreview}>
+                  {pathPreview}
+                </p>
+              )}
+              {error && (
+                <PressedOverlayError className="text-xs">
+                  {error}
+                </PressedOverlayError>
+              )}
+            </PressedOverlayBody>
+            <PressedOverlayFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -435,31 +436,33 @@ export function FolderCrudPopover({
                   ? __("Create", "pressedmail")
                   : __("Save", "pressedmail")}
               </Button>
-            </div>
-          </div>
+            </PressedOverlayFooter>
+          </>
         )}
 
         {mode === "manage" && view === "delete" && (
-          <div className="space-y-3 p-3">
-            <p className="text-sm text-foreground">
-              {sprintf(
-                /* translators: %s: folder name. */
-                __('Delete "%s"?', "pressedmail"),
-                folderName,
-              )}
-            </p>
-            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-              {__(
-                "Deleting a folder is provider-backed. Depending on your mail server, messages in this folder may be deleted or moved.",
-                "pressedmail",
-              )}
-            </p>
-            {error && (
-              <p className="text-xs text-destructive" role="alert">
-                {error}
+          <>
+            <PressedOverlayBody className="space-y-3">
+              <p className="text-sm text-foreground">
+                {sprintf(
+                  /* translators: %s: folder name. */
+                  __('Delete "%s"?', "pressedmail"),
+                  folderName,
+                )}
               </p>
-            )}
-            <div className="flex justify-end gap-2">
+              <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                {__(
+                  "Deleting a folder is provider-backed. Depending on your mail server, messages in this folder may be deleted or moved.",
+                  "pressedmail",
+                )}
+              </p>
+              {error && (
+                <PressedOverlayError className="text-xs">
+                  {error}
+                </PressedOverlayError>
+              )}
+            </PressedOverlayBody>
+            <PressedOverlayFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -477,10 +480,10 @@ export function FolderCrudPopover({
                 {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {__("Delete folder", "pressedmail")}
               </Button>
-            </div>
-          </div>
+            </PressedOverlayFooter>
+          </>
         )}
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

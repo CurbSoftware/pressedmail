@@ -335,7 +335,11 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   composer_default_format: "rich_text",
   composer_default_font: "system",
   composer_default_font_size: "14",
-  composer_signature_placement: "end",
+  // Above the quoted original, which is where a signature belongs on a reply:
+  // at the foot of what the author wrote, not below the message they are
+  // answering. Defaulting to "end" is what put it under the quote. The setting
+  // still offers that for anyone who wants it there.
+  composer_signature_placement: "before_quote",
   composer_confirm_unsaved_close: true,
   undo_send_enabled: false,
   undo_send_delay_seconds: 15,
@@ -500,7 +504,9 @@ async function updatePreference<K extends keyof UserPreferences>(
         ...prev,
         preferences:
           writeVersion === preferenceWriteVersion
-            ? { ...prev.preferences, [key]: previous }
+            ? data.preferences
+              ? normalizePreferences(data.preferences)
+              : { ...prev.preferences, [key]: previous }
             : prev.preferences,
         saving: writeVersion === preferenceWriteVersion ? false : prev.saving,
         error:

@@ -134,6 +134,8 @@ export function getDraftComposeData(
     references: message.references,
     subject: message.subject ?? "",
     body,
+    draftDocument: message.draftDocument,
+    draftDocumentExpired: message.draftDocumentExpired,
     contentType,
     bodyBackgroundColor:
       message.bodyBackgroundColor ?? unwrapped.bodyBackgroundColor,
@@ -165,6 +167,7 @@ export function getDraftComposeData(
         ? draftMessageId
         : undefined,
     draftAttachmentManifestComplete: hasAttachmentManifest,
+    draftOpened: true,
   };
 }
 

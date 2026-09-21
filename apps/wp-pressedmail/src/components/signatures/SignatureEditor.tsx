@@ -155,8 +155,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               onChange={setContent}
               placeholder={__("Best regards, Your Name", "pressedmail")}
               disabled={saving}
-              previewTitle={__("Signature preview", "pressedmail")}
-              editorClassName="min-h-[260px]"
             />
 
             {/* Settings */}

@@ -14,7 +14,7 @@
  */
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _x, sprintf } from "@wordpress/i18n";
 import {
   ChevronLeft,
   ChevronRight,
@@ -86,12 +86,6 @@ import {
   DropdownMenuTrigger,
   AlertDialog,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
 } from "@kit/ui/plugin";
 import { toast } from "@kit/ui/plugin";
 import { useEmailSelection } from "@/context/selection";
@@ -110,6 +104,11 @@ import {
   useAutoTaggerToolAvailable,
 } from "@/context/auto-tagger/AutoTaggerContext";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import {
   fetchFilterRules,
   previewFilterRuleRun,
@@ -484,6 +483,7 @@ export function BulkActionBar({
       let attemptedCount = 0;
       let successCount = 0;
       let firstError: string | undefined;
+      let firstWarning: string | undefined;
       const failedIds: (string | number)[] = [];
       const processedIds = new Set(snapshot.excludedIds);
 
@@ -529,6 +529,7 @@ export function BulkActionBar({
         successCount +=
           result.successCount ?? (result.success ? candidates.length : 0);
         failedIds.push(...(result.failedIds ?? []));
+        firstWarning ??= result.warning;
         if (!result.success && !firstError) {
           firstError = result.error;
         }
@@ -546,6 +547,7 @@ export function BulkActionBar({
         failedIds,
         totalCount: targetCount,
         error: firstError,
+        warning: firstWarning,
       };
     },
     [getSelectionSnapshot, loadMessagesSnapshot],
@@ -611,6 +613,7 @@ export function BulkActionBar({
               `${failCount} ${failCount === 1 ? "message" : "messages"} failed`,
           );
         }
+        if (result.warning) toast.warning(result.warning);
       } catch {
         if (!captured.isCurrent()) return;
         toast.error(
@@ -1251,6 +1254,7 @@ export function BulkActionBar({
           total: selectedMessages.length,
           action: "phishing",
           waitForQueue: true,
+          controller,
         });
         const targets = await awaitBulkAiTurn(
           activity,
@@ -1403,6 +1407,7 @@ export function BulkActionBar({
           total: selectedMessages.length,
           action: "summarize",
           waitForQueue: true,
+          controller,
         });
         const targets = await awaitBulkAiTurn(
           activity,
@@ -1552,6 +1557,7 @@ export function BulkActionBar({
         total: selectedMessages.length,
         action: "autotag",
         waitForQueue: true,
+        controller,
       });
       const targets = await awaitBulkAiTurn(
         activity,
@@ -1598,6 +1604,10 @@ export function BulkActionBar({
         );
 
         if (!captured.isPrincipalCurrent()) return;
+        // An aborted request comes back as an error result; that is a stop, not a failure.
+        if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
+          break;
+        }
 
         if (result.status === "error") {
           if (!captured.isCurrent()) return;
@@ -2134,7 +2144,7 @@ export function BulkActionBar({
           ) : (
             <>
               <PressedOutRibbonButton
-                label={__("Archive", "pressedmail")}
+                label={_x("Archive", "verb", "pressedmail")}
                 disabled={pressedOutBulkDisabled}
                 onClick={handleArchive}
                 icon={
@@ -2288,25 +2298,21 @@ export function BulkActionBar({
           onOpenChange={(open) => {
             if (!open && !ruleRunLoading) setPendingOrganizeRule(null);
           }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                <AlertDialogTitleRow>
-                  <Play />
-                  <span>{__("Run saved rule", "pressedmail")}</span>
-                </AlertDialogTitleRow>
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                {pendingOrganizeRule
+          <PressedAlertDialogContent size="confirmation">
+            <PressedAlertDialogHeader
+              title={__("Run saved rule", "pressedmail")}
+              icon={Play}
+              description={
+                pendingOrganizeRule
                   ? sprintf(
                       /* translators: %s: rule name. */
                       __("Choose where to run “%s”.", "pressedmail"),
                       pendingOrganizeRule.name,
                     )
-                  : __("Choose where to run this rule.", "pressedmail")}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
+                  : __("Choose where to run this rule.", "pressedmail")
+              }
+            />
+            <PressedOverlayFooter>
               <AlertDialogCancel disabled={ruleRunLoading}>
                 {__("Cancel", "pressedmail")}
               </AlertDialogCancel>
@@ -2330,8 +2336,8 @@ export function BulkActionBar({
                 )}
                 {__("Whole current view", "pressedmail")}
               </Button>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+            </PressedOverlayFooter>
+          </PressedAlertDialogContent>
         </AlertDialog>
         <ConfirmationPanel
           open={pendingBulkAi !== null}
@@ -2437,14 +2443,16 @@ export function BulkActionBar({
             </PressedTooltip>
           ) : (
             <>
-              <PressedTooltip content={__("Archive", "pressedmail")} side="top">
+              <PressedTooltip
+                content={_x("Archive", "verb", "pressedmail")}
+                side="top">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8"
                   disabled={isLoading}
                   onClick={handleArchive}
-                  aria-label={__("Archive", "pressedmail")}>
+                  aria-label={_x("Archive", "verb", "pressedmail")}>
                   <EmailArchiveIcon className={MAIL_ACTION_ICON_CLASS} />
                 </Button>
               </PressedTooltip>
@@ -2733,25 +2741,21 @@ export function BulkActionBar({
         onOpenChange={(open) => {
           if (!open && !ruleRunLoading) setPendingOrganizeRule(null);
         }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow>
-                <Play />
-                <span>{__("Run saved rule", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingOrganizeRule
+        <PressedAlertDialogContent size="confirmation">
+          <PressedAlertDialogHeader
+            title={__("Run saved rule", "pressedmail")}
+            icon={Play}
+            description={
+              pendingOrganizeRule
                 ? sprintf(
                     /* translators: %s: rule name. */
                     __("Choose where to run “%s”.", "pressedmail"),
                     pendingOrganizeRule.name,
                   )
-                : __("Choose where to run this rule.", "pressedmail")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+                : __("Choose where to run this rule.", "pressedmail")
+            }
+          />
+          <PressedOverlayFooter>
             <AlertDialogCancel disabled={ruleRunLoading}>
               {__("Cancel", "pressedmail")}
             </AlertDialogCancel>
@@ -2775,8 +2779,8 @@ export function BulkActionBar({
               )}
               {__("Whole current view", "pressedmail")}
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
       <ConfirmationPanel
         open={pendingBulkAi !== null}

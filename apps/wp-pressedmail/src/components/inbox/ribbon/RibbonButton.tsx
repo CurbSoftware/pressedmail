@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 // export names are retained for import stability.
 
 export const PRESSED_OUT_RIBBON_BUTTON_CLASS =
-  "h-[52px] w-16 shrink-0 rounded-md border border-transparent bg-transparent px-1 py-1 inline-flex flex-col items-center justify-center gap-0.5 text-center transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 disabled:text-muted-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-40 data-[disabled=true]:text-muted-foreground";
+  "h-[52px] w-16 shrink-0 rounded-md border border-transparent bg-transparent px-1 py-1 inline-flex flex-col items-center justify-center gap-0.5 text-center transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40 disabled:text-muted-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-40 data-[disabled=true]:text-muted-foreground";
 
 export const PRESSED_OUT_RIBBON_ICON_CLASS = "size-4 shrink-0";
 

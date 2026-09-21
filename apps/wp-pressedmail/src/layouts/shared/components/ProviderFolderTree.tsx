@@ -487,7 +487,7 @@ export function ProviderFolderTree({
             }
           }}
           className={cn(
-            "group/folder-tree relative w-full rounded-r-full outline-none transition-all focus-visible:ring-2 focus-visible:ring-ring",
+            "group/folder-tree relative w-full rounded-r-full outline-none transition-all",
             SIDEBAR_NAV_ITEM_CLASS,
             folder.selectable === false
               ? "cursor-default text-muted-foreground"

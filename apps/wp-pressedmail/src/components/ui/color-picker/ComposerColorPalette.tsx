@@ -164,13 +164,24 @@ export function ComposerColorPalette({
   const isBackgroundEditor = customEditorLayout === "background";
   // COMPOSER_CUSTOM_COLOR_MAX is derived from the full 11-shade grid (22), but
   // every composer popover renders the reduced 7-shade one, which only draws 14
-  // slots. Colours past the rendered slot count can be stored from the settings
-  // page and then have nowhere to appear, so the cap follows the grid that is
-  // actually on screen. 22 stays the server-side ceiling.
+  // slots. Picker additions follow that grid; the settings manager can still
+  // curate all 22 saved colors at any density.
   const customSlotCount = activeShades.length * COMPOSER_CUSTOM_COLOR_COLUMNS;
   const canAddCustom =
     !isPreview &&
-    customColors.length < Math.min(customSlotCount, COMPOSER_CUSTOM_COLOR_MAX);
+    customColors.length <
+      (isManager
+        ? COMPOSER_CUSTOM_COLOR_MAX
+        : Math.min(customSlotCount, COMPOSER_CUSTOM_COLOR_MAX));
+  const customRowCount = isManager
+    ? Math.max(
+        activeShades.length,
+        Math.ceil(
+          (customColors.length + (canAddCustom ? 1 : 0)) /
+            COMPOSER_CUSTOM_COLOR_COLUMNS,
+        ),
+      )
+    : activeShades.length;
   const showCustomEditor = !isPreview && draftOpen;
 
   const handleSwatch = useCallback(
@@ -361,7 +372,7 @@ export function ComposerColorPalette({
             role="region"
             aria-label={__("Composer color swatches", "pressedmail")}
             tabIndex={0}
-            className="max-w-full min-w-0 overflow-x-auto pb-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            className="max-w-full min-w-0 overflow-x-auto pb-1">
             <div
               data-test="composer-color-palette-grid"
               data-testid="composer-color-palette-grid"
@@ -416,10 +427,10 @@ export function ComposerColorPalette({
                       data-test="composer-color-palette-custom-column"
                       data-testid="composer-color-palette-custom-column"
                       className="flex flex-col gap-0.5 border-l border-border pl-1">
-                      {Array.from({ length: activeShades.length }).map(
+                      {Array.from({ length: customRowCount }).map(
                         (_, rowIndex) => {
                           const customIndex =
-                            columnIndex * activeShades.length + rowIndex;
+                            columnIndex * customRowCount + rowIndex;
                           const hex = customColors[customIndex];
                           if (hex) {
                             return (

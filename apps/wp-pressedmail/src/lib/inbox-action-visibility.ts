@@ -41,3 +41,25 @@ export function resolveInboxActionVisibility({
       autoTaggerToolAvailable,
   };
 }
+
+export interface ImportantActionInput {
+  isFreeBuild: boolean;
+  smartInboxEnabled: boolean;
+}
+
+/**
+ * Whether the message "important" control should be offered at all.
+ *
+ * Importance is persisted by POST smart-inbox/important, which only
+ * `includes/Routes/ProApi.php` registers and which is served by the Pro
+ * SmartInboxService. Free has no equivalent route and never will: shipping one
+ * would mean shipping the Smart Inbox implementation in the WordPress.org
+ * build. So Free does not render the control, rather than render one that
+ * always 404s.
+ */
+export function isImportantActionAvailable({
+  isFreeBuild,
+  smartInboxEnabled,
+}: ImportantActionInput): boolean {
+  return !isFreeBuild && smartInboxEnabled;
+}

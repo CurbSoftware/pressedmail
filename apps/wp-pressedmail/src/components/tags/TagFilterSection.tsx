@@ -193,7 +193,7 @@ export function TagFilterSection({
                 data-active={isActive ? "true" : undefined}
                 onClick={() => toggle(tag)}
                 className={cn(
-                  "mx-auto flex h-9 w-9 items-center justify-center rounded-md border transition-colors hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "mx-auto flex h-9 w-9 items-center justify-center rounded-md border transition-colors hover:opacity-85",
                   isActive
                     ? "ring-2 ring-primary/50 ring-offset-1 ring-offset-background"
                     : "",
@@ -235,7 +235,7 @@ export function TagFilterSection({
                   onClick={() => toggle(tag)}
                   className={cn(
                     emailTagSoftBadgeClassName,
-                    "w-full min-w-0 max-w-full justify-start text-left transition-colors hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "w-full min-w-0 max-w-full justify-start text-left transition-colors hover:opacity-85",
                     rowActionCount === 2 && "pr-12",
                     rowActionCount === 1 && "pr-7",
                     isActive

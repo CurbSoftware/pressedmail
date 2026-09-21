@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { __, _n, sprintf } from "@wordpress/i18n";
+import { __, _n, _x, sprintf } from "@wordpress/i18n";
 import {
   CheckSquare,
   CircleAlert,
@@ -93,6 +93,7 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { cn } from "@/lib/utils";
 import { surfaceApiAuthError } from "@/lib/api-auth-errors";
 import { apiFetch } from "@/lib/api-client";
+import { requestScheduledDraftHandoff } from "@/services/scheduled-email-edit";
 import { getReadableMessagePreview } from "@/lib/email-content-normalization";
 import {
   getAccountQualifiedMessageToken,
@@ -166,7 +167,10 @@ import {
 } from "@/services/filter-rules.service";
 import type { FilterRule } from "@/types/filter-rules";
 import { ruleCanRunManually } from "@/types/filter-rules";
-import { resolveInboxActionVisibility } from "@/lib/inbox-action-visibility";
+import {
+  isImportantActionAvailable,
+  resolveInboxActionVisibility,
+} from "@/lib/inbox-action-visibility";
 import { PaginationFooter } from "@/layouts/shared/components/footer-system";
 import { buildEmailRowViewModel } from "@/components/inbox/email-row-model";
 
@@ -298,10 +302,9 @@ function MailRowComponent({
         onPointerLeave={longPress.onPointerLeave}
         className={cn(
           "pm-no-tap-highlight flex w-full flex-col text-left transition-colors",
-          // The row is the phone shell's primary control and it is a div, so it
-          // gets no focus ring for free. Without this, tabbing the message list
-          // moves through every message showing nothing at all.
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-inset",
+          // The row is the phone shell's primary control and it is a div, but
+          // role="button" and tabIndex put it inside the shared focus rule in
+          // tailwind-base.css, so it shows an indicator like any other control.
           mobileRowDensityClass(rowPresentation.density),
           threadGrouped && "border-l-4 border-l-primary",
           selected && bulkMode ? "bg-primary/10" : "active:bg-muted/50",
@@ -338,7 +341,8 @@ function MailRowComponent({
                 title={mail.accountEmail}
                 data-test="message-account-badge"
                 data-testid="email-row-account-badge">
-                {accountBadge}
+                {/* An element holds one data-test, so the testid's twin sits inside. */}
+                <span data-test="email-row-account-badge">{accountBadge}</span>
               </Badge>
             ) : null}
             <span
@@ -579,6 +583,10 @@ export function MobileInboxScreen() {
   const { summarizeMessages } = useEmailSummaries();
   const aiSummarizeAvailable = useFeatureAvailable("ai_summarize");
   const snoozeAvailable = useFeatureEnabled("snooze");
+  const showSelectedImportant = isImportantActionAvailable({
+    isFreeBuild: __IS_FREE__,
+    smartInboxEnabled: useFeatureEnabled("smart_inbox"),
+  });
   const { classifyEmails } = useAutoTagger();
   const autoTaggerAvailable = useAutoTaggerToolAvailable();
   const {
@@ -745,6 +753,8 @@ export function MobileInboxScreen() {
         bcc: draft.bcc ?? "",
         subject: draft.subject ?? "",
         body: draft.body ?? "",
+        draftDocument: draft.draftDocument,
+        draftDocumentExpired: draft.draftDocumentExpired,
         contentType: draft.contentType ?? "html",
         mode: "new",
         bodyBackgroundColor: draft.bodyBackgroundColor,
@@ -757,6 +767,7 @@ export function MobileInboxScreen() {
         inReplyTo: draft.inReplyTo,
         references: draft.references,
         draftAttachmentManifestComplete: draft.draftAttachmentManifestComplete,
+        draftOpened: draft.draftOpened,
         scheduledEmailId: draft.scheduledEmailId,
         scheduledAccountId: draft.scheduledAccountId,
         scheduledAt: draft.scheduledAt,
@@ -790,24 +801,11 @@ export function MobileInboxScreen() {
       scheduledEditPendingRef.current = true;
 
       try {
-        const apiUrl = window.pressedmailPlugin?.apiUrl || "";
-        const response = await apiFetch(
-          `${apiUrl}${getRuntimeRestNamespace()}/scheduled-emails/edit/${scheduledEmailId}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              prior_draft_uid: sourceIdentity.uid,
-              prior_draft_folder: sourceIdentity.folder,
-              prior_draft_account_id: sourceIdentity.accountId,
-              prior_draft_uidvalidity: sourceIdentity.uidValidity,
-              prior_draft_message_id: sourceIdentity.messageId,
-            }),
-          },
+        const response = await requestScheduledDraftHandoff(
+          scheduledEmailId,
+          sourceIdentity,
         );
-        const handoff = parseScheduledDraftHandoff(await response.json());
+        const handoff = parseScheduledDraftHandoff(response);
         if (!handoff) {
           throw new Error(
             __("Scheduled draft handoff was incomplete", "pressedmail"),
@@ -2171,7 +2169,7 @@ export function MobileInboxScreen() {
         }
       : {
           id: "archive",
-          label: __("Archive", "pressedmail"),
+          label: _x("Archive", "verb", "pressedmail"),
           ariaLabel: __("Archive selected messages", "pressedmail"),
           icon: EmailArchiveIcon,
           onAction: handleBulkArchive,
@@ -2352,7 +2350,7 @@ export function MobileInboxScreen() {
                   <button
                     type="button"
                     aria-label={__("More options", "pressedmail")}
-                    className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted aria-expanded:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted aria-expanded:bg-muted">
                     <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
                   </button>
                 </DropdownMenuTrigger>
@@ -2584,30 +2582,34 @@ export function MobileInboxScreen() {
                 handleToggleStarForSelection(false);
               }}
             />
-            <SelectedSheetAction
-              label={__("Mark important", "pressedmail")}
-              icon={CircleAlert}
-              disabled={selectedCount === 0 || allSelectedImportant}
-              onAction={() => {
-                setActionSheetOpen(false);
-                handleToggleImportantForSelection(true);
-              }}
-            />
-            <SelectedSheetAction
-              label={__("Remove important", "pressedmail")}
-              icon={CircleAlert}
-              disabled={selectedCount === 0 || !allSelectedImportant}
-              onAction={() => {
-                setActionSheetOpen(false);
-                handleToggleImportantForSelection(false);
-              }}
-            />
+            {showSelectedImportant ? (
+              <>
+                <SelectedSheetAction
+                  label={__("Mark important", "pressedmail")}
+                  icon={CircleAlert}
+                  disabled={selectedCount === 0 || allSelectedImportant}
+                  onAction={() => {
+                    setActionSheetOpen(false);
+                    handleToggleImportantForSelection(true);
+                  }}
+                />
+                <SelectedSheetAction
+                  label={__("Remove important", "pressedmail")}
+                  icon={CircleAlert}
+                  disabled={selectedCount === 0 || !allSelectedImportant}
+                  onAction={() => {
+                    setActionSheetOpen(false);
+                    handleToggleImportantForSelection(false);
+                  }}
+                />
+              </>
+            ) : null}
           </SelectedSheetGroup>
 
           <SelectedSheetGroup title={__("Organize", "pressedmail")}>
             {!isTrashFolder && !isJunkFolder ? (
               <SelectedSheetAction
-                label={__("Archive", "pressedmail")}
+                label={_x("Archive", "verb", "pressedmail")}
                 icon={EmailArchiveIcon}
                 disabled={selectedCount === 0}
                 onAction={() => {

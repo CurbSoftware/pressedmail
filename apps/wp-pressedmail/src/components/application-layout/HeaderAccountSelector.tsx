@@ -414,8 +414,7 @@ export function HeaderAccountSelector({
                           handleToggleConsolidatedAccount(account)
                         }
                         aria-label={`Include ${accountEmail} in combined inbox`}
-                        className="pm-themed-checkbox pm-combined-inbox-checkbox"
-                        data-test={`consolidated-account-checkbox-${accountEmail}`}
+                                                data-test={`consolidated-account-checkbox-${accountEmail}`}
                       />
                     </label>
                   )}

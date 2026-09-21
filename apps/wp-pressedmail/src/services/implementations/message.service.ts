@@ -164,12 +164,18 @@ function getErrorMessage(response: ApiErrorResponse | Error): string {
   return __("Something went wrong. Please try again.", "pressedmail");
 }
 
+function mutationWarning(response: unknown): string | undefined {
+  const warning = (response as { warning?: unknown } | null)?.warning;
+  return typeof warning === "string" && warning ? warning : undefined;
+}
+
 interface BatchMutationResponse {
   status?: string | number;
   message?: string;
   processed_count?: number;
   failed_ids?: unknown;
   total_count?: number;
+  warning?: string | null;
 }
 
 /**
@@ -372,6 +378,9 @@ export class MessageService implements IMessageOperations {
       successCount: processedCount,
       failedIds: resolvedFailedIds,
       totalCount: messageIds.length,
+      ...(typeof batchResponse.warning === "string" && batchResponse.warning
+        ? { warning: batchResponse.warning }
+        : {}),
       ...(createdFolders.length > 0 ? { createdFolders } : {}),
       error: success
         ? undefined
@@ -457,6 +466,7 @@ export class MessageService implements IMessageOperations {
       if (result.rateLimited) {
         aggregate.rateLimited = true;
       }
+      if (result.warning) aggregate.warning ??= result.warning;
       if (result.requiresRefresh) aggregate.requiresRefresh = true;
       if (!result.success) {
         const unattemptedIds = messageIds.slice(i + chunkIds.length);
@@ -842,7 +852,7 @@ export class MessageService implements IMessageOperations {
         return operationFailure(response as ApiErrorResponse);
       }
 
-      return { success: true };
+      return { success: true, warning: mutationWarning(response) };
     } catch (error) {
       // Invalidate cache on error
       if (this.cache) {
@@ -922,7 +932,7 @@ export class MessageService implements IMessageOperations {
         });
       }
 
-      return { success: true };
+      return { success: true, warning: mutationWarning(response) };
     } catch (error) {
       if (this.cache) {
         this.cache.invalidateMessages({

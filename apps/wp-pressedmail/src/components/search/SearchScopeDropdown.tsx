@@ -53,7 +53,7 @@ export function SearchScopeDropdown({
         variant="ghost"
         size="icon"
         className={cn(
-          "h-9 w-9 shrink-0 gap-0.5 px-0 py-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+          "h-9 w-9 shrink-0 gap-0.5 px-0 py-2",
           className,
         )}
         aria-label={__("Search scope", "pressedmail")}
@@ -77,7 +77,7 @@ export function SearchScopeDropdown({
           variant="ghost"
           size="icon"
           className={cn(
-            "h-9 w-11 shrink-0 gap-px py-2 pl-2 pr-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+            "h-9 w-11 shrink-0 gap-px py-2 pl-2 pr-1",
             __IS_PRO__ &&
               "bg-clip-border hover:bg-accent data-[state=open]:bg-accent",
             className,

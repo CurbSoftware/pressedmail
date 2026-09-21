@@ -79,7 +79,7 @@ export const TagBadge: React.FC<TagBadgeProps> = ({
       {removable && onRemove && (
         <button
           type="button"
-          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
             onRemove();

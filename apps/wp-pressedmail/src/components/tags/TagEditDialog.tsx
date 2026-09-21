@@ -14,16 +14,9 @@ import { __, sprintf } from "@wordpress/i18n";
 import { Tag as TagIcon, Trash2 } from "lucide-react";
 import {
   Dialog,
-  DialogTitleRow,
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
   Input,
   Label,
@@ -33,6 +26,8 @@ import {
 import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
 import { cn } from "@/lib/utils";
 import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
   PressedDialogContent,
   PressedDialogHeader,
   PressedOverlayBody,
@@ -141,7 +136,7 @@ function TagColorPicker({
                 select(index, event.currentTarget.parentElement)
               }
               className={cn(
-                "size-7 rounded-full border border-black/10 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "size-7 rounded-full border border-black/10 transition-shadow",
                 checked &&
                   "ring-2 ring-foreground ring-offset-2 ring-offset-background",
               )}
@@ -405,26 +400,21 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="sm:max-w-sm">
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            <DialogTitleRow>
-              <Trash2 aria-hidden="true" />
-              <span>{__("Delete tag", "pressedmail")}</span>
-            </DialogTitleRow>
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {sprintf(
-              /* translators: %s: tag name. */
-              __(
-                "Delete the tag \u201c%s\u201d? It comes off every message that has it.",
-                "pressedmail",
-              ),
-              tag?.name ?? "",
-            )}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
+      <PressedAlertDialogContent size="confirmation">
+        <PressedAlertDialogHeader
+          title={__("Delete tag", "pressedmail")}
+          icon={Trash2}
+          tone="destructive"
+          description={sprintf(
+            /* translators: %s: tag name. */
+            __(
+              "Delete the tag \u201c%s\u201d? It comes off every message that has it.",
+              "pressedmail",
+            ),
+            tag?.name ?? "",
+          )}
+        />
+        <PressedOverlayFooter>
           <AlertDialogCancel>{__("Cancel", "pressedmail")}</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
@@ -432,8 +422,8 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
             {deleting ? __("Deleting…", "pressedmail") : __("Delete", "pressedmail")}
           </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+        </PressedOverlayFooter>
+      </PressedAlertDialogContent>
     </AlertDialog>
   );
 };

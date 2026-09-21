@@ -4,8 +4,8 @@ import type {
   CalendarEvent,
   CalendarView,
   LocalCalendarEvent,
+  ScopedCalendarContextValue,
 } from "@/types/calendar";
-import type { ScopedCalendarContextValue } from "@/components/calendar/calendar-occurrence";
 
 const DISABLED_MESSAGE = "Calendar is not included in this build.";
 

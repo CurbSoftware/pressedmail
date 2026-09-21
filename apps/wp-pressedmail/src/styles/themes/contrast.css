@@ -56,7 +56,9 @@
     --theme-warning: #f59e0b;
     --theme-error: #ef4444;
     --theme-starred: #facc15;
-    --theme-important: #fb923c;
+    /* Filled importance chevron. Deeper than this palette's other ambers so the
+       glyph clears the 3:1 non-text floor on the light card and canvas. */
+    --theme-important: #c2740a;
   }
 
   /* Contrast Theme Dark Mode */

@@ -9,7 +9,7 @@
  * @since 1.6.0
  */
 
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _x, sprintf } from "@wordpress/i18n";
 import {
   useEffect,
   useState,
@@ -207,7 +207,11 @@ function getFolderRecoveryDescriptor(
 export function PressedOutDisabledMessageActions({
   showOrganizeActions = true,
   folderRecoveryAction,
-}: Pick<EmailActionBarProps, "showOrganizeActions" | "folderRecoveryAction">) {
+  onDelete,
+}: Pick<EmailActionBarProps, "showOrganizeActions" | "folderRecoveryAction"> & {
+  /** Enables Delete while a draft is open in the pane composer. */
+  onDelete?: () => void;
+}) {
   const { phishingEnabled } = useSelectedMessagePhishingScan(null);
   const recoveryAction = getFolderRecoveryDescriptor(folderRecoveryAction);
 
@@ -275,7 +279,7 @@ export function PressedOutDisabledMessageActions({
             ) : (
               <>
                 <PressedOutRibbonButton
-                  label={__("Archive", "pressedmail")}
+                  label={_x("Archive", "verb", "pressedmail")}
                   disabled
                   dataTest="reading-pane-action-archive"
                   icon={
@@ -293,7 +297,8 @@ export function PressedOutDisabledMessageActions({
                 />
                 <PressedOutRibbonButton
                   label={__("Delete", "pressedmail")}
-                  disabled
+                  disabled={!onDelete}
+                  onClick={onDelete}
                   ariaLabel={__("Move to trash", "pressedmail")}
                   dataTest="reading-pane-action-trash"
                   icon={
@@ -642,6 +647,7 @@ export function EmailActionBar({
             result.error ||
               __("Could not move this message. Try again.", "pressedmail"),
           );
+        if (result.warning) toast.warning(result.warning);
       } catch (error) {
         if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error))
           toast.error(
@@ -1564,7 +1570,7 @@ export function EmailActionBar({
                   <>
                     {onArchive && (
                       <PressedOutRibbonButton
-                        label={__("Archive", "pressedmail")}
+                        label={_x("Archive", "verb", "pressedmail")}
                         onClick={onArchive}
                         disabled={isLoading}
                         dataTest="reading-pane-action-archive"
@@ -1763,8 +1769,8 @@ export function EmailActionBar({
             {onArchive && (
               <VerticalRibbonAction
                 icon={<EmailArchiveIcon />}
-                label={__("Archive", "pressedmail")}
-                tooltip={__("Archive", "pressedmail")}
+                label={_x("Archive", "verb", "pressedmail")}
+                tooltip={_x("Archive", "verb", "pressedmail")}
                 onClick={onArchive}
                 disabled={isLoading}
                 dataTest="reading-pane-action-archive"
@@ -1908,14 +1914,14 @@ export function EmailActionBar({
             <>
               {onArchive && (
                 <PressedTooltip
-                  content={__("Archive", "pressedmail")}
+                  content={_x("Archive", "verb", "pressedmail")}
                   side="top">
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={onArchive}
                     disabled={isLoading}
-                    aria-label={__("Archive", "pressedmail")}
+                    aria-label={_x("Archive", "verb", "pressedmail")}
                     className="h-7 w-7">
                     <EmailArchiveIcon className={MAIL_ACTION_ICON_CLASS} />
                   </Button>

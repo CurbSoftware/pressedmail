@@ -116,74 +116,78 @@ export function TaskProgressBanner() {
   const cancelTargetId =
     group.gate?.id ?? group.tasks.find(isActiveStatus)?.id ?? null;
 
+  // The banner's own data-test is task-progress-banner and an element holds
+  // one, so the legacy testid's twin goes on this plain block wrapper.
   return (
-    <div
-      data-testid="sweep-progress-banner"
-      data-test="task-progress-banner"
-      className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
-      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-      <span className="min-w-0 truncate font-medium text-foreground">
-        {label}
-      </span>
-      <span className="min-w-0 truncate">
-        {gateActive
-          ? __("Preparing (syncing folders)…", "pressedmail")
-          : group.isSweep
-            ? sprintf(
-                /* translators: %1$d: emails swept so far, %2$d: total planned. */
-                __("Sweeping… %1$d / %2$d", "pressedmail"),
-                current,
-                total,
-              )
-            : sprintf(
-                /* translators: %1$d: items processed so far, %2$d: total. */
-                __("%1$d / %2$d", "pressedmail"),
-                current,
-                total,
-              )}
-      </span>
-      {/* The bar is the demo's affordance: the count alone made a long run
-          look stalled between increments. The text above stays the readout. */}
-      {!gateActive && total > 0 && (
-        <TaskProgressRow
-          current={current}
-          total={total}
-          hideCount
-          className="w-24 shrink-0"
-        />
-      )}
-      {groups.length > 1 && (
-        <span className="shrink-0">
-          {sprintf(
-            /* translators: %d: number of additional active runs. */
-            __("+%d more", "pressedmail"),
-            groups.length - 1,
-          )}
+    <div data-test="sweep-progress-banner">
+      <div
+        data-testid="sweep-progress-banner"
+        data-test="task-progress-banner"
+        className="flex items-center gap-2 border-b border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        <span className="min-w-0 truncate font-medium text-foreground">
+          {label}
         </span>
-      )}
-      <span className="ml-auto flex shrink-0 items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs"
-          data-test="sweep-banner-view"
-          data-testid="sweep-banner-view"
-          onClick={() => openActivityPanel()}>
-          {__("View", "pressedmail")}
-        </Button>
-        {cancelTargetId !== null && (
+        <span className="min-w-0 truncate">
+          {gateActive
+            ? __("Preparing (syncing folders)…", "pressedmail")
+            : group.isSweep
+              ? sprintf(
+                  /* translators: %1$d: emails swept so far, %2$d: total planned. */
+                  __("Sweeping… %1$d / %2$d", "pressedmail"),
+                  current,
+                  total,
+                )
+              : sprintf(
+                  /* translators: %1$d: items processed so far, %2$d: total. */
+                  __("%1$d / %2$d", "pressedmail"),
+                  current,
+                  total,
+                )}
+        </span>
+        {/* The bar is the demo's affordance: the count alone made a long run
+            look stalled between increments. The text above stays the readout. */}
+        {!gateActive && total > 0 && (
+          <TaskProgressRow
+            current={current}
+            total={total}
+            hideCount
+            className="w-24 shrink-0"
+          />
+        )}
+        {groups.length > 1 && (
+          <span className="shrink-0">
+            {sprintf(
+              /* translators: %d: number of additional active runs. */
+              __("+%d more", "pressedmail"),
+              groups.length - 1,
+            )}
+          </span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 px-1.5 text-xs"
-            data-test="sweep-banner-cancel"
-            data-testid="sweep-banner-cancel"
-            aria-label={__("Cancel", "pressedmail")}
-            onClick={() => void cancel(cancelTargetId)}>
-            <X className="h-3.5 w-3.5" />
+            className="h-6 px-2 text-xs"
+            data-test="sweep-banner-view"
+            data-testid="sweep-banner-view"
+            onClick={() => openActivityPanel()}>
+            {__("View", "pressedmail")}
           </Button>
-        )}
-      </span>
+          {cancelTargetId !== null && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-1.5 text-xs"
+              data-test="sweep-banner-cancel"
+              data-testid="sweep-banner-cancel"
+              aria-label={__("Cancel", "pressedmail")}
+              onClick={() => void cancel(cancelTargetId)}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </span>
+      </div>
     </div>
   );
 }

@@ -159,14 +159,63 @@ export const ComposerEditorPlugins = [
   BaseCodeLinePlugin.withComponent(CodeLineElementStatic),
   BaseCodeSyntaxPlugin.withComponent(CodeSyntaxLeafStatic),
   // Callout (email-safe inline-style table)
-  BaseCalloutPlugin.withComponent(CalloutElementStatic),
+  BaseCalloutPlugin.withComponent(CalloutElementStatic).extend(() => ({
+    parsers: {
+      html: {
+        deserializer: {
+          rules: [{ validAttribute: { 'data-pm-block': ['callout'] } }],
+          parse: ({ element }: { element: HTMLElement }) => ({
+            type: 'callout',
+            ...(element.getAttribute('data-background')
+              ? { backgroundColor: String(element.getAttribute('data-background')) }
+              : {}),
+            ...(element.getAttribute('data-icon')
+              ? { icon: String(element.getAttribute('data-icon')) }
+              : {}),
+          }),
+        },
+      },
+    },
+  })),
   // Inline date (email-safe formatted text)
   BaseDatePlugin.withComponent(DateElementStatic),
   // Toggle (email-safe → renders expanded, no collapse chrome)
-  BaseTogglePlugin.withComponent(ToggleElementStatic),
+  BaseTogglePlugin.withComponent(ToggleElementStatic).extend(() => ({
+    parsers: {
+      html: {
+        deserializer: {
+          rules: [{ validAttribute: { 'data-pm-block': ['toggle'] } }],
+          parse: () => ({ type: 'toggle' }),
+        },
+      },
+    },
+  })),
   // Columns (email-safe fixed-layout table)
-  BaseColumnPlugin.withComponent(ColumnGroupElementStatic),
-  BaseColumnItemPlugin.withComponent(ColumnElementStatic),
+  BaseColumnPlugin.withComponent(ColumnGroupElementStatic).extend(() => ({
+    parsers: {
+      html: {
+        deserializer: {
+          rules: [{ validAttribute: { 'data-pm-block': ['column_group'] } }],
+          parse: () => ({ type: 'column_group' }),
+        },
+      },
+    },
+  })),
+  BaseColumnItemPlugin.withComponent(ColumnElementStatic).extend(() => ({
+    parsers: {
+      html: {
+        deserializer: {
+          rules: [{ validAttribute: { 'data-pm-block': ['column'] } }],
+          parse: ({ element }: { element: HTMLElement }) => ({
+            type: 'column',
+            ...(element.getAttribute('data-width')
+              ? { width: String(element.getAttribute('data-width')) }
+              : {}),
+          }),
+        },
+      },
+    },
+  })),
   // Table of contents (email-safe indented heading-title list)
   BaseTocPlugin.withComponent(TocElementStatic),
   // Tables

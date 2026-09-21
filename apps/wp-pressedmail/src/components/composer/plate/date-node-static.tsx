@@ -13,7 +13,14 @@ export function DateElementStatic(props: SlateElementProps<TDateElement>) {
   const { element } = props;
 
   return (
-    <SlateElement as="span" {...props}>
+    <SlateElement
+      as="span"
+      {...props}
+      attributes={{
+        ...props.attributes,
+        'data-pm-block': 'date',
+        ...(element.date ? { 'data-date': String(element.date) } : {}),
+      }}>
       <span>
         {element.date || element.rawDate
           ? getDateDisplayLabel(element)

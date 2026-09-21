@@ -11,6 +11,11 @@ import { refreshProcessQueue } from "@/hooks/useProcessQueue";
  * on start, advanced per batch, finished done/failed/cancelled. The body gets a handle to
  * advance progress and to check whether the user cancelled the task from the panel.
  * Reporting is best-effort. A failure to report never breaks the underlying op.
+ *
+ * A cancel has to stop the request that is already in flight, not just the next one: a
+ * single AI request can run for a minute. So the caller's AbortController is registered
+ * against the task id. A cancel in this tab aborts it directly (`abortClientOp`), and a
+ * cancel from anywhere else aborts it on the next report that comes back flagged.
  */
 
 export interface BulkActivityHandle {
@@ -32,9 +37,26 @@ export interface BulkActivityOptions {
    * before starting their loop.
    */
   waitForQueue?: boolean;
+  /** Aborted when the task is cancelled from the Activity panel or banner. */
+  controller?: AbortController;
 }
 
 const QUEUE_WAIT_POLL_MS = 2000;
+
+const activeControllers = new Map<number, AbortController>();
+
+/**
+ * Abort the in-flight request of a client op this tab is running. Returns false
+ * when the task is not running here (another tab, or already finished).
+ */
+export function abortClientOp(taskId: number): boolean {
+  const controller = activeControllers.get(taskId);
+  if (!controller) {
+    return false;
+  }
+  controller.abort();
+  return true;
+}
 
 export interface BulkActivityReporter extends BulkActivityHandle {
   /** Finish the task (done / failed / cancelled). Always call once (e.g. in finally). */
@@ -63,6 +85,8 @@ export async function beginBulkActivity(
 ): Promise<BulkActivityReporter> {
   let taskId = 0;
   let cancelled = false;
+  let finished = false;
+  let lastProgress = 0;
   let taskStatus: ProcessTaskStatus | undefined;
   try {
     const created = await reportClientTask({
@@ -81,6 +105,19 @@ export async function beginBulkActivity(
   refreshProcessQueue();
 
   const createdQueued = taskId > 0 && taskStatus === "queued";
+  if (taskId > 0 && opts.controller) {
+    activeControllers.set(taskId, opts.controller);
+  }
+
+  // The server answers every report on a cancelled (or otherwise finished) row
+  // with cancel_requested, so one check covers panel cancels from any tab.
+  const noteReport = (result: { cancel_requested: boolean }) => {
+    if (!result.cancel_requested || finished) {
+      return;
+    }
+    cancelled = true;
+    opts.controller?.abort();
+  };
 
   return {
     cancelled: () => cancelled,
@@ -89,13 +126,15 @@ export async function beginBulkActivity(
       if (taskId <= 0) {
         return;
       }
+      lastProgress = current;
       try {
-        const result = await reportClientTask({
-          task_id: taskId,
-          progress_current: current,
-          ...(label ? { label } : {}),
-        });
-        cancelled = cancelled || result.cancel_requested;
+        noteReport(
+          await reportClientTask({
+            task_id: taskId,
+            progress_current: current,
+            ...(label ? { label } : {}),
+          }),
+        );
       } catch {
         // ignore
       }
@@ -107,7 +146,9 @@ export async function beginBulkActivity(
       await reportClientTask({
         task_id: taskId,
         progress_total: total,
-      }).catch(() => {});
+      })
+        .then(noteReport)
+        .catch(() => {});
     },
     waitUntilRunning: async (signal) => {
       // Reporting failed (best-effort) or the op was never queued, don't block.
@@ -126,7 +167,7 @@ export async function beginBulkActivity(
         try {
           // Reporting with just the task_id re-runs the server's promotion check.
           const result = await reportClientTask({ task_id: taskId });
-          cancelled = cancelled || result.cancel_requested;
+          noteReport(result);
           taskStatus = result.status ?? taskStatus;
         } catch {
           // Transient report failure, keep waiting.
@@ -144,11 +185,15 @@ export async function beginBulkActivity(
       }
     },
     finish: async (status, error) => {
+      finished = true;
+      activeControllers.delete(taskId);
       if (taskId > 0) {
         await reportClientTask({
           task_id: taskId,
           status,
-          progress_current: opts.total,
+          // Only a completed run is complete. A cancelled or failed one keeps
+          // the count it reached, or the panel reads it as finished.
+          progress_current: status === "done" ? opts.total : lastProgress,
           ...(error ? { error } : {}),
         }).catch(() => {});
       }

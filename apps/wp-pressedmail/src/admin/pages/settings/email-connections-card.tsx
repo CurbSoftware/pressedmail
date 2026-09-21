@@ -129,7 +129,8 @@ const getAssignedSignature = (
 ) =>
   signatures.find(
     (signature) =>
-      signature.is_active && Number(signature.account_id) === Number(accountId),
+      signature.is_active &&
+      signature.account_ids.some((id) => Number(id) === Number(accountId)),
   ) ?? null;
 
 export function EmailConnectionsCard() {
@@ -301,18 +302,25 @@ export function EmailConnectionsCard() {
     setSignatureError(null);
 
     try {
-      // One call, whichever way it goes: assigning a signature to an account
-      // releases whatever else was bound to it server-side, so there is no
-      // clear step and no window where the account has none. "No signature"
-      // clears the current binding.
+      // One call, whichever way it goes: the payload is the signature's whole
+      // account set. Assigning adds this account to it, so a signature already
+      // serving another account keeps serving it and now serves this one too.
+      // "No signature" takes this account back out. Either way the server
+      // releases whatever else was bound to the account, so there is no clear
+      // step and no window where the account has none.
       const target = signature ?? currentSignature;
       if (!target) {
         closeSignatureDialog();
         return;
       }
 
+      const assigned = target.account_ids.map(Number);
+      const accountIds = signature
+        ? Array.from(new Set([...assigned, Number(account.id)]))
+        : assigned.filter((id) => id !== Number(account.id));
+
       const result = await updateSignature(target.id, {
-        account_id: signature ? Number(account.id) : null,
+        account_ids: accountIds,
       });
 
       if (!result.success) {

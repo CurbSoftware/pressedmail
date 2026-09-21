@@ -1,98 +1,27 @@
 import localFont from 'next/font/local';
 
+// Both families ship as a single variable file each, latin subset, covering
+// wght 100-900 for Inter and 200-800 for Plus Jakarta Sans. next/font only
+// emits a font-weight descriptor when the loader declares one, so the range is
+// stated here rather than left for the browser to infer from the font's wght
+// axis. The alternative, a static file per weight, cost sixteen requests and
+// about 300 KB to cover the same range.
+
 const sans = localFont({
-  src: [
-    {
-      path: './assets/fonts/inter/inter-v20-latin-100.woff2',
-      weight: '100',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-200.woff2',
-      weight: '200',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-300.woff2',
-      weight: '300',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-regular.woff2',
-      weight: '400',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-500.woff2',
-      weight: '500',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-600.woff2',
-      weight: '600',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-700.woff2',
-      weight: '700',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-800.woff2',
-      weight: '800',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/inter/inter-v20-latin-900.woff2',
-      weight: '900',
-      style: 'normal',
-    },
-  ],
+  src: './assets/fonts/inter/inter-latin-wght-normal.woff2',
+  weight: '100 900',
   variable: '--font-sans-fallback',
   fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  display: 'swap',
   preload: true,
 });
 
 const heading = localFont({
-  src: [
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-200.woff2',
-      weight: '200',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-300.woff2',
-      weight: '300',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-regular.woff2',
-      weight: '400',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-500.woff2',
-      weight: '500',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-600.woff2',
-      weight: '600',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-700.woff2',
-      weight: '700',
-      style: 'normal',
-    },
-    {
-      path: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-v12-latin-800.woff2',
-      weight: '800',
-      style: 'normal',
-    },
-  ],
+  src: './assets/fonts/plus-jakarta-sans/plus-jakarta-sans-latin-wght-normal.woff2',
+  weight: '200 800',
   variable: '--font-heading',
   fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  display: 'swap',
   preload: true,
 });
 

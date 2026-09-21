@@ -108,12 +108,12 @@ export function ComposerAddressing({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     disabled={disabled}
                     aria-expanded={showCc}
                     aria-controls={showCc ? ccFieldId : undefined}
                     data-test="toggle-cc-button"
-                    className="h-7 px-2 text-xs font-medium pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-muted-foreground aria-expanded:text-foreground"
+                    className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowCcChange(!showCc);
@@ -132,12 +132,12 @@ export function ComposerAddressing({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="icon"
                     disabled={disabled}
                     aria-expanded={showBcc}
                     aria-controls={showBcc ? bccFieldId : undefined}
                     data-test="toggle-bcc-button"
-                    className="h-7 px-2 text-xs font-medium pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-muted-foreground aria-expanded:text-foreground"
+                    className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowBccChange(!showBcc);

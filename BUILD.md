@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.1.0`
+Public tag: `v1.3.0`
 
 ## Layout
 
@@ -68,12 +68,27 @@ builder applies
 on spaces alone and so merges BODYSTRUCTURE and ENVELOPE values that end
 just before `)`, or that sit either side of a `)(` list boundary.
 
-This tree cannot reproduce that file on its own: only the compiled
-interface is published here, so there is no `composer.json` and no
-`vendor/` to install into. The zip ships the patched file, and
-`scripts/releases/patch-pressedmail-webklex.mjs` records its SHA-256 as
-`PATCHED_FILE_SHA256`, so a distributed copy can be checked against the
-reviewed bytes without running Composer.
+The zip ships that `vendor/` tree. To assemble the same one from this
+tree, from the repository root:
+
+```sh
+cd apps/wp-pressedmail/plugin-files
+COMPOSER=composer-free.json composer install --no-dev --optimize-autoloader
+```
+
+`composer-free.json` is the file the Free zip renames to `composer.json`;
+`composer-free.lock` pins every version, so the install is the tree the zip
+ships. One of those dependencies, `curbsoftware/wp-eloquent`, comes from
+`packages/curbsoftware/composer/curb-wp-eloquent` in this repository rather
+than from Packagist, which is what the `path` repository in
+`composer-free.json` points at.
+
+The one file this tree cannot reproduce is the webklex/php-imap patch: the
+install above gives the upstream 6.2.0 file, and the packaging step
+rewrites `ImapProtocol::decodeLine` afterwards. The zip ships the patched
+file, and `scripts/releases/patch-pressedmail-webklex.mjs` records its
+SHA-256 as `PATCHED_FILE_SHA256`, so a distributed copy can be checked
+against the reviewed bytes without running Composer.
 
 The diff, its rationale and the licensing note are published in
 `scripts/releases/patches/`, alongside Webklex's MIT license. The

@@ -40,7 +40,6 @@ interface PressedMailPluginGlobal {
   adminAjaxUrl?: string;
   restNamespace?: string;
   assetsUrl?: string;
-  developer?: string;
   /** Effective plugin-scoped UI locale ('' on first run → browser detect). */
   locale?: string;
   /** WordPress site timezone used for shared notification policy. */
@@ -48,6 +47,12 @@ interface PressedMailPluginGlobal {
   isAdmin?: boolean;
   canManageSettings?: boolean;
   canAccessPressedMail?: boolean;
+  /**
+   * True when this browser signed a user out and still holds that session's
+   * mailbox data. PHP consumes the marker as it reports it, so this is true on
+   * exactly one page load.
+   */
+  purgeBrowserStorage?: boolean;
   isPro?: boolean | string;
   isLicensed?: boolean;
   /** Server-resolved custom_themes entitlement for the theme provider. */
@@ -138,6 +143,57 @@ interface PressedMailPluginGlobal {
       current: string;
       recommended: string;
       is_adequate: boolean;
+    };
+    /**
+     * PHP runtime limits. Every field is optional: the server reports the ones
+     * the ini actually sets, and the panel omits a row it has no value for
+     * rather than printing a blank one.
+     */
+    phpLimits?: {
+      memory_usage?: string;
+      memory_limit?: string;
+      execution_time?: string;
+      max_execution_time?: string;
+      post_max_size?: string;
+      upload_max_filesize?: string;
+    };
+    /**
+     * Background-sync cadence. Absent on a partial upgrade (new bundle beside
+     * an older server payload), so the panel must render without it.
+     */
+    syncSchedule?: {
+      mode?: "scheduled" | "manual";
+      intervalMinutes?: number;
+      nextRun?: number;
+      lastRun?: number;
+      overdue?: boolean;
+    };
+    /** Per-worker schedule health plus the plugin's own wp-cron heartbeat. */
+    cronHealth?: {
+      workers?: Array<{
+        hook: string;
+        nextRun: number;
+        intervalSeconds: number;
+        events: number;
+        overdue?: boolean;
+        /** 0 means this worker has no completed run on record. */
+        lastRun?: number;
+      }>;
+      wpCronDisabled?: boolean;
+      dispatch?: {
+        /** 0 means no pass has completed yet. */
+        lastRun?: number;
+        /** 0 means no recurrence is armed. */
+        nextRun?: number;
+        /**
+         * Whether the site could reach its own WordPress address, or null when
+         * the server had no reason to probe. False is the one state that means
+         * wp-cron cannot start on a visit rather than "nobody visited".
+         */
+        loopback?: boolean | null;
+        /** False means the scheduler is intentionally idle until a mailbox is connected. */
+        hasMailbox?: boolean;
+      };
     };
   };
 }

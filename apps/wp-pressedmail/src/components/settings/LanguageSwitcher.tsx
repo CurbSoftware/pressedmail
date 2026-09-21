@@ -2,8 +2,8 @@
  * Language Switcher
  *
  * Settings control for the plugin-scoped UI language. Lists the supported
- * locales by their native name and switches the interface live via the
- * LocaleProvider. Changing it only affects PressedMail for the current user.
+ * locales by their native name and reloads the interface after a saved choice.
+ * Changing it only affects PressedMail for the current user.
  *
  * @since 3.0.0
  */
@@ -49,7 +49,6 @@ export function LanguageSwitcher({
         aria-label={__("Interface language", "pressedmail")}
         className={cn(
           "h-11 w-full max-w-full rounded-md border border-input bg-background px-3 text-sm text-foreground @3xl/preferences-nav:h-9 @3xl/preferences-nav:max-w-xs",
-          "focus:outline-none focus:ring-2 focus:ring-ring",
           isSaving && "opacity-60",
         )}
         value={selectedLocale}
@@ -77,7 +76,7 @@ export function LanguageSwitcher({
       </select>
       <p className="text-xs text-muted-foreground">
         {__(
-          "Changes only the PressedMail interface for your account.",
+          "Changes only PressedMail for your account. Some text remains in English.",
           "pressedmail",
         )}
       </p>

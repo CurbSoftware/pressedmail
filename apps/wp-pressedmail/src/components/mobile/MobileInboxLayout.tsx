@@ -301,7 +301,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
               placeholder={__("Search mail", "pressedmail")}
               value={searchTerm}
               onChange={handleSearch}
-              className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-sm"
               autoFocus
             />
           </div>
@@ -416,7 +416,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                             type="button"
                             onClick={() => handleSelectMessage(mail)}
                             className={cn(
-                              "flex w-full flex-col gap-1 rounded-sm text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                              "flex w-full flex-col gap-1 rounded-sm text-left transition-colors",
                               getMessageIdentityKey(selectedMessage) === id
                                 ? "bg-primary/5"
                                 : "hover:bg-muted/50",

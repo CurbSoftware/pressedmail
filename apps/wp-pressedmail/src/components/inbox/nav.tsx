@@ -70,7 +70,7 @@ export function Nav({ links, isCollapsed }: NavProps) {
                 }}
                 className={cn(
                   buttonVariants({ variant: link.variant, size: "icon" }),
-                  "h-9 w-9 outline-none focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                  "h-9 w-9 outline-none",
                   link.variant === "default" &&
                     "bg-primary text-primary-foreground hover:bg-primary/90",
                   link.variant === "ghost" && "text-foreground",
@@ -108,7 +108,7 @@ export function Nav({ links, isCollapsed }: NavProps) {
               }}
               className={cn(
                 buttonVariants({ variant: link.variant, size: "sm" }),
-                "h-9 justify-start outline-none focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                "h-9 justify-start outline-none",
                 link.variant === "default" &&
                   "bg-primary text-primary-foreground hover:bg-primary/90",
                 // Ensure proper text color for ghost variant in all themes/dark mode

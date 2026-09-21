@@ -1,20 +1,16 @@
-import { isFreeBuild } from "./build-variant";
 import type { EmailListGroupingMode } from "./message-grouping";
 
 /**
  * The grouping the inbox should actually render.
  *
- * Threaded view belongs to the paid edition. The Free build ships no control
- * for it, so a profile that still stores `threads` from an older release, or
- * that arrives from a Pro install, must not start grouping conversations. Both
- * branches resolve at build time, so the Pro bundle drops the Free check.
+ * Every edition honours the stored preference. Threaded view is not a paid
+ * feature: the threading service, the threaded snapshot and the threaded
+ * branch of the messages controller all ship in the Free package, and both
+ * editions carry a control for it. This function exists to normalize a missing
+ * or unknown stored value, nothing more.
  */
 export function getEffectiveEmailListGrouping(
   preference: EmailListGroupingMode | null | undefined,
 ): EmailListGroupingMode {
-  if (isFreeBuild()) {
-    return "list";
-  }
-
   return preference === "threads" ? "threads" : "list";
 }

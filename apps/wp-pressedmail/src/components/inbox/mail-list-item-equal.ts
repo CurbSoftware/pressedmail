@@ -34,8 +34,9 @@ function tagsEqual(prev: EmailMessage["tags"], next: EmailMessage["tags"]) {
 /**
  * Returns true when two EmailMessage references render identically as an
  * inbox-list row. Compared fields are the ones that drive row pixels: id/uid
- * (identity), read/starred/important (flag dots), subject/from/date (text),
- * sender email, preview/body text for details rows, and labels (chips).
+ * (identity), read/starred/important and the key behind importance (flag dots
+ * and the chevron's words), subject/from/date (text), sender email,
+ * preview/body text for details rows, and labels (chips).
  */
 export function areMessageRowsEqual(
   prev: EmailMessage,
@@ -49,6 +50,11 @@ export function areMessageRowsEqual(
     prev.read === next.read &&
     prev.starred === next.starred &&
     prev.important === next.important &&
+    // The view model falls back to the legacy key, so a payload that switches
+    // between the two spellings has to compare unequal or the row goes stale
+    // on a toggle. The source is what the chevron says out loud.
+    prev.is_important === next.is_important &&
+    prev.importanceSource === next.importanceSource &&
     prev.subject === next.subject &&
     prev.from === next.from &&
     prev.email === next.email &&

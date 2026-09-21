@@ -8,9 +8,10 @@
  *   replaced with an inline mini Plate sub-editor (CommentEditor below)
  *   running a minimal bold/italic/underline plugin list, the full app kit
  *   is not needed for composing a comment. The template's
- *   `has-[[data-slate-editor]:focus]` container variant becomes a plain
- *   `focus-within:` ring (this build does not emit has-[...] variants, see
- *   toolbar.tsx).
+ *   `has-[[data-slate-editor]:focus]` container variant becomes a
+ *   `focus-within:` border tint (this build does not emit has-[...] variants,
+ *   see toolbar.tsx). The focus indicator itself comes from the shared rule
+ *   in tailwind-base.css, not from here.
  * - Avatars render initials via AvatarFallback only, no avatar URLs.
  * - brand/highlight/subtle-foreground tokens → primary/muted-foreground.
  */
@@ -122,7 +123,7 @@ function CommentEditorContainer({
     <div
       className={cn(
         'relative flex w-full cursor-text select-text flex-wrap justify-between gap-1 rounded-md border-[1.5px] border-transparent bg-transparent px-1 py-0.5 text-sm caret-primary',
-        'focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/30',
+        'focus-within:border-primary/50',
         className
       )}
     >
@@ -137,7 +138,7 @@ function CommentEditorContent({ className, ...props }: PlateContentProps) {
     <PlateContent
       {...props}
       className={cn(
-        'relative w-full cursor-text select-text overflow-x-hidden whitespace-pre-wrap break-words rounded-none border-none bg-transparent text-sm focus-visible:outline-none [&_strong]:font-bold',
+        'relative w-full cursor-text select-text overflow-x-hidden whitespace-pre-wrap break-words rounded-none border-none bg-transparent text-sm [&_strong]:font-bold',
         className
       )}
       disableDefaultStyles

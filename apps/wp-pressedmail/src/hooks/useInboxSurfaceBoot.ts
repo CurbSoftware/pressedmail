@@ -1,4 +1,3 @@
-import { getMessageIdentityKey } from "@/lib/message-identity";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppContext } from "@/context/AppProvider";
@@ -40,9 +39,6 @@ import {
   useAutoSyncDisabled,
   useSyncIntervalMinutes,
 } from "@/context/admin-settings";
-
-/** Messages whose bodies are warmed on boot; one page of the default list. */
-const BOOT_PREFETCH_LIMIT = 25;
 
 const DEFAULT_BOOT_LIMIT = 50;
 const DEFAULT_BOOT_TIMEOUT_MS = 30_000;
@@ -200,7 +196,6 @@ export function useInboxSurfaceBoot({
     useFolderOperations();
   const loadMessages = inbox.loadMessages;
   const selectInboxMessage = inbox.selectMessage;
-  const prefetchBatch = inbox.prefetch.prefetchBatch;
   const { preferences } = useUserPreferences();
   const {
     markAllSeen,
@@ -686,51 +681,10 @@ export function useInboxSurfaceBoot({
         }
       }
 
-      // Warm the bodies of the first page. The batch endpoint takes fifteen
-      // messages per request against a 50/min budget, so a whole page costs one
-      // or two requests rather than one per message: the old cap of five was
-      // priced against the single-message endpoint, not this one. Anything
-      // beyond the first page is warmed by useVisibleBodyPrefetch as the reader
-      // moves, and only while the sync driver is idle.
-      const prefetchMessages = result.messages.slice(0, BOOT_PREFETCH_LIMIT);
-      if (prefetchMessages.length === 0) {
-        return { serviceable };
-      }
-
-      const fallbackAccountId = accountContext.consolidated
-        ? accountContext.primaryAccountId
-        : accountContext.accountId;
-      const byMailbox = new Map<
-        string,
-        { accountId: string; folder: string; ids: Array<string | number> }
-      >();
-
-      for (const message of prefetchMessages) {
-        const messageId = getMessageIdentityKey(message);
-        if (!messageId) {
-          continue;
-        }
-
-        const accountId = String(message.accountId ?? fallbackAccountId);
-        const folder = message.folder!;
-        const key = JSON.stringify([accountId, folder]);
-        let bucket = byMailbox.get(key);
-        if (!bucket) {
-          bucket = {
-            accountId,
-            folder,
-            ids: [],
-          };
-          byMailbox.set(key, bucket);
-        }
-        bucket.ids.push(messageId);
-      }
-
-      for (const { accountId, folder, ids } of byMailbox.values()) {
-        if (ids.length > 0) {
-          prefetchBatch(accountId, folder, ids);
-        }
-      }
+      // Body warming is not done here. useVisibleBodyPrefetch runs on this
+      // same settled list and walks it five messages at a time, so warming on
+      // boot as well would send the first batches twice and race itself for
+      // the site's two PHP workers.
 
       return { serviceable };
     };
@@ -753,7 +707,6 @@ export function useInboxSurfaceBoot({
     loadConsolidatedFolders,
     loadFolders,
     markAllSeen,
-    prefetchBatch,
     selectFolder,
     selectInboxMessage,
     setNumberOfMessages,

@@ -421,8 +421,8 @@ export interface InboxContextValue {
   loadMore: () => Promise<LoadMessagesResult>;
   /** Load an exact page for the current account/folder context */
   loadPage: (page: number, pageSize?: number) => Promise<LoadMessagesResult>;
-  /** Refresh messages from server */
-  refreshMessages: () => Promise<void>;
+  /** Refresh messages from server; `sync: false` rereads the mirror without an IMAP sync first */
+  refreshMessages: (options?: { sync?: boolean }) => Promise<void>;
   /** Drop cached pages for a folder so its next open refetches fresh */
   invalidateFolderMessages: (folder: string) => void;
   /** Select a message for viewing */
@@ -1355,63 +1355,68 @@ export function InboxProvider({
     ],
   );
 
-  const refreshMessages = useCallback(async (): Promise<void> => {
-    const currentAccountId = isConsolidatedMode
-      ? consolidatedScopeKey
-      : (selectedAccountId ?? inboxService.getCurrentAccountId());
-    if (!currentAccountId) {
-      return;
-    }
+  const refreshMessages = useCallback(
+    async ({ sync = true }: { sync?: boolean } = {}): Promise<void> => {
+      const currentAccountId = isConsolidatedMode
+        ? consolidatedScopeKey
+        : (selectedAccountId ?? inboxService.getCurrentAccountId());
+      if (!currentAccountId) {
+        return;
+      }
 
-    // Force a real server-side sync first: prioritize the visible account(s) at
-    // the front of the sync queue and advance the driver. Without this the
-    // refresh only re-read the DB mirror (force=1 merely queued a background
-    // job that starves when wp-cron loopback is blocked), so nothing actually
-    // synced from IMAP and no sync task was recorded. Best-effort; the reload
-    // below still runs if this fails.
-    const refreshAccountIds = isConsolidatedMode
-      ? effectiveConsolidatedAccountIds
-      : [Number(selectedAccountId ?? inboxService.getCurrentAccountId())];
-    await refreshAccountSync(refreshAccountIds);
-
-    const currentPageState = inboxService as unknown as {
-      _currentOffsetStart?: number;
-      _currentLimit?: number;
-    };
-
-    // Clamp the refresh offset to the (possibly shrunken) total: after a mass
-    // sweep/move the previous page offset can point past the end, leaving the
-    // user stranded on an empty page with a stale page number.
-    const limit = currentPageState._currentLimit ?? 50;
-    let offset = currentPageState._currentOffsetStart ?? 0;
-    const total = inboxService.totalCount ?? 0;
-    if (total > 0 && offset >= total) {
-      offset = Math.max(0, (Math.ceil(total / limit) - 1) * limit);
-    } else if (total === 0) {
-      offset = 0;
-    }
-
-    await loadMessages({
-      accountId: currentAccountId,
-      folder: folderService.selectedFolder || inboxService.currentFolder,
-      offset,
-      limit,
-      forceRefresh: true,
-      consolidated: isConsolidatedMode,
-      accountIds: isConsolidatedMode
+      // Force a real server-side sync first: prioritize the visible account(s) at
+      // the front of the sync queue and advance the driver. Without this the
+      // refresh only re-read the DB mirror (force=1 merely queued a background
+      // job that starves when wp-cron loopback is blocked), so nothing actually
+      // synced from IMAP and no sync task was recorded. Best-effort; the reload
+      // below still runs if this fails.
+      const refreshAccountIds = isConsolidatedMode
         ? effectiveConsolidatedAccountIds
-        : undefined,
-      grouping: inboxService.currentGrouping,
-    });
-  }, [
-    consolidatedScopeKey,
-    effectiveConsolidatedAccountIds,
-    folderService.selectedFolder,
-    inboxService,
-    isConsolidatedMode,
-    loadMessages,
-    selectedAccountId,
-  ]);
+        : [Number(selectedAccountId ?? inboxService.getCurrentAccountId())];
+      if (sync) {
+        await refreshAccountSync(refreshAccountIds);
+      }
+
+      const currentPageState = inboxService as unknown as {
+        _currentOffsetStart?: number;
+        _currentLimit?: number;
+      };
+
+      // Clamp the refresh offset to the (possibly shrunken) total: after a mass
+      // sweep/move the previous page offset can point past the end, leaving the
+      // user stranded on an empty page with a stale page number.
+      const limit = currentPageState._currentLimit ?? 50;
+      let offset = currentPageState._currentOffsetStart ?? 0;
+      const total = inboxService.totalCount ?? 0;
+      if (total > 0 && offset >= total) {
+        offset = Math.max(0, (Math.ceil(total / limit) - 1) * limit);
+      } else if (total === 0) {
+        offset = 0;
+      }
+
+      await loadMessages({
+        accountId: currentAccountId,
+        folder: folderService.selectedFolder || inboxService.currentFolder,
+        offset,
+        limit,
+        forceRefresh: true,
+        consolidated: isConsolidatedMode,
+        accountIds: isConsolidatedMode
+          ? effectiveConsolidatedAccountIds
+          : undefined,
+        grouping: inboxService.currentGrouping,
+      });
+    },
+    [
+      consolidatedScopeKey,
+      effectiveConsolidatedAccountIds,
+      folderService.selectedFolder,
+      inboxService,
+      isConsolidatedMode,
+      loadMessages,
+      selectedAccountId,
+    ],
+  );
 
   const invalidateFolderMessages = useCallback(
     (folder: string): void => {
@@ -2290,6 +2295,7 @@ export function InboxProvider({
       }
       let totalSuccess = 0;
       let firstError: string | undefined = undefined;
+      let firstWarning: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const removedLocalIds = new Set<string>();
       for (const [groupIndex, group] of groups.entries()) {
@@ -2324,6 +2330,7 @@ export function InboxProvider({
           };
         }
         totalSuccess += result.successCount;
+        firstWarning ??= result.warning;
         if (!result.success && !firstError) {
           firstError = result.error;
         }
@@ -2354,6 +2361,7 @@ export function InboxProvider({
         failedIds: allFailed,
         totalCount: messageIds.length,
         error: allFailed.length === 0 ? undefined : firstError,
+        warning: firstWarning,
       };
     },
     [
@@ -2412,6 +2420,7 @@ export function InboxProvider({
 
       let totalSuccess = 0;
       let firstError: string | undefined = undefined;
+      let firstWarning: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const accountErrors: { accountId: string | number; error: string }[] = [];
       const createdFolders: { path: string; folderId?: number | null }[] = [];
@@ -2464,6 +2473,7 @@ export function InboxProvider({
           };
         }
         totalSuccess += result.successCount;
+        firstWarning ??= result.warning;
         if (!result.success) {
           firstError ??= result.error;
           if (result.error) {
@@ -2500,6 +2510,7 @@ export function InboxProvider({
         failedIds: allFailed,
         totalCount: messageIds.length,
         error: allFailed.length === 0 ? undefined : firstError,
+        warning: firstWarning,
         ...(accountErrors.length > 0 ? { accountErrors } : {}),
         ...(createdFolders.length > 0 ? { createdFolders } : {}),
       };

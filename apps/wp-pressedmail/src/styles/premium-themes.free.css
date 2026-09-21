@@ -1,0 +1,12 @@
+/**
+ * The Free build's stand-in for premium-themes.pro.css.
+ *
+ * Free ships two palettes, pressedm and contrast, and both live in
+ * tailwind-base.css. The eight premium palettes are Pro functionality, so
+ * their CSS is compiled into the Pro stylesheet only and this file is
+ * deliberately empty.
+ *
+ * Kept as a real file rather than dropping the import, because the edition
+ * alias table swaps one module for another and the Free stylesheet should say
+ * out loud what it leaves out.
+ */

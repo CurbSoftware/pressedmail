@@ -172,7 +172,7 @@ export function ColorDropdownMenuItems({
         return (
           <DropdownMenuItem
             aria-label={label}
-            className="size-5 rounded-sm border border-border p-0 focus:ring-2 focus:ring-ring focus:ring-offset-1"
+            className="size-5 rounded-sm border border-border p-0"
             key={value}
             onSelect={(event) => {
               if (keepOpen) event.preventDefault();

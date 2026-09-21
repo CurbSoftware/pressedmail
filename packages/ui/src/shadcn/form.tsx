@@ -7,7 +7,7 @@ import { useRender } from '@base-ui/react/use-render';
 import type { ControllerProps, FieldPath, FieldValues } from 'react-hook-form';
 import { Controller, FormProvider, useFormContext } from 'react-hook-form';
 
-import { Trans } from '../makerkit/trans';
+import { Trans } from '../core/trans';
 import { Label } from './label';
 
 const Form = FormProvider;

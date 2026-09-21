@@ -9,14 +9,10 @@
 import { __, _n, sprintf } from "@wordpress/i18n";
 import { appMessage } from "@/context/toast";
 import React, { useState, useCallback } from "react";
-import {
-  Popover,
-  PopoverArrow,
-  PopoverContent,
-  PopoverTrigger,
-} from "@kit/ui/plugin";
+import { Popover, PopoverArrow, PopoverTrigger } from "@kit/ui/plugin";
 import { Tag as TagIcon, Plus, Check, Search } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 import { useTags } from "../../context/tags";
 import { TagBadge } from "./TagBadge";
 import { getCacheService, getInboxService } from "@/services/implementations";
@@ -82,9 +78,6 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
             "text-sm font-medium transition-colors",
             "bg-muted hover:bg-accent",
             "text-foreground",
-            // The popover trigger used to inject a focus ring; it no longer
-            // styles asChild children, so the control carries its own.
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "disabled:opacity-50 disabled:cursor-not-allowed",
             className,
           )}>
@@ -101,11 +94,9 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent
-        className={cn(
-          "z-50 w-64 rounded-lg border bg-popover p-0 text-popover-foreground shadow-lg border-border",
-          "animate-in fade-in-0 zoom-in-95",
-        )}
+      <PressedPopoverContent
+        size="menu"
+        className="animate-in fade-in-0 zoom-in-95"
         sideOffset={5}
         align="start">
         {/* Search */}
@@ -126,7 +117,6 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
                 "w-full pl-8 pr-3 py-1.5 text-sm rounded-md",
                 "bg-muted",
                 "border border-border",
-                "focus:outline-none focus:ring-2 focus:ring-ring",
               )}
             />
           </div>
@@ -192,7 +182,7 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
         )}
 
         <PopoverArrow className="fill-popover" />
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 };
@@ -408,7 +398,6 @@ const InlineMessageTagSelector: React.FC<
             className={cn(
               "p-1.5 rounded-md transition-colors",
               "text-muted-foreground hover:text-foreground hover:bg-accent",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               selectedTags.length > 0 && "text-primary",
               className,
             )}
@@ -419,11 +408,9 @@ const InlineMessageTagSelector: React.FC<
         )}
       </PopoverTrigger>
 
-      <PopoverContent
-        className={cn(
-          "z-50 w-56 rounded-lg border bg-popover p-0 text-popover-foreground shadow-lg border-border",
-          "animate-in fade-in-0 zoom-in-95",
-        )}
+      <PressedPopoverContent
+        size="menu"
+        className="animate-in fade-in-0 zoom-in-95"
         sideOffset={5}
         align="end">
         <div className="p-2">
@@ -471,7 +458,7 @@ const InlineMessageTagSelector: React.FC<
         </div>
 
         <PopoverArrow className="fill-popover" />
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 };

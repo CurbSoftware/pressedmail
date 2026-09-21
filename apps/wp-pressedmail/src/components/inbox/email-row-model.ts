@@ -1,6 +1,10 @@
 import { __ } from "@wordpress/i18n";
 
-import type { EmailMessage, EmailMessageTag } from "@/types";
+import type {
+  EmailImportanceSource,
+  EmailMessage,
+  EmailMessageTag,
+} from "@/types";
 import { getAccountBadgeLabel } from "@/lib/account-label";
 import { parseEmailDate } from "@/lib/email-date";
 import { buildEmailPreviewText } from "@/lib/email-content-normalization";
@@ -26,6 +30,8 @@ export interface EmailRowViewModel {
   isUnread: boolean;
   isStarred: boolean;
   isImportant: boolean;
+  /** Why the row is important, when the payload says. */
+  importanceSource: EmailImportanceSource | null;
   /** True when this row backs a scheduled email; dateLabel then shows the send time. */
   isScheduled: boolean;
   scheduledStatus?: string;
@@ -174,6 +180,7 @@ export function buildEmailRowViewModel(
       typeof message.important === "boolean"
         ? message.important
         : Boolean(message.is_important),
+    importanceSource: message.importanceSource ?? null,
     isScheduled,
     scheduledStatus,
     hasAttachment: Boolean(

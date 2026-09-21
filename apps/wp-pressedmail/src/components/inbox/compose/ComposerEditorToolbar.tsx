@@ -13,6 +13,8 @@ import React from "react";
 import { KEYS } from "@kit/plate";
 import {
   getPlateEmailEditorSurfacePreset,
+  PLATE_EMAIL_EDITOR_DIALECTS,
+  type PlateEmailEditorDialect,
   type PlateEmailEditorSurface,
 } from "@kit/plate/email-surfaces";
 import { useEditorRef } from "@kit/plate/react";
@@ -42,6 +44,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator as DropdownMenuSep,
   DropdownMenuTrigger,
   Popover,
@@ -94,12 +98,16 @@ import {
   type ComposerToolbarCustomizeDialogProps,
 } from "./ComposerToolbarCustomizeDialog";
 import { cn } from "@/lib/utils";
+import { composerDialectLabel } from "@/components/composer/plate-composer-dialect";
 import {
   COMPOSER_TOOLBAR_GROUPS,
   resolveComposerToolbarItems,
 } from "./composer-toolbar-registry";
 import { printEmailContent } from "@/lib/print-email-content";
-import { recipientsToString } from "@/types/recipients";
+import {
+  recipientsToString,
+  type Recipient,
+} from "@/types/recipients";
 import {
   getComposerFontOptions,
   resolveComposerFontOptionFromFamily,
@@ -116,8 +124,33 @@ export type ComposerAuthoringSurface = PlateEmailEditorSurface;
 
 const FONT_FAMILIES = getComposerFontOptions();
 
+/**
+ * The slice of a compose form the toolbar actually reads.
+ *
+ * Narrower than `UseComposeFormReturn` on purpose. The authoring surfaces
+ * (signature, auto-reply, content block) have no compose form at all, and typing
+ * this prop as the full contract forced them to fabricate one and cast it, which
+ * is how a control wired to nothing shipped. A toolbar that declares only what
+ * it reads cannot drift from its callers, and a caller with no recipients says
+ * so by passing none rather than by faking a form.
+ *
+ * A real `UseComposeFormReturn` satisfies this structurally, so the email
+ * composer passes its form unchanged.
+ */
+export interface ComposerToolbarForm {
+  toRecipients: Recipient[];
+  ccRecipients: Recipient[];
+  bccRecipients: Recipient[];
+  subject: string;
+  body: string;
+  bodyBackgroundColor?: string;
+  canvasBackgroundColor?: string;
+  showAIPanel: boolean;
+  handleSignatureSelect: (signatureId: number) => void;
+}
+
 export interface ComposerEditorToolbarProps {
-  form: UseComposeFormReturn;
+  form: ComposerToolbarForm;
   disabled?: boolean;
   editorRef: React.RefObject<{ getHTML: () => string } | null>;
   signaturesEnabled: boolean;
@@ -128,8 +161,18 @@ export interface ComposerEditorToolbarProps {
   onImageUpload: () => void;
   onTogglePreview: () => void;
   previewActive: boolean;
+  /** The block editor's current dialect. Defaults to Markdown. */
+  dialect?: PlateEmailEditorDialect;
+  /** Picks the per-compose dialect override. */
+  onSelectDialect?: (dialect: PlateEmailEditorDialect) => void;
   onToggleContentType?: () => void;
-  onSetBodyBackgroundColor: (color: string | undefined) => void;
+  /**
+   * Absent means "this surface has no body background to set", and the control
+   * is then not rendered at all. Passing an inert function instead put a button
+   * in the toolbar that did nothing when clicked, which is worse than a missing
+   * button: the author cannot tell whether the click worked.
+   */
+  onSetBodyBackgroundColor?: (color: string | undefined) => void;
   onSetCanvasBackgroundColor?: (color: string | undefined) => void;
   surface?: ComposerAuthoringSurface;
   contentBlocksEnabled?: boolean;
@@ -148,7 +191,8 @@ export function ComposerEditorToolbar({
   onImageUpload,
   onTogglePreview,
   previewActive,
-  onToggleContentType,
+  dialect = "markdown",
+  onSelectDialect,
   onSetBodyBackgroundColor,
   onSetCanvasBackgroundColor,
   surface = "email",
@@ -294,7 +338,7 @@ export function ComposerEditorToolbar({
           <HighlightColorToolbarButton key={id} />
         ) : null;
       case "body_background":
-        return isEmailSurface && palettesEnabled ? (
+        return isEmailSurface && palettesEnabled && onSetBodyBackgroundColor ? (
           <BodyBackgroundPopover
             key={id}
             disabled={disabled}
@@ -417,12 +461,11 @@ export function ComposerEditorToolbar({
           {/* Format, intentionally between Preview and Print. */}
           {isEmailSurface && (
             <ToolbarGroup>
-              <ToolbarButton
-                tooltip={__("Switch to plain text", "pressedmail")}
-                onClick={onToggleContentType}
-                disabled={disabled}>
-                <FileText className="size-4" />
-              </ToolbarButton>
+              <ComposerFormatDropdown
+                dialect={dialect}
+                disabled={disabled}
+                onSelectDialect={onSelectDialect}
+              />
             </ToolbarGroup>
           )}
 
@@ -604,8 +647,11 @@ export function ComposerPlainTextToolbar({
             </ToolbarButton>
           </ToolbarGroup>
           <ToolbarGroup>
+            {/* Leaves the textarea for the Plate editor, which stays in
+                whichever dialect it was last in. Naming a dialect here would
+                be a promise this button cannot keep. */}
             <ToolbarButton
-              tooltip={__("Switch to rich text", "pressedmail")}
+              tooltip={__("Switch to formatted text", "pressedmail")}
               onClick={onToggleContentType}
               disabled={disabled}>
               <FileText className="size-4" />
@@ -647,6 +693,60 @@ export function ComposerPlainTextToolbar({
         </div>
       </Toolbar>
     </div>
+  );
+}
+
+/* ─── Format (Markdown / Rich text / Plain) ─── */
+
+/**
+ * One control for the composer's three dialects.
+ *
+ * Markdown is the block editor with its chrome. Rich text is the same
+ * document with the chrome off, presented the way a word processor reads.
+ * Plain replaces the body with text. The first two are two presentations of
+ * one value; only Plain is a different format.
+ */
+function ComposerFormatDropdown({
+  disabled = false,
+  dialect,
+  onSelectDialect,
+}: {
+  disabled?: boolean;
+  dialect: PlateEmailEditorDialect;
+  onSelectDialect?: (dialect: PlateEmailEditorDialect) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        asChild
+        className={COMPOSER_TOOLBAR_DROPDOWN_BUTTON_CLASS}>
+        <ToolbarButton
+          tooltip={__("Format", "pressedmail")}
+          disabled={disabled}>
+          <FileText className={COMPOSER_TOOLBAR_ICON_CLASS} />
+          <span className="ml-1 hidden text-xs md:inline">
+            {composerDialectLabel(dialect)}
+          </span>
+          <ChevronDown className="ml-0.5 size-3" />
+        </ToolbarButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44">
+        <DropdownMenuLabel>{__("Format", "pressedmail")}</DropdownMenuLabel>
+        <DropdownMenuSep />
+        <DropdownMenuRadioGroup value={dialect}>
+          {PLATE_EMAIL_EDITOR_DIALECTS.map((option) => (
+            <DropdownMenuRadioItem
+              key={option}
+              value={option}
+              onSelect={() => {
+                if (!disabled) onSelectDialect?.(option);
+              }}>
+              {composerDialectLabel(option)}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -787,7 +887,7 @@ function SignatureDropdown({
   disabled = false,
 }: {
   signatures: Signature[];
-  form: UseComposeFormReturn;
+  form: ComposerToolbarForm;
   disabled?: boolean;
 }) {
   return (

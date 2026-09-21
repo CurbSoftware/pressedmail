@@ -133,7 +133,7 @@ export function PalettePicker({
                 aria-label={__("Hex", "pressedmail")}
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-ring"
+                className="w-full min-w-0 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-transparent"
               />
             </label>
             <div className="grid grid-cols-4 gap-1.5">
@@ -181,7 +181,7 @@ export function PalettePicker({
             {visualControls}
             <ColorPicker.ChannelInput
               channel="hex"
-              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-ring"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-transparent"
             />
           </>
         )}
@@ -270,7 +270,7 @@ function ChannelNumberInput({
             Number.isFinite(parsed) ? Math.min(max, Math.max(0, parsed)) : 0,
           );
         }}
-        className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs text-foreground focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-ring"
+        className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs text-foreground focus:border-transparent"
       />
     </label>
   );

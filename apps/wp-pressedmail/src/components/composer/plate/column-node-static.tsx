@@ -10,7 +10,9 @@ import { SlateElement } from '@kit/plate/static';
  */
 export function ColumnGroupElementStatic(props: SlateElementProps) {
   return (
-    <SlateElement {...props}>
+    <SlateElement
+      {...props}
+      attributes={{ ...props.attributes, 'data-pm-block': 'column_group' }}>
       <table
         style={{
           width: '100%',
@@ -34,6 +36,11 @@ export function ColumnElementStatic(props: SlateElementProps<TColumnElement>) {
     <SlateElement
       {...props}
       as="td"
+      attributes={{
+        ...props.attributes,
+        'data-pm-block': 'column',
+        ...(width ? { 'data-width': String(width) } : {}),
+      }}
       style={{
         width: width ?? 'auto',
         verticalAlign: 'top',

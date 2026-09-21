@@ -5,12 +5,8 @@ import { __, sprintf } from "@wordpress/i18n";
 import {
   Button,
   cn,
+  Checkbox,
   Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
   Label,
   Select,
   SelectContent,
@@ -21,6 +17,12 @@ import {
   toast,
 } from "@kit/ui/plugin";
 import { Brush } from "lucide-react";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import type { EmailMessage } from "@/types";
 import type { ImapFolder } from "@/services/interfaces";
 import {
@@ -585,24 +587,21 @@ export function EmailSweep({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
+      <PressedDialogContent
+        size="compactForm"
         aria-describedby={undefined}
         data-test="sweep-dialog-content"
         data-testid="sweep-dialog-content"
-        className="flex max-h-[85vh] max-w-lg flex-col gap-0 overflow-hidden border-border bg-card p-0 text-card-foreground">
-        <DialogHeader className="border-b border-border bg-muted/20 px-4 py-3">
-          <DialogTitle className="text-base">
-            <DialogTitleRow>
-              <Brush />
-              <span>{__("Sweep matching messages", "pressedmail")}</span>
-            </DialogTitleRow>
-          </DialogTitle>
-        </DialogHeader>
+        className="flex max-h-[85vh] flex-col overflow-hidden border-border bg-card text-card-foreground">
+        <PressedDialogHeader
+          title={__("Sweep matching messages", "pressedmail")}
+          icon={Brush}
+        />
 
-        <div
+        <PressedOverlayBody
           data-test="sweep-dialog-body"
           data-testid="sweep-dialog-body"
-          className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto">
           <SweepStep
             step={1}
             title={__("Sweep scope", "pressedmail")}
@@ -745,12 +744,12 @@ export function EmailSweep({
                       data-test={`sweep-match-value-row-${value}`}
                       data-testid={`sweep-match-value-row-${value}`}
                       className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-0.5">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedValueSet.has(value)}
-                        onChange={(event) =>
-                          toggleMatchValue(value, event.currentTarget.checked)
+                        onCheckedChange={(checked) =>
+                          toggleMatchValue(value, Boolean(checked))
                         }
+                        aria-label={value}
                       />
                       <span className="min-w-0 truncate text-foreground">
                         {value}
@@ -843,14 +842,13 @@ export function EmailSweep({
 
           <SweepStep step={4} title={__("Automation", "pressedmail")}>
             <label className="flex items-start gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm">
-              <input
+              <Checkbox
                 aria-label={__(
                   "Also create rule for future messages",
                   "pressedmail",
                 )}
-                type="checkbox"
                 checked={createRule}
-                onChange={(event) => setCreateRule(event.currentTarget.checked)}
+                onCheckedChange={(checked) => setCreateRule(Boolean(checked))}
               />
               <span>
                 {__("Also create rule for future messages", "pressedmail")}
@@ -863,9 +861,9 @@ export function EmailSweep({
               {error}
             </p>
           )}
-        </div>
+        </PressedOverlayBody>
 
-        <DialogFooter className="border-t border-border bg-muted/20 px-4 py-3">
+        <PressedOverlayFooter>
           <Button
             variant="outline"
             size="sm"
@@ -884,8 +882,8 @@ export function EmailSweep({
             }>
             {__("Start sweep", "pressedmail")}
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </PressedOverlayFooter>
+      </PressedDialogContent>
     </Dialog>
   );
 }

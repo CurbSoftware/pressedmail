@@ -48,7 +48,6 @@ const UnderlineTabsTrigger: React.FC<UnderlineTabsTriggerProps> = ({
         "text-sm font-medium text-muted-foreground",
         "hover:text-foreground transition-colors",
         "data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm",
-        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "inline-flex shrink-0 snap-start items-center gap-2",
         className,
       )}
@@ -64,7 +63,7 @@ const UnderlineTabsContent: React.FC<
 > = ({ className, ...props }) => (
   <TabsPrimitive.Content
     className={cn(
-      "mt-6 focus-visible:ring-0 focus-visible:ring-offset-0 focus-visible:outline-hidden",
+      "mt-6",
       className,
     )}
     {...props}

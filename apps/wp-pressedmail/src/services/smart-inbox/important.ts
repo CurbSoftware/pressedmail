@@ -2,7 +2,7 @@ import {
   parseAccountQualifiedToken,
   parseMessageIdentityRef,
 } from "@/lib/message-identity";
-import { getRuntimeRestNamespace } from "@/lib/runtime-config";
+import { getPluginRestBase } from "@/lib/runtime-config";
 import { apiFetch } from "@/lib/api-client";
 /**
  * Smart-inbox importance helpers.
@@ -73,7 +73,7 @@ export async function markMessageImportant(
     };
 
     const response = await apiFetch(
-      `/wp-json/${getRuntimeRestNamespace()}/smart-inbox/important`,
+      `${getPluginRestBase()}smart-inbox/important`,
       {
         method: "POST",
         headers: {

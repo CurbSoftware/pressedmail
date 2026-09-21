@@ -118,7 +118,6 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
           className={cn(
             "flex h-4 w-4 items-center justify-center rounded-full transition-colors",
             "hover:bg-destructive/20 hover:text-destructive",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive",
           )}
           aria-label={
             hiddenAddress

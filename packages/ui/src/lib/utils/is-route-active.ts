@@ -1,3 +1,20 @@
+/**
+ * Navigation highlighting.
+ *
+ * Provenance: this file's git ancestry runs back to the MakerKit SaaS
+ * starter's `src/makerkit/is-route-active.ts`, and no grant for redistributing
+ * MakerKit code under the GPL is on file. The implementation was replaced
+ * before that mattered. Upstream counted matching path segments against a
+ * `depth` argument; this matches on a normalised prefix, takes an optional
+ * regular expression, and understands locale prefixes, which upstream never
+ * did. Nothing of the upstream algorithm is left.
+ *
+ * A reviewer can see that for themselves:
+ *
+ *   git show caf88f9bf:packages/ui/src/makerkit/is-route-active.ts
+ *
+ * See apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md.
+ */
 const ROOT_PATH = '/';
 
 export type RouteActiveOptions = {
@@ -65,10 +82,6 @@ export function isRouteActive(
   );
 }
 
-function splitIntoSegments(href: string) {
-  return href.split('/').filter(Boolean);
-}
-
 function normalizePath(path: string, options?: RouteActiveOptions) {
   const [pathname = ROOT_PATH] = path.split('?');
   const normalizedPath =
@@ -98,7 +111,7 @@ function detectLocaleFromPath(
     return undefined;
   }
 
-  const [firstSegment] = splitIntoSegments(path);
+  const [firstSegment] = path.split('/').filter(Boolean);
 
   if (!firstSegment) {
     return undefined;

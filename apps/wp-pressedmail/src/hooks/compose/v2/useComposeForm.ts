@@ -40,7 +40,12 @@ import {
   useMaxAttachmentSizeMb,
 } from "@/context/admin-settings";
 import type { EmailEditorRef } from "@/components/composer";
-import type { EmailAccount, EmailAttachment, EmailContentType } from "@/types";
+import type {
+  DraftDocument,
+  EmailAccount,
+  EmailAttachment,
+  EmailContentType,
+} from "@/types";
 import { useMediaLibraryPicker } from "@/components/inbox/compose/media-library/MediaLibraryPickerProvider";
 import type { MediaPickerSelection } from "@/services/media-library.service";
 import type { Recipient } from "@/types/recipients";
@@ -62,7 +67,10 @@ import {
   getUserPreferencesSnapshot,
   useUserPreferences,
 } from "@/hooks/useUserPreferences";
-import { hasExternalRecipient, shouldConfirmSend } from "@/lib/preference-behavior";
+import {
+  hasExternalRecipient,
+  shouldConfirmSend,
+} from "@/lib/preference-behavior";
 import {
   prepareEmailHtmlForSend,
   unwrapEmailBodyHtml,
@@ -73,7 +81,11 @@ import {
   COMPOSER_LEADING_BLANK_LINES_HTML,
   type ComposeMode,
 } from "@/components/inbox/compose/compose-utils";
-import { getCacheService } from "@/services/implementations";
+import { getCacheService, getInboxService } from "@/services/implementations";
+import {
+  getMessageIdentityKey,
+  type MessageIdentityRef,
+} from "@/lib/message-identity";
 import { refreshAccountSync } from "@/services/sync-driver.service";
 import {
   acknowledgeNormalSend,
@@ -197,6 +209,15 @@ export interface UseComposeFormReturn {
   bccRecipients: Recipient[];
   subject: string;
   body: string;
+  draftDocument?: DraftDocument;
+  draftDocumentExpired: boolean;
+  draftDocumentStorageUnavailable: boolean;
+  composeSessionVersion: number | null;
+  setDraftDocument: (
+    value: DraftDocument["value"],
+    dialect: DraftDocument["dialect"],
+  ) => void;
+  setEditorDialect: (dialect: DraftDocument["dialect"]) => void;
   contentType: EmailContentType;
   bodyBackgroundColor?: string;
   /** Composer canvas pane color (editing aid only, never sent or saved). */
@@ -268,6 +289,8 @@ export interface UseComposeFormReturn {
   handleSaveDraft: (opts?: { silent?: boolean }) => Promise<boolean>;
   handleDiscard: () => Promise<void>;
   handleDiscardConfirm: () => Promise<void>;
+  /** The Delete button: moves a server draft to Trash even with auto-save on. */
+  handleDelete: () => Promise<void>;
   handleDiscardSaveAndClose: () => Promise<void>;
   handleDiscardCancel: () => void;
   handleSignatureSelect: (signatureId: number) => void;
@@ -615,6 +638,9 @@ export function useComposeForm({
   const [localBcc, setLocalBcc] = useState<Recipient[]>(prefillBcc ?? []);
   const [localSubject, setLocalSubject] = useState(prefillSubject ?? "");
   const [localBody, setLocalBody] = useState(prefillBody ?? "");
+  const [localDraftDocument, setLocalDraftDocument] = useState<
+    DraftDocument | undefined
+  >();
   const [localInReplyTo, setLocalInReplyTo] = useState(prefillInReplyTo ?? "");
   const [localReferences, setLocalReferences] = useState(
     prefillReferences ?? "",
@@ -951,6 +977,58 @@ export function useComposeForm({
       ? (prefillBody ?? "")
       : composerContext!.composeData.body
     : localBody;
+  const draftDocument = isContextMode
+    ? composerContext!.composeData.draftDocument
+    : localDraftDocument;
+  const draftDocumentExpired = isContextMode
+    ? composerContext!.composeData.draftDocumentExpired === true
+    : false;
+  const draftDocumentRef = useRef(draftDocument);
+  draftDocumentRef.current = draftDocument;
+  const [draftDocumentStorageUnavailable, setDraftDocumentStorageUnavailable] =
+    useState(false);
+  useEffect(() => {
+    setDraftDocumentStorageUnavailable(false);
+  }, [composeSessionVersion]);
+  const editorDialectRef = useRef<DraftDocument["dialect"]>(
+    draftDocument?.dialect ?? "markdown",
+  );
+  useEffect(() => {
+    editorDialectRef.current = draftDocument?.dialect ?? "markdown";
+  }, [composeSessionVersion]);
+  const setEditorDialect = useCallback(
+    (dialect: DraftDocument["dialect"]) => {
+      editorDialectRef.current = dialect;
+      if (isContextMode) {
+        composerContext!.setComposeData((prev) => ({
+          ...prev,
+          draftDocument: prev.draftDocument
+            ? { ...prev.draftDocument, dialect }
+            : undefined,
+        }));
+      } else {
+        setLocalDraftDocument((prev) =>
+          prev ? { ...prev, dialect } : undefined,
+        );
+      }
+    },
+    [isContextMode, composerContext],
+  );
+  const setDraftDocument = useCallback(
+    (value: DraftDocument["value"], dialect: DraftDocument["dialect"]) => {
+      const document: DraftDocument = { version: 1, dialect, value };
+      editorDialectRef.current = dialect;
+      if (isContextMode) {
+        composerContext!.setComposeData((prev) => ({
+          ...prev,
+          draftDocument: document,
+        }));
+      } else {
+        setLocalDraftDocument(document);
+      }
+    },
+    [isContextMode, composerContext],
+  );
   const contentType: EmailContentType = isContextMode
     ? (composerContext!.composeData.contentType ??
       (composerContext!.composeData.body ||
@@ -959,10 +1037,11 @@ export function useComposeForm({
         ? "html"
         : defaultContentType))
     : localContentType;
-  const { signature: boundSignature, shouldInsertForMode } = useSignatureBinding({
-    accountId: getSendingAccountId(),
-    mode,
-  });
+  const { signature: boundSignature, shouldInsertForMode } =
+    useSignatureBinding({
+      accountId: getSendingAccountId(),
+      mode,
+    });
   // The signature's own New messages / Replies / Forwards switches are the only
   // gate on auto-insert. There is no global override and no default signature:
   // the account the mail is sent from decides which signature applies.
@@ -1115,6 +1194,7 @@ export function useComposeForm({
       } else {
         setLocalBody(value);
         setLocalContentType(nextContentType);
+        if (nextContentType === "plain") setLocalDraftDocument(undefined);
       }
     },
     [isContextMode, composerContext],
@@ -1201,6 +1281,10 @@ export function useComposeForm({
         ? (editorRef.current?.getHTML?.() ?? body ?? "")
         : (body ?? "");
     let nextBody = currentBody;
+    // The blank lines above a reply's quoted block are part of the composed
+    // body, not part of the signature, and no document command can add them.
+    // The branch below has to know they are in this run's delta.
+    let prependedLeadingBlanks = false;
     if (!leadingBlanksInsertedRef.current) {
       leadingBlanksInsertedRef.current = true;
       if (
@@ -1211,6 +1295,7 @@ export function useComposeForm({
         !currentBody.startsWith(COMPOSER_LEADING_BLANK_LINES_HTML)
       ) {
         nextBody = `${COMPOSER_LEADING_BLANK_LINES_HTML}${currentBody}`;
+        prependedLeadingBlanks = true;
       }
     }
     const snapshot = (value: string) =>
@@ -1220,9 +1305,10 @@ export function useComposeForm({
     // Only the unchanged block we inserted belongs to automation. A picked,
     // edited, deleted, or externally restored signature belongs to the author.
     if (snapshot(currentBody) !== automatic.snapshot) automatic.locked = true;
+    const automaticSignature =
+      signaturesEnabled && shouldInsertSignature ? boundSignature : null;
     if (!automatic.locked) {
-      const signature =
-        signaturesEnabled && shouldInsertSignature ? boundSignature : null;
+      const signature = automaticSignature;
       const choice = signature
         ? JSON.stringify([
             signature.id,
@@ -1257,7 +1343,39 @@ export function useComposeForm({
       }
     }
     if (nextBody !== currentBody) {
-      if (contentType === "html") editorRef.current?.setContent?.(nextBody);
+      if (contentType === "html") {
+        /*
+         * This branch runs when the bound signature itself changed under the
+         * author, which is a From-account switch mid-compose. Put the block in
+         * at a path, or take it out, rather than handing the editor a rebuilt
+         * document: setContent re-parsed every block and the author lost the
+         * formatting on all of them.
+         *
+         * Before the editor signals ready there is nothing to edit, so the
+         * composed string is kept and handleEditorReady flushes it.
+         */
+        const live = editorRef.current;
+        const canEditInPlace =
+          !prependedLeadingBlanks &&
+          (live?.insertSignatureBlock !== undefined ||
+            live?.removeSignatureBlock !== undefined);
+
+        if (canEditInPlace) {
+          if (automaticSignature) {
+            live?.insertSignatureBlock?.(
+              automaticSignature,
+              composerPreferences.composer_signature_placement,
+            );
+          } else {
+            live?.removeSignatureBlock?.();
+          }
+        } else {
+          // A composed body the commands cannot express, meaning the reply
+          // scaffold. Serialising is safe here because this only happens on the
+          // first run, before the author has written anything to lose.
+          live?.setContent?.(nextBody);
+        }
+      }
       // Plate can normalize wrapper markup. Compare its actual serialized block
       // on the next edit, not the pre-deserialization input HTML.
       if (
@@ -1294,6 +1412,8 @@ export function useComposeForm({
   const activeSendSnapshotRef = useRef<ActiveSendSnapshot | null>(null);
   const openedDraftIdentityRef = useRef<string | null>(null);
   const lastSavedDraftSnapshotRef = useRef<string | null>(null);
+  // Stops the opened-draft clean-baseline window (see hasUnsavedDraftChanges).
+  const draftBaselineStopRef = useRef<(() => void) | null>(null);
   const closeAutoSaveStartedRef = useRef(false);
   const rawContextDraftUid = composerContext?.composeData.draftUid;
   const rawContextDraftFolder = composerContext?.composeData.draftFolder;
@@ -1391,6 +1511,7 @@ export function useComposeForm({
       setLocalBcc([]);
       setLocalSubject("");
       setLocalBody("");
+      setLocalDraftDocument(undefined);
       setLocalInReplyTo("");
       setLocalReferences("");
       setLocalContentType(defaultContentType);
@@ -1410,8 +1531,46 @@ export function useComposeForm({
     leadingBlanksInsertedRef.current = false;
     priorDraftRef.current = null;
     openedDraftIdentityRef.current = null;
+    draftBaselineStopRef.current?.();
     lastSavedDraftSnapshotRef.current = null;
   }, [isContextMode, composerContext, defaultContentType]);
+
+  // The bound draft was deleted, here from the list or elsewhere mid-save.
+  // Close without saving: a resave would bring back a draft the user removed.
+  const draftGoneRef = useRef(false);
+  const closeDeletedDraft = useCallback(() => {
+    priorDraftRef.current = null;
+    openedDraftIdentityRef.current = null;
+    removePrincipalStorageItem("local", "pressedmail-compose-draft");
+    removePrincipalStorageItem("local", "compose-draft");
+    dirtyRef.current = false;
+    draftGoneRef.current = true;
+    clearForm();
+    onClose?.();
+    appMessage(
+      __("This draft was deleted, so it was closed.", "pressedmail"),
+      "info",
+    );
+  }, [clearForm, onClose]);
+
+  useEffect(() => {
+    if (!isContextMode) return;
+    return getInboxService().onMessageRemoved((token) => {
+      const prior = priorDraftRef.current;
+      if (
+        prior &&
+        token ===
+          getMessageIdentityKey({
+            accountId: prior.accountId,
+            folder: prior.folder,
+            uidValidity: prior.uidValidity,
+            uid: prior.uid,
+          } as MessageIdentityRef)
+      ) {
+        closeDeletedDraft();
+      }
+    });
+  }, [isContextMode, closeDeletedDraft]);
 
   const resolveOutgoingBody = useCallback(
     (overrideBody?: string): string => {
@@ -1442,6 +1601,7 @@ export function useComposeForm({
         ).map((list) => list.id),
         subject: overrides?.subject ?? subject,
         body: resolveOutgoingBody(overrides?.body),
+        draftDocument: contentType === "plain" ? null : draftDocument,
         contentType,
         inReplyTo: overrides?.inReplyTo ?? inReplyTo,
         references: overrides?.references ?? references,
@@ -1456,6 +1616,7 @@ export function useComposeForm({
       uniqueRecipientGroups,
       resolveOutgoingBody,
       contentType,
+      draftDocument,
       inReplyTo,
       references,
       getSendingAccountId,
@@ -1548,6 +1709,9 @@ export function useComposeForm({
       if (result.savedSnapshot) {
         lastSavedDraftSnapshotRef.current = result.savedSnapshot;
       }
+      // Every composer and every save, silent ones too: opening Drafts must
+      // not serve a list cached before this draft existed.
+      getInboxService().invalidateFolderMessages(savedDraft.draft_folder);
 
       if (feedback !== null) {
         setIsDraftSaved(true);
@@ -1575,6 +1739,7 @@ export function useComposeForm({
       opts: SaveDraftOptions | undefined,
       composeSessionVersion: number | null,
     ): Promise<SaveDraftResult> => {
+      draftGoneRef.current = false;
       if (hasIncompleteDraftIdentity) {
         appMessage(
           __("Reload this draft before saving or sending it.", "pressedmail"),
@@ -1646,6 +1811,19 @@ export function useComposeForm({
       formData.append("in_reply_to", opts?.inReplyTo ?? inReplyTo);
       formData.append("references", opts?.references ?? references);
       formData.append("account_id", String(accountId));
+      if ((opts?.contentType ?? contentType) !== "plain") {
+        const value =
+          editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value;
+        if (value)
+          formData.append(
+            "draft_document",
+            JSON.stringify({
+              version: 1,
+              dialect: editorDialectRef.current,
+              value,
+            }),
+          );
+      }
       const draftAttachmentManifestComplete =
         opts?.draftAttachmentManifestComplete ??
         (!isContextMode ||
@@ -1673,6 +1851,7 @@ export function useComposeForm({
       try {
         const response = (await apiForm(saveDraftRouteApi, formData)) as {
           status?: string;
+          code?: string;
           message?: string;
           data?: {
             draft_uid?: string;
@@ -1680,15 +1859,20 @@ export function useComposeForm({
             draft_uidvalidity?: string | number;
             draft_message_id?: string;
             attachment_parts?: Record<string, string>;
+            draft_document_stored?: boolean;
           };
         };
 
         if (!response || response.status !== "success") {
           if (ownsComposeSession(composeSessionVersion)) {
-            appMessage(
-              response?.message || __("Failed to save draft", "pressedmail"),
-              "error",
-            );
+            if (response?.code === "DRAFT_DELETED") {
+              closeDeletedDraft();
+            } else {
+              appMessage(
+                response?.message || __("Failed to save draft", "pressedmail"),
+                "error",
+              );
+            }
           }
           return { ok: false, draft: null };
         }
@@ -1739,6 +1923,27 @@ export function useComposeForm({
           composeSessionVersion,
           opts?.silent ? "silent" : "manual",
         );
+        const documentNotStored =
+          formData.has("draft_document") &&
+          data?.draft_document_stored === false;
+        if (ownsComposeSession(composeSessionVersion)) {
+          setDraftDocumentStorageUnavailable(documentNotStored);
+          if (isContextMode) {
+            composerContext!.setComposeData((previous) => ({
+              ...previous,
+              draftDocumentExpired: false,
+            }));
+          }
+        }
+        if (documentNotStored && !opts?.silent) {
+          appMessage(
+            __(
+              "Rich Text blocks will reopen as email HTML while database caching is off.",
+              "pressedmail",
+            ),
+            "warning",
+          );
+        }
         return result;
       } catch (error) {
         if (ownsComposeSession(composeSessionVersion)) {
@@ -1768,6 +1973,7 @@ export function useComposeForm({
       hasIncompleteDraftIdentity,
       isContextMode,
       ownsComposeSession,
+      closeDeletedDraft,
     ],
   );
 
@@ -2601,6 +2807,9 @@ export function useComposeForm({
           return false;
         const scheduledAttachments =
           serializeScheduledAttachments(scheduledSources);
+        const scheduledDocumentValue = contentType === "html"
+          ? (editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value)
+          : undefined;
         const apiUrl = window.pressedmailPlugin?.apiUrl || "";
 
         const endpoint = isScheduledEdit
@@ -2627,6 +2836,15 @@ export function useComposeForm({
               ? { body_background_color: bodyBackgroundColor }
               : {}),
             content_type: contentType,
+            ...(scheduledDocumentValue
+              ? {
+                  draft_document: JSON.stringify({
+                    version: 1,
+                    dialect: editorDialectRef.current,
+                    value: scheduledDocumentValue,
+                  }),
+                }
+              : {}),
             tracking_requested: receiptRequested,
             tracking_consent_revision: receiptRequested
               ? receiptValue.revision
@@ -2670,6 +2888,13 @@ export function useComposeForm({
             "error",
           );
           return false;
+        }
+
+        if (scheduledDocumentValue && result.data?.draft_document_stored === false) {
+          appMessage(
+            __("Rich Text blocks may change when this scheduled draft reopens because site document storage is off.", "pressedmail"),
+            "warning",
+          );
         }
 
         // The server replaced the IMAP draft, so the identity this composer
@@ -2981,6 +3206,44 @@ export function useComposeForm({
     () => lastSavedDraftSnapshotRef.current !== getDraftSnapshot(),
     [getDraftSnapshot],
   );
+
+  // A draft that was just opened is clean, so leaving it untouched must not
+  // save it again. The editor rewrites the draft HTML a beat after loading it,
+  // so the clean snapshot keeps following along until the first key or pointer
+  // press, or one second. Input ends the window before it lands, so a real edit
+  // is never taken for the clean state. The marker is one-shot: a composer
+  // restored from storage may hold unsaved edits and must not be baselined.
+  const getDraftSnapshotRef = useRef(getDraftSnapshot);
+  getDraftSnapshotRef.current = getDraftSnapshot;
+  const draftOpened =
+    isContextMode && !!composerContext!.composeData.draftOpened;
+  useEffect(() => {
+    if (draftOpened) {
+      composerContext!.setComposeData(
+        ({ draftOpened: _consumed, ...rest }) => rest,
+      );
+      draftBaselineStopRef.current?.();
+      const events = ["keydown", "pointerdown", "paste", "drop"];
+      let timer = 0;
+      const stop = () => {
+        window.clearTimeout(timer);
+        events.forEach((type) => window.removeEventListener(type, stop, true));
+        if (draftBaselineStopRef.current === stop) {
+          draftBaselineStopRef.current = null;
+        }
+      };
+      timer = window.setTimeout(() => {
+        lastSavedDraftSnapshotRef.current = getDraftSnapshotRef.current();
+        stop();
+      }, 1000);
+      events.forEach((type) => window.addEventListener(type, stop, true));
+      draftBaselineStopRef.current = stop;
+    }
+    if (draftBaselineStopRef.current) {
+      lastSavedDraftSnapshotRef.current = getDraftSnapshot();
+    }
+  }, [composerContext, draftOpened, getDraftSnapshot]);
+  useEffect(() => () => draftBaselineStopRef.current?.(), []);
 
   const hasComposedDraftContent = useCallback(() => {
     const isGeneratedMessage =
@@ -3343,6 +3606,11 @@ export function useComposeForm({
       // The save failed and said why. Close the dialog anyway so the user is not
       // stuck re-firing the same failing save from a modal they cannot dismiss.
       setShowDiscardDialog(false);
+      if (draftGoneRef.current) {
+        draftGoneRef.current = false;
+        consumePendingNavigation();
+        return;
+      }
       abandonPendingNavigation();
       return;
     }
@@ -3357,6 +3625,27 @@ export function useComposeForm({
     clearForm,
     onClose,
     consumePendingNavigation,
+  ]);
+
+  // Delete never autosaves: a server draft goes to Trash, and the discard gate
+  // holds saves off until it is gone. Unsaved content with no server copy has
+  // no Trash to fall back on, so it still asks first.
+  const handleDelete = useCallback(async () => {
+    if (
+      !priorDraftRef.current &&
+      !isScheduledEdit &&
+      hasComposedDraftContent() &&
+      composerPreferences.composer_confirm_unsaved_close
+    ) {
+      setShowDiscardDialog(true);
+      return;
+    }
+    await handleDiscardConfirm();
+  }, [
+    composerPreferences.composer_confirm_unsaved_close,
+    handleDiscardConfirm,
+    hasComposedDraftContent,
+    isScheduledEdit,
   ]);
 
   const handleDiscardCancel = useCallback(() => {
@@ -3393,11 +3682,13 @@ export function useComposeForm({
   const clearFormRef = useRef(clearForm);
   const onCloseRef = useRef(onClose);
   const saveDraftOnExplicitCloseRef = useRef(saveDraftOnExplicitClose);
+  const handleDeleteRef = useRef(handleDelete);
   useEffect(() => {
     clearFormRef.current = clearForm;
     onCloseRef.current = onClose;
     saveDraftOnExplicitCloseRef.current = saveDraftOnExplicitClose;
-  }, [clearForm, onClose, saveDraftOnExplicitClose]);
+    handleDeleteRef.current = handleDelete;
+  }, [clearForm, onClose, saveDraftOnExplicitClose, handleDelete]);
 
   // Register a guard with ComposerContext so outside navigation (e.g. clicking
   // a different email in the list, a route change, or a wp-admin link) routes
@@ -3432,6 +3723,12 @@ export function useComposeForm({
         void saveDraftOnExplicitCloseRef.current().then((saved) => {
           if (!saved) {
             closeAutoSaveStartedRef.current = false;
+            // The draft was deleted and the composer already closed: go on.
+            if (draftGoneRef.current) {
+              draftGoneRef.current = false;
+              action();
+              return;
+            }
             onCancel?.();
             return;
           }
@@ -3453,9 +3750,13 @@ export function useComposeForm({
     const unregisterDirty = composerContext.registerDirtyChecker(
       () => dirtyRef.current || pendingInlineImageUploadsRef.current > 0,
     );
+    const unregisterDelete = composerContext.registerDeleteHandler(
+      () => void handleDeleteRef.current(),
+    );
     return () => {
       unregisterGuard();
       unregisterDirty();
+      unregisterDelete();
     };
   }, [gateNavigation, composerContext]);
 
@@ -3466,65 +3767,68 @@ export function useComposeForm({
   // only in `body` (preview), never as editable editor content. This flushes
   // the composed body into the editor the moment it signals ready, exactly
   // once, so the auto-inserted signature is editable.
-  const handleEditorReady = useCallback(
-    (editor: EmailEditorRef | null) => {
-      if (!editor) {
-        // Editor unmounted; allow a fresh flush if it remounts.
-        editorReadyFlushedRef.current = false;
-        return;
-      }
-      if (editorReadyFlushedRef.current) return;
+  const handleEditorReady = useCallback((editor: EmailEditorRef | null) => {
+    if (!editor) {
+      // Editor unmounted; allow a fresh flush if it remounts.
+      editorReadyFlushedRef.current = false;
+      return;
+    }
+    if (editorReadyFlushedRef.current) return;
 
-      const composed = latestBodyRef.current;
-      if (!composed) {
-        // Nothing to flush yet. Leave the one-shot unspent so the composed
-        // body still lands if the editor signals ready again.
-        return;
-      }
+    const composed = latestBodyRef.current;
+    if (!composed) {
+      // Nothing to flush yet. Leave the one-shot unspent so the composed
+      // body still lands if the editor signals ready again.
+      return;
+    }
 
-      // Flush through the handle we were handed. Reading it back off the
-      // forwarded ref raced the publisher that assigns it, and losing that
-      // race used to burn the one-shot and leave the body out of the editor.
-      editor.setContent?.(composed);
-      editorReadyFlushedRef.current = true;
-      if (
-        !automaticSignatureRef.current.locked &&
-        automaticSignatureRef.current.snapshot !== null
-      ) {
-        automaticSignatureRef.current.snapshot = signatureSnapshot(
-          editor.getHTML?.() ?? composed,
-        );
-      }
-      editor.focusStart?.();
-    },
-    [],
-  );
+    // Flush through the handle we were handed. Reading it back off the
+    // forwarded ref raced the publisher that assigns it, and losing that
+    // race used to burn the one-shot and leave the body out of the editor.
+    if (!draftDocumentRef.current) editor.setContent?.(composed);
+    editorReadyFlushedRef.current = true;
+    if (
+      !automaticSignatureRef.current.locked &&
+      automaticSignatureRef.current.snapshot !== null
+    ) {
+      automaticSignatureRef.current.snapshot = signatureSnapshot(
+        editor.getHTML?.() ?? composed,
+      );
+    }
+    editor.focusStart?.();
+  }, []);
 
   const handleSignatureSelect = useCallback(
     (signatureId: number) => {
       const signature = signatures.find((s) => s.id === signatureId);
       if (!signature) return;
 
-      const currentBody =
-        contentType === "plain"
-          ? body || ""
-          : editorRef.current?.getHTML() || body || "";
-      // Place above the <hr> separator on reply/forward (same as auto-insert),
-      // replacing any existing block, never appended below the quoted text.
-      const updatedBody =
-        contentType === "plain"
-          ? applyPlainTextSignature(currentBody, signature, mode)
-          : applySignature(currentBody, signature, {
-              mode,
-              replaceExisting: true,
-              placement: composerPreferences.composer_signature_placement,
-            });
+      // Take ownership of the block before touching it: from here on it is the
+      // author's signature, and the mount effect must leave it alone.
       automaticSignatureRef.current.locked = true;
 
-      if (contentType === "html" && editorRef.current) {
-        editorRef.current.setContent(updatedBody);
+      const editor = contentType === "html" ? editorRef.current : null;
+      if (editor?.insertSignatureBlock) {
+        // The editor edits its own document and reports the new HTML back
+        // through onChange. Rebuilding the body as a string and re-parsing it
+        // with setContent (the old path) dropped text colour and font size from
+        // every block in the message. The placement preference is passed
+        // through so this cannot disagree with the mount path.
+        editor.insertSignatureBlock(
+          signature,
+          composerPreferences.composer_signature_placement,
+        );
       } else {
-        setBody(updatedBody);
+        // A plain-text body, or a rich editor that publishes a bare ref.
+        setBody(
+          contentType === "plain"
+            ? applyPlainTextSignature(body || "", signature, mode)
+            : applySignature(body || "", signature, {
+                mode,
+                replaceExisting: true,
+                placement: composerPreferences.composer_signature_placement,
+              }),
+        );
       }
       appMessage(__("Signature applied", "pressedmail"), "success");
     },
@@ -3699,6 +4003,12 @@ export function useComposeForm({
     bccRecipients,
     subject,
     body,
+    draftDocument,
+    draftDocumentExpired,
+    draftDocumentStorageUnavailable,
+    composeSessionVersion,
+    setDraftDocument,
+    setEditorDialect,
     contentType,
     bodyBackgroundColor,
     canvasBackgroundColor,
@@ -3750,6 +4060,7 @@ export function useComposeForm({
     handleSaveDraft,
     handleDiscard,
     handleDiscardConfirm,
+    handleDelete,
     handleDiscardSaveAndClose,
     handleDiscardCancel,
     handleSignatureSelect,

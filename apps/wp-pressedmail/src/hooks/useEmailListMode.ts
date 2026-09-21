@@ -3,17 +3,16 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 /**
  * Convenience hook for email list mode preference.
  *
- * Free builds are locked to pagination mode via compile-time constant.
- * Pro builds respect the user's stored preference.
+ * Every edition respects the stored value. Infinite scroll is not a paid
+ * feature: the sentinel and the observer ship in both packages, and the server
+ * serves offset pages either way.
  */
 export function useEmailListMode() {
   const { preferences, loading, saving, updatePreference } =
     useUserPreferences();
 
-  // Free build: force pagination regardless of stored value
-  const emailListMode: "pagination" | "lazy_loading" = __IS_FREE__
-    ? "pagination"
-    : preferences.email_list_mode;
+  const emailListMode: "pagination" | "lazy_loading" =
+    preferences.email_list_mode;
 
   const pageSize = preferences.email_list_page_size;
   const isPagination = emailListMode === "pagination";

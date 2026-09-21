@@ -80,7 +80,11 @@ export type {
 } from "./sync.interface";
 
 // ============== Prefetch Service ==============
-export type { IPrefetchService, FetchPriority } from "./prefetch.interface";
+export type {
+  IPrefetchService,
+  FetchPriority,
+  WarmBatchOutcome,
+} from "./prefetch.interface";
 
 // ============== Search Service ==============
 export type {

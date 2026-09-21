@@ -8,7 +8,6 @@ import {
   Button,
   Calendar,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Select,
   SelectContent,
@@ -17,6 +16,7 @@ import {
   SelectValue,
 } from "@kit/ui/plugin";
 import { cn } from "@/lib/utils";
+import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 
 export type DateTimeSelectorMode = "date" | "time" | "datetime";
 export type DateTimeSelectorTimeDisplayMode = "12h" | "24h";
@@ -409,11 +409,15 @@ export function DateTimeSelector({
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent
+      <PressedPopoverContent
+        size="menu"
         align="start"
         data-test={dataTestId ? `${dataTestId}-popover` : undefined}
         data-testid={dataTestId ? `${dataTestId}-popover` : undefined}
-        className="w-auto max-w-[min(21rem,calc(100vw-2rem))] bg-popover p-2 text-popover-foreground">
+        // The picker stays a compact single surface: the calendar and the time
+        // row are sized to 21rem, so the tier's width is capped rather than
+        // allowed to stretch the surface.
+        className="bg-popover p-2 text-popover-foreground">
         <div className="space-y-3">
           {mode !== "time" && (
             <Calendar
@@ -446,7 +450,7 @@ export function DateTimeSelector({
             </Button>
           </div>
         </div>
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

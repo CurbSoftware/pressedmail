@@ -2,6 +2,8 @@ import type { Value } from "@kit/plate";
 import { createSlateEditor } from "@kit/plate";
 import DOMPurify from "dompurify";
 
+import { parseComposerHtmlInert } from "./composer-html-inert";
+
 import {
   deserializeLegacyHtmlStatic,
   serializePlateValueToHtml,
@@ -878,7 +880,7 @@ export async function deserializeComposerHtmlToPlateValue(
   if (editorHtmlApi) {
     try {
       const liveValue = editorHtmlApi.deserialize({
-        element: sanitizedHtml,
+        element: parseComposerHtmlInert(sanitizedHtml),
       }) as Value;
       if (valueHasImportableContent(liveValue)) value = liveValue;
     } catch {

@@ -230,7 +230,7 @@ export function HeaderNotificationsButton({
                   <div className="group flex items-start gap-2 px-2 py-2">
                     <button
                       type="button"
-                      className="flex min-w-0 flex-1 items-start gap-2 rounded-sm p-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-w-0 flex-1 items-start gap-2 rounded-sm p-1.5 text-left outline-none hover:bg-muted"
                       aria-label={`${item.title}: ${item.summary}`}
                       onClick={() => void openNotification(item)}>
                       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">

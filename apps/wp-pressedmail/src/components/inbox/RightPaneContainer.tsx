@@ -4,6 +4,7 @@ import { removePrincipalStorageItem } from "@/lib/principal-storage";
 
 import { __ } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
+import { requestScheduledDraftHandoff } from "@/services/scheduled-email-edit";
 
 /**
  * Right Pane Container Component
@@ -152,7 +153,6 @@ export function RightPaneContainer({
   const { selectedAccount, accounts } = useAppContext();
   const {
     refreshMessages,
-    invalidateFolderMessages,
     clearSelection,
     selectedFolder,
     selectedAccountId,
@@ -418,7 +418,7 @@ export function RightPaneContainer({
     };
   }, [selectedMessage]);
   const replyContext = React.useCallback(
-    (threaded = true): Partial<ComposeData> | null => {
+    (threaded = true, restored = false): Partial<ComposeData> | null => {
       const ref = getMessageIdentityRef(selectedMessage);
       const account = ref
         ? accounts.find(
@@ -435,12 +435,15 @@ export function RightPaneContainer({
           ? (selectedMessage?.messageId ?? selectedMessage?.message_id)
           : undefined,
         references: threaded ? selectedMessage?.references : undefined,
-        replySource: {
-          identity: getMessageIdentityKey(selectedMessage),
-          accountId: ref.accountId,
-          folder: ref.folder,
-          uid: ref.uid,
-        },
+        // A message restored from Trash or Spam lost this UID in the move.
+        replySource: restored
+          ? undefined
+          : {
+              identity: getMessageIdentityKey(selectedMessage),
+              accountId: ref.accountId,
+              folder: ref.folder,
+              uid: ref.uid,
+            },
       };
     },
     [accounts, identityFailure, selectedMessage],
@@ -509,6 +512,8 @@ export function RightPaneContainer({
         contactLists: draft.contactLists ?? [],
         subject: draft.subject ?? "",
         body: draft.body ?? "",
+        draftDocument: draft.draftDocument,
+        draftDocumentExpired: draft.draftDocumentExpired,
         contentType: draft.contentType ?? preferredContentType,
         mode: nextComposeMode,
         bodyBackgroundColor: draft.bodyBackgroundColor,
@@ -519,6 +524,7 @@ export function RightPaneContainer({
         draftUidValidity: draft.draftUidValidity,
         draftMessageId: draft.draftMessageId,
         draftAttachmentManifestComplete: draft.draftAttachmentManifestComplete,
+        draftOpened: draft.draftOpened,
         scheduledEmailId: draft.scheduledEmailId,
         scheduledAccountId: draft.scheduledAccountId,
         scheduledAt: draft.scheduledAt,
@@ -648,103 +654,155 @@ export function RightPaneContainer({
   ]);
 
   // Handle Reply All
-  const handleReplyAll = React.useCallback(() => {
-    if (!selectedMessage) return;
-    const source = replyContext();
-    if (!source) return;
+  const openReplyAll = React.useCallback(
+    (restored: boolean) => {
+      if (!selectedMessage) return;
+      const source = replyContext(true, restored);
+      if (!source) return;
 
-    const subject = selectedMessage.subject?.startsWith("Re:")
-      ? selectedMessage.subject
-      : `Re: ${selectedMessage.subject || ""}`;
-    // Reply All answers the whole conversation: the reply target plus everyone
-    // on the original To, with the original Cc kept as Cc, minus this account.
-    const recipients = buildReplyRecipients(replyHeaders, {
-      replyAll: true,
+      const subject = selectedMessage.subject?.startsWith("Re:")
+        ? selectedMessage.subject
+        : `Re: ${selectedMessage.subject || ""}`;
+      // Reply All answers the whole conversation: the reply target plus everyone
+      // on the original To, with the original Cc kept as Cc, minus this account.
+      const recipients = buildReplyRecipients(replyHeaders, {
+        replyAll: true,
+        ownAddresses,
+      });
+
+      openPaneCompose("reply-all", {
+        ...source,
+        to: recipients.to,
+        cc: recipients.cc,
+        subject,
+        body:
+          preferredContentType === "plain"
+            ? formatQuotedText(selectedMessage)
+            : formatQuotedHtml(selectedMessage),
+        contentType: preferredContentType,
+      });
+    },
+    [
+      openPaneCompose,
       ownAddresses,
-    });
-
-    openPaneCompose("reply-all", {
-      ...source,
-      to: recipients.to,
-      cc: recipients.cc,
-      subject,
-      body:
-        preferredContentType === "plain"
-          ? formatQuotedText(selectedMessage)
-          : formatQuotedHtml(selectedMessage),
-      contentType: preferredContentType,
-    });
-  }, [
-    openPaneCompose,
-    ownAddresses,
-    preferredContentType,
-    replyHeaders,
-    selectedMessage,
-    replyContext,
-  ]);
+      preferredContentType,
+      replyHeaders,
+      selectedMessage,
+      replyContext,
+    ],
+  );
 
   // Handle Reply
-  const handleReply = React.useCallback(() => {
-    if (!selectedMessage) return;
-    const source = replyContext();
-    if (!source) return;
+  const openReply = React.useCallback(
+    (restored: boolean) => {
+      if (!selectedMessage) return;
+      const source = replyContext(true, restored);
+      if (!source) return;
 
-    if (preferences.default_reply_action === "reply_all") {
-      handleReplyAll();
-      return;
-    }
+      if (preferences.default_reply_action === "reply_all") {
+        openReplyAll(restored);
+        return;
+      }
 
-    const subject = selectedMessage.subject?.startsWith("Re:")
-      ? selectedMessage.subject
-      : `Re: ${selectedMessage.subject || ""}`;
-    // Reply-To exists so a sender can redirect replies: mailing lists, support
-    // desks and no-reply senders all set it, and it used to be ignored.
-    const recipients = buildReplyRecipients(replyHeaders, {
-      replyAll: false,
+      const subject = selectedMessage.subject?.startsWith("Re:")
+        ? selectedMessage.subject
+        : `Re: ${selectedMessage.subject || ""}`;
+      // Reply-To exists so a sender can redirect replies: mailing lists, support
+      // desks and no-reply senders all set it, and it used to be ignored.
+      const recipients = buildReplyRecipients(replyHeaders, {
+        replyAll: false,
+        ownAddresses,
+      });
+
+      openPaneCompose("reply", {
+        ...source,
+        to: recipients.to,
+        subject,
+        body:
+          preferredContentType === "plain"
+            ? formatQuotedText(selectedMessage)
+            : formatQuotedHtml(selectedMessage),
+        contentType: preferredContentType,
+      });
+    },
+    [
+      replyContext,
+      openReplyAll,
+      openPaneCompose,
       ownAddresses,
-    });
-
-    openPaneCompose("reply", {
-      ...source,
-      to: recipients.to,
-      subject,
-      body:
-        preferredContentType === "plain"
-          ? formatQuotedText(selectedMessage)
-          : formatQuotedHtml(selectedMessage),
-      contentType: preferredContentType,
-    });
-  }, [
-    replyContext,
-    handleReplyAll,
-    openPaneCompose,
-    ownAddresses,
-    preferredContentType,
-    preferences.default_reply_action,
-    replyHeaders,
-    selectedMessage,
-  ]);
+      preferredContentType,
+      preferences.default_reply_action,
+      replyHeaders,
+      selectedMessage,
+    ],
+  );
 
   // Handle Forward
-  const handleForward = React.useCallback(() => {
-    if (!selectedMessage) return;
-    const source = replyContext(false);
-    if (!source) return;
+  const openForward = React.useCallback(
+    (restored: boolean) => {
+      if (!selectedMessage) return;
+      const source = replyContext(false, restored);
+      if (!source) return;
 
-    const subject = selectedMessage.subject?.startsWith("Fwd:")
-      ? selectedMessage.subject
-      : `Fwd: ${selectedMessage.subject || ""}`;
+      const subject = selectedMessage.subject?.startsWith("Fwd:")
+        ? selectedMessage.subject
+        : `Fwd: ${selectedMessage.subject || ""}`;
 
-    openPaneCompose("forward", {
-      ...source,
-      subject,
-      body:
-        preferredContentType === "plain"
-          ? formatForwardedText(selectedMessage)
-          : formatForwardedHtml(selectedMessage),
-      contentType: preferredContentType,
-    });
-  }, [openPaneCompose, preferredContentType, selectedMessage, replyContext]);
+      openPaneCompose("forward", {
+        ...source,
+        subject,
+        body:
+          preferredContentType === "plain"
+            ? formatForwardedText(selectedMessage)
+            : formatForwardedHtml(selectedMessage),
+        contentType: preferredContentType,
+      });
+    },
+    [openPaneCompose, preferredContentType, selectedMessage, replyContext],
+  );
+
+  // Nothing is answered from Trash or Spam: the message goes back to the Inbox
+  // first and the composer opens where the user is. Drafts are left alone.
+  const restoreThen = React.useCallback(
+    (open: (restored: boolean) => void) => {
+      if (!selectedMessage) return;
+      if (!folderRecoveryAction || isDraftMessage(selectedMessage)) {
+        open(false);
+        return;
+      }
+      if (!selectedIdentity) {
+        identityFailure();
+        return;
+      }
+      void moveMessage(selectedIdentity, "INBOX").then((result) => {
+        if (!result.success || result.requiresRefresh) {
+          reportOperationFailure(result);
+          return;
+        }
+        open(true);
+      });
+    },
+    [
+      folderRecoveryAction,
+      identityFailure,
+      moveMessage,
+      reportOperationFailure,
+      selectedIdentity,
+      selectedMessage,
+    ],
+  );
+  const handleReply = React.useCallback(
+    () => restoreThen(openReply),
+    [restoreThen, openReply],
+  );
+  const handleReplyAll = React.useCallback(
+    () => restoreThen(openReplyAll),
+    [restoreThen, openReplyAll],
+  );
+  const handleForward = React.useCallback(
+    () => restoreThen(openForward),
+    [restoreThen, openForward],
+  );
 
   // Handle New Message
   const handleNewMessage = React.useCallback(() => {
@@ -924,6 +982,7 @@ export function RightPaneContainer({
         !result.requiresRefresh &&
         isCurrentSelection(pending.selection)
       ) {
+        if (result.warning) appMessage(result.warning, "warning");
         setPendingDelete(null);
         finishAfterRemoval(pending.afterAction, pending.selection);
         return;
@@ -1037,7 +1096,9 @@ export function RightPaneContainer({
       preferences.auto_archive &&
       (composeMode === "reply" || composeMode === "reply-all")
     ) {
-      if (!replySource?.identity) {
+      // A reply restored from Trash or Spam carries no source to archive.
+      if (!replySource) return;
+      if (!replySource.identity) {
         identityFailure();
         return;
       }
@@ -1054,18 +1115,12 @@ export function RightPaneContainer({
     reportOperationFailure,
   ]);
 
-  // After a manual draft save: drop the Drafts folder's cached pages so opening
-  // Drafts (even later, from another folder) refetches and shows the new draft,
-  // and refresh the active list so it appears immediately when Drafts is open.
-  const handleDraftSaved = React.useCallback(
-    (draftFolder?: string) => {
-      if (draftFolder) {
-        invalidateFolderMessages?.(draftFolder);
-      }
-      refreshMessages?.();
-    },
-    [invalidateFolderMessages, refreshMessages],
-  );
+  // After a manual draft save the server has already written the draft's
+  // mirror row (the composer dropped the Drafts cache), so reread the open list
+  // straight away instead of waiting on a full IMAP sync first.
+  const handleDraftSaved = React.useCallback(() => {
+    void refreshMessages?.({ sync: false });
+  }, [refreshMessages]);
 
   const handleDraftDiscarded = React.useCallback(() => {
     setPaneMode("reading");
@@ -1156,24 +1211,11 @@ export function RightPaneContainer({
       // Editing keeps the send armed. The row stays pending at its current time
       // and only leaves Scheduled when the user sends it, removes the schedule
       // or deletes it, so closing the composer can no longer drop the schedule.
-      const apiUrl = window.pressedmailPlugin?.apiUrl || "";
-      const response = await apiFetch(
-        `${apiUrl}${getRuntimeRestNamespace()}/scheduled-emails/edit/${scheduledEmail.id}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            prior_draft_uid: sourceIdentity.uid,
-            prior_draft_folder: sourceIdentity.folder,
-            prior_draft_account_id: sourceIdentity.accountId,
-            prior_draft_uidvalidity: sourceIdentity.uidValidity,
-            prior_draft_message_id: sourceIdentity.messageId,
-          }),
-        },
+      const handoff = await requestScheduledDraftHandoff(
+        scheduledEmail.id,
+        sourceIdentity,
       );
-      const draft = parseScheduledDraftHandoff(await response.json());
+      const draft = parseScheduledDraftHandoff(handoff);
       if (!draft) {
         throw new Error("Scheduled draft handoff was incomplete");
       }
@@ -1316,6 +1358,11 @@ export function RightPaneContainer({
           <PressedOutDisabledMessageActions
             showOrganizeActions={showOrganizeActions}
             folderRecoveryAction={folderRecoveryAction}
+            onDelete={
+              paneMode === "compose" && composer.composeData.draftUid
+                ? composer.requestDelete
+                : undefined
+            }
           />,
           actionBarContainer,
         )

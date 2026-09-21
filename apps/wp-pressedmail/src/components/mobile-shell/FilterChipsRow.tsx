@@ -53,7 +53,6 @@ export function FilterChipsRow({
             className={cn(
               "pm-no-tap-highlight relative inline-flex h-8 shrink-0 snap-start items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
               "after:absolute after:-inset-1.5 after:content-['']",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card text-muted-foreground active:bg-muted",

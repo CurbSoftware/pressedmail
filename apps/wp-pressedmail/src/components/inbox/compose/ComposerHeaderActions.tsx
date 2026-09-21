@@ -1,4 +1,4 @@
-import { __ } from "@wordpress/i18n";
+import { __, _x } from "@wordpress/i18n";
 import {
   ExternalLink,
   Loader2,
@@ -85,7 +85,7 @@ export function ComposerHeaderSendGroup({
 }: ComposerHeaderActionsProps) {
   const {
     canSend,
-    handleDiscard,
+    handleDelete,
     handleSaveDraft,
     handleSend,
     isDiscarding,
@@ -180,7 +180,7 @@ export function ComposerHeaderSendGroup({
           variant="ghost"
           size="sm"
           aria-label={deleteLabel}
-          onClick={handleDiscard}
+          onClick={handleDelete}
           disabled={isDeliveryPending}
           data-test="delete-compose-button"
           className={cn(
@@ -191,7 +191,7 @@ export function ComposerHeaderSendGroup({
             <Trash2 />
           </span>
           <span className={RIBBON_LABEL_CLASSES}>
-            {__("Discard", "pressedmail")}
+            {_x("Discard", "draft", "pressedmail")}
           </span>
         </Button>
 
@@ -323,7 +323,7 @@ export function ComposerHeaderSendGroup({
           variant="ghost"
           size="icon"
           aria-label={deleteLabel}
-          onClick={handleDiscard}
+          onClick={handleDelete}
           disabled={isDeliveryPending}
           data-test="delete-compose-button"
           className="h-8 w-8 text-destructive hover:text-destructive">

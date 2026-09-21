@@ -1,10 +1,14 @@
 import * as React from "react";
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _x, sprintf } from "@wordpress/i18n";
 import { Paperclip, Star } from "lucide-react";
 import { ScheduledFolderIcon } from "@/components/icons/FolderIcons";
 
 import { cn } from "@/lib/utils";
-import type { EmailMessage, EmailMessageTag } from "@/types";
+import type {
+  EmailImportanceSource,
+  EmailMessage,
+  EmailMessageTag,
+} from "@/types";
 import { EmailTagBadges } from "@/components/tags/EmailTagBadges";
 import {
   EmailArchiveIcon,
@@ -14,7 +18,10 @@ import {
   EmailReplyIcon,
   EmailTrashIcon,
 } from "@/components/icons/MailActionIcons";
-import { EmailImportantMarker } from "./EmailImportantMarker";
+import {
+  EmailImportantMarker,
+  importantMarkerLabel,
+} from "./EmailImportantMarker";
 
 import {
   buildEmailRowViewModel,
@@ -67,6 +74,14 @@ export interface EmailRowProps {
   rowIndex?: number;
   rowRef?: React.Ref<HTMLElement>;
   rowStyle?: React.CSSProperties;
+  /**
+   * Let the browser skip layout and paint for this row while it is offscreen.
+   *
+   * Set on long lists only. It is a defence in depth behind the cache bounds:
+   * the rows are still all in the DOM and still searchable and reachable, but
+   * the browser stops paying to lay out and paint the ones nobody is looking at.
+   */
+  deferredPaint?: boolean;
   dragHandleProps?: React.HTMLAttributes<HTMLElement>;
   selectionSlot?: React.ReactNode;
   rightRailSlot?: React.ReactNode;
@@ -168,6 +183,8 @@ function RowStar({
           : "text-muted-foreground hover:text-[var(--theme-starred,#f59e0b)]",
       )}
       data-starred={starred ? "true" : undefined}
+      data-test="email-row-star-toggle"
+      data-testid="email-row-star-toggle"
       onClick={handleClick}
       aria-label={
         starred
@@ -190,21 +207,27 @@ function RowStar({
 function RowImportant({
   message,
   important,
+  source,
   actions,
   large,
 }: {
   message: EmailMessage;
   important: boolean;
+  source?: EmailImportanceSource | null;
   actions?: EmailRowActions;
   large?: boolean;
 }) {
   if (!actions?.onToggleImportant) {
-    return <EmailImportantMarker important={important} large={large} />;
+    return (
+      <EmailImportantMarker
+        important={important}
+        source={source}
+        large={large}
+      />
+    );
   }
 
-  const label = important
-    ? __("Important", "pressedmail")
-    : __("Not important", "pressedmail");
+  const label = importantMarkerLabel(important, source);
   const handleClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     actions.onToggleImportant?.(message, event);
@@ -216,7 +239,9 @@ function RowImportant({
       className={cn(
         // Same 24px target and full-strength resting colour as the star.
         "inline-flex size-6 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-accent",
-        important ? "text-primary" : "text-muted-foreground hover:text-primary",
+        important
+          ? "text-[var(--theme-important,var(--primary))]"
+          : "text-muted-foreground hover:text-[var(--theme-important,var(--primary))]",
       )}
       data-test="email-row-important-toggle"
       data-testid="email-row-important-toggle"
@@ -227,6 +252,7 @@ function RowImportant({
       title={label}>
       <EmailImportantMarker
         important={important}
+        source={source}
         large={large}
         className="text-current"
         ariaHidden
@@ -265,6 +291,7 @@ function RowFlags({
       <RowImportant
         message={message}
         important={row.isImportant}
+        source={row.importanceSource}
         actions={actions}
         large={largeIcons}
       />
@@ -354,7 +381,8 @@ function AccountBadge({
       title={badge.title}
       data-test="message-account-badge"
       data-testid="email-row-account-badge">
-      {badge.label}
+      {/* An element holds one data-test, so the testid's twin sits inside. */}
+      <span data-test="email-row-account-badge">{badge.label}</span>
     </Badge>
   );
 }
@@ -443,7 +471,7 @@ function HoverActions({
             event.stopPropagation();
             actions?.onArchive?.(message);
           }}
-          aria-label={__("Archive", "pressedmail")}>
+          aria-label={_x("Archive", "verb", "pressedmail")}>
           <EmailArchiveIcon className="h-4 w-4" />
         </Button>
       )}
@@ -530,6 +558,7 @@ export function EmailRow({
   rowIndex,
   rowRef,
   rowStyle,
+  deferredPaint,
   dragHandleProps,
   selectionSlot,
   rightRailSlot,
@@ -580,7 +609,7 @@ export function EmailRow({
         aria-rowindex={rowIndex}
         aria-label={rowLabel}
         className={cn(
-          "group cursor-pointer border-b border-border/60 border-l-2 border-l-transparent outline-none transition-colors hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+          "group cursor-pointer border-b border-border/60 border-l-2 border-l-transparent outline-none transition-colors hover:bg-muted/50",
           getDensityClass(density ?? "dense"),
           showPressedGDetails && "h-auto min-h-[4.5rem]",
           selected && "bg-primary/5 hover:bg-primary/5 border-l-primary",
@@ -633,7 +662,8 @@ export function EmailRow({
                 emphasizeUnread ? "font-semibold" : "font-medium",
                 isDragging ? "cursor-grabbing" : "cursor-grab",
               )}>
-              {row.senderName}
+              {/* data-test is taken by drag-handle, so the twin sits inside. */}
+              <span data-test="email-row-sender">{row.senderName}</span>
             </span>
           </div>
         </TableCell>
@@ -758,7 +788,19 @@ export function EmailRow({
   return (
     <div
       ref={rowRef as React.Ref<HTMLDivElement>}
-      style={rowStyle}
+      style={
+        deferredPaint
+          ? {
+              ...rowStyle,
+              // Keep long lists searchable and accessible while the browser skips
+              // layout and paint for offscreen rows, the same defence the mobile
+              // list already uses. The intrinsic size reserves the row's height so
+              // the scrollbar does not jump as rows come into view.
+              contentVisibility: "auto",
+              containIntrinsicSize: "auto 64px",
+            }
+          : rowStyle
+      }
       // A grid row, not a button. Children of role="button" are presentational
       // to assistive tech, which hid the star, the importance toggle and the
       // selection checkbox from screen reader users and made axe report
@@ -775,7 +817,7 @@ export function EmailRow({
       data-bulk-selected={bulkSelected || undefined}
       aria-label={rowLabel}
       className={cn(
-        "group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] gap-2 border-b border-border/60 border-l-2 border-l-transparent px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset",
+        "group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] gap-2 border-b border-border/60 border-l-2 border-l-transparent px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-muted/50",
         getDensityClass(density ?? "comfortable"),
         selected && "bg-primary/5 hover:bg-primary/5 border-l-primary",
         threadGrouped &&
@@ -822,7 +864,8 @@ export function EmailRow({
                 emphasizeUnread ? "font-semibold" : "font-medium",
                 handleProps && (isDragging ? "cursor-grabbing" : "cursor-grab"),
               )}>
-              {row.senderName}
+              {/* data-test is taken by drag-handle, so the twin sits inside. */}
+              <span data-test="email-row-sender">{row.senderName}</span>
             </span>
           </div>
         </div>

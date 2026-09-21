@@ -6,21 +6,19 @@
  * `wp_set_script_translations()` in `includes/Assets/Admin.php` makes WordPress
  * load the matching `pressedmail-<locale>-<md5>.json` before the bundle runs,
  * whether it shipped with the plugin or came from a WordPress.org language
- * pack. Admin's script translation file filter selects the user's PressedMail
- * language without changing the language of other WordPress scripts.
+ * pack. Admin selects the user's PressedMail language without changing other
+ * WordPress scripts. The eight bundled catalogs currently translate core
+ * controls only.
  *
- * What is left for this module: reading what the server resolved, and swapping
- * the catalogue when the user picks a different language.
+ * This module reads the server's resolved language and saves new choices. The
+ * page then reloads so WordPress provides one consistent script catalogue.
  *
  * @since 3.0.0
  */
 
-import { getLocaleData, setLocaleData } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
-
-const DOMAIN = "pressedmail";
 
 export type LocaleData = Record<string, unknown>;
 
@@ -98,27 +96,14 @@ function languageName(tag: string, inLanguage: string): string {
   }
 }
 
-/** Apply a catalog to `wp.i18n` (or reset to the untranslated source strings). */
-export function applyLocaleData(catalog: LocaleData | null | undefined): void {
-  const next = { ...(catalog ?? { "": { domain: DOMAIN } }) };
-  const current = getLocaleData(DOMAIN);
-  // getLocaleData returns this domain's live dictionary. Clear it before the
-  // setter merges and notifies listeners; resetLocaleData clears every domain.
-  if (current) {
-    for (const key of Object.keys(current)) delete current[key];
-  }
-  setLocaleData(next, DOMAIN);
-}
-
 export interface PersistedLocale {
   locale: string;
   catalog: LocaleData | null;
 }
 
 /**
- * Persist the plugin-scoped locale server-side. The response carries the
- * catalog when the plugin bundles one, so the caller can swap the UI language
- * without a reload.
+ * Persist the plugin-scoped locale server-side. The caller reloads so WordPress
+ * applies translations throughout the page, including static module labels.
  */
 export async function persistLocale(
   wp: string,

@@ -66,8 +66,6 @@ export function FolderRowActions({
           SIDEBAR_NAV_ROW_ACTION_CLASS,
           "text-muted-foreground opacity-70 transition-opacity",
           "hover:bg-muted hover:text-foreground group-hover/folder-tree:opacity-100",
-          // The trigger no longer injects a focus ring on asChild children.
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         )}>
         <button
           type="button"

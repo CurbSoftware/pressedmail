@@ -23,19 +23,24 @@ interface SelectionCheckboxProps {
    * of fifty checkboxes does not read as fifty copies of "Select email".
    */
   message?: EmailMessage;
-  /** Render a smaller checkbox */
-  small?: boolean;
   /** Additional CSS class names */
   className?: string;
 }
 
 /**
  * Selection Checkbox for individual email rows.
+ *
+ * Deliberately unstyled beyond the kit's own Checkbox. It used to carry
+ * `pm-list-selection-checkbox` and a `small` modifier that shrank it to
+ * `size-3` with a `size-2.5` tick; the class name was defined in no stylesheet
+ * anywhere, and only one of the four call sites passed `small`, so the same
+ * control rendered at two sizes in one product. The accounts dropdown in the
+ * header renders the same kit Checkbox at its default size, and that is the
+ * one that reads correctly, so this is that.
  */
 export function SelectionCheckbox({
   messageId,
   message,
-  small,
   className,
 }: SelectionCheckboxProps) {
   const { isSelected, toggleSelection } = useEmailSelection();
@@ -73,10 +78,6 @@ export function SelectionCheckbox({
         checked={checked}
         onCheckedChange={handleCheckedChange}
         aria-label={label}
-        className={cn(
-          "pm-list-selection-checkbox",
-          small && "size-3 [&>svg]:size-2.5",
-        )}
       />
     </div>
   );

@@ -10,17 +10,16 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { __ } from "@wordpress/i18n";
-import { getPlateEmailEditorSurfacePreset } from "@kit/plate/email-surfaces";
+import { __, sprintf } from "@wordpress/i18n";
+import {
+  getPlateEmailEditorSurfacePreset,
+  type PlateEmailEditorDialect,
+} from "@kit/plate/email-surfaces";
 
-import {
-  PressedMailRichTextEditor,
-  type EmailEditorRef,
-} from "@/components/composer";
-import {
-  ComposerEditorToolbar,
-  ComposerPlainTextToolbar,
-} from "./ComposerEditorToolbar";
+import type { EmailEditorRef } from "@/components/composer";
+import { findReadOnlyBlockNodeLabels } from "@/components/composer/plate-composer-dialect";
+import { ComposerPlainTextToolbar } from "./ComposerEditorToolbar";
+import { ComposerAuthoringEditor } from "./ComposerAuthoringEditor";
 import { buildComposerSurfaceStyle } from "./composer-background-style";
 import { composerFontFamilyCss } from "@/lib/preference-behavior";
 import { ComposerFooter } from "./ComposerFooter";
@@ -48,6 +47,9 @@ import {
   composerHtmlToPlainText,
   plainTextToComposerHtml,
 } from "@/lib/composer/plain-text-content";
+
+/** The two dialects the Plate editor renders. Plain is a textarea, not a dialect state. */
+type ComposerBlockDialect = Exclude<PlateEmailEditorDialect, "plain">;
 
 export interface ComposerContentProps {
   form: UseComposeFormReturn;
@@ -116,6 +118,17 @@ export function ComposerContent({
   const [previewMode, setPreviewMode] = useState(false);
   const [showPlainTextWarning, setShowPlainTextWarning] = useState(false);
   const [pendingPlainText, setPendingPlainText] = useState("");
+  // The per-compose dialect override. Plain is not held here: it is a real
+  // format change and `form.contentType` already owns it.
+  const [dialect, setDialect] = useState<ComposerBlockDialect>(
+    form.draftDocument?.dialect ?? "markdown",
+  );
+  useEffect(() => {
+    setDialect(form.draftDocument?.dialect ?? "markdown");
+  }, [form.composeSessionVersion]);
+  const [pendingDialect, setPendingDialect] =
+    useState<ComposerBlockDialect | null>(null);
+  const [pendingInertLabels, setPendingInertLabels] = useState<string[]>([]);
   const emailSurfacePreset = getPlateEmailEditorSurfacePreset("email");
   const emailSurfaceFeatures = emailSurfacePreset.features;
   const attachments = form.attachments;
@@ -138,6 +151,8 @@ export function ComposerContent({
     if (!isExclusiveOperationPending) return;
     setShowPlainTextWarning(false);
     setPendingPlainText("");
+    setPendingDialect(null);
+    setPendingInertLabels([]);
   }, [isExclusiveOperationPending]);
   const aiEnabled = Boolean(
     form.showAIPanel && emailSurfaceFeatures.aiCommands,
@@ -165,6 +180,24 @@ export function ComposerContent({
     [form],
   );
 
+  const commitDialect = useCallback(
+    (next: ComposerBlockDialect) => {
+      // Coming back from plain, the body is text: wrap it into blocks first.
+      if (form.contentType === "plain") {
+        form.replaceBodyAndContentType(
+          plainTextToComposerHtml(form.body),
+          "html",
+        );
+        setPreviewMode(false);
+      }
+      setDialect(next);
+      form.setEditorDialect(next);
+      setPendingDialect(null);
+      setPendingInertLabels([]);
+    },
+    [form],
+  );
+
   const requestPlainTextMode = useCallback(() => {
     // getPlainText reads live Plate children synchronously, avoiding the
     // debounced HTML callback and preserving the user's latest keystroke.
@@ -181,10 +214,36 @@ export function ComposerContent({
     commitPlainTextMode(livePlainText);
   }, [commitPlainTextMode, editorRef, form.body]);
 
+  const requestDialect = useCallback(
+    (next: PlateEmailEditorDialect) => {
+      if (next === "plain") {
+        requestPlainTextMode();
+        return;
+      }
+
+      if (next === dialect && form.contentType !== "plain") return;
+
+      // Rich text renders block-only nodes through their read-only renderers.
+      // Say which ones before the switch, so nothing goes inert unannounced.
+      // Read from the live document: the saved HTML trails the last keystroke
+      // and the Free edition's HTML parser drops nodes it cannot represent.
+      const inert = findReadOnlyBlockNodeLabels(
+        editorRef.current?.getValue?.() ?? null,
+      );
+      if (next === "rich_text" && inert.length > 0) {
+        setPendingDialect(next);
+        setPendingInertLabels(inert);
+        return;
+      }
+
+      commitDialect(next);
+    },
+    [commitDialect, dialect, editorRef, form.contentType, requestPlainTextMode],
+  );
+
   const requestRichTextMode = useCallback(() => {
-    form.replaceBodyAndContentType(plainTextToComposerHtml(form.body), "html");
-    setPreviewMode(false);
-  }, [form]);
+    requestDialect(dialect);
+  }, [dialect, requestDialect]);
 
   const { openMediaPicker } = useMediaLibraryPicker();
 
@@ -434,7 +493,7 @@ export function ComposerContent({
           className="border-b border-border bg-transparent px-4 py-2"
           data-test="subject-row">
           <div
-            className="flex min-h-7 flex-wrap items-center gap-1 rounded-md border-0 bg-transparent px-0 py-0 focus-within:ring-0"
+            className="flex min-h-7 flex-wrap items-center gap-1 rounded-md border-0 bg-transparent px-0 py-0"
             data-test="subject-input-shell">
             <input
               autoComplete="off"
@@ -469,15 +528,16 @@ export function ComposerContent({
           onChange={(event) => void handleInlineImageFile(event)}
         />
 
-        {/* ── 6. Message Canvas (Plate.js) ──
-            Preview mode keeps the Plate editor mounted and fully editable; it
+        {/* 6. Message Canvas.
+            Rich text renders the shared authoring surface, the same one the
+            signature and auto-reply editors mount, so all three cannot drift
+            apart. Preview keeps the editor mounted and fully editable and
             restyles the live canvas as a responsive recipient-style surface
             (pm-email-preview-surface: light email page, forced dark email-safe
             headings/text, centered reader-width canvas). The author can still
             type and format while Preview is on; no read-only iframe is swapped
-            in. The composer toolbar is rendered as a child of
-            PressedMailRichTextEditor so its plate hooks (useEditorRef) resolve
-            inside the editor provider. */}
+            in. Plain text is the one branch that is genuinely composer-only, so
+            it stays here. */}
         {form.contentType === "plain" ? (
           <div
             className="pm-composer-text-surface flex flex-1 flex-col"
@@ -504,7 +564,14 @@ export function ComposerContent({
                 {form.body}
               </pre>
             ) : (
+              // data-no-theme, because this is an editor surface and not a
+              // field. Without it the element rules for every textarea in the
+              // plugin reached it and it wore a field's rounded corners, a
+              // field's fill and a field's foreground, none of which belong on
+              // something that fills its pane edge to edge. The surface class
+              // paints it instead, the same colour as the rich editor beside it.
               <textarea
+                data-no-theme
                 aria-label={__("Message body", "pressedmail")}
                 autoComplete="off"
                 value={form.body}
@@ -512,7 +579,7 @@ export function ComposerContent({
                 placeholder={__("Write your message…", "pressedmail")}
                 disabled={isExclusiveOperationPending}
                 className={cn(
-                  "pm-composer-text-surface flex-1 resize-none whitespace-pre-wrap break-words border-0 p-4 font-mono text-sm outline-none",
+                  "pm-composer-text-surface flex-1 resize-none whitespace-pre-wrap break-words border-0 p-4 font-mono text-sm",
                   variant === "floating"
                     ? "min-h-[300px]"
                     : variant === "mobile"
@@ -523,84 +590,84 @@ export function ComposerContent({
             )}
           </div>
         ) : (
-          <div
-            className={cn(
-              "flex flex-1 flex-col",
-              previewMode
-                ? "pm-email-content-surface"
-                : "pm-composer-edit-surface",
-            )}
-            data-content-colors-inverted="false"
-            data-preview={previewMode ? "true" : "false"}
-            data-test="body-editor"
-            style={buildComposerSurfaceStyle({
-              bodyBackgroundColor: form.bodyBackgroundColor,
-              canvasBackgroundColor: form.canvasBackgroundColor,
-              fontSizePx: composerFontSizePx,
-              fontFamily: composerFontFamily,
-            })}>
-            <div
+          <>
+            <ComposerAuthoringEditor
+              surface="email"
+              testId="body-editor"
+              value={form.body || ""}
+              onChange={form.setBody}
+              documentValue={form.draftDocument?.value}
+              onDocumentChange={(value) =>
+                form.setDraftDocument(value, dialect)
+              }
+              dialect={dialect}
+              onSelectDialect={requestDialect}
+              editorKey={form.composeSessionVersion ?? undefined}
+              form={form}
+              ref={editorRef}
+              disabled={isExclusiveOperationPending}
+              enableAiCommands={aiEnabled}
+              ariaLabel={__("Message body", "pressedmail")}
+              placeholder={__("Write your message…", "pressedmail")}
+              previewActive={previewMode}
+              onTogglePreview={() => setPreviewMode((value) => !value)}
+              contentStyle={buildComposerSurfaceStyle({
+                bodyBackgroundColor: form.bodyBackgroundColor,
+                canvasBackgroundColor: form.canvasBackgroundColor,
+                fontSizePx: composerFontSizePx,
+                fontFamily: composerFontFamily,
+              })}
+              editorStyle={
+                form.bodyBackgroundColor
+                  ? { backgroundColor: form.bodyBackgroundColor }
+                  : undefined
+              }
               className={cn(
-                "flex flex-1 flex-col min-h-0",
-                previewMode && "pm-email-preview-surface",
+                "flex-1",
+                variant === "floating"
+                  ? "min-h-[300px]"
+                  : variant === "mobile"
+                    ? "min-h-[280px]"
+                    : "min-h-[200px]",
               )}
-              data-preview={previewMode ? "true" : "false"}
-              data-test="body-editor-content">
-              <PressedMailRichTextEditor
-                ref={editorRef}
-                surface="email"
-                initialHtml={form.body || ""}
-                disabled={isExclusiveOperationPending}
-                aiEnabled={aiEnabled}
-                // The signature and auto-reply surfaces have always passed this;
-                // this one did not, so the message body was the only editable in
-                // the product with no accessible name. axe rates it serious
-                // (`aria-input-field-name`), and a placeholder is not a name: it
-                // disappears the moment someone types.
-                ariaLabel={__("Message body", "pressedmail")}
-                placeholder={__("Write your message…", "pressedmail")}
-                onChange={form.setBody}
-                onReady={(ref) => {
-                  form.handleEditorReady(ref);
-                }}
-                contentStyle={
-                  form.bodyBackgroundColor
-                    ? { backgroundColor: form.bodyBackgroundColor }
-                    : undefined
-                }
-                className={cn(
-                  "flex-1",
-                  variant === "floating"
-                    ? "min-h-[300px]"
-                    : variant === "mobile"
-                      ? "min-h-[280px]"
-                      : "min-h-[200px]",
-                )}>
-                <div className="border-b border-border">
-                  <ComposerEditorToolbar
-                    key={isExclusiveOperationPending ? "locked" : "ready"}
-                    form={form}
-                    disabled={isExclusiveOperationPending}
-                    editorRef={editorRef}
-                    signaturesEnabled={signaturesAvailable}
-                    signatures={signatures}
-                    canUseMediaLibraryAttachments={
-                      canUseMediaLibraryInlineImages
-                    }
-                    canUploadAttachments={canUploadInlineImages}
-                    onImageLibrary={() => void handleImageLibrary()}
-                    onImageUpload={handleImageUpload}
-                    onTogglePreview={() => setPreviewMode((value) => !value)}
-                    previewActive={previewMode}
-                    onToggleContentType={requestPlainTextMode}
-                    onSetBodyBackgroundColor={setBodyBackgroundColor}
-                    onSetCanvasBackgroundColor={setCanvasBackgroundColor}
-                    toolbarVariant={variant === "mobile" ? "mobile" : "desktop"}
-                  />
-                </div>
-              </PressedMailRichTextEditor>
-            </div>
-          </div>
+              signaturesEnabled={signaturesAvailable}
+              signatures={signatures}
+              canUseMediaLibraryImages={canUseMediaLibraryAttachments}
+              canUploadImages={canUploadAttachments}
+              onToggleContentType={requestPlainTextMode}
+              onSetBodyBackgroundColor={setBodyBackgroundColor}
+              onSetCanvasBackgroundColor={setCanvasBackgroundColor}
+              toolbarVariant={variant === "mobile" ? "mobile" : "desktop"}
+              onImageLibrary={() => void handleImageLibrary()}
+              onImageUpload={handleImageUpload}
+              onEditorReady={(ref) => {
+                form.handleEditorReady(ref);
+              }}
+            />
+            {dialect === "rich_text" &&
+              (preferences.cache_email_body_content === false ||
+                form.draftDocumentStorageUnavailable) && (
+                <p
+                  role="status"
+                  className="mx-3 mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                  {preferences.cache_email_body_content === false
+                    ? __("Database email caching is off. This draft will reopen from email HTML, so some Rich Text blocks may change.", "pressedmail")
+                    : __("Rich Text document storage is unavailable. This draft will reopen from email HTML, so some blocks may change.", "pressedmail")}
+                </p>
+              )}
+            {dialect === "rich_text" &&
+              preferences.cache_email_body_content !== false &&
+              !form.draftDocumentStorageUnavailable && (
+                <p role="status" className="mx-3 mb-3 text-xs text-muted-foreground">
+                  {__("Rich Text draft structure expires 90 days after its last save, even if the draft remains in your mailbox. Save it again before then to renew it.", "pressedmail")}
+                </p>
+              )}
+            {form.draftDocumentExpired && (
+              <p role="status" className="mx-3 mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
+                {__("This draft's Rich Text structure expired after 90 days. It reopened from email HTML, so some blocks may have changed.", "pressedmail")}
+              </p>
+            )}
+          </>
         )}
       </div>
 
@@ -652,6 +719,37 @@ export function ComposerContent({
           }
         }}
         onCancel={() => setPendingPlainText("")}
+      />
+
+      <ConfirmationPanel
+        open={pendingDialect !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingDialect(null);
+            setPendingInertLabels([]);
+          }
+        }}
+        title={__("Switch to rich text?", "pressedmail")}
+        description={
+          <span>
+            {sprintf(
+              __(
+                "Rich text shows these the way the recipient will see them, and hides the controls that only exist in the block editor: %s. Nothing is removed, and switching back to Markdown brings the controls back.",
+                "pressedmail",
+              ),
+              pendingInertLabels.join(", "),
+            )}
+          </span>
+        }
+        confirmText={__("Switch to rich text", "pressedmail")}
+        cancelText={__("Cancel", "pressedmail")}
+        onConfirm={() => {
+          if (pendingDialect) commitDialect(pendingDialect);
+        }}
+        onCancel={() => {
+          setPendingDialect(null);
+          setPendingInertLabels([]);
+        }}
       />
     </div>
   );

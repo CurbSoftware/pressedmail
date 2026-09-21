@@ -4,8 +4,15 @@ import { EditionApp } from "@/admin/EditionApp.active";
 import { maybeForwardCalendarOAuthCallback } from "@/lib/calendar-oauth-callback";
 
 import { initializePrincipalStorage } from "@/lib/principal-storage";
+import { installStaleChunkReload } from "@/lib/stale-chunk-reload";
 
 import "./index.css";
+// Pro only: the eight premium palettes. The Free alias target is empty, so the
+// WordPress.org stylesheet never carries theme CSS the Free app cannot select.
+// Imported after index.css so these rules keep their old cascade position.
+import "@/styles/premium-themes.css";
+
+installStaleChunkReload(import.meta.url);
 
 let appRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
 initializePrincipalStorage(() => {

@@ -278,9 +278,11 @@ export type { PluginThemeSnapshot } from './hooks/use-theme-class';
 // Re-export utilities
 export { cn } from '../lib/utils';
 
-// Makerkit Components (framework-agnostic)
-export { Spinner } from '../makerkit/spinner';
-export { If } from '../makerkit/if';
+// The plugin build may not reach src/makerkit; see packages/ui/src/core/README.md.
+// Spinner is shadcn/ui's, unchanged and MIT: the MakerKit one this used to
+// re-export was the same component with a different default size.
+export { Spinner } from '../shadcn/spinner';
+export { If } from '../core/if';
 
 // Plugin-specific components will be added below
 // Example:

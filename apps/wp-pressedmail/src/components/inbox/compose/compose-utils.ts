@@ -235,7 +235,7 @@ export function formatQuotedHtml(message: EmailMessage): string {
   const sender = parseSenderName(message);
   const bodyHtml = getQuotedBodyHtml(message);
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">On ${date}, ${sender} wrote:</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">On ${escapeHtml(date)}, ${escapeHtml(sender)} wrote:</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
 }
 
 /** Format forwarded HTML with headers for inline forward (Outlook-style). */
@@ -246,7 +246,7 @@ export function formatForwardedHtml(message: EmailMessage): string {
   const subject = message.subject || "";
   const bodyHtml = getQuotedBodyHtml(message);
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">---------- Forwarded message ---------<br>From: ${escapeHtml(from)}<br>Date: ${date}<br>Subject: ${escapeHtml(subject)}<br>To: ${escapeHtml(to)}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">---------- Forwarded message ---------<br>From: ${escapeHtml(from)}<br>Date: ${escapeHtml(date)}<br>Subject: ${escapeHtml(subject)}<br>To: ${escapeHtml(to)}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
 }
 
 /** Get display title for compose mode. */

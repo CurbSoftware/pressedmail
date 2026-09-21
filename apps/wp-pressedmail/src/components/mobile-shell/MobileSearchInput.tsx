@@ -65,7 +65,7 @@ export function MobileSearchInput({
         placeholder={placeholder}
         autoFocus={autoFocus}
         className={cn(
-          "h-11 w-full rounded-full border border-border bg-card pl-10 text-sm leading-none outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring",
+          "h-11 w-full rounded-full border border-border bg-card pl-10 text-sm leading-none outline-none placeholder:text-muted-foreground",
           showClear ? "pr-10" : "pr-4",
         )}
       />

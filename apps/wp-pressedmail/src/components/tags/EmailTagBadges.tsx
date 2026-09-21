@@ -62,7 +62,7 @@ export function EmailTagBadge({
     return (
       <span
         className={cn(
-          "w-fit shrink-0 overflow-hidden whitespace-nowrap transition-colors hover:opacity-85 focus-within:ring-2 focus-within:ring-ring",
+          "w-fit shrink-0 overflow-hidden whitespace-nowrap transition-colors hover:opacity-85",
           classes,
         )}
         style={style}
@@ -72,7 +72,7 @@ export function EmailTagBadge({
         {onTagClick ? (
           <button
             type="button"
-            className="min-w-0 truncate text-left focus-visible:outline-none"
+            className="min-w-0 truncate text-left"
             aria-label={sprintf(
               /* translators: %s: tag name. */
               __("Filter by %s", "pressedmail"),
@@ -90,7 +90,7 @@ export function EmailTagBadge({
         {onTagRemove ? (
           <button
             type="button"
-            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             aria-label={sprintf(
               /* translators: %s: tag name. */
               __("Remove %s tag", "pressedmail"),

@@ -150,7 +150,9 @@ export function getNotificationTargetPath(
     return "/settings?tab=admin-license";
   }
 
-  if (notification.targetKind === "calendar_event") {
+  // The calendar is a Pro feature, so only that build has a route to open and
+  // only that build names the query parameter.
+  if (__ENABLE_CALENDAR__ && notification.targetKind === "calendar_event") {
     const eventId = toInteger(metadata.eventId);
     const date = typeof metadata.date === "string" ? metadata.date.trim() : "";
     if (!eventId) return "/calendar";

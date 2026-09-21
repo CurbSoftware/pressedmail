@@ -1,0 +1,46 @@
+{
+    "name": "curbsoftware/wp-eloquent",
+    "version": "1.0.2",
+    "description": "Eloquent ORM for WordPress - extracted from Laravel 8.9",
+    "license": "MIT",
+    "type": "library",
+    "keywords": ["laravel", "database", "sql", "orm", "curbsoftware","wp-eloquent","wordpress", "eloquent"],
+    "authors": [
+        {
+            "name": "CurbSoftware",
+            "email": "info@curbsoftware.com",
+            "homepage": "https://www.curbsoftware.com"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "ext-json": "*",
+        "ext-pdo": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "CurbSoftware\\WpEloquent\\": "src"
+        },
+        "files":[
+            "src/Support/helpers.php"
+        ]
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CurbSoftware\\WpEloquent\\Tests\\": "tests/"
+        }
+    },
+    "suggest": {
+        "doctrine/dbal": "Required to rename columns and drop SQLite columns (^2.6).",
+        "fzaninotto/faker": "Required to use the eloquent factory builder (^1.9.1).",
+        "symfony/finder": "Required to use Eloquent model factories (^5.1)."
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "*": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -19,12 +19,12 @@ export interface UseSignatureBindingReturn {
 /**
  * The signature the sending account is bound to, if any.
  *
- * Assignment is the whole rule: a signature is assigned to one account on the
- * Settings > Accounts screen, and that account is the only one it goes out
- * with. A signature with no account is hand-insertable from the composer
- * toolbar and never auto-attaches. There is no default flag and no rule
- * matching, and assignment is exclusive server-side, so at most one signature
- * can match.
+ * Assignment is the whole rule: a signature is assigned to accounts on the
+ * Settings > Accounts screen, and those accounts are the ones it goes out with.
+ * One signature may serve several accounts. A signature assigned to no account
+ * is hand-insertable from the composer toolbar and never auto-attaches. There
+ * is no default flag and no rule matching, and the server keeps an account on
+ * one signature, so at most one signature can match.
  */
 function resolveSignature(
   signatures: Signature[],
@@ -36,8 +36,7 @@ function resolveSignature(
     signatures.find(
       (s) =>
         s.is_active &&
-        s.account_id !== null &&
-        Number(s.account_id) === Number(accountId),
+        s.account_ids.some((id) => Number(id) === Number(accountId)),
     ) ?? null
   );
 }

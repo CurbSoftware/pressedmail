@@ -27,7 +27,10 @@ import {
   type AutosaveStatus,
 } from "@/hooks/useAutosaveSetting";
 import { AccessRolesCard, type AccessControlDraftHandle } from "./access-tab";
-import { getRuntimeRestNamespace } from "@/lib/runtime-config";
+import {
+  getRuntimeRestNamespace,
+  getRuntimeRestRoot,
+} from "@/lib/runtime-config";
 
 interface AdminSecuritySettings {
   allow_external_images: boolean;
@@ -52,7 +55,7 @@ const DEFAULT_SETTINGS: AdminSecuritySettings = {
 };
 
 const getApiUrl = (): string => {
-  return window.pressedmailPlugin?.apiUrl || "/wp-json/";
+  return getRuntimeRestRoot();
 };
 
 export function SecurityAccessTab({

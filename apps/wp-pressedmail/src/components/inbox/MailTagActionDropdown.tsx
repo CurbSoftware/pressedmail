@@ -13,10 +13,10 @@ import {
   DropdownMenuTrigger,
 } from "@kit/ui/plugin";
 
-import { EmailAutoTagIcon } from "@/components/icons/MailActionIcons";
 import { cn } from "@/lib/utils";
 import type { Tag } from "@/types/tags";
 
+import { MailTagAutoTagItem } from "@/components/inbox/MailTagAutoTagItem";
 import { MAIL_ACTION_ICON_CLASS } from "./reading-pane-action-icons";
 
 interface MailTagActionDropdownProps {
@@ -99,29 +99,12 @@ export function MailTagActionDropdown({
         className="w-64 overflow-hidden p-0"
         data-test="mail-tag-action-dropdown">
         {aiEnabled && (
-          <>
-            <DropdownMenuItem
-              data-test="mail-tag-auto-tag"
-              disabled={disabled || aiDisabled || isAutoTagging}
-              onSelect={() => {
-                setOpen(false);
-                void onAutoTag?.();
-              }}>
-              {isAutoTagging ? (
-                <Loader2
-                  className={cn(MAIL_ACTION_ICON_CLASS, "mr-2 animate-spin")}
-                />
-              ) : (
-                <EmailAutoTagIcon
-                  className={cn(MAIL_ACTION_ICON_CLASS, "mr-2")}
-                />
-              )}
-              <span className="truncate">
-                {__("Auto-tag with AI", "pressedmail")}
-              </span>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </>
+          <MailTagAutoTagItem
+            onDismiss={() => setOpen(false)}
+            onAutoTag={onAutoTag}
+            disabled={disabled || aiDisabled}
+            isAutoTagging={isAutoTagging}
+          />
         )}
 
         <div className="max-h-56 overflow-y-auto p-1">

@@ -3,20 +3,31 @@
   "compilerOptions": {
     "tsBuildInfoFile": "node_modules/.cache/tsbuildinfo.json",
     "paths": {
-      "~/components": ["./src/shadcn/*"],
-      "~/utils": ["./src/lib/utils"],
-      "~/lib/*": ["./src/lib/*"],
-      "~/hooks": ["./src/hooks"],
-      "~/ui": ["./src/shadcn/*"],
-      "~/ui/*": ["./src/shadcn/*"]
+      "~/components": [
+        "./src/shadcn/*"
+      ],
+      "~/utils": [
+        "./src/lib/utils"
+      ],
+      "~/lib/*": [
+        "./src/lib/*"
+      ],
+      "~/hooks": [
+        "./src/hooks"
+      ],
+      "~/ui": [
+        "./src/shadcn/*"
+      ],
+      "~/ui/*": [
+        "./src/shadcn/*"
+      ]
     }
   },
-  "include": ["*.ts", "src"],
+  "include": [
+    "*.ts",
+    "src"
+  ],
   "exclude": [
-    "node_modules",
-    "src/marketing",
-    "src/makerkit/rich-text-editor.tsx",
-    "src/makerkit/rich-text-renderer.tsx",
-    "src/makerkit/multi-step-form.tsx"
+    "node_modules"
   ]
 }

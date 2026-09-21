@@ -1,4 +1,4 @@
-import type { ThemeColorVariables } from "./theme-variables";
+import type { ThemeColorVariables } from "@/types/theme";
 import type { EffectiveWhitelabelRuntime } from "@/types/whitelabel";
 
 type BrandAppearance = EffectiveWhitelabelRuntime["appearance"];

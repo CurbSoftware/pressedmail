@@ -1,5 +1,4 @@
 import { __, _n, sprintf } from "@wordpress/i18n";
-import { apiFetch } from "@/lib/api-client";
 import { useEffect, useState } from "react";
 import { CheckCircle, AlertTriangle, Info } from "lucide-react";
 import {
@@ -18,7 +17,9 @@ import {
   settingsInfoDocHrefs,
   settingsInfoTooltips,
 } from "@/components/settings-ui";
-import { getRuntimeRestNamespace } from "@/lib/runtime-config";
+import { useLatestRelease } from "@/admin/pages/settings/_components/admin-settings/use-latest-release";
+import { runBackgroundPassNow } from "@/services/sync-driver.service";
+import { PermissionError } from "@/lib/api-client";
 
 type ExtensionInfo = {
   name: string;
@@ -27,51 +28,6 @@ type ExtensionInfo = {
   description: string;
   install_cmd: string;
 };
-
-type SyncScheduleInfo = {
-  mode?: "scheduled" | "manual";
-  intervalMinutes?: number;
-  nextRun?: number;
-  lastRun?: number;
-  overdue?: boolean;
-};
-
-type CronWorkerInfo = {
-  hook: string;
-  nextRun: number;
-  intervalSeconds: number;
-  events: number;
-  overdue?: boolean;
-  lastRun?: number;
-};
-
-/**
- * The plugin's own wp-cron entry, as the Diagnostics panel reports it.
- *
- * `nextRun` of 0 means no recurrence is armed; `lastRun` of 0 means it has not
- * completed a pass yet. Both are unix seconds, from the server.
- */
-type CronDispatchInfo = {
-  lastRun?: number;
-  nextRun?: number;
-};
-
-type CronHealthInfo = {
-  workers?: CronWorkerInfo[];
-  wpCronDisabled?: boolean;
-  dispatch?: CronDispatchInfo;
-};
-
-type PhpLimitsInfo = {
-  memory_usage?: string;
-  memory_limit?: string;
-  execution_time?: string;
-  max_execution_time?: string;
-  post_max_size?: string;
-  upload_max_filesize?: string;
-};
-
-type VersionLookupState = "loading" | "available" | "unavailable" | "wporg";
 
 function HealthRow({
   label,
@@ -131,17 +87,6 @@ function PluginStatusRow({
       </dd>
     </div>
   );
-}
-
-/**
- * Whether this build owns its own update checks.
- *
- * The flag crosses into JS through wp_localize_script(), which stringifies
- * everything: true becomes "1" and false becomes "". Comparing it to a boolean
- * is always false, so accept every spelling the runtime can produce.
- */
-function ownsItsUpdates(value: unknown): boolean {
-  return value === true || value === "1" || value === 1;
 }
 
 /** Human label for a worker cadence. 0 means a one-shot single event. */
@@ -210,32 +155,38 @@ export function SystemDiagnostics() {
   // after mount and re-measured on a timer. A settings tab left open would
   // otherwise keep claiming a pass that happened an hour ago.
   const [nowSeconds, setNowSeconds] = useState(0);
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [versionLookupState, setVersionLookupState] =
-    useState<VersionLookupState>("loading");
+  // A "Run now" pass returns the heartbeat it just wrote, which then outranks
+  // the boot payload's copy: the point of the button is that the card stops
+  // reporting a fault the moment it has been resolved.
+  const [freshDispatch, setFreshDispatch] = useState<{
+    lastRun?: number;
+    nextRun?: number;
+    loopback?: boolean | null;
+    hasMailbox?: boolean;
+  } | null>(null);
+  const [manualPassCompleted, setManualPassCompleted] = useState(false);
+  const [passRunning, setPassRunning] = useState(false);
+  const [passError, setPassError] = useState<string | null>(null);
   const diagnostics = window.pressedmailPlugin?.systemDiagnostics;
-  const { extensions, imapDriver, phpVersion, wpVersion, memory } =
-    diagnostics ?? {};
-  const phpLimits = (diagnostics as { phpLimits?: PhpLimitsInfo } | undefined)
-    ?.phpLimits;
+  const {
+    extensions,
+    imapDriver,
+    phpVersion,
+    wpVersion,
+    memory,
+    phpLimits,
+    syncSchedule,
+    cronHealth,
+  } = diagnostics ?? {};
   const imapExtension = extensions?.imap as ExtensionInfo | undefined;
   const currentVersion =
     window.pressedmailPlugin?.version ?? __("Unknown", "pressedmail");
-  const isPro =
-    window.pressedmailPlugin?.isPro === true ||
-    window.pressedmailPlugin?.isPro === "1";
-  const latestReleaseLabel = isPro
-    ? __("Latest release version (Pro)", "pressedmail")
-    : __("Latest release version (Free)", "pressedmail");
+  // Which update channel this edition follows, and its latest release. Pro
+  // asks the licence server; Free reports WordPress.org without a request.
+  const latestRelease = useLatestRelease(currentVersion);
 
   // Check if IMAP native extension is missing
   const imapMissing = imapExtension && !imapExtension.loaded;
-  const syncSchedule = (
-    diagnostics as { syncSchedule?: SyncScheduleInfo } | undefined
-  )?.syncSchedule;
-  const cronHealth = (
-    diagnostics as { cronHealth?: CronHealthInfo } | undefined
-  )?.cronHealth;
   const cronWorkers = cronHealth?.workers ?? [];
   const overdueWorkers = cronWorkers.filter(
     (worker) => worker.overdue === true,
@@ -244,23 +195,40 @@ export function SystemDiagnostics() {
   // PressedMail's own wp-cron entry. This replaced a printed crontab line: the
   // command was install-specific and most administrators cannot run it, so the
   // panel reports whether background work is actually happening instead.
-  const dispatch = cronHealth?.dispatch;
+  const dispatch = freshDispatch ?? cronHealth?.dispatch;
   const dispatchLastRun = dispatch?.lastRun ?? 0;
   const dispatchNextRun = dispatch?.nextRun ?? 0;
   const dispatchStale =
     nowSeconds > 0 &&
     dispatchLastRun > 0 &&
     nowSeconds - dispatchLastRun > DISPATCH_STALE_SECONDS;
-  const dispatchState: "disabled" | "missing" | "never" | "stale" | "ok" =
-    cronHealth?.wpCronDisabled
-      ? "disabled"
-      : dispatchNextRun === 0
-        ? "missing"
-        : dispatchLastRun === 0
-          ? "never"
-          : dispatchStale
-            ? "stale"
-            : "ok";
+  // A late heartbeat is only a fault when the site cannot reach itself. Without
+  // that evidence it is the normal state of a quiet site, and calling it broken
+  // told most administrators their site was faulty most of the time.
+  const dispatchState:
+    | "disabled"
+    | "missing"
+    | "noMailbox"
+    | "never"
+    | "blocked"
+    | "idle"
+    | "manual"
+    | "ok" = cronHealth?.wpCronDisabled
+    ? "disabled"
+    : dispatch?.hasMailbox === false
+      ? "noMailbox"
+      : manualPassCompleted && !dispatchStale
+        ? "manual"
+        : dispatch?.loopback === false &&
+            (dispatchLastRun === 0 || dispatchStale)
+          ? "blocked"
+          : dispatchNextRun === 0
+            ? "missing"
+            : dispatchLastRun === 0
+              ? "never"
+              : !dispatchStale
+                ? "ok"
+                : "idle";
   // The disabled case is the one explanation the panel owes a reader even when
   // the server sends no dispatch block at all: it is the reason nothing runs,
   // and the card exists to say so. Every other note describes a heartbeat, so
@@ -278,16 +246,33 @@ export function SystemDiagnostics() {
       label: __("Not scheduled", "pressedmail"),
       variant: "destructive" as const,
     },
+    noMailbox: {
+      label: __("No mailbox connected", "pressedmail"),
+      variant: "secondary" as const,
+    },
     never: {
       label: __("Waiting for first run", "pressedmail"),
       variant: "secondary" as const,
     },
-    stale: {
-      label: __("Delayed", "pressedmail"),
+    // Quiet, not broken. WordPress runs scheduled work on a visit, so a site
+    // nobody has visited since the last pass is late by definition.
+    idle: {
+      label: __("Waiting for traffic", "pressedmail"),
+      variant: "secondary" as const,
+    },
+    blocked: {
+      label: __("Cannot reach itself", "pressedmail"),
       variant: "destructive" as const,
     },
+    manual: {
+      label: __("Manual pass completed", "pressedmail"),
+      variant: "secondary" as const,
+    },
     ok: {
-      label: __("Running normally", "pressedmail"),
+      label:
+        overdueWorkers.length > 0
+          ? __("Dispatcher running", "pressedmail")
+          : __("Running normally", "pressedmail"),
       variant: "success" as const,
     },
   }[dispatchState];
@@ -297,15 +282,39 @@ export function SystemDiagnostics() {
       "pressedmail",
     ),
     missing: __(
-      "No background task is scheduled right now. PressedMail re-arms it on the next page load; if this line stays, WordPress cron itself is not running.",
+      "No background task is scheduled right now. Reload to check whether PressedMail re-arms it. If it remains unscheduled, review WordPress cron settings.",
+      "pressedmail",
+    ),
+    noMailbox: __(
+      "Background work starts after a mailbox is connected. No scheduled pass is needed yet.",
       "pressedmail",
     ),
     never: __(
-      "No background pass has completed yet. The first one runs within a minute of any visit to the site, and this line updates after it.",
+      "No background pass has completed yet. A site visit may start one if WordPress can reach itself. Reload this page after the next visit to check.",
       "pressedmail",
     ),
-    stale: __(
-      "The last background pass was over three minutes ago, so scheduled work is not running on time. A site with little traffic is the usual cause: any visit lets WordPress catch up.",
+    idle:
+      dispatch?.loopback === true
+        ? __(
+            "The last background pass was over three minutes ago. This site can reach itself, so the next visit should start scheduled work and this notice should clear itself after a reload.",
+            "pressedmail",
+          )
+        : __(
+            "The last background pass was over three minutes ago. WordPress starts scheduled work when the site receives traffic. The next visit may run it if the site can reach itself; reload after that visit to check.",
+            "pressedmail",
+          ),
+    blocked:
+      dispatchLastRun === 0
+        ? __(
+            "No background pass has completed, and this site could not reach its own WordPress address. WordPress cannot start scheduled work on a visit. Run one pass now while the loopback issue is investigated.",
+            "pressedmail",
+          )
+        : __(
+            "The last background pass was over three minutes ago and this site could not reach its own WordPress address, so WordPress cannot start its scheduled work on a visit. PressedMail still drains the queue while the app is open. Run one pass now while you investigate the loopback issue.",
+            "pressedmail",
+          ),
+    manual: __(
+      "One background pass completed. Automatic scheduling has not been verified; reload after the next scheduled check to see whether it recovered.",
       "pressedmail",
     ),
     ok: null,
@@ -328,18 +337,33 @@ export function SystemDiagnostics() {
         new URL(window.pressedmailPlugin.adminAjaxUrl, window.location.href),
       ).href
     : undefined;
-  // "Managed by WordPress.org" is a statement about where the edition gets its
-  // updates, so it follows the edition. Pro updates come from the licence
-  // server; if that lookup cannot run, say "Unavailable" rather than claim
-  // something about this build that is not true.
-  const latestVersionLabel =
-    versionLookupState === "loading"
-      ? __("Checking...", "pressedmail")
-      : versionLookupState === "wporg"
-        ? isPro
-          ? __("Unavailable", "pressedmail")
-          : __("Managed by WordPress.org", "pressedmail")
-        : latestVersion || __("Unavailable", "pressedmail");
+  // Server side this is the plugin-admin capability; here it only decides
+  // whether to offer a button the server would refuse anyway. The Diagnostics
+  // tab is already a settings-manager screen, so this pair is belt and braces.
+  const canRunPass = window.pressedmailPlugin?.canManageSettings ?? false;
+
+  const runPassNow = async () => {
+    setPassRunning(true);
+    setPassError(null);
+    try {
+      const next = await runBackgroundPassNow();
+      setFreshDispatch(next);
+      setManualPassCompleted(true);
+    } catch (error) {
+      // A refusal says so. A button that quietly does nothing is how a panel
+      // keeps reporting a fault nobody ever actually tried to clear.
+      setPassError(
+        error instanceof PermissionError
+          ? error.message
+          : __(
+              "The background pass could not be run. Reload the page and try again.",
+              "pressedmail",
+            ),
+      );
+    } finally {
+      setPassRunning(false);
+    }
+  };
 
   useEffect(() => {
     const tick = () => setNowSeconds(Math.floor(Date.now() / 1000));
@@ -347,63 +371,6 @@ export function SystemDiagnostics() {
     const timer = window.setInterval(tick, HEARTBEAT_TICK_MS);
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const apiUrl = window.pressedmailPlugin?.apiUrl;
-    const nonce = window.pressedmailPlugin?.wpApiSettings?.nonce;
-
-    // The route only exists where the plugin owns its own updates, so an
-    // absent or false flag means there is nothing to call. What the flag does
-    // NOT tell us is who distributes this edition, which is why the label
-    // above reads `isPro` instead of this.
-    //
-    // wp_localize_script() casts every value to a string, so this arrives as
-    // "1", never boolean true. A strict `!== true` therefore matched on every
-    // build, and Pro silently skipped the lookup it was entitled to make. The
-    // isPro check above already accepts both spellings; this one has to as well.
-    if (!ownsItsUpdates(window.pressedmailPlugin?.useCustomUpdates)) {
-      setVersionLookupState("wporg");
-      setLatestVersion(null);
-      return;
-    }
-
-    if (!apiUrl || !nonce) {
-      setVersionLookupState("unavailable");
-      setLatestVersion(null);
-      return;
-    }
-
-    setVersionLookupState("loading");
-
-    apiFetch(`${apiUrl}${getRuntimeRestNamespace()}/updates/check`, {
-      method: "POST",
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Update lookup failed: ${response.status}`);
-        }
-
-        return (await response.json()) as {
-          latest_version?: string;
-          current_version?: string;
-        };
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setLatestVersion(data.latest_version || currentVersion);
-        setVersionLookupState("available");
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setLatestVersion(null);
-        setVersionLookupState("unavailable");
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [currentVersion]);
 
   // The boot payload carries the diagnostics. If it is missing, say so rather
   // than rendering a blank tab under the header.
@@ -516,8 +483,8 @@ export function SystemDiagnostics() {
             value={currentVersion}
           />
           <PluginStatusRow
-            label={latestReleaseLabel}
-            value={latestVersionLabel}
+            label={latestRelease.label}
+            value={latestRelease.value}
           />
           <PluginStatusRow
             label={__("Email driver", "pressedmail")}
@@ -636,7 +603,35 @@ export function SystemDiagnostics() {
                     : __("Not scheduled", "pressedmail")}
                 </span>
               </p>
+              {/*
+                Only offered while something is actually wrong. Next to a green
+                "Running normally" it would be noise: there is no fault for it to
+                clear, and the dispatcher's own minute is about to pass anyway.
+                The card exists to report trouble, so its action belongs there.
+              */}
+              {canRunPass &&
+              !["ok", "manual", "noMailbox"].includes(dispatchState) ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={passRunning}
+                  onClick={() => void runPassNow()}>
+                  {passRunning
+                    ? __("Running…", "pressedmail")
+                    : __("Run now", "pressedmail")}
+                </Button>
+              ) : null}
             </div>
+          ) : null}
+
+          {passError ? (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-sm">
+                {passError}
+              </AlertDescription>
+            </Alert>
           ) : null}
 
           {overdueWorkers.length > 0 ? (

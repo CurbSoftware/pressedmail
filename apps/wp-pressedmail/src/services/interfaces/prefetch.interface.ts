@@ -38,6 +38,19 @@ export type PrefetchOutcome =
   | null;
 
 /**
+ * What one warm batch did.
+ *
+ * `warmed` counts the bodies this client cached, which is the number that
+ * decides whether another batch is worth sending. `deferred` is the server
+ * asking for those UIDs back on the next settle, rather than in a tight loop.
+ */
+export interface WarmBatchOutcome {
+  warmed: number;
+  deferred: Array<string | number>;
+  skipped: number;
+}
+
+/**
  * IPrefetchService Interface
  *
  * Manages a priority queue for fetching message details.
@@ -58,15 +71,24 @@ export interface IPrefetchService {
   ): Promise<PrefetchOutcome>;
 
   /**
-   * Prefetch multiple message bodies in the background.
-   * Filters out already-cached messages and queues the rest
-   * at "background" priority using the batch API.
+   * Warm a few message bodies ahead of a click, five at a time.
+   *
+   * The endpoint behind this opens live IMAP, so it is bounded on purpose:
+   * already-cached ids are dropped, only one mailbox generation is sent, and a
+   * failure is never an error. The caller stops on a failed batch and retries
+   * whatever the server deferred on the next settle.
    */
-  prefetchBatch(
+  warmBatch(
     accountId: string,
     folder: string,
     messageIds: Array<string | number>,
-  ): void;
+  ): Promise<WarmBatchOutcome>;
+
+  /**
+   * Whether a click is queued or in flight. The warm loop pauses on true, so a
+   * background fetch never sits in front of the message somebody just opened.
+   */
+  hasUserSelectedPending(): boolean;
 
   /**
    * Check if a message detail is already cached.

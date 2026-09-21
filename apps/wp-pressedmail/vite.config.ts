@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
@@ -438,6 +446,161 @@ function emitModuleGraph(): Plugin {
 }
 
 /**
+ * Names the package a bundled module came from, or null when it is first-party.
+ *
+ * pnpm stores every dependency under `node_modules/.pnpm/<name>@<version>/`,
+ * so the package root is always the last `node_modules/<name>` pair in the id.
+ */
+function packageDirForModule(id: string): string | null {
+  const marker = `${path.sep}node_modules${path.sep}`;
+  const at = id.lastIndexOf(marker);
+  if (at === -1) return null;
+
+  const segments = id.slice(at + marker.length).split(path.sep);
+  const name = segments[0]?.startsWith("@")
+    ? segments.slice(0, 2).join("/")
+    : segments[0];
+  if (!name) return null;
+
+  const dir = path.join(id.slice(0, at + marker.length), name);
+  return existsSync(path.join(dir, "package.json")) ? dir : null;
+}
+
+/** The licence file a package ships, or null when it ships none. */
+function licenseTextForPackage(dir: string): string | null {
+  for (const candidate of readdirSync(dir)) {
+    if (/^(licen[cs]e|copying|notice)(\.(md|txt|markdown))?$/i.test(candidate)) {
+      const full = path.join(dir, candidate);
+      if (statSync(full).isFile()) return readFileSync(full, "utf8").trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Turns a package.json `repository` value into a browsable URL.
+ *
+ * npm allows the same repository to be spelled half a dozen ways, and the raw
+ * values in this tree include `ssh://git@github.com/owner/repo`, the bare
+ * `owner/repo` shorthand and the `github:owner/repo` form.
+ */
+function repositoryUrlForPackage(value: unknown): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+
+  const raw = value.trim().replace(/^git\+/, "");
+  const scp = raw.match(/^git@([^:]+):(.+)$/);
+  const shorthand = raw.match(/^(?:github|gitlab|bitbucket):(.+)$/);
+  if (scp?.[1] && scp[2]) return `https://${scp[1]}/${scp[2]}`.replace(/\.git$/, "");
+  if (shorthand?.[1]) return `https://github.com/${shorthand[1]}`.replace(/\.git$/, "");
+  if (/^[\w.-]+\/[\w.-]+$/.test(raw)) return `https://github.com/${raw}`;
+
+  return raw
+    .replace(/^ssh:\/\/git@/, "https://")
+    .replace(/^ssh:\/\//, "https://")
+    .replace(/^git:\/\//, "https://")
+    .replace(/\.git$/, "");
+}
+
+/**
+ * Writes the copyright and licence notices for the third-party code in the
+ * bundle, from the modules Rollup actually pulled in.
+ *
+ * MIT, ISC, BSD and Apache-2.0 all require the copyright notice and the licence
+ * text to travel with a redistributed binary, and minification is what strips
+ * them: `format.comments` below keeps a package's `@license` banner only when it
+ * wrote one, and most of them do not. Keeping a hand-written list accurate is a
+ * losing game, so the list is derived from the module graph instead and cannot
+ * describe a package the build did not compile.
+ *
+ * The file lands next to the bundle and ships in the plugin zip, because the
+ * bundle is what it covers.
+ */
+function emitThirdPartyNotices(): Plugin {
+  return {
+    name: "pressedmail:third-party-notices",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const dirs = new Set<string>();
+      for (const output of Object.values(bundle)) {
+        if (output.type !== "chunk") continue;
+        for (const id of Object.keys(output.modules)) {
+          const dir = packageDirForModule(id);
+          if (dir) dirs.add(dir);
+        }
+      }
+
+      const entries = [...dirs]
+        .map((dir) => {
+          const manifest = JSON.parse(
+            readFileSync(path.join(dir, "package.json"), "utf8"),
+          ) as {
+            name?: string;
+            version?: string;
+            license?: string;
+            licenses?: { type?: string }[];
+            repository?: { url?: string } | string;
+          };
+          const repository =
+            typeof manifest.repository === "string"
+              ? manifest.repository
+              : manifest.repository?.url;
+          return {
+            name: manifest.name ?? path.basename(dir),
+            version: manifest.version ?? "unknown",
+            license:
+              manifest.license ??
+              manifest.licenses?.map((entry) => entry.type).join(" OR ") ??
+              "see notice below",
+            repository: repositoryUrlForPackage(repository),
+            text: licenseTextForPackage(dir),
+          };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      const body = entries
+        .map(
+          (entry, index) =>
+            `${index + 1}. ${entry.name} ${entry.version} - ${entry.license}` +
+            (entry.repository ? ` - ${entry.repository}` : ""),
+        )
+        .join("\n");
+
+      const notices = entries
+        .map(
+          (entry, index) =>
+            `${"-".repeat(78)}\n` +
+            `${index + 1}. ${entry.name} ${entry.version}\n` +
+            `Licence: ${entry.license}\n` +
+            (entry.repository ? `Source: ${entry.repository}\n` : "") +
+            `${"-".repeat(78)}\n\n` +
+            (entry.text ??
+              `This package publishes no licence file in its npm tarball. Its\n` +
+                `package.json declares ${entry.license}, whose text is published at\n` +
+                `https://spdx.org/licenses/${entry.license}.html`),
+        )
+        .join("\n\n");
+
+      this.emitFile({
+        type: "asset",
+        fileName: "THIRD-PARTY-NOTICES.txt",
+        source:
+          `Third-party notices for the PressedMail ${variant} admin bundle\n` +
+          `${"=".repeat(78)}\n\n` +
+          `The compiled JavaScript in this directory contains code from the\n` +
+          `packages listed below, taken from the npm registry. Each is used under\n` +
+          `the licence shown, and its copyright notice and licence text as\n` +
+          `published by the package follow the index. Every licence here is\n` +
+          `compatible with the GPL-2.0-or-later terms PressedMail ships under.\n\n` +
+          `Where each package came from, and which files are adapted rather than\n` +
+          `used as published, is in THIRD-PARTY-PROVENANCE.md in the source\n` +
+          `repository: https://github.com/CurbSoftware/pressedmail\n\n` +
+          `${body}\n\n\n${notices}\n`,
+      });
+    },
+  };
+}
+
+/**
  * The registered WordPress script handle that prints a module's global.
  *
  * The two names differ: `@wordpress/i18n` is the `wp.i18n` global, printed by
@@ -593,6 +756,7 @@ export default defineConfig({
     enforceFreeReactCompatibility(),
     emitModuleGraph(),
     emitWordPressDependencies(),
+    emitThirdPartyNotices(),
   ],
   define: {
     __PLUGIN_VARIANT__: JSON.stringify(variant),

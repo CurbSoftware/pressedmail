@@ -415,18 +415,28 @@ function suggestionPath(suggestion: SearchSuggestion): string | null {
       return `/inbox?${params.toString()}`;
     }
     case "contact": {
-      const contactId = extractContactId(suggestion);
-      return contactId === null ? null : `/contacts?openContactId=${contactId}`;
+      // The contacts scope exists only where the contacts feature is built, so
+      // the Free edition has no route to offer and names none.
+      if (__ENABLE_CONTACTS__) {
+        const contactId = extractContactId(suggestion);
+        return contactId === null
+          ? null
+          : `/contacts?openContactId=${contactId}`;
+      }
+      return null;
     }
     case "calendar": {
-      const eventId = extractCalendarId(suggestion);
-      if (eventId === null) return null;
-      const params = new URLSearchParams({ openEventId: String(eventId) });
-      const eventDate = extractEventDate(suggestion);
-      if (eventDate) {
-        params.set("date", eventDate);
+      if (__ENABLE_CALENDAR__) {
+        const eventId = extractCalendarId(suggestion);
+        if (eventId === null) return null;
+        const params = new URLSearchParams({ openEventId: String(eventId) });
+        const eventDate = extractEventDate(suggestion);
+        if (eventDate) {
+          params.set("date", eventDate);
+        }
+        return `/calendar?${params.toString()}`;
       }
-      return `/calendar?${params.toString()}`;
+      return null;
     }
     default:
       return null;
@@ -667,11 +677,11 @@ export function HeaderSearchInput({
     if (effectiveScope === "emails") {
       searchOps.executeSearch(effectiveTerm, effectiveFilters);
       navigate("/inbox");
-    } else if (effectiveScope === "contacts") {
+    } else if (__ENABLE_CONTACTS__ && effectiveScope === "contacts") {
       navigate(
         `/contacts?${new URLSearchParams({ contactSearch: effectiveTerm })}`,
       );
-    } else {
+    } else if (__ENABLE_CALENDAR__) {
       navigate(
         `/calendar?${new URLSearchParams({
           view: "list",
@@ -688,16 +698,29 @@ export function HeaderSearchInput({
 
   return (
     <div className={cn("relative w-full", className)}>
+      {/*
+        No overflow-hidden. There used to be, to stop the square-cornered
+        children poking past the rounded container, and it clipped the focus
+        indicator of whichever segment had keyboard focus: the indicator is
+        drawn outside the border box, so it was cut off on all four sides. The
+        end children carry the container's radius themselves instead.
+
+        The container no longer draws its own focus-within ring either. The
+        scope, the field, the clear button and the filter button are four
+        separate tab stops, and one ring around all of them said the whole
+        field had focus when only one segment did. The border tint stays: it
+        reads as the field being active without claiming to be the indicator.
+      */}
       <div
         className={cn(
-          "flex h-9 items-center gap-0 overflow-hidden rounded-md border border-input bg-card px-0 text-sm shadow-sm transition-colors",
-          "focus-within:border-primary/70 focus-within:ring-2 focus-within:ring-primary/15",
+          "flex h-9 items-center gap-0 rounded-md border border-input bg-card px-0 text-sm shadow-sm transition-colors",
+          "focus-within:border-primary/70",
         )}>
         <SearchScopeDropdown
           value={effectiveScope}
           options={availableScopeOptions}
           onChange={handleScopeChange}
-          className="h-full w-11 rounded-none border-r border-input py-0"
+          className="h-full w-11 rounded-l-md rounded-r-none border-r border-input py-0"
         />
         <Input
           autoComplete="off"
@@ -711,7 +734,7 @@ export function HeaderSearchInput({
           onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
           placeholder={resolvedPlaceholder}
           data-no-theme
-          className="h-full max-h-full min-h-0 flex-1 rounded-none border-0 bg-transparent px-3 py-0 leading-5 shadow-none outline-none focus-visible:border-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="h-full max-h-full min-h-0 flex-1 rounded-none border-0 bg-transparent px-3 py-0 leading-5 shadow-none"
         />
         {activeFilterLabels.slice(0, 1).map((label) => (
           <Badge
@@ -746,7 +769,7 @@ export function HeaderSearchInput({
               variant={hasFilters ? "secondary" : "ghost"}
               size="icon"
               className={cn(
-                "h-full w-10 shrink-0 rounded-none border-l border-input py-0",
+                "h-full w-10 shrink-0 rounded-l-none rounded-r-md border-l border-input py-0",
                 __IS_PRO__ &&
                   "bg-clip-border hover:bg-accent data-[state=open]:bg-accent",
               )}
@@ -791,7 +814,12 @@ export function HeaderSearchInput({
       </div>
       {suggestions.length > 0 && (
         <div
-          className="absolute left-0 right-0 top-full z-40 mt-1 overflow-hidden rounded-md border bg-popover shadow-md"
+          /*
+            Rounded on the end children instead of clipped on the container.
+            overflow-hidden here cut the focus outline off the top and bottom
+            row of every keyboard user tabbing through the suggestions.
+          */
+          className="absolute left-0 right-0 top-full z-40 mt-1 rounded-md border bg-popover shadow-md [&>*:first-child]:rounded-t-md [&>*:last-child]:rounded-b-md"
           data-test="header-search-suggestions"
           data-testid="header-search-suggestions">
           {effectiveTerm.length >= 2 ? (

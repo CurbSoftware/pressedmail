@@ -1,9 +1,9 @@
 "use client";
 
-import { Button } from "@kit/ui/plugin";
-import { Calendar, CalendarPlus } from "lucide-react";
+import { Calendar } from "lucide-react";
 import { __ } from "@wordpress/i18n";
 
+import { AddToCalendarBannerButton } from "@/components/calendar/AddToCalendarButton";
 import { CalendarBasicGate } from "@/components/features/BuildTimeFeatureGates";
 import type { ITipEvent } from "@/types/itip";
 
@@ -74,17 +74,7 @@ function ITipBannerInner({ event, onAddToCalendar }: ITipBannerProps) {
           )}
 
           {onAddToCalendar && !isCancel && !isReply ? (
-            <div className="mt-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={onAddToCalendar}
-                data-test="itip-banner-add-to-calendar">
-                <CalendarPlus className="mr-1 h-3 w-3" />
-                {__("Add to calendar", "pressedmail")}
-              </Button>
-            </div>
+            <AddToCalendarBannerButton onClick={onAddToCalendar} />
           ) : null}
         </div>
       </div>

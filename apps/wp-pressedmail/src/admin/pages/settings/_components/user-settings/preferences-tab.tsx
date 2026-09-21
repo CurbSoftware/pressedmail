@@ -239,7 +239,7 @@ export function PreferencesTabView({
         </Label>
         <select
           id="preference-category"
-          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring]"
           value={selectedCategory}
           onChange={(event) =>
             selectCategory(event.target.value as PreferenceCategoryId)
@@ -282,7 +282,7 @@ export function PreferencesTabView({
                 role="region"
                 aria-label={section.title}
                 tabIndex={-1}
-                className="scroll-mt-4 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="scroll-mt-4 outline-none"
                 data-test={`preference-section-slot-${section.id}`}>
                 <Suspense
                   fallback={

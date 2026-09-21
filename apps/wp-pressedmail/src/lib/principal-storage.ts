@@ -112,6 +112,105 @@ function handleStorageChange(event: StorageEvent): void {
   isStoragePrincipalCurrent(principal);
 }
 
+/**
+ * Scoped keys a purge leaves alone.
+ *
+ * These hold nothing a user can read: an unresolved normal-send guard is an
+ * account id, a payload hash and an attempt key. The app still needs it after
+ * the session that wrote it ends, because dropping it lets a message the server
+ * already accepted be sent a second time. Everything else scoped to a session
+ * goes, including keys this list does not yet know about.
+ *
+ * Mirror of PURGE_KEEPS in includes/Services/BrowserStorageCleanup.php.
+ */
+const PURGE_KEEPS = ["normal-send-intent:"];
+
+/**
+ * Drop keys PressedMail scoped to a signed-in user, in both storage areas.
+ *
+ * Cached message content, the compose draft, the account list and recent searches
+ * all belong to the session that wrote them, and none of them may be left for
+ * whoever uses this browser next. Cosmetic preferences (theme, layout, typography)
+ * are not scoped to a user and stay where they are.
+ *
+ * Pass the principal whose session ended to drop only that user's keys, which is
+ * what a page can do without disturbing another session sharing the browser. With
+ * no principal, every scoped key goes: that is the sign-out sweep, where the
+ * browser knows somebody left but not who, and the mirror of it on the WordPress
+ * side is BrowserStorageCleanup, which runs it from the screen a logout lands on.
+ * Keep the two in step.
+ */
+export function purgePrincipalStorage(
+  outgoing: StoragePrincipal | null = null,
+): void {
+  const scoped = outgoing ? scopedKeyPrefix(outgoing) : null;
+  sweepScopedKeys((key) => {
+    const ours = key.startsWith(KEY_PREFIX);
+    // A scoped key for one user reads
+    // pressedmail:principal:v1:["<site>",<userId>,"<key>"], so the JSON of the
+    // pair plus a comma is exactly the start of that user's keys.
+    const belongsToOutgoing = scoped !== null && ours && key.startsWith(scoped);
+    const wholeStore =
+      scoped === null && (ours || key.startsWith(ACTIVE_PREFIX));
+    return belongsToOutgoing || wholeStore;
+  });
+}
+
+/**
+ * Drop scoped keys that belong to anyone but `keep`.
+ *
+ * The sign-out sweep for a page that is already signed in again: this browser was
+ * marked when a session ended, and this page knows which user it is serving now.
+ * That user's own keys stay, so signing out and back in on your own machine does
+ * not throw away the draft you were typing; every other principal's keys go
+ * before the app reads anything. With no resolvable principal there is no way to
+ * tell whose keys these are, so all of them go.
+ */
+function purgeForeignPrincipalStorage(keep: StoragePrincipal | null): void {
+  if (!keep) {
+    purgePrincipalStorage();
+    return;
+  }
+  const mine = scopedKeyPrefix(keep);
+  sweepScopedKeys((key) => key.startsWith(KEY_PREFIX) && !key.startsWith(mine));
+}
+
+/** Walk both storage areas, dropping the keys `drop` claims, minus the keeps. */
+function sweepScopedKeys(drop: (physicalKey: string) => boolean): void {
+  for (const area of ["local", "session"] as const) {
+    const target = storage(area);
+    if (!target) continue;
+    try {
+      for (let index = target.length - 1; index >= 0; index--) {
+        const key = target.key(index);
+        if (!key || isKeptOnPurge(key)) continue;
+        if (drop(key)) target.removeItem(key);
+      }
+    } catch {
+      // Enumeration and deletion can be blocked by browser policy.
+    }
+  }
+}
+
+/**
+ * Whether a physical key carries one of the logical keys a purge leaves alone.
+ *
+ * A scoped key ends with the logical key as a JSON string, so the opening quote
+ * is what marks the start of one.
+ */
+function isKeptOnPurge(physicalKey: string): boolean {
+  return PURGE_KEEPS.some((logicalKey) =>
+    physicalKey.includes(`"${logicalKey}`),
+  );
+}
+
+function scopedKeyPrefix(principal: StoragePrincipal): string {
+  return `${KEY_PREFIX}${JSON.stringify([
+    principal.site,
+    principal.userId,
+  ]).slice(0, -1)},`;
+}
+
 /** Call before mounting the app. Later calls never adopt a different principal. */
 export function initializePrincipalStorage(
   onInvalidate?: InvalidationHandler,
@@ -120,8 +219,17 @@ export function initializePrincipalStorage(
   if (initialized) return invalidated ? null : principal;
   initialized = true;
   purgeLegacyPrincipalStorage();
-  principal = readBootstrapPrincipal();
-  if (!principal) return null;
+  const bootPrincipal = readBootstrapPrincipal();
+  // PHP marks the browser when a session ended. The login screen clears the data
+  // itself; this covers a site that redirects a sign-out somewhere else. The user
+  // this page is serving now keeps their own keys: they came back to their own
+  // browser and the draft they were typing is theirs. Everyone else's goes before
+  // the app reads anything.
+  if (window.pressedmailPlugin?.purgeBrowserStorage === true) {
+    purgeForeignPrincipalStorage(bootPrincipal);
+  }
+  if (!bootPrincipal) return null;
+  principal = bootPrincipal;
 
   activeKey = ACTIVE_PREFIX + JSON.stringify(principal.site);
   try {
@@ -143,6 +251,17 @@ export function initializePrincipalStorage(
     ) {
       activeValue = previous;
     } else {
+      // A marker that names somebody else is the previous user's session on a
+      // shared browser. Their mail is still in this storage area, so it goes
+      // before this user's app reads anything.
+      if (
+        Array.isArray(marker) &&
+        marker.length === 2 &&
+        typeof marker[0] === "number" &&
+        marker[0] !== principal.userId
+      ) {
+        purgePrincipalStorage({ site: principal.site, userId: marker[0] });
+      }
       const transitionId = window.crypto
         .getRandomValues(new Uint32Array(4))
         .join("-");
@@ -218,6 +337,12 @@ export function invalidatePrincipalStorage(reason = "principal-changed"): void {
   } catch {
     // Invalidate this page even if notifying sibling tabs is unavailable.
   }
+  // Every caller here means the same thing: this page was showing one user's
+  // mailbox and that user is gone (a different principal, a lost session). The
+  // stored copy belongs to that session, so it goes with it, even in a tab the
+  // user abandoned. Without a resolved principal there is no way to tell whose
+  // keys these are, and an unidentifiable page drops them all.
+  purgePrincipalStorage(principal);
   if (typeof window !== "undefined") {
     window.removeEventListener("storage", handleStorageChange);
     window.dispatchEvent(

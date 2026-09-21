@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import type { Value } from 'platejs';
 
-import type { PlateEmailEditorSurface } from './email-surfaces';
+import type { PlateEmailEditorDialect, PlateEmailEditorSurface } from './email-surfaces';
 
 export const PLATE_EMAIL_EDITOR_CONTRACT_VERSION = 1;
 export const PLATE_EMAIL_EDITOR_DEFAULT_PLACEHOLDER = 'Write something…';
@@ -421,6 +421,7 @@ export function createPlateEmailEditorRef<TValue = Value, TNode = Value>({
   controller,
   getDomHtml = () => null,
   getPlainText,
+  getValue,
   deserializer,
   setValue,
   insertNodes,
@@ -434,6 +435,9 @@ export function createPlateEmailEditorRef<TValue = Value, TNode = Value>({
       return controller.getHtml(getDomHtml());
     },
     ...(getPlainText ? { getPlainText } : {}),
+    ...(getValue
+      ? { getValue: getValue as unknown as () => Value }
+      : {}),
     setContent(html) {
       controller.setContent(html, {
         deserializer,
@@ -790,6 +794,8 @@ export interface PlateEmailEditorRefOptions<TValue = Value, TNode = Value> {
   controller: PlateEmailEditorController<TValue>;
   getDomHtml?: () => string | null;
   getPlainText?: () => string;
+  /** The live document, for callers that must inspect it before it settles. */
+  getValue?: () => TValue;
   deserializer: PlateEmailHtmlDeserializer;
   setValue: (value: TValue) => void;
   insertNodes: (value: TNode) => void;
@@ -836,6 +842,8 @@ export interface PlateEmailEditorRef {
   getHTML: () => string;
   /** Optional app adapter extension for synchronous semantic text capture. */
   getPlainText?: () => string;
+  /** Optional app adapter extension for reading the live document. */
+  getValue?: () => Value;
   setContent: (html: string) => void;
   insertContent: (html: string) => void;
   captureSelection: () => void;
@@ -847,6 +855,11 @@ export interface PlateEmailEditorRef {
 export interface PlateEmailEditorAdapterProps<TValue = Value> {
   children?: ReactNode;
   surface?: PlateEmailEditorSurface;
+  /**
+   * How the document is presented while it is authored. A different axis from
+   * `surface`: the composer is one surface and can be in any dialect.
+   */
+  dialect?: PlateEmailEditorDialect;
   initialHtml?: string;
   initialValue?: TValue;
   ariaLabel?: string;

@@ -33,6 +33,40 @@ export interface SignatureInsertOptions {
 }
 
 /**
+ * Where the quoted original starts. The composer scaffold emits an `<hr>`
+ * separator immediately above the "On … wrote:" / "Forwarded message"
+ * reference line and the quoted block, so anchoring there keeps a signature at
+ * the foot of the new message rather than between the header and the quote.
+ * The remaining markers cover externally-sourced drafts.
+ *
+ * Both placement paths read this one list: the string paths search `marker`,
+ * and the editor path searches `nodeTypes` while walking the document. The two
+ * representations sit together so a new marker cannot land in one and be
+ * forgotten in the other. Note that `nodeTypes` is only set where the anchor
+ * survives deserialization at all: Plate unwraps a `gmail_quote` or
+ * `moz-cite-prefix` div and drops its class, and a comment marker is not a node,
+ * so those bodies resolve through the blockquote inside them instead.
+ *
+ * Position decides, not list order: the earliest matching anchor in the body
+ * wins, which is what keeps the scaffold's `<hr>` ahead of the blockquote below
+ * it.
+ */
+export interface SignatureQuoteAnchor {
+  /** HTML marker, matched with `indexOf`. */
+  marker: string;
+  /** Editor node types that mean the same thing. */
+  nodeTypes?: readonly string[];
+}
+
+export const SIGNATURE_QUOTE_ANCHORS: readonly SignatureQuoteAnchor[] = [
+  { marker: "<hr", nodeTypes: ["hr", "horizontal_rule"] },
+  { marker: '<div class="gmail_quote"' },
+  { marker: "<blockquote", nodeTypes: ["blockquote"] },
+  { marker: '<div class="moz-cite-prefix"' },
+  { marker: "<!-- quoted-content -->" },
+];
+
+/**
  * Wraps signature content in the editable SignatureBlock node markup.
  */
 export function wrapSignatureContent(
@@ -41,6 +75,37 @@ export function wrapSignatureContent(
 ): string {
   const separator = addSeparator ? "<p>--</p>" : "";
   return `<div data-pm-block="${SIGNATURE_BLOCK}">${separator}<div class="signature-content">${content}</div></div>`;
+}
+
+/**
+ * The signature block on its own, as the markup every surface inserts. A plain
+ * signature is converted here, so the rich editor and the string paths splice
+ * the same block.
+ */
+export function signatureBlockMarkup(
+  signature: Pick<Signature, "content" | "content_type">,
+  addSeparator = true,
+): string {
+  return wrapSignatureContent(
+    signature.content_type === "plain"
+      ? plainTextToComposerHtml(signature.content)
+      : signature.content,
+    addSeparator,
+  );
+}
+
+/**
+ * The markup a signature insert drops into a message: the block, padded with
+ * the blank lines that separate it from the content around it. `aboveQuote`
+ * adds the padding below it too, which is what keeps the quoted original on its
+ * own side of the signature.
+ */
+export function signatureInsertMarkup(
+  signature: Pick<Signature, "content" | "content_type">,
+  aboveQuote = false,
+): string {
+  const block = signatureBlockMarkup(signature);
+  return aboveQuote ? `<br><br>${block}<br><br>` : `<br><br>${block}`;
 }
 
 /** Quoted senders retain their markers; they never belong to this compose. */
@@ -136,6 +201,39 @@ export function hasSignature(html: string): boolean {
   return findSignatureSpan(html) !== null;
 }
 
+// Trailing whitespace and <br> tags, stripped from the text preceding a
+// signature. This replaced /(<br\s*\/?>|\n|\s)*$/, which backtracked
+// catastrophically: `\n` and `\s` overlap, so a body whose newline run stops
+// short of the string end cost the engine 2^n backtracking steps. A received
+// email body supplies that input, and 30 newlines was enough to hang the tab.
+// The scan below consumes one character or one whole tag per step, so it is
+// linear in the length of the trailing run.
+const TRAILING_WS_RE = /\s/;
+const TRAILING_BR_TAG_RE = /<br\s*\/?>$/;
+
+function stripTrailingBreaks(html: string): string {
+  let end = html.length;
+  while (end > 0) {
+    const last = html.charAt(end - 1);
+    if (TRAILING_WS_RE.test(last)) {
+      end -= 1;
+      continue;
+    }
+    if (last === ">") {
+      const tagStart = html.lastIndexOf("<br", end - 1);
+      if (
+        tagStart !== -1 &&
+        TRAILING_BR_TAG_RE.test(html.slice(tagStart, end))
+      ) {
+        end = tagStart;
+        continue;
+      }
+    }
+    break;
+  }
+  return html.slice(0, end);
+}
+
 /**
  * Removes the signature block from the email body (new or legacy format).
  */
@@ -144,7 +242,7 @@ export function removeSignature(html: string): string {
   if (!span) return html;
 
   // Clean up any trailing whitespace/breaks before the signature.
-  const before = html.slice(0, span.start).replace(/(<br\s*\/?>|\n|\s)*$/, "");
+  const before = stripTrailingBreaks(html.slice(0, span.start));
   const after = html.slice(span.end);
 
   return before + after;
@@ -185,12 +283,7 @@ export function insertSignature(
     body = removeSignature(body);
   }
 
-  const wrappedSignature = wrapSignatureContent(
-    signature.content_type === "plain"
-      ? plainTextToComposerHtml(signature.content)
-      : signature.content,
-    addSeparator,
-  );
+  const wrappedSignature = signatureBlockMarkup(signature, addSeparator);
 
   switch (position) {
     case "before":
@@ -223,18 +316,9 @@ export function insertSignatureForReply(
   signature: Pick<Signature, "content" | "content_type">,
   quotedContentMarker?: string,
 ): string {
-  // Boundary markers, in document order. The composer scaffold emits an <hr>
-  // separator immediately above the "On … wrote:" / "Forwarded message"
-  // reference line and the quoted block, so anchoring on it keeps the
-  // signature at the foot of the new message rather than between the header
-  // and the quote. The remaining markers cover externally-sourced drafts.
   const quoteMarkers = [
     quotedContentMarker,
-    "<hr",
-    '<div class="gmail_quote"',
-    "<blockquote",
-    '<div class="moz-cite-prefix"',
-    "<!-- quoted-content -->",
+    ...SIGNATURE_QUOTE_ANCHORS.map((anchor) => anchor.marker),
   ].filter(Boolean) as string[];
 
   // Find the first quote marker
@@ -246,23 +330,16 @@ export function insertSignatureForReply(
     }
   }
 
-  const wrappedSignature = wrapSignatureContent(
-    signature.content_type === "plain"
-      ? plainTextToComposerHtml(signature.content)
-      : signature.content,
-    true,
-  );
-
   if (quoteIndex === -1) {
     // No quoted content found, append to end
-    return html + "<br><br>" + wrappedSignature;
+    return html + signatureInsertMarkup(signature);
   }
 
   // Insert signature before quoted content
   const beforeQuote = html.substring(0, quoteIndex);
   const afterQuote = html.substring(quoteIndex);
 
-  return beforeQuote + "<br><br>" + wrappedSignature + "<br><br>" + afterQuote;
+  return beforeQuote + signatureInsertMarkup(signature, true) + afterQuote;
 }
 
 export interface ApplySignatureOptions {

@@ -154,6 +154,9 @@ function isSameFolderPath(left: string | null, right: string | null): boolean {
   );
 }
 
+// Module-level so a subscription outlives resetInboxService() on account switch.
+const removalListeners = new Set<(token: string) => void>();
+
 function canonicalMessageToken(messageId: string | number): string | null {
   const ref = parseAccountQualifiedToken(String(messageId));
   return ref?.kind === "message"
@@ -831,6 +834,12 @@ export class InboxService implements IInboxOperations {
   invalidateFolderMessages(folder: string): void {
     if (!folder) return;
     this.cache?.invalidateMessages({ folder });
+    // A kept folder snapshot would be restored on open ahead of the cache.
+    for (const key of [...this._folderStates.keys()]) {
+      if (key.slice(key.indexOf(":") + 1).startsWith(`${folder}:`)) {
+        this._folderStates.delete(key);
+      }
+    }
   }
 
   get currentFolder(): string {
@@ -2631,11 +2640,23 @@ export class InboxService implements IInboxOperations {
     this.notify();
   }
 
+  /**
+   * Hear about every row a delete or move took out of the mailbox, so a
+   * composer bound to that draft can close instead of resaving it.
+   */
+  onMessageRemoved(listener: (token: string) => void): () => void {
+    removalListeners.add(listener);
+    return () => {
+      removalListeners.delete(listener);
+    };
+  }
+
   removeMessage(messageId: string | number): void {
     const token = canonicalMessageToken(messageId);
     if (!token) return;
     const ref = parseAccountQualifiedToken(token);
     if (ref?.kind !== "message") return;
+    removalListeners.forEach((listener) => listener(token));
     const knownMessages = [
       ...this._messages,
       ...Object.values(this._threadGroups).flat(),

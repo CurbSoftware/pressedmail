@@ -37,6 +37,31 @@ const getApiHeaders = (): HeadersInit => ({
   "Content-Type": "application/json",
 });
 
+/**
+ * Fold a saved signature into the cached list.
+ *
+ * Binding a signature to an account releases whatever else held that account,
+ * and the server says which accounts it now serves, so the signatures it took
+ * them from have to lose them here too. The composer resolves the sending
+ * signature from this list, and a stale second binding is exactly the
+ * accounts-page-versus-composer disagreement this keeps away.
+ */
+const mergeSignature = (prev: Signature[], saved: Signature): Signature[] => {
+  const bound = saved.account_ids.map(Number);
+  const release = (signature: Signature): Signature => ({
+    ...signature,
+    account_ids: signature.account_ids.filter(
+      (id) => !bound.includes(Number(id)),
+    ),
+  });
+
+  return prev.some((signature) => signature.id === saved.id)
+    ? prev.map((signature) =>
+        signature.id === saved.id ? saved : release(signature),
+      )
+    : [...prev.map(release), saved];
+};
+
 interface SignaturesProviderProps {
   children: React.ReactNode;
   accountId?: number;
@@ -170,17 +195,9 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         const result = await response.json();
 
         if (result.status === "success") {
-          // Update local state. A signature created already bound to an account
-          // releases any other signature the server had bound to it.
-          setSignatures((prev) => [
-            ...prev.map((sig) =>
-              result.signature.account_id != null &&
-              Number(sig.account_id) === Number(result.signature.account_id)
-                ? { ...sig, account_id: null }
-                : sig,
-            ),
-            result.signature,
-          ]);
+          // Update local state. A signature created already assigned to
+          // accounts releases any other signature the server had bound to them.
+          setSignatures((prev) => mergeSignature(prev, result.signature));
           if (result.capabilities) {
             setCapabilities(result.capabilities);
           }
@@ -224,23 +241,8 @@ export const SignaturesProvider: React.FC<SignaturesProviderProps> = ({
         const result = await response.json();
 
         if (result.status === "success") {
-          // Update local state. Binding a signature to an account unbinds any
-          // other signature the server just released from that account, so the
-          // cache has to follow: the composer resolves the sending signature
-          // from this list, and a stale second binding here is exactly the
-          // accounts-page-versus-composer disagreement this enforces away.
-          setSignatures((prev) =>
-            prev.map((sig) => {
-              if (sig.id === signatureId) return result.signature;
-              if (
-                result.signature.account_id != null &&
-                Number(sig.account_id) === Number(result.signature.account_id)
-              ) {
-                return { ...sig, account_id: null };
-              }
-              return sig;
-            }),
-          );
+          // Update local state, releasing the accounts this signature took.
+          setSignatures((prev) => mergeSignature(prev, result.signature));
           return { success: true, signature: result.signature };
         }
 
@@ -446,10 +448,12 @@ export const useCanCreateSignature = (): boolean => {
 export const useAccountSignatures = (accountId: number | null): Signature[] => {
   const { signatures } = useSignatures();
   if (!accountId) {
-    return signatures.filter((sig) => sig.account_id === null);
+    return signatures.filter((sig) => sig.account_ids.length === 0);
   }
   return signatures.filter(
-    (sig) => sig.account_id === accountId || sig.account_id === null,
+    (sig) =>
+      sig.account_ids.some((id) => Number(id) === Number(accountId)) ||
+      sig.account_ids.length === 0,
   );
 };
 

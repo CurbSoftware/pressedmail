@@ -50,7 +50,7 @@ export interface InboxFilterChipsProps {
  * a parent.
  */
 const CHIP_BASE =
-  "pm-no-tap-highlight relative inline-flex h-8 shrink-0 snap-start items-center gap-1.5 whitespace-nowrap px-2.5 text-xs font-medium transition-colors after:absolute after:-inset-1.5 after:content-[''] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "pm-no-tap-highlight relative inline-flex h-8 shrink-0 snap-start items-center gap-1.5 whitespace-nowrap px-2.5 text-xs font-medium transition-colors after:absolute after:-inset-1.5 after:content-['']";
 
 function QuickChip({
   label,

@@ -11,8 +11,8 @@ import type { FilterRuleFolderTarget } from "@/types/filter-rules";
  * (`pressedmail/v1/process-queue`). Modeled on `one-off-sweep.service.ts`:
  * same base URL (`routeApiPrefix` + `buildApiUrl`) and REST nonce header.
  *
- * The backend is authoritative. `GET /process-queue` ALSO drains the queue
- * inline server-side, so polling it both reports and advances task progress.
+ * The backend is authoritative. Server cron runs the queued work;
+ * `GET /process-queue` only reports it.
  */
 
 export type ProcessTaskKind =
@@ -100,8 +100,7 @@ const getApiHeaders = (): HeadersInit => ({
 });
 
 /**
- * Read the current task list. The GET drains the queue inline on the server,
- * so repeated calls are what drive progress forward.
+ * Read the current task list. The GET reports progress; it does not run tasks.
  */
 export async function listProcessTasks(): Promise<ProcessTask[]> {
   const response = await apiFetch(buildApiUrl(`${routeApiPrefix}/process-queue`), {

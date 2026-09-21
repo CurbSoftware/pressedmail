@@ -133,6 +133,17 @@ function editionAliases(appDir, variant, featureFlags) {
 
   return [
     {
+      // The eight premium palettes. Free compiles an empty stylesheet in their
+      // place, so the WordPress.org build carries no Pro theme CSS at all.
+      // The specifier has no physical file on purpose: a build that loses this
+      // alias fails to resolve it instead of quietly picking an edition.
+      find: /^@\/styles\/premium-themes\.css$/,
+      replacement: pick(
+        "./src/styles/premium-themes.free.css",
+        "./src/styles/premium-themes.pro.css",
+      ),
+    },
+    {
       find: /^@\/admin\/EditionApp\.active$/,
       replacement: pick(
         "./src/admin/EditionApp.free.tsx",
@@ -214,6 +225,57 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/components/compose/SchedulePopover.free.tsx",
         "./src/components/compose/SchedulePopover.tsx",
+      ),
+    },
+    {
+      // The calendar is Pro-only, so Free gets inert replacements for the two
+      // "Add to calendar" buttons instead of their copy behind a false guard.
+      find: /^@\/components\/calendar\/AddToCalendarButton$/,
+      replacement: pick(
+        "./src/components/calendar/AddToCalendarButton.free.tsx",
+        "./src/components/calendar/AddToCalendarButton.tsx",
+      ),
+    },
+    {
+      // Free ships no calendar, so it has no ICS import route and no dialog.
+      find: /^@\/components\/calendar\/ImportIcsPreview$/,
+      replacement: pick(
+        "./src/components/calendar/ImportIcsPreview.free.tsx",
+        "./src/components/calendar/ImportIcsPreview.tsx",
+      ),
+    },
+    {
+      // Free ships no calendar or contacts sync, so no popup can post a
+      // callback back to the opener.
+      find: /^@\/lib\/calendar-oauth-callback$/,
+      replacement: pick(
+        "./src/lib/calendar-oauth-callback.free.ts",
+        "./src/lib/calendar-oauth-callback.ts",
+      ),
+    },
+    {
+      // Auto-tagging is Pro-only, so the tag menu carries the entry only there.
+      find: /^@\/components\/inbox\/MailTagAutoTagItem$/,
+      replacement: pick(
+        "./src/components/inbox/MailTagAutoTagItem.free.tsx",
+        "./src/components/inbox/MailTagAutoTagItem.tsx",
+      ),
+    },
+    {
+      // Scheduled sending is Pro-only, so Free never names its edit route.
+      find: /^@\/services\/scheduled-email-edit$/,
+      replacement: pick(
+        "./src/services/scheduled-email-edit.free.ts",
+        "./src/services/scheduled-email-edit.ts",
+      ),
+    },
+    {
+      // Pro checks its own updates against the licence server; Free follows
+      // WordPress.org and asks nobody.
+      find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/use-latest-release$/,
+      replacement: pick(
+        "./src/admin/pages/settings/_components/admin-settings/use-latest-release.free.ts",
+        "./src/admin/pages/settings/_components/admin-settings/use-latest-release.ts",
       ),
     },
     {

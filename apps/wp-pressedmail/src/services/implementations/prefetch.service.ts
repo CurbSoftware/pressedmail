@@ -13,15 +13,11 @@ import {
   getMessageIdentityKey,
   type MessageIdentityRef,
 } from "@/lib/message-identity";
-import type { IPrefetchService, FetchPriority } from "../interfaces";
+import type { IPrefetchService, FetchPriority, WarmBatchOutcome } from "../interfaces";
 import type { PrefetchOutcome } from "../interfaces/prefetch.interface";
 import type { ICacheService } from "../interfaces";
 import type { IConnectionStateService } from "../interfaces/connection-state.interface";
-import {
-  messageDetailRouteApi,
-  messageBatchDetailRouteApi,
-  buildApiUrl,
-} from "@/context/Strings";
+import { messageDetailRouteApi, messageWarmRouteApi, buildApiUrl } from "@/context/Strings";
 import { apiFetch, isRequestTimeoutError } from "@/lib/api-client";
 import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
 
@@ -31,6 +27,25 @@ import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
  * fetch as an error. Background/visible prefetches keep the default timeout (best-effort).
  */
 const USER_SELECTED_TIMEOUT_MS = 45_000;
+
+/**
+ * Message bodies per warm request.
+ *
+ * The warm endpoint opens live IMAP, so this is deliberately small: five
+ * messages is one or two seconds of server work, short enough that the reader's
+ * next click is never more than one message away from being served. The server
+ * refuses more than five regardless.
+ */
+const WARM_BATCH_SIZE = 5;
+
+/**
+ * Budget for one warm request.
+ *
+ * Long because it is live IMAP behind the server's own 12s total warm budget,
+ * and short enough that a wedged provider gives the loop back rather than
+ * holding it for the default 20s and then another.
+ */
+const WARM_REQUEST_TIMEOUT_MS = 30_000;
 
 /**
  * Internal queue item.
@@ -57,11 +72,6 @@ const PRIORITY_WEIGHT: Record<FetchPriority, number> = {
  * Max concurrent fetches to avoid overloading the server.
  */
 const MAX_CONCURRENT = 2;
-
-/**
- * Max batch size for background prefetch.
- */
-const MAX_BATCH_SIZE = 15;
 
 /**
  * Build a deduplication key.
@@ -135,6 +145,12 @@ export class PrefetchService implements IPrefetchService {
   private connectionState: IConnectionStateService | null;
   private queue: QueueItem[] = [];
   private inFlight = new Map<string, Promise<PrefetchOutcome>>();
+  /**
+   * Keys with a user-selected fetch ACTUALLY running. An item leaves the queue
+   * before its fetch starts, so the queue alone cannot answer "is a click
+   * waiting", which is what the warm loop pauses on.
+   */
+  private userSelectedActive = new Set<string>();
   private activeCount = 0;
   private destroyed = false;
 
@@ -144,11 +160,12 @@ export class PrefetchService implements IPrefetchService {
 
     // Bind the public contract so methods survive being extracted as detached
     // references. Consumers pass these around as callbacks / effect deps, e.g.
-    // useInboxSurfaceBoot does `const prefetchBatch = inbox.prefetch.prefetchBatch`
-    // then calls it bare, without binding, `this` is undefined and the guards
-    // throw "Cannot read properties of undefined (reading 'destroyed')".
+    // useVisibleBodyPrefetch reads `prefetch.warmBatch`, an unbound method makes
+    // `this` undefined and the guards throw "Cannot read properties of undefined
+    // (reading 'destroyed')".
     this.fetchDetail = this.fetchDetail.bind(this);
-    this.prefetchBatch = this.prefetchBatch.bind(this);
+    this.warmBatch = this.warmBatch.bind(this);
+    this.hasUserSelectedPending = this.hasUserSelectedPending.bind(this);
     this.hasDetail = this.hasDetail.bind(this);
     this.cancelBackground = this.cancelBackground.bind(this);
     this.cancelForFolder = this.cancelForFolder.bind(this);
@@ -234,37 +251,121 @@ export class PrefetchService implements IPrefetchService {
     return promise;
   }
 
-  prefetchBatch(
+  /**
+   * Warm a few message bodies ahead of a click.
+   *
+   * Never throws: warming is a convenience, so a refused or timed-out batch
+   * reports zeros and the caller stops until the list settles again.
+   */
+  async warmBatch(
     accountId: string,
     folder: string,
     messageIds: Array<string | number>,
-  ): void {
-    if (this.destroyed) return;
+  ): Promise<WarmBatchOutcome> {
+    const nothing: WarmBatchOutcome = { warmed: 0, deferred: [], skipped: 0 };
+    if (this.destroyed) return nothing;
 
-    // Skip batch prefetch for unhealthy accounts
+    // Warming an account the connection state already calls unhealthy would fetch
+    // into a wall. A click is explicit and does not come through here.
     if (this.connectionState && !this.connectionState.isHealthy(accountId)) {
-      console.warn(
-        `[PrefetchService] skipping batch prefetch, account ${accountId} unhealthy`,
-      );
-      return;
+      return nothing;
     }
 
-    const groups = new Map<string, string[]>();
+    const references: MessageIdentityRef[] = [];
     for (const id of messageIds) {
       const ref = resolveReference(accountId, folder, id);
       if (!ref) continue;
       const key = getMessageIdentityKey(ref as EmailMessage);
-      if (this.cache.hasDetail(accountId, folder, key)) continue;
-      const group = groups.get(ref.uidValidity) ?? [];
-      if (!group.includes(key)) group.push(key);
-      groups.set(ref.uidValidity, group);
+      if (!key || this.cache.hasDetail(accountId, folder, key)) continue;
+      references.push(ref);
+      if (references.length === WARM_BATCH_SIZE) break;
     }
-    const batches: string[][] = [];
-    for (const group of groups.values()) {
-      for (let i = 0; i < group.length; i += MAX_BATCH_SIZE)
-        batches.push(group.slice(i, i + MAX_BATCH_SIZE));
+
+    const first = references[0];
+    if (!first) return nothing;
+
+    // One mailbox generation per request, because the server refuses a batch that
+    // straddles two. A page is one generation in practice; anything else waits for
+    // the next pass, when the cached ones drop out and these come first.
+    const uids = references
+      .filter((ref) => ref.uidValidity === first.uidValidity)
+      .map((ref) => ref.uid);
+    const requested = new Set(
+      references.map((ref) => getMessageIdentityKey(ref as EmailMessage)),
+    );
+
+    try {
+      const response = await apiFetch(
+        buildApiUrl(
+          `${messageWarmRouteApi}${accountId}`,
+          getMailboxSourceRequestParams(),
+        ),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            folder,
+            uid_validity: first.uidValidity,
+            uids,
+            ...getMailboxSourceRequestParams(),
+          }),
+        },
+        { timeoutMs: WARM_REQUEST_TIMEOUT_MS },
+      );
+
+      if (!response.ok) {
+        console.warn(
+          `[PrefetchService] warm batch HTTP ${response.status} for ${uids.length} UIDs`,
+        );
+        return nothing;
+      }
+
+      const data = await response.json();
+      if (this.destroyed) return nothing;
+      if (data?.status !== "success" || !data?.data) {
+        console.warn(
+          "[PrefetchService] warm batch returned non-success:",
+          data?.status,
+          data?.message,
+        );
+        return nothing;
+      }
+
+      const results = data.data as Record<string, EmailMessage>;
+      let warmed = 0;
+
+      for (const [uid, detail] of Object.entries(results)) {
+        if (!detail) continue;
+        const identity = getMessageIdentityKey(detail);
+        // Only a detail whose identity was actually asked for, arriving under the
+        // UID it claims, is trustworthy enough to cache under that identity.
+        if (!requested.has(identity)) continue;
+        if (uid !== String(detail.uid) && uid !== identity) continue;
+        this.cache.setMessageDetail(accountId, first.folder, normalizeDetail(detail));
+        warmed += 1;
+      }
+
+      return {
+        warmed,
+        deferred: Array.isArray(data?.deferred) ? data.deferred : [],
+        skipped:
+          data?.skipped && typeof data.skipped === "object"
+            ? Object.keys(data.skipped).length
+            : 0,
+      };
+    } catch (err) {
+      console.warn("[PrefetchService] warm batch failed:", err);
+      return nothing;
     }
-    void this.executeBatchesSequentially(accountId, folder, batches);
+  }
+
+  hasUserSelectedPending(): boolean {
+    return (
+      this.userSelectedActive.size > 0 ||
+      this.queue.some((item) => item.priority === "user-selected")
+    );
   }
 
   hasDetail(
@@ -348,6 +449,7 @@ export class PrefetchService implements IPrefetchService {
       }
 
       this.activeCount++;
+      if (item.priority === "user-selected") this.userSelectedActive.add(key);
 
       this.executeSingleFetch(
         item.accountId,
@@ -363,6 +465,7 @@ export class PrefetchService implements IPrefetchService {
           console.error("[PrefetchService] fetch error:", err);
         })
         .finally(() => {
+          if (item.priority === "user-selected") this.userSelectedActive.delete(key);
           this.activeCount--;
           this.processQueue();
         });
@@ -483,105 +586,6 @@ export class PrefetchService implements IPrefetchService {
         };
       }
       return null;
-    }
-  }
-
-  private async executeBatchesSequentially(
-    accountId: string,
-    folder: string,
-    batches: Array<Array<string | number>>,
-  ): Promise<void> {
-    for (const batch of batches) {
-      if (this.destroyed) return;
-      await this.executeBatchFetch(accountId, folder, batch);
-    }
-  }
-
-  private async executeBatchFetch(
-    accountId: string,
-    folder: string,
-    uids: Array<string | number>,
-  ): Promise<void> {
-    const references = uids.map((id) =>
-      resolveReference(accountId, folder, id),
-    );
-    const first = references[0];
-    if (
-      !first ||
-      references.some((ref) => !ref || ref.uidValidity !== first.uidValidity)
-    )
-      return;
-    const requested = new Set(
-      references.map((ref) => getMessageIdentityKey(ref as EmailMessage)),
-    );
-    try {
-      const response = await apiFetch(
-        buildApiUrl(
-          messageBatchDetailRouteApi,
-          getMailboxSourceRequestParams(),
-        ),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            account_id: accountId,
-            folder,
-            uids: references.map((ref) => ref!.uid),
-            uid_validity: first.uidValidity,
-            ...getMailboxSourceRequestParams(),
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        console.error(
-          `[PrefetchService] batch fetch HTTP ${response.status} for ${uids.length} UIDs`,
-        );
-        return;
-      }
-
-      const data = await response.json();
-      if (data?.status !== "success" || !data?.data) {
-        console.warn(
-          "[PrefetchService] batch fetch returned non-success:",
-          data?.status,
-          data?.message,
-        );
-        return;
-      }
-
-      if (this.destroyed) return;
-      const results = data.data as Record<string, EmailMessage>;
-
-      for (const [uid, detail] of Object.entries(results)) {
-        if (!detail) continue;
-        const identity = getMessageIdentityKey(detail);
-        if (
-          !requested.has(identity) ||
-          (uid !== String(detail.uid) && uid !== identity)
-        )
-          continue;
-        const normalized = normalizeDetail(detail);
-        this.cache.setMessageDetail(accountId, first.folder, normalized);
-
-        // If there's a pending queue item for this UID, resolve it
-        const key = identity;
-        const queueIdx = this.queue.findIndex(
-          (item) =>
-            buildKey(item.accountId, item.folder, item.messageId) === key,
-        );
-        if (queueIdx !== -1) {
-          const removed = this.queue.splice(queueIdx, 1);
-          if (removed[0]) {
-            removed[0].resolve({ detail: normalized });
-            this.inFlight.delete(key);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[PrefetchService] batch fetch error:", err);
     }
   }
 }

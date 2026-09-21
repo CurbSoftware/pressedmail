@@ -86,6 +86,45 @@ function serializeStyle(declarations: StyleDeclaration[]): string {
 export const EDITOR_DECORATION_SELECTOR =
   "[data-pm-decoration], .pm-signature-label, .pm-quote-header";
 
+/**
+ * Block markers that exist only so a reopened draft can rebuild the block.
+ *
+ * A callout is already a styled table in delivered mail and a column is a `td`
+ * carrying its width, so the marker adds nothing a recipient can use: it is the
+ * composer talking to itself. The signature, attachment and ai-suggestion
+ * markers are deliberately absent, because those are written for delivery and
+ * read back from it.
+ */
+const AUTHORING_ONLY_BLOCK_KINDS = [
+  "toggle",
+  "callout",
+  "date",
+  "column_group",
+  "column",
+] as const;
+
+/** The properties those markers carry, which go with them. */
+const AUTHORING_ONLY_ATTRIBUTE =
+  /\s+data-(?:date|width|background|icon)="[^"]*"/g;
+
+const AUTHORING_ONLY_MARKER = new RegExp(
+  `\\s+data-pm-block="(?:${AUTHORING_ONLY_BLOCK_KINDS.join("|")})"`,
+  "g",
+);
+
+/**
+ * Strip the authoring-only markers from HTML that is about to reach a
+ * recipient. Every path that turns the composer into mail calls this, because
+ * nothing downstream does it for them: `wp_kses_post` runs the post allowlist,
+ * which carries the `data-*` wildcard, so the markers survive the server.
+ * Draft HTML keeps them; that is the whole point of them.
+ */
+export function stripAuthoringMetadata(html: string): string {
+  return html
+    .replace(AUTHORING_ONLY_MARKER, "")
+    .replace(AUTHORING_ONLY_ATTRIBUTE, "");
+}
+
 function stripEditorDecorations(root: HTMLElement): void {
   root
     .querySelectorAll<HTMLElement>(EDITOR_DECORATION_SELECTOR)
@@ -301,5 +340,5 @@ export function prepareEmailHtmlForSend(
     height: "auto",
   });
 
-  return buildWrapperHtml(root.innerHTML, background);
+  return buildWrapperHtml(stripAuthoringMetadata(root.innerHTML), background);
 }

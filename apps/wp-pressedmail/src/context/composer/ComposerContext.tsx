@@ -93,6 +93,10 @@ interface ComposerContextType {
   // registers a checker; blockers call isComposeDirty() lazily at nav time.
   registerDirtyChecker: (checker: () => boolean) => () => void;
   isComposeDirty: () => boolean;
+
+  // The mounted pane composer's Delete, for toolbars outside the composer.
+  registerDeleteHandler: (handler: () => void) => () => void;
+  requestDelete: () => void;
 }
 
 export interface ComposerDraftSaveResult {
@@ -274,6 +278,7 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
         ...previous,
         body,
         contentType,
+        draftDocument: contentType === "plain" ? undefined : previous.draftDocument,
       }));
     },
     [setComposeData],
@@ -323,6 +328,19 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  const deleteHandlerRef = useRef<(() => void) | null>(null);
+
+  const registerDeleteHandler = useCallback((handler: () => void) => {
+    deleteHandlerRef.current = handler;
+    return () => {
+      if (deleteHandlerRef.current === handler) {
+        deleteHandlerRef.current = null;
+      }
+    };
+  }, []);
+
+  const requestDelete = useCallback(() => deleteHandlerRef.current?.(), []);
+
   // Memoize the context value so it only changes when real state changes.
   // An unmemoized value churned identity every render, which made consumers'
   // effects (notably the compose navigation-guard registration) re-run
@@ -350,6 +368,8 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
       requestNavigation,
       registerDirtyChecker,
       isComposeDirty,
+      registerDeleteHandler,
+      requestDelete,
     }),
     [
       isOpen,
@@ -372,6 +392,8 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
       requestNavigation,
       registerDirtyChecker,
       isComposeDirty,
+      registerDeleteHandler,
+      requestDelete,
     ],
   );
 

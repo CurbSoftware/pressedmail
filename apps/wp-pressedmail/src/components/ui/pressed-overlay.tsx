@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 
 export type PressedOverlaySize =
+  | "menu"
   | "confirmation"
   | "paletteForm"
   | "compactForm"
@@ -28,6 +29,14 @@ export type PressedOverlaySize =
   | "workspace";
 
 export const PRESSED_OVERLAY_WIDTH_CLASS_NAMES = {
+  // The tiers are named purposes, not rungs: `confirmation` is wider than
+  // `paletteForm` because a yes/no prompt has to fit a sentence and a small
+  // form does not. `menu` is the one below them all, for a list of choices
+  // anchored to a trigger. The tag filter, snooze, schedule and folder menus
+  // were between 14rem and 21rem; without this tier they either kept six
+  // different widths or jumped to `paletteForm` at 30rem, which is roughly
+  // double what a dropdown anchored to a button should be.
+  menu: "w-[min(calc(100vw-2rem),18rem)]",
   confirmation: "w-[min(calc(100vw-2rem),36rem)]",
   paletteForm: "w-[min(calc(100vw-2rem),30rem)]",
   compactForm: "w-[min(calc(100vw-2rem),42rem)]",

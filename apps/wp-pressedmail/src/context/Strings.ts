@@ -67,6 +67,7 @@ export const syncBootstrapRouteApi = routeApiPrefix + "/sync/bootstrap";
 export const messageDetailRouteApi = routeApiPrefix + "/messages/detail/";
 export const messageBatchDetailRouteApi =
   routeApiPrefix + "/messages/batch/details";
+export const messageWarmRouteApi = routeApiPrefix + "/messages/warm/";
 export const sendEmailRouteApi = routeApiPrefix + "/messages/send-email";
 export const saveDraftRouteApi = routeApiPrefix + "/messages/save-draft";
 export const accountRemoveROuteApi = routeApiPrefix + "/account/delete";

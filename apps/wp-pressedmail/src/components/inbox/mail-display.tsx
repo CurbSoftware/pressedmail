@@ -5,7 +5,6 @@ import { __, sprintf } from "@wordpress/i18n";
 import { format } from "date-fns";
 import {
   AlertTriangle,
-  CalendarPlus,
   ChevronDown,
   Download,
   Loader2,
@@ -57,11 +56,12 @@ import { formatFileSize } from "./compose/compose-utils";
 import { EmailSandbox } from "./EmailSandbox";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
 import { ITipBanner } from "./itip-banner";
+import { AddToCalendarIconButton } from "@/components/calendar/AddToCalendarButton";
 import {
   ImportIcsPreview,
   type IcsImportSource,
 } from "@/components/calendar/ImportIcsPreview";
-import type { MessageAttachmentRef } from "@/services/ics-import.service";
+import type { MessageAttachmentRef } from "@/types/message-attachments";
 import { useCalendar } from "@/context/calendar/CalendarContext";
 import { MailDetailSkeleton } from "./mail-detail-skeleton";
 import { PhishingResultBadge } from "@/components/phishing/PhishingResultBadge";
@@ -194,27 +194,46 @@ function getAutoTagBody(message: EmailMessage, body: string): string {
   );
 }
 
+/**
+ * Strip anything that could read as markup from a decoded MIME word.
+ *
+ * A decoded encoded word is a display string, never HTML. Without this the
+ * decoder is a way to smuggle markup past the server: the server decodes and
+ * sanitizes once, so a payload that survives its decoder (malformed, or
+ * encoded twice) arrives here as inert text and leaves as live tags.
+ */
+function stripDecodedMarkup(value: string): string {
+  return value.replace(/[<>]/g, "");
+}
+
 export function decodeMimeWords(str: string) {
   // Basic decode for =?UTF-8?...?=, for production use a library!
   if (!str) return "";
   try {
-    // Handle base64 and quoted-printable
-    const match = str.match(/^=\?UTF-8\?([BQ])\?(.+)\?=$/i);
+    // Handle base64 and quoted-printable. The encoded text may hold neither
+    // whitespace nor "?" (RFC 2047), and the server decoder enforces exactly
+    // that. A looser pattern here decodes words the server deliberately left
+    // alone, because atob() silently ignores the whitespace that stopped it.
+    const match = str.match(/^=\?UTF-8\?([BQ])\?([^?\s]*)\?=$/i);
     if (match) {
       const encoding = match[1];
       const content = match[2];
       if (encoding && content) {
         if (encoding.toUpperCase() === "B") {
           // Base64
-          return decodeURIComponent(escape(window.atob(content)));
+          return stripDecodedMarkup(
+            decodeURIComponent(escape(window.atob(content))),
+          );
         } else if (encoding.toUpperCase() === "Q") {
           // Quoted-printable
-          return decodeURIComponent(
-            content
-              .replace(/_/g, " ")
-              .replace(/=([A-Fa-f0-9]{2})/g, (_match, hex) =>
-                String.fromCharCode(parseInt(hex, 16)),
-              ),
+          return stripDecodedMarkup(
+            decodeURIComponent(
+              content
+                .replace(/_/g, " ")
+                .replace(/=([A-Fa-f0-9]{2})/g, (_match, hex) =>
+                  String.fromCharCode(parseInt(hex, 16)),
+                ),
+            ),
           );
         }
       }
@@ -1640,22 +1659,10 @@ function HeaderAttachmentChip({
       {onAddToCalendar &&
       isExactMimePart(attachment.part) &&
       isCalendarAttachment(attachment) ? (
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          // h-6 w-6 is the 24px target floor. At h-5 w-5 these two controls
-          // measured 20x20 and the craft gate failed them as HF-TARGET.
-          className="h-6 w-6 shrink-0 p-0 text-muted-foreground"
+        <AddToCalendarIconButton
           onClick={() => onAddToCalendar(index)}
-          aria-label={sprintf(
-            __("Add %s to calendar", "pressedmail"),
-            filename,
-          )}
-          title={__("Add to calendar", "pressedmail")}
-          data-test="message-detail-attachment-add-to-calendar">
-          <CalendarPlus className="h-3.5 w-3.5" />
-        </Button>
+          filename={filename}
+        />
       ) : null}
       <Button
         type="button"

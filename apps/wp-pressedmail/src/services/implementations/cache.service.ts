@@ -35,14 +35,24 @@ interface CacheEntry<T> {
   data: T;
   timestamp: number;
   ttl: number;
+  /**
+   * Last READ, for LRU eviction. Deliberately separate from `timestamp`, which
+   * is written once and is what the TTL is measured from: touching that on a hit
+   * would turn a fixed lifetime into a sliding window. Absent on entries restored
+   * from a snapshot written before this existed.
+   */
+  touched?: number;
 }
 
 /**
  * Session storage keys.
+ *
+ * Versioned because the payload changes shape, and because a version that stored
+ * something this one no longer writes has to be dropped rather than restored.
  */
 const STORAGE_KEYS = {
-  MESSAGE_CACHE: "pressedmail-message-cache-v2",
-  DETAIL_CACHE: "pressedmail-detail-cache-v2",
+  MESSAGE_CACHE: "pressedmail-message-cache-v3",
+  DETAIL_CACHE: "pressedmail-detail-cache-v3",
   FOLDER_CACHE: "pressedmail-folder-cache",
 } as const;
 
@@ -56,6 +66,19 @@ const STORAGE_BUDGETS = {
   MAX_MESSAGE_PAGES: 40,
   MAX_DETAIL_ENTRIES: 100,
   MAX_FOLDER_ENTRIES: 25,
+  /**
+   * In-memory caps for the Maps themselves.
+   *
+   * The sessionStorage snapshot was always bounded and the Map behind it never
+   * was, so a long session in a large folder held every body it had opened and
+   * every page it had scrolled past. Infinite scroll only ever appends, which is
+   * how a reader reached a tab that died under its own cache.
+   *
+   * The detail cap sits below the snapshot's entry cap on purpose: the Map lives
+   * for the whole session, and the snapshot only ever keeps the newest.
+   */
+  MAX_MEMORY_MESSAGE_PAGES: 40,
+  MAX_MEMORY_DETAIL_ENTRIES: 60,
 } as const;
 
 /**
@@ -87,6 +110,23 @@ function buildDetailKeyString(
     ref.folder === folder
     ? JSON.stringify([ref.accountId, ref.folder, ref.uidValidity, ref.uid])
     : "";
+}
+
+/**
+ * The page offset a message-list cache key was built with.
+ *
+ * Keys are JSON arrays and the offset is the sixth element. A key without a
+ * numeric offset has no position to sort by, so it sorts below every real page
+ * and is evicted first.
+ */
+function messagePageOffset(key: string): number {
+  try {
+    const parsed = JSON.parse(key) as unknown;
+    const offset = Array.isArray(parsed) ? parsed[5] : null;
+    return typeof offset === "number" ? offset : Number.NEGATIVE_INFINITY;
+  } catch {
+    return Number.NEGATIVE_INFINITY;
+  }
 }
 
 function matchesMessageId(
@@ -180,8 +220,17 @@ export class CacheService implements ICacheService {
   private misses = 0;
 
   constructor() {
-    removePrincipalStorageItem("session", "pressedmail-message-cache");
-    removePrincipalStorageItem("session", "pressedmail-detail-cache");
+    // Superseded payloads. v1 held a different shape, and v2 held message bodies
+    // and headers an older build wrote and this one is not allowed to leave in
+    // the browser, so both go rather than being restored.
+    for (const superseded of [
+      "pressedmail-message-cache",
+      "pressedmail-detail-cache",
+      "pressedmail-message-cache-v2",
+      "pressedmail-detail-cache-v2",
+    ]) {
+      removePrincipalStorageItem("session", superseded);
+    }
     // Restore from session storage on initialization
     this.restoreFromStorage();
 
@@ -243,9 +292,38 @@ export class CacheService implements ICacheService {
       timestamp: Date.now(),
       ttl,
     });
+    this.evictMessageCachePages();
 
     // Persist on significant changes
     this.debouncedPersist();
+  }
+
+  /**
+   * Drop the lowest-offset pages once the Map is over its page cap.
+   *
+   * Infinite scroll only ever appends: the reader walks down a folder and does
+   * not come back to the top. The lowest offsets are the pages the session is
+   * least likely to render again, and dropping them bounds what the list holds.
+   */
+  private evictMessageCachePages(): void {
+    if (
+      this.messageCache.size <= STORAGE_BUDGETS.MAX_MEMORY_MESSAGE_PAGES
+    ) {
+      return;
+    }
+
+    const pages = [...this.messageCache.keys()].map((key) => ({
+      key,
+      offset: messagePageOffset(key),
+    }));
+    pages.sort((a, b) => a.offset - b.offset);
+
+    for (const page of pages) {
+      if (this.messageCache.size <= STORAGE_BUDGETS.MAX_MEMORY_MESSAGE_PAGES) {
+        return;
+      }
+      this.messageCache.delete(page.key);
+    }
   }
 
   invalidateMessages(pattern: CacheKeyPattern): void {
@@ -275,6 +353,10 @@ export class CacheService implements ICacheService {
       return null;
     }
 
+    // Reading a body is what makes it recent. This is NOT the entry timestamp:
+    // that one is written once and the TTL is measured from it, so touching it
+    // would turn a fixed lifetime into a sliding window.
+    entry.touched = Date.now();
     this.hits++;
     return entry.data;
   }
@@ -310,11 +392,37 @@ export class CacheService implements ICacheService {
       timestamp: Date.now(),
       ttl,
     });
+    this.evictDetailCache();
 
     // Also update in any message lists
     this.updateMessageInLists(accountId, messageId, message, folder);
 
     this.debouncedPersist();
+  }
+
+  /**
+   * Drop the least recently READ bodies once the Map is over its entry cap.
+   *
+   * Opening a message stores a whole body, attachments and all, so an unbounded
+   * map is the largest thing the tab holds. The oldest entry is found by scan:
+   * the map is at most one over the cap, so the scan is bounded by 61.
+   */
+  private evictDetailCache(): void {
+    while (this.detailCache.size > STORAGE_BUDGETS.MAX_MEMORY_DETAIL_ENTRIES) {
+      let oldestKey: string | null = null;
+      let oldestAt = Infinity;
+
+      for (const [key, entry] of this.detailCache) {
+        const at = entry.touched ?? entry.timestamp;
+        if (at < oldestAt) {
+          oldestAt = at;
+          oldestKey = key;
+        }
+      }
+
+      if (oldestKey === null) return;
+      this.detailCache.delete(oldestKey);
+    }
   }
 
   invalidateMessageDetail(

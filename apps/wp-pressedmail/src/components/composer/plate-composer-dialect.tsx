@@ -33,10 +33,10 @@ import { ComposerReactPlugins } from "./plate-composer-react-kit";
 import { BlockPlaceholderKit } from "./plate/block-placeholder-kit";
 import { CalloutElementStatic } from "./plate/callout-node-static";
 import {
-  CodeBlockElementStatic,
-  CodeLineElementStatic,
-  CodeSyntaxLeafStatic,
-} from "./plate/code-block-node-static";
+  CodeBlockElementReadOnly,
+  CodeLineElement,
+  CodeSyntaxLeaf,
+} from "./plate/code-block-node";
 import {
   ColumnElementStatic,
   ColumnGroupElementStatic,
@@ -104,9 +104,14 @@ function hostedReadOnlyRenderer<P extends object>(
 const READ_ONLY_BLOCK_NODES: Record<string, ReadOnlyNodeRenderer> = {
   [KEYS.audio]: hostedReadOnlyRenderer(AudioElementStatic),
   [KEYS.callout]: hostedReadOnlyRenderer(CalloutElementStatic),
-  [KEYS.codeBlock]: hostedReadOnlyRenderer(CodeBlockElementStatic),
-  [KEYS.codeLine]: hostedReadOnlyRenderer(CodeLineElementStatic),
-  [KEYS.codeSyntax]: hostedReadOnlyRenderer(CodeSyntaxLeafStatic),
+  // Code is the one block that keeps a live themed renderer rather than the
+  // serializer's: code-block-node-static.tsx carries inline light literals
+  // for email clients, which would paint a white block on a dark canvas.
+  // The themed half also keeps the hljs token classes, so Rich text shows
+  // syntax colours.
+  [KEYS.codeBlock]: CodeBlockElementReadOnly,
+  [KEYS.codeLine]: CodeLineElement,
+  [KEYS.codeSyntax]: CodeSyntaxLeaf,
   [KEYS.column]: hostedReadOnlyRenderer(ColumnElementStatic),
   [KEYS.columnGroup]: hostedReadOnlyRenderer(ColumnGroupElementStatic),
   [KEYS.equation]: hostedReadOnlyRenderer(EquationElementStatic),

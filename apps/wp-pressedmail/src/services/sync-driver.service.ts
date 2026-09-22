@@ -82,10 +82,14 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
  * /sync/advance so folders past the head backfill still get their inventory/counts filled on
  * a starved-cron site. Best-effort: it is server-bounded (per-request lock + time budget) and
  * NEVER throws into the driver loop. A hiccup here must not disturb the advance cadence.
+ *
+ * @returns The depth the server still reports overdue after the pass, or `null` when the
+ *   pass could not answer. Callers need that distinction: "the drain ran and left work
+ *   behind" is a fault signal, while a drain that failed to run says nothing at all.
  */
-export async function processQueueSync(): Promise<void> {
+export async function processQueueSync(): Promise<number | null> {
   try {
-    await apiFetch(
+    const response = await apiFetch(
       buildApiUrl(`${routeApiPrefix}/sync/process-queue`),
       {
         method: "POST",
@@ -95,8 +99,18 @@ export async function processQueueSync(): Promise<void> {
       },
       { timeoutMs: PROCESS_QUEUE_TIMEOUT_MS },
     );
+    if (!response.ok) {
+      return null;
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      data?: { overdue_remaining?: unknown };
+    };
+    const remaining = Number(body.data?.overdue_remaining);
+
+    return Number.isFinite(remaining) ? remaining : null;
   } catch {
     // Swallow: the alternating drain is best-effort and must never break the driver loop.
+    return null;
   }
 }
 

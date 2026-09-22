@@ -4,6 +4,8 @@ import * as React from "react";
 import { __, _n, sprintf } from "@wordpress/i18n";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import { NativeSelect, NativeSelectOption } from "@kit/ui/plugin";
+
 import {
   FilterChipsRow,
   MobileScreen,
@@ -218,7 +220,7 @@ export function MobileSearchScreen() {
           />
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             {__("Search in", "pressedmail")}
-            <select
+            <NativeSelect
               aria-label={__("Search folders", "pressedmail")}
               value={currentFolderOnly ? "current" : "all"}
               onChange={(event) =>
@@ -227,10 +229,14 @@ export function MobileSearchScreen() {
                   event.target.value === "current" ? "current" : "",
                 )
               }
-              className="pm-touch-target min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground">
-              <option value="all">{__("All folders", "pressedmail")}</option>
-              <option value="current">{selectedFolder}</option>
-            </select>
+              className="min-w-0 flex-1">
+              <NativeSelectOption value="all">
+                {__("All folders", "pressedmail")}
+              </NativeSelectOption>
+              <NativeSelectOption value="current">
+                {selectedFolder}
+              </NativeSelectOption>
+            </NativeSelect>
           </label>
         </div>
         <FilterChipsRow

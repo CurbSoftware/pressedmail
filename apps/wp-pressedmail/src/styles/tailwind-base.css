@@ -104,6 +104,22 @@
     --pm-email-table-border: #d1d5db;
     --pm-email-code-bg: #f8fafc;
     --pm-email-code-border: #e2e8f0;
+    /* Syntax tokens for code blocks: GitHub-light for the fixed email
+       palette. The authoring canvas rebinds these to theme tokens, so a
+       dark canvas never paints dark-on-dark code. */
+    --pm-email-hljs-keyword: #d73a49;
+    --pm-email-hljs-attr: #005cc5;
+    --pm-email-hljs-string: #032f62;
+    --pm-email-hljs-name: #22863a;
+    --pm-email-hljs-comment: #6a737d;
+    --pm-email-hljs-built-in: #e36209;
+    --pm-email-hljs-title: #6f42c1;
+    --pm-email-hljs-section: #005cc5;
+    --pm-email-hljs-bullet: #735c0f;
+    --pm-email-hljs-addition-bg: #f0fff4;
+    --pm-email-hljs-addition-fg: #22863a;
+    --pm-email-hljs-deletion-bg: #ffeef0;
+    --pm-email-hljs-deletion-fg: #b31d28;
   }
 
   /* Alert/Status color variables - Dark mode */
@@ -152,6 +168,10 @@
     min-height: calc(100vh - 32px);
     width: 100%;
     color-scheme: light;
+    /* Compact controls: /ui reads this into --spacing-control (h-control).
+       32px so every field gets 2px more breathing room per side than the
+       old 28px; one token, so buttons and fields still share a height. */
+    --control-height: 2rem;
 
     /* Override Tailwind 4 text size variables to scale with --pm-font-size */
     --text-xs: calc(var(--pm-font-size, 18px) * 0.75);
@@ -1034,6 +1054,23 @@
     --pm-email-table-border: var(--pm-control-border);
     --pm-email-code-bg: var(--muted);
     --pm-email-code-border: var(--pm-control-border);
+    --pm-email-hljs-keyword: var(--pm-destructive-text);
+    --pm-email-hljs-attr: var(--pm-primary-text);
+    --pm-email-hljs-string: var(--pm-info-text);
+    --pm-email-hljs-name: var(--pm-success-text);
+    --pm-email-hljs-comment: var(--muted-foreground);
+    --pm-email-hljs-built-in: var(--pm-warning-text);
+    --pm-email-hljs-title: var(--pm-primary-text);
+    --pm-email-hljs-section: var(--pm-primary-text);
+    --pm-email-hljs-bullet: var(--muted-foreground);
+    /* Diff tints flatten to the code fill on authoring: the coloured text
+       carries the add/delete signal, and a theme-token tint would have to
+       clear contrast against every palette. The fixed preview keeps its
+       light green and red tints. */
+    --pm-email-hljs-addition-bg: var(--muted);
+    --pm-email-hljs-addition-fg: var(--pm-success-text);
+    --pm-email-hljs-deletion-bg: var(--muted);
+    --pm-email-hljs-deletion-fg: var(--pm-destructive-text);
     background: var(--pm-email-canvas-bg, var(--card));
     color: var(--card-foreground);
     color-scheme: normal;
@@ -1097,168 +1134,6 @@
     color: inherit;
   }
 
-  /* Themed Form Elements */
-  .pm-input {
-    @apply w-full px-3 py-1 rounded-md text-sm;
-    @apply border border-input text-foreground;
-    background-color: var(--pm-field-bg);
-    @apply placeholder:text-muted-foreground/70;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply transition-colors duration-150;
-  }
-
-  .pm-textarea {
-    @apply w-full px-3 py-2 rounded-md text-sm;
-    @apply border border-input text-foreground;
-    background-color: var(--pm-field-bg);
-    @apply placeholder:text-muted-foreground/70;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply resize-y transition-colors duration-150;
-  }
-
-  .pm-select {
-    @apply w-full px-3 py-2 rounded-md text-sm;
-    @apply border border-input text-foreground;
-    background-color: var(--pm-field-bg);
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply transition-colors duration-150;
-  }
-
-  .pm-label {
-    @apply block text-sm font-medium text-foreground;
-  }
-
-  .pm-label-muted {
-    @apply block text-sm font-medium text-muted-foreground;
-  }
-
-  .pm-helper-text {
-    @apply text-xs text-muted-foreground;
-  }
-
-  .pm-error-text {
-    @apply text-xs text-destructive;
-  }
-
-  /* Themed Form Card/Container */
-  .pm-form-card {
-    @apply w-full rounded-lg border border-border bg-card text-card-foreground;
-  }
-
-  .pm-form-header {
-    @apply p-6 border-b border-border;
-  }
-
-  .pm-form-title {
-    @apply text-lg font-semibold text-foreground;
-  }
-
-  .pm-form-description {
-    @apply text-sm text-muted-foreground mt-1;
-  }
-
-  .pm-form-content {
-    @apply p-6 space-y-6;
-  }
-
-  .pm-form-footer {
-    @apply flex justify-end gap-2 p-6 border-t border-border;
-  }
-
-  .pm-form-section {
-    @apply space-y-4 rounded-lg border border-border p-4;
-  }
-
-  .pm-form-section-title {
-    @apply text-sm font-medium text-muted-foreground;
-  }
-
-  /* Themed Buttons */
-  .pm-btn-primary {
-    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
-    @apply text-sm font-medium transition-colors;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply bg-primary text-primary-foreground hover:bg-primary/90;
-  }
-
-  .pm-btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
-    @apply text-sm font-medium transition-colors;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
-  }
-
-  .pm-btn-outline {
-    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
-    @apply text-sm font-medium transition-colors;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply border border-input bg-background text-foreground;
-    @apply hover:bg-accent hover:text-accent-foreground;
-  }
-
-  .pm-btn-ghost {
-    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
-    @apply text-sm font-medium transition-colors;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground;
-  }
-
-  .pm-btn-destructive {
-    @apply inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-md;
-    @apply text-sm font-medium transition-colors;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
-  }
-
-  /* Themed Toggle Switch */
-  .pm-toggle {
-    @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full;
-    @apply transition-colors duration-200 ease-in-out;
-    @apply disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-
-  .pm-toggle[aria-checked="false"] {
-    @apply bg-muted;
-  }
-
-  .pm-toggle[aria-checked="true"] {
-    @apply bg-primary;
-  }
-
-  .pm-toggle-thumb {
-    @apply pointer-events-none inline-block h-5 w-5 rounded-full;
-    @apply bg-background shadow-lg transform transition duration-200 ease-in-out;
-    @apply mt-0.5;
-  }
-
-  .pm-toggle[aria-checked="false"] .pm-toggle-thumb {
-    @apply translate-x-0.5;
-  }
-
-  .pm-toggle[aria-checked="true"] .pm-toggle-thumb {
-    @apply translate-x-5;
-  }
-
-  /* Themed Alert */
-  .pm-alert-error {
-    @apply flex items-center gap-2 p-3 rounded-md text-sm;
-    @apply bg-destructive/10 text-destructive;
-  }
-
-  .pm-alert-warning {
-    @apply flex items-center gap-2 p-3 rounded-md text-sm;
-    @apply bg-yellow-500/10 text-yellow-600 dark:text-yellow-500;
-  }
-
-  .pm-alert-success {
-    @apply flex items-center gap-2 p-3 rounded-md text-sm;
-    @apply bg-green-500/10 text-green-600 dark:text-green-500;
-  }
-
-  .pm-alert-info {
-    @apply flex items-center gap-2 p-3 rounded-md text-sm;
-    @apply bg-blue-500/10 text-blue-600 dark:text-blue-500;
-  }
 }
 
 /* ==========================================================================
@@ -1298,6 +1173,25 @@
     box-shadow 0.15s ease !important;
 }
 
+/* Control height. wp-admin forms.css sets min-height:30px unlayered, so the
+   variable only becomes real here. Textarea keeps its own min-height. */
+#pressedmail-plugin input[type="text"]:not([data-no-theme]),
+#pressedmail-plugin input[type="email"]:not([data-no-theme]),
+#pressedmail-plugin input[type="password"]:not([data-no-theme]),
+#pressedmail-plugin input[type="search"]:not([data-no-theme]),
+#pressedmail-plugin input[type="tel"]:not([data-no-theme]),
+#pressedmail-plugin input[type="url"]:not([data-no-theme]),
+#pressedmail-plugin input[type="number"]:not([data-no-theme]),
+#pressedmail-plugin input[type="date"]:not([data-no-theme]),
+#pressedmail-plugin input[type="time"]:not([data-no-theme]),
+#pressedmail-plugin input[type="datetime-local"]:not([data-no-theme]),
+#pressedmail-plugin input[type="month"]:not([data-no-theme]),
+#pressedmail-plugin input[type="week"]:not([data-no-theme]),
+#pressedmail-plugin select:not([data-no-theme]) {
+  min-height: var(--control-height) !important;
+  padding-block: 0 !important;
+}
+
 /* Focus states */
 #pressedmail-plugin input[type="text"]:focus:not([data-no-theme]),
 #pressedmail-plugin input[type="email"]:focus:not([data-no-theme]),
@@ -1319,18 +1213,6 @@
      switched off for every raw text field. The ring is the shared rule's job
      now, and box-shadow is invisible in Windows High Contrast anyway. */
   border-color: var(--ring) !important;
-}
-
-/*
- * Keep the header search transparent over its themed wrapper. WordPress
- * admin forms.css otherwise paints the data-no-theme input white.
- */
-#pressedmail-plugin input[type="search"][data-no-theme] {
-  background-color: transparent !important;
-  color: var(--foreground) !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
 }
 
 /*
@@ -1392,6 +1274,11 @@
   opacity: 0.5 !important;
   cursor: not-allowed !important;
   background-color: var(--muted) !important;
+  /* A disabled field keeps its own text colour but loses the field fill for
+     --muted, and the two do not belong together: measured in light mode it
+     composites to 1.88:1, which is not faded so much as gone. The page's
+     foreground is the pair --muted was authored against. */
+  color: var(--foreground) !important;
 }
 
 /* Radio and native checkbox inputs. wp-admin forms.css draws them itself
@@ -1732,11 +1619,11 @@ body
  * both need to be visible: the track carries the boundary colour and the knob
  * carries the surface, which keeps them 3:1 apart in either mode.
  *
- * Three spellings of "on" have to be excluded, because the app ships three
- * kinds of switch: base-ui writes data-checked, Radix writes
- * data-state="checked", and the plugin's own .pm-toggle buttons write only
- * aria-checked. Miss one and this rule paints the off colour over an on
- * switch, which is worse than the bug it fixes: the state disappears.
+ * Three spellings of "on" have to be excluded: base-ui writes data-checked
+ * and Radix writes data-state="checked", and aria-checked stays in the chain
+ * so a plain role="switch" button is not painted over either. Miss one and
+ * this rule paints the off colour over an on switch, which is worse than the
+ * bug it fixes: the state disappears.
  */
 body
   :is(
@@ -3596,7 +3483,10 @@ html.dark [data-radix-portal] {
  * Code-block syntax highlighting (lowlight/hljs token classes).
  * GitHub-style palette from the plate playground template; the template
  * styles these via `**:[.hljs-*]` arbitrary variants which this build does
- * not emit, so the colors live here, scoped to the composer editor.
+ * not emit, so the colors live here, scoped to the composer editor. Every
+ * colour is a --pm-email-hljs-* token: the fixed light values at :root keep
+ * the email preview sender-safe, and .pm-composer-edit-surface rebinds the
+ * family to theme tokens so a dark authoring canvas keeps readable code.
  */
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3615,7 +3505,7 @@ html.dark [data-radix-portal] {
     .hljs-template-variable,
     .hljs-type
   ) {
-  color: #d73a49;
+  color: var(--pm-email-hljs-keyword);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3639,7 +3529,7 @@ html.dark [data-radix-portal] {
     .hljs-selector-id,
     .hljs-variable
   ) {
-  color: #005cc5;
+  color: var(--pm-email-hljs-attr);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3652,7 +3542,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-regexp, .hljs-string) {
-  color: #032f62;
+  color: var(--pm-email-hljs-string);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3665,7 +3555,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
-  color: #22863a;
+  color: var(--pm-email-hljs-name);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3678,7 +3568,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-comment, .hljs-code, .hljs-formula) {
-  color: #6a737d;
+  color: var(--pm-email-hljs-comment);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3691,7 +3581,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-built_in, .hljs-symbol) {
-  color: #e36209;
+  color: var(--pm-email-hljs-built-in);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3704,7 +3594,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-title, .hljs-title.class_, .hljs-title.function_) {
-  color: #6f42c1;
+  color: var(--pm-email-hljs-title);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3717,7 +3607,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   .hljs-section {
-  color: #005cc5;
+  color: var(--pm-email-hljs-section);
   font-weight: 700;
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
@@ -3731,7 +3621,7 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   .hljs-bullet {
-  color: #735c0f;
+  color: var(--pm-email-hljs-bullet);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3770,8 +3660,8 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   .hljs-addition {
-  background: #f0fff4;
-  color: #22863a;
+  background: var(--pm-email-hljs-addition-bg);
+  color: var(--pm-email-hljs-addition-fg);
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
@@ -3784,8 +3674,8 @@ html.dark [data-radix-portal] {
   .pm-composer-editor
   [data-slate-editor]
   .hljs-deletion {
-  background: #ffeef0;
-  color: #b31d28;
+  background: var(--pm-email-hljs-deletion-bg);
+  color: var(--pm-email-hljs-deletion-fg);
 }
 
 /* PM_EMAIL_CANVAS_THEME_BOUNDARY_END */

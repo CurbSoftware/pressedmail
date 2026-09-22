@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { __ } from "@wordpress/i18n";
-import { Calendar, ChevronDown, Mail, Users } from "lucide-react";
+import { Calendar, Mail, Users } from "lucide-react";
 
 import {
   Button,
@@ -34,63 +34,39 @@ interface SearchScopeDropdownProps {
   className?: string;
 }
 
+/**
+ * The scope picker of the header search: a plain outline icon button that
+ * opens the Mail / Contacts / Calendar menu. With one scope there is nothing
+ * to pick, so it renders nothing rather than a disabled button.
+ */
 export function SearchScopeDropdown({
   value,
   onChange,
   options = SEARCH_SCOPE_OPTIONS,
   className,
 }: SearchScopeDropdownProps) {
-  const active =
-    options.find((option) => option.value === value) ??
-    options[0] ??
-    SEARCH_SCOPE_OPTIONS[0]!;
-  const ActiveIcon = active.icon;
+  if (options.length <= 1) return null;
 
-  if (options.length <= 1) {
-    return (
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className={cn(
-          "h-9 w-9 shrink-0 gap-0.5 px-0 py-2",
-          className,
-        )}
-        aria-label={__("Search scope", "pressedmail")}
-        data-test="header-search-scope-trigger"
-        data-testid="header-search-scope-trigger"
-        disabled>
-        <ActiveIcon
-          className="h-5 w-5 text-primary"
-          data-test="header-search-active-scope-icon"
-          data-testid="header-search-active-scope-icon"
-        />
-      </Button>
-    );
-  }
+  const active =
+    options.find((option) => option.value === value) ?? options[0]!;
+  const ActiveIcon = active.icon;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="ghost"
+          variant="outline"
           size="icon"
-          className={cn(
-            "h-9 w-11 shrink-0 gap-px py-2 pl-2 pr-1",
-            __IS_PRO__ &&
-              "bg-clip-border hover:bg-accent data-[state=open]:bg-accent",
-            className,
-          )}
+          className={className}
           aria-label={__("Change search scope", "pressedmail")}
           data-test="header-search-scope-trigger"
           data-testid="header-search-scope-trigger">
           <ActiveIcon
-            className="size-[18px] text-primary"
+            className="text-primary"
             data-test="header-search-active-scope-icon"
             data-testid="header-search-active-scope-icon"
           />
-          <ChevronDown className="size-2.5 opacity-60" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" sideOffset={6} className="w-44">

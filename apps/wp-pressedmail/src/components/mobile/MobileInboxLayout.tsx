@@ -31,6 +31,7 @@ import { MailDisplay } from "@/components/inbox/mail-display";
 import { EmailTagBadges } from "@/components/tags/EmailTagBadges";
 import { TagFilterSection } from "@/components/tags/TagFilterSection";
 import { MailListSkeleton } from "@/components/inbox/mail-list-skeleton";
+import { MobileSearchInput } from "@/components/mobile-shell/MobileSearchInput";
 import { MobileComposeSheet } from "./MobileComposeSheet";
 import { SwipeActions } from "./SwipeActions";
 import type { EmailMessage, EmailAccount } from "@/types";
@@ -103,10 +104,6 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       return true;
     });
   }, [normalizedFolders]);
-
-  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchTerm(e.target.value);
-  };
 
   // Debounced so a search is one request per pause, not one per keystroke.
   // Read through a ref because applyFilters is rebuilt on every inbox render,
@@ -286,25 +283,14 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
       {/* Search Bar (collapsible) */}
       {showSearch && currentView === "list" && (
         <div className="border-b border-border bg-card px-4 py-2">
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground"
-              aria-hidden="true"
-            />
-            <label className="sr-only" htmlFor="pm-mobile-layout-search">
-              {__("Search mail", "pressedmail")}
-            </label>
-            <input
-              autoComplete="off"
-              id="pm-mobile-layout-search"
-              type="search"
-              placeholder={__("Search mail", "pressedmail")}
-              value={searchTerm}
-              onChange={handleSearch}
-              className="w-full rounded-lg border border-input bg-background py-2 pl-10 pr-4 text-sm"
-              autoFocus
-            />
-          </div>
+          <MobileSearchInput
+            id="pm-mobile-layout-search"
+            label={__("Search mail", "pressedmail")}
+            placeholder={__("Search mail", "pressedmail")}
+            value={searchTerm}
+            onChange={setSearchTerm}
+            autoFocus
+          />
         </div>
       )}
 

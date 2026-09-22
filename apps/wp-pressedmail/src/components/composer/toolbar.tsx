@@ -32,7 +32,7 @@ export const FONT_SIZE_STEP_BUTTON_CLASS =
   'h-7 w-7 inline-flex items-center justify-center hover:bg-muted';
 
 export const FONT_SIZE_INPUT_CLASS =
-  'h-7 w-12 border-x border-border bg-transparent px-0 text-center text-xs tabular-nums outline-none';
+  'h-7 w-12 border-x border-input bg-transparent px-0 text-center text-xs text-foreground tabular-nums outline-none transition-[border-color,box-shadow] focus-visible:border-ring';
 
 /* ─── Toolbar Root ─── */
 

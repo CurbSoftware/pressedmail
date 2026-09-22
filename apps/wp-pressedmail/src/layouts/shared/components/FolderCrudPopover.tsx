@@ -2,7 +2,18 @@
 
 import * as React from "react";
 import { __, sprintf } from "@wordpress/i18n";
-import { Button, Input, Popover, PopoverTrigger, cn } from "@kit/ui/plugin";
+import {
+  Button,
+  Input,
+  Popover,
+  PopoverTrigger,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  cn,
+} from "@kit/ui/plugin";
 import { FolderPlus, Loader2, Pencil, Trash2, X } from "lucide-react";
 import {
   PressedOverlayBody,
@@ -18,6 +29,7 @@ type FolderCrudMode = "create" | "manage";
 
 type OperationResult = FolderOperationResult | void;
 const EMPTY_FOLDERS: ImapFolder[] = [];
+const ROOT_PARENT_VALUE = "__root__";
 
 export interface FolderCrudPopoverProps {
   mode: FolderCrudMode;
@@ -354,22 +366,38 @@ export function FolderCrudPopover({
                     className="text-xs font-medium text-muted-foreground">
                     {__("Parent folder", "pressedmail")}
                   </label>
-                  <select
-                    id="folder-crud-parent"
-                    value={parentId ?? ""}
+                  <Select
+                    value={
+                      parentId === null ? ROOT_PARENT_VALUE : String(parentId)
+                    }
                     disabled={loading}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      setParentId(value === "" ? null : Number(value));
-                    }}
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground">
-                    <option value="">{__("Root", "pressedmail")}</option>
-                    {parentOptions.map((option) => (
-                      <option key={option.folderId} value={option.folderId}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                    onValueChange={(value) => {
+                      setParentId(
+                        value === ROOT_PARENT_VALUE
+                          ? null
+                          : Number(value),
+                      );
+                    }}>
+                    <SelectTrigger
+                      id="folder-crud-parent"
+                      className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {/* Radix cannot carry an empty item value, so Root gets
+                          a sentinel that maps back to null. */}
+                      <SelectItem value={ROOT_PARENT_VALUE}>
+                        {__("Root", "pressedmail")}
+                      </SelectItem>
+                      {parentOptions.map((option) => (
+                        <SelectItem
+                          key={option.folderId}
+                          value={String(option.folderId)}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
               <div className="space-y-1.5">
@@ -398,7 +426,7 @@ export function FolderCrudPopover({
                     }
                   }}
                   placeholder={__("e.g., Receipts", "pressedmail")}
-                  className={cn("h-8", error && "border-destructive")}
+                  className={cn(error && "border-destructive")}
                 />
               </div>
               {pathPreview && (

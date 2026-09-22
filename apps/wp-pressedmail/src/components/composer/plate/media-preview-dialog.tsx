@@ -137,7 +137,7 @@ export function MediaPreviewDialog() {
                   <>
                     <ScaleInput
                       aria-label={__('Zoom level', 'pressedmail')}
-                      className="w-10 rounded bg-transparent px-1 text-white outline outline-1 outline-white/60"
+                      className="w-10 rounded-md border border-white/60 bg-transparent px-1 text-white outline-none transition-[border-color,box-shadow] focus-visible:border-white"
                     />{' '}
                     <span>%</span>
                   </>

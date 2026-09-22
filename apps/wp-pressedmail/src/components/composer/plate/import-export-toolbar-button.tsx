@@ -9,12 +9,6 @@ import { __ } from "@wordpress/i18n";
 import {
   Button,
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -22,6 +16,12 @@ import {
   DropdownMenuTrigger,
   Textarea,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 
 import {
   COMPOSER_TOOLBAR_DROPDOWN_BUTTON_CLASS,
@@ -239,16 +239,12 @@ export function ImportExportToolbarButton({
         onOpenChange={(nextOpen) => {
           if (!nextOpen) closeImportDialog();
         }}>
-        <DialogContent className="max-w-[min(92vw,42rem)]">
-          <DialogHeader>
-            <DialogTitle>
-              <DialogTitleRow>
-                <Upload />
-                <span>{importTitle}</span>
-              </DialogTitleRow>
-            </DialogTitle>
-            <DialogDescription>
-              {pendingImport
+        <PressedDialogContent size="compactForm">
+          <PressedDialogHeader
+            title={importTitle}
+            icon={Upload}
+            description={
+              pendingImport
                 ? __(
                     "Some formatting must be simplified. Review the warnings, then choose Import anyway to replace the current body.",
                     "pressedmail",
@@ -256,37 +252,39 @@ export function ImportExportToolbarButton({
                 : __(
                     "Paste content to replace the current composer body.",
                     "pressedmail",
-                  )}
-            </DialogDescription>
-          </DialogHeader>
-          {pendingImport ? (
-            <div
-              className="border-border bg-muted/40 text-foreground rounded-md border p-3 text-sm"
-              role="alert">
-              <p className="font-medium">
-                {__("Import warnings", "pressedmail")}
-              </p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {pendingImport.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-          <Textarea
-            autoComplete="off"
-            aria-label={importTitle}
-            className="min-h-60 font-mono text-xs"
-            disabled={busy}
-            value={draft}
-            onChange={(event) => {
-              importGenerationRef.current += 1;
-              setDraft(event.target.value);
-              setPendingImport(null);
-              setBusy(false);
-            }}
+                  )
+            }
           />
-          <DialogFooter>
+          <PressedOverlayBody className="space-y-4">
+            {pendingImport ? (
+              <div
+                className="border-border bg-muted/40 text-foreground rounded-md border p-3 text-sm"
+                role="alert">
+                <p className="font-medium">
+                  {__("Import warnings", "pressedmail")}
+                </p>
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {pendingImport.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <Textarea
+              autoComplete="off"
+              aria-label={importTitle}
+              className="min-h-60 font-mono text-xs"
+              disabled={busy}
+              value={draft}
+              onChange={(event) => {
+                importGenerationRef.current += 1;
+                setDraft(event.target.value);
+                setPendingImport(null);
+                setBusy(false);
+              }}
+            />
+          </PressedOverlayBody>
+          <PressedOverlayFooter>
             <Button
               type="button"
               variant="outline"
@@ -302,8 +300,8 @@ export function ImportExportToolbarButton({
                 ? __("Import anyway", "pressedmail")
                 : __("Import", "pressedmail")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </PressedOverlayFooter>
+        </PressedDialogContent>
       </Dialog>
     </>
   );

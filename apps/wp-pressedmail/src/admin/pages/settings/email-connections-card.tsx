@@ -33,13 +33,13 @@ import {
   CardContent,
   CardHeader,
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import {
   SettingsEmptyState,
   SettingsSkeleton,
@@ -886,28 +886,23 @@ export function EmailConnectionsCard() {
       <Dialog
         open={deleteOpen}
         onOpenChange={(open) => (open ? setDeleteOpen(true) : resetDialogs())}>
-        <DialogContent
-          className="max-w-md"
+        <PressedDialogContent
+          size="confirmation"
           data-test="account-delete-dialog"
           data-testid="account-delete-dialog">
-          <DialogHeader>
-            <DialogTitle>
-              <DialogTitleRow variant="destructive">
-                <Trash2 />
-                <span>{__("Remove email connection", "pressedmail")}</span>
-              </DialogTitleRow>
-            </DialogTitle>
-            <DialogDescription>
-              {sprintf(
-                __(
-                  "This will remove the connection for %s. You can reconnect it at any time through the onboarding flow.",
-                  "pressedmail",
-                ),
-                selectedAccount?.email ?? "",
-              )}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
+          <PressedDialogHeader
+            title={__("Remove email connection", "pressedmail")}
+            icon={Trash2}
+            tone="destructive"
+            description={sprintf(
+              __(
+                "This will remove the connection for %s. You can reconnect it at any time through the onboarding flow.",
+                "pressedmail",
+              ),
+              selectedAccount?.email ?? "",
+            )}
+          />
+          <PressedOverlayFooter>
             <Button
               type="button"
               variant="outline"
@@ -931,8 +926,8 @@ export function EmailConnectionsCard() {
               )}
               {__("Delete connection", "pressedmail")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </PressedOverlayFooter>
+        </PressedDialogContent>
       </Dialog>
       <Dialog
         open={signatureDialogAccount !== null}
@@ -941,24 +936,18 @@ export function EmailConnectionsCard() {
             closeSignatureDialog();
           }
         }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              <DialogTitleRow>
-                <PenTool />
-                <span>{__("Select signature", "pressedmail")}</span>
-              </DialogTitleRow>
-            </DialogTitle>
-            <DialogDescription>
-              {sprintf(
-                __("Choose the signature for %s.", "pressedmail"),
-                signatureDialogAccount?.email ?? "",
-              )}
-            </DialogDescription>
-          </DialogHeader>
+        <PressedDialogContent size="paletteForm">
+          <PressedDialogHeader
+            title={__("Select signature", "pressedmail")}
+            icon={PenTool}
+            description={sprintf(
+              __("Choose the signature for %s.", "pressedmail"),
+              signatureDialogAccount?.email ?? "",
+            )}
+          />
 
           {signatureDialogAccount ? (
-            <div className="space-y-2">
+            <PressedOverlayBody className="space-y-2">
               {activeSignatures.length > 0 ? (
                 <Button
                   type="button"
@@ -1014,10 +1003,10 @@ export function EmailConnectionsCard() {
                   )}
                 </p>
               )}
-            </div>
+            </PressedOverlayBody>
           ) : null}
 
-          <DialogFooter>
+          <PressedOverlayFooter>
             <Button
               type="button"
               variant="outline"
@@ -1035,8 +1024,8 @@ export function EmailConnectionsCard() {
               disabled={signatureSaving}>
               {__("Manage signatures", "pressedmail")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </PressedOverlayFooter>
+        </PressedDialogContent>
       </Dialog>
     </Card>
   );

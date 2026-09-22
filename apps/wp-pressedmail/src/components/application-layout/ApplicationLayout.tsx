@@ -81,33 +81,6 @@ const SPEED_DIAL_PLACEMENTS: Record<
   "bottom-right": "fixed-bottom-right",
 };
 
-function AutomationPauseNotice() {
-  if (window.pressedmailPlugin?.automationPaused !== true) return null;
-  return (
-    <div
-      role="region"
-      aria-label={__("Site automation status", "pressedmail")}
-      className="shrink-0 border-b bg-muted px-4 py-2 text-sm text-foreground">
-      {__IS_PRO__
-        ? __(
-            "Automatic mailbox work is paused on this site. Send now still works; Undo Send is unavailable.",
-            "pressedmail",
-          )
-        : __(
-            "Automatic mailbox work is paused on this site. Send now still works.",
-            "pressedmail",
-          )}{" "}
-      {window.pressedmailPlugin.automationReviewUrl && (
-        <a
-          className="font-medium text-primary underline"
-          href={window.pressedmailPlugin.automationReviewUrl}>
-          {__("Review this site", "pressedmail")}
-        </a>
-      )}
-    </div>
-  );
-}
-
 const ApplicationLayout = () => {
   const { adminBarHeight } = useWpAdminChrome();
   const {
@@ -338,7 +311,6 @@ const ApplicationLayout = () => {
                   />
                 }>
                 <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background">
-                  <AutomationPauseNotice />
                   <div className="flex-1 min-h-0">
                     <LayoutNavigationShell>
                       <Outlet />
@@ -351,7 +323,6 @@ const ApplicationLayout = () => {
                 {/* Dynamic header - renders layout-specific header based on current layout */}
                 <DynamicHeader />
                 <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background">
-                  <AutomationPauseNotice />
                   <div className="flex-1 min-h-0">
                     <LayoutNavigationShell>
                       <Outlet />

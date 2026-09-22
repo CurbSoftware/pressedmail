@@ -12,6 +12,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   Button,
+  Checkbox,
   Input,
   Label,
   Select,
@@ -454,13 +455,12 @@ export function FilterRuleEditor({
             <label
               key={trigger}
               className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2 py-1.5">
-              <input
-                type="checkbox"
+              <Checkbox
                 data-test={`filter-rule-run-${trigger.replace("_", "-")}`}
                 data-testid={`filter-rule-run-${trigger.replace("_", "-")}`}
                 checked={runTriggers.includes(trigger)}
-                onChange={(event) =>
-                  toggleRunTrigger(trigger, event.currentTarget.checked)
+                onCheckedChange={(checked) =>
+                  toggleRunTrigger(trigger, checked === true)
                 }
               />
               <span>{label}</span>
@@ -491,21 +491,26 @@ export function FilterRuleEditor({
             <Label htmlFor="filter-rule-schedule-interval" className="text-xs">
               {__("Schedule interval", "pressedmail")}
             </Label>
-            <select
-              id="filter-rule-schedule-interval"
-              data-test="filter-rule-schedule-interval"
-              data-testid="filter-rule-schedule-interval"
-              className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+            <Select
               value={String(scheduleIntervalMinutes ?? 60)}
-              onChange={(event) =>
+              onValueChange={(value) =>
                 setScheduleIntervalMinutes(
-                  Number(
-                    event.currentTarget.value,
-                  ) as FilterRuleScheduleInterval,
+                  Number(value) as FilterRuleScheduleInterval,
                 )
               }>
+              <SelectTrigger
+                id="filter-rule-schedule-interval"
+                data-test="filter-rule-schedule-interval"
+                data-testid="filter-rule-schedule-interval">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
               {FILTER_RULE_SCHEDULE_INTERVALS.map((minutes) => (
-                <option key={minutes} value={minutes}>
+                <SelectItem
+                  key={minutes}
+                  value={String(minutes)}
+                  data-test={`filter-rule-schedule-interval-option-${minutes}`}
+                  data-testid={`filter-rule-schedule-interval-option-${minutes}`}>
                   {minutes === 1440
                     ? __("Every day", "pressedmail")
                     : minutes >= 60
@@ -529,9 +534,10 @@ export function FilterRuleEditor({
                           ),
                           minutes,
                         )}
-                </option>
+                </SelectItem>
               ))}
-            </select>
+              </SelectContent>
+            </Select>
           </div>
         )}
 

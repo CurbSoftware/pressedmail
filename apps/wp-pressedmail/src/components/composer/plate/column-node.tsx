@@ -22,9 +22,11 @@ import {
   Button,
   Popover,
   PopoverAnchor,
-  PopoverContent,
   Separator,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
 
@@ -82,7 +84,8 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
   return (
     <Popover modal={false} open={open}>
       <PopoverAnchor>{children}</PopoverAnchor>
-      <PopoverContent
+      <PressedPopoverContent
+        size="menu"
         align="center"
         className="w-auto p-1"
         onOpenAutoFocus={(e) => e.preventDefault()}
@@ -141,7 +144,7 @@ function ColumnFloatingToolbar({ children }: React.PropsWithChildren) {
             <Trash2Icon />
           </Button>
         </div>
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

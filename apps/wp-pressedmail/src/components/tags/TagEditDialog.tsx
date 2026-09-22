@@ -9,7 +9,7 @@
  * @since 1.1.0
  */
 
-import React, { useId, useState } from "react";
+import React, { useState } from "react";
 import { __, sprintf } from "@wordpress/i18n";
 import { Tag as TagIcon, Trash2 } from "lucide-react";
 import {
@@ -24,7 +24,7 @@ import {
   Textarea,
 } from "@kit/ui/plugin";
 import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
-import { cn } from "@/lib/utils";
+import { SwatchColorPicker } from "../ui/color-picker/SwatchColorPicker";
 import {
   PressedAlertDialogContent,
   PressedAlertDialogHeader,
@@ -39,142 +39,6 @@ import { TAG_COLORS } from "../../types/tags";
 import type { Tag, CreateTagData, UpdateTagData } from "../../types/tags";
 
 const DEFAULT_TAG_COLOR = TAG_COLORS[10] ?? "#3b82f6";
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-/** Names for TAG_COLORS, in the same order. Built at render time for i18n. */
-function tagColorNames(): string[] {
-  return [
-    __("Red", "pressedmail"),
-    __("Orange", "pressedmail"),
-    __("Amber", "pressedmail"),
-    __("Yellow", "pressedmail"),
-    __("Lime", "pressedmail"),
-    __("Green", "pressedmail"),
-    __("Emerald", "pressedmail"),
-    __("Teal", "pressedmail"),
-    __("Cyan", "pressedmail"),
-    __("Sky", "pressedmail"),
-    __("Blue", "pressedmail"),
-    __("Indigo", "pressedmail"),
-    __("Violet", "pressedmail"),
-    __("Purple", "pressedmail"),
-    __("Fuchsia", "pressedmail"),
-    __("Pink", "pressedmail"),
-    __("Rose", "pressedmail"),
-    __("Slate", "pressedmail"),
-  ];
-}
-
-/**
- * Tag colour choice: the curated tag swatches as a radio group, plus one
- * custom hex field. Tag text renders in the theme foreground over a light tint
- * of the colour, so every choice stays readable. Nothing here touches the
- * composer's palette history or custom colours.
- */
-function TagColorPicker({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (hex: string) => void;
-}) {
-  const labelId = useId();
-  const customId = useId();
-  const customErrorId = useId();
-  const names = tagColorNames();
-  const selectedIndex = TAG_COLORS.findIndex(
-    (hex) => hex.toLowerCase() === value.toLowerCase(),
-  );
-  const [custom, setCustom] = useState(selectedIndex === -1 ? value : "");
-  const customInvalid = custom !== "" && !HEX_COLOR.test(custom);
-
-  const select = (index: number, group: HTMLElement | null) => {
-    const hex = TAG_COLORS[index];
-    if (!hex) return;
-    onChange(hex);
-    setCustom("");
-    const radios = group?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
-    radios?.[index]?.focus();
-  };
-
-  return (
-    <div className="space-y-2">
-      <span id={labelId} className="text-sm font-medium leading-none">
-        {__("Color", "pressedmail")}
-      </span>
-      <div
-        role="radiogroup"
-        aria-labelledby={labelId}
-        data-test="tag-color-swatches"
-        className="flex flex-wrap gap-1.5"
-        onKeyDown={(event) => {
-          const step =
-            event.key === "ArrowRight" || event.key === "ArrowDown"
-              ? 1
-              : event.key === "ArrowLeft" || event.key === "ArrowUp"
-                ? -1
-                : 0;
-          if (!step) return;
-          event.preventDefault();
-          const from = selectedIndex === -1 ? 0 : selectedIndex;
-          select(
-            (from + step + TAG_COLORS.length) % TAG_COLORS.length,
-            event.currentTarget,
-          );
-        }}>
-        {TAG_COLORS.map((hex, index) => {
-          const checked = index === selectedIndex;
-          return (
-            <button
-              key={hex}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              aria-label={names[index]}
-              tabIndex={checked || (selectedIndex === -1 && index === 0) ? 0 : -1}
-              onClick={(event) =>
-                select(index, event.currentTarget.parentElement)
-              }
-              className={cn(
-                "size-7 rounded-full border border-black/10 transition-shadow",
-                checked &&
-                  "ring-2 ring-foreground ring-offset-2 ring-offset-background",
-              )}
-              style={{ backgroundColor: hex }}
-            />
-          );
-        })}
-      </div>
-      <div className="flex items-center gap-2">
-        <Label htmlFor={customId} className="text-sm font-normal">
-          {__("Custom", "pressedmail")}
-        </Label>
-        <Input
-          id={customId}
-          autoComplete="off"
-          spellCheck={false}
-          value={custom}
-          maxLength={7}
-          placeholder="#3b82f6"
-          data-test="tag-color-custom"
-          aria-invalid={customInvalid || undefined}
-          aria-describedby={customInvalid ? customErrorId : undefined}
-          onChange={(event) => {
-            const next = event.target.value.trim();
-            setCustom(next);
-            if (HEX_COLOR.test(next)) onChange(next);
-          }}
-          className="h-8 w-28 font-mono text-sm"
-        />
-      </div>
-      {customInvalid ? (
-        <p id={customErrorId} className="text-xs text-destructive">
-          {__("Use a hex color such as #3b82f6.", "pressedmail")}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 /**
  * Tag Edit Dialog Component
@@ -312,10 +176,12 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
             ) : null}
 
             {/* Color Picker */}
-            <TagColorPicker
+            <SwatchColorPicker
               key={tag?.id ?? "new"}
+              colors={TAG_COLORS}
               value={color}
               onChange={setColor}
+              allowCustom
             />
 
             {/* Preview */}

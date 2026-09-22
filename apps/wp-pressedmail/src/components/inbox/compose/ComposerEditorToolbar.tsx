@@ -49,13 +49,15 @@ import {
   DropdownMenuSeparator as DropdownMenuSep,
   DropdownMenuTrigger,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Tabs,
   TabsContent,
   TabsList,
   TabsTrigger,
 } from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { __ } from "@wordpress/i18n";
 
@@ -831,7 +833,10 @@ function BodyBackgroundPopover({
       {/* w-auto: the popover hugs the swatch grid, which is the widest child;
           the custom-color editor below it is w-full so everything shares the
           palette's width. */}
-      <PopoverContent align="start" className="w-auto max-w-[92vw] p-2">
+      <PressedPopoverContent
+        size="menu"
+        align="start"
+        className="w-auto max-w-[92vw] p-2">
         <Tabs defaultValue="email">
           <TabsList className="h-7! p-0.5">
             <TabsTrigger value="email" className={BACKGROUND_TAB_TRIGGER_CLASS}>
@@ -874,7 +879,7 @@ function BodyBackgroundPopover({
             </TabsContent>
           ) : null}
         </Tabs>
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }
@@ -966,9 +971,10 @@ function InsertImageDropdown({
             <ImageGlyph className={COMPOSER_TOOLBAR_ICON_CLASS} />
           </ToolbarButton>
         </PopoverTrigger>
-        <PopoverContent
+        <PressedPopoverContent
+          size="menu"
           align="start"
-          className="w-56 p-1"
+          className="p-1"
           data-test="composer-insert-image-menu">
           {canUseMediaLibrary && (
             <button
@@ -1010,7 +1016,7 @@ function InsertImageDropdown({
             <LinkGlyph className="size-4" />
             <span>{__("Insert via URL", "pressedmail")}</span>
           </button>
-        </PopoverContent>
+        </PressedPopoverContent>
       </Popover>
 
       {!disabled ? (

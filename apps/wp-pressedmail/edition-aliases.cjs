@@ -286,6 +286,15 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Contacts are Pro-only, so Free's recipient field gets no suggestions
+      // and no picker; the field itself is one Free-safe module.
+      find: /^@\/components\/compose\/RecipientContacts\.active$/,
+      replacement: pick(
+        "./src/components/compose/RecipientContacts.free.tsx",
+        "./src/components/compose/RecipientContacts.pro.tsx",
+      ),
+    },
+    {
       find: /^@\/admin\/pages\/mobile\/MobileScheduleActions\.active$/,
       replacement: pick(
         "./src/admin/pages/mobile/MobileScheduleActions.free.tsx",
@@ -416,13 +425,6 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/components/composer/plate-composer-serialization.free.ts",
         "./src/components/composer/plate-composer-serialization.ts",
-      ),
-    },
-    {
-      find: /^@\/components\/compose\/RecipientInput$/,
-      replacement: pick(
-        "./src/components/compose/RecipientInput.free.tsx",
-        "./src/components/compose/RecipientInput.tsx",
       ),
     },
     {

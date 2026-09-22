@@ -4,6 +4,7 @@ import { ColorPicker, parseColor } from "@ark-ui/react/color-picker";
 import { PipetteIcon } from "lucide-react";
 import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { __ } from "@wordpress/i18n";
+import { Input } from "@kit/ui/plugin";
 
 import { normalizeComposerBackgroundColor } from "@/lib/composer-background-color";
 import { cn } from "@/lib/utils";
@@ -127,13 +128,13 @@ export function PalettePicker({
             {visualControls}
             <label className="flex items-center gap-2 text-xs font-medium">
               <span className="shrink-0">{__("Hex", "pressedmail")}</span>
-              <input
+              <Input
                 autoComplete="off"
                 type="text"
                 aria-label={__("Hex", "pressedmail")}
                 value={value}
                 onChange={(event) => onChange(event.target.value)}
-                className="w-full min-w-0 rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground focus:border-transparent"
+                className="px-2 text-xs"
               />
             </label>
             <div className="grid grid-cols-4 gap-1.5">
@@ -256,7 +257,7 @@ function ChannelNumberInput({
         {shortLabel ?? label}
         {suffix ? ` (${suffix})` : ""}
       </span>
-      <input
+      <Input
         autoComplete="off"
         type="number"
         aria-label={label}
@@ -270,7 +271,7 @@ function ChannelNumberInput({
             Number.isFinite(parsed) ? Math.min(max, Math.max(0, parsed)) : 0,
           );
         }}
-        className="w-full min-w-0 rounded-md border border-input bg-background px-1.5 py-1 text-xs text-foreground focus:border-transparent"
+        className="px-1.5 text-xs"
       />
     </label>
   );

@@ -2,7 +2,7 @@
  * ComposerContent: Unified email composer UI component (v3 / Plate.js).
  *
  * Renders the consistent composer layout:
- *   Header -> Addressing -> Subject -> Toolbar -> Canvas -> Attachments
+ *   From row -> Addressing -> Subject -> Toolbar -> Canvas -> Attachments -> Footer
  *
  * The caller wraps this in their own container (floating window, reading pane, etc.)
  *
@@ -31,6 +31,9 @@ import { ComposerAttachmentChips } from "./ComposerAttachmentChips";
 import { ComposerSubjectAttachmentActions } from "./ComposerSubjectAttachmentActions";
 import { ComposerAddressing } from "./ComposerAddressing";
 import { ComposerFromAccountSelect } from "./ComposerFromAccountSelect";
+import { ComposeContextLabel } from "./ComposeContextLabel";
+import { COMPOSER_ROW_CLASS } from "@/components/compose/composer-row";
+import { RECIPIENT_LABEL_CLASS } from "@/components/compose/RecipientInput";
 import { ComposeDiscardDialog } from "./ComposeDiscardDialog";
 import { useAppContext } from "@/context/AppProvider";
 import { appMessage } from "@/context/toast";
@@ -387,44 +390,31 @@ export function ComposerContent({
     <div
       className={cn("flex h-full flex-col", className)}
       data-test="compose-form">
-      {/* ── 1. Header ── */}
-      {showHeader && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-transparent px-4 py-3"
-          data-test="compose-header">
-          {/* Every item here truncates rather than holding its width, so the
-              group shrinks beside the actions instead of sliding under them. */}
-          <div
-            className="flex min-w-0 flex-1 items-center gap-x-3"
-            data-test="composer-status-group">
-            <span
-              className="truncate text-xs font-medium text-muted-foreground"
-              data-test="compose-mode-label">
-              {form.modeTitle}
-            </span>
-            {form.isDraftSaved && (
-              <span className="truncate text-xs font-medium text-muted-foreground">
-                {__("Draft saved", "pressedmail")}
-              </span>
-            )}
-            {form.pendingInlineImageUploads > 0 && (
-              <span
-                aria-hidden="true"
-                className="truncate text-xs font-medium text-muted-foreground">
-                {__("Uploading image...", "pressedmail")}
-              </span>
-            )}
-            {/* Always mounted: a live region that appears with its text
-                already inside is often not announced. */}
-            <span aria-live="polite" className="sr-only">
-              {form.pendingInlineImageUploads > 0
-                ? __("Uploading image...", "pressedmail")
-                : ""}
-            </span>
-          </div>
+      {/* ── 1. From row: context label | account | send and close ──
+          Outside the scrolling payload so the actions stay put. The label
+          cell is the mode word over "From"; the field cell is the account
+          trigger, which tracks the pane width; the action cell keeps its
+          intrinsic width. */}
+      <div
+        className={cn(
+          COMPOSER_ROW_CLASS,
+          "border-b border-border bg-transparent px-4 py-2",
+        )}
+        data-test="compose-header">
+        <ComposeContextLabel mode={form.mode} />
 
+        <div className="min-w-0" data-test="from-row">
+          <ComposerFromAccountSelect
+            accounts={accounts}
+            fromAccount={form.fromAccount}
+            onFromAccountChange={form.setFromAccount}
+            disabled={isExclusiveOperationPending}
+          />
+        </div>
+
+        {showHeader && (
           <div
-            className="inline-flex shrink-0 flex-wrap items-center justify-end gap-1.5"
+            className="inline-flex shrink-0 items-center justify-end gap-1.5"
             data-test="composer-action-group">
             <div
               className="inline-flex flex-nowrap items-center gap-1.5"
@@ -446,23 +436,13 @@ export function ComposerContent({
               <ComposerHeaderCloseButton form={form} />
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div
         className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden min-h-0"
         data-test="composer-payload"
         inert={isExclusiveOperationPending ? true : undefined}>
-        {/* ── 2. From, on its own row so no header action can cover it ── */}
-        <div className="border-b border-border px-4 py-2" data-test="from-row">
-          <ComposerFromAccountSelect
-            accounts={accounts}
-            fromAccount={form.fromAccount}
-            onFromAccountChange={form.setFromAccount}
-            disabled={isExclusiveOperationPending}
-          />
-        </div>
-
         {/* ── 3. Addressing (To, Cc, Bcc) ── */}
         <ComposerAddressing
           toRecipients={form.toRecipients}
@@ -481,20 +461,18 @@ export function ComposerContent({
         />
 
         {/* ── 4. Subject ──
-            The field and the importance/attach cluster share one row, the way
-            the To field shares its row with Cc and Bcc. The cluster carries the
-            same sizing rule as those toggles: 28px under a mouse, 44px under a
-            coarse pointer, instead of 44px keyed off the viewport, which is what
-            made the row too wide for a narrow pane. What keeps the field off its
-            7.5rem floor is the shell's flex-wrap and the field's own min-w-30: a
-            pane too narrow for both drops the cluster to a second line rather
-            than squeezing the field. */}
+            The shared metadata grid (composer-row.ts). The compact "Sub"
+            label matches To/Cc/Bcc (RECIPIENT_LABEL_CLASS), so the field
+            starts in column two naturally and the attachment cluster takes
+            the action cell. The placeholder and aria-label keep the field's
+            full name for naming. */}
         <div
           className="border-b border-border bg-transparent px-4 py-2"
           data-test="subject-row">
-          <div
-            className="flex min-h-7 flex-wrap items-center gap-1 rounded-md border-0 bg-transparent px-0 py-0"
-            data-test="subject-input-shell">
+          <div className={COMPOSER_ROW_CLASS} data-test="subject-input-shell">
+            <span className={RECIPIENT_LABEL_CLASS} aria-hidden="true">
+              {__("Sub", "pressedmail")}
+            </span>
             <input
               autoComplete="off"
               type="text"
@@ -503,7 +481,7 @@ export function ComposerContent({
               onChange={(e) => form.setSubject(e.target.value)}
               placeholder={__("Subject", "pressedmail")}
               aria-label={__("Subject", "pressedmail")}
-              className="flex-1 min-w-30 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+              className="min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
               disabled={isExclusiveOperationPending}
             />
             <ComposerSubjectAttachmentActions form={form} />
@@ -651,22 +629,16 @@ export function ComposerContent({
                   role="status"
                   className="mx-3 mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
                   {preferences.cache_email_body_content === false
-                    ? __("Database email caching is off. This draft will reopen from email HTML, so some Rich Text blocks may change.", "pressedmail")
-                    : __("Rich Text document storage is unavailable. This draft will reopen from email HTML, so some blocks may change.", "pressedmail")}
+                    ? __(
+                        "Database email caching is off. This draft will reopen from email HTML, so some Rich Text blocks may change.",
+                        "pressedmail",
+                      )
+                    : __(
+                        "Rich Text document storage is unavailable. This draft will reopen from email HTML, so some blocks may change.",
+                        "pressedmail",
+                      )}
                 </p>
               )}
-            {dialect === "rich_text" &&
-              preferences.cache_email_body_content !== false &&
-              !form.draftDocumentStorageUnavailable && (
-                <p role="status" className="mx-3 mb-3 text-xs text-muted-foreground">
-                  {__("Rich Text draft structure expires 90 days after its last save, even if the draft remains in your mailbox. Save it again before then to renew it.", "pressedmail")}
-                </p>
-              )}
-            {form.draftDocumentExpired && (
-              <p role="status" className="mx-3 mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-foreground">
-                {__("This draft's Rich Text structure expired after 90 days. It reopened from email HTML, so some blocks may have changed.", "pressedmail")}
-              </p>
-            )}
           </>
         )}
       </div>

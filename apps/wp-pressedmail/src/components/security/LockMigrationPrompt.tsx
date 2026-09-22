@@ -2,7 +2,13 @@ import { useState } from "react";
 import { __ } from "@wordpress/i18n";
 import { Lock, Loader2 } from "lucide-react";
 
-import { Button } from "@kit/ui/plugin";
+import { AlertDialog, Button } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 
 import { apiFetch } from "@/lib/api-client";
 import {
@@ -48,46 +54,47 @@ export function LockMigrationPrompt() {
     }
   };
 
+  // Not dismissable: no overlay click, no Escape. The only way out is "Got it",
+  // which records the acknowledgement so the prompt stays gone on every device.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4"
-      data-test="lock-migration-prompt"
-      data-testid="lock-migration-prompt">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="lock-migration-title"
-        className="w-full max-w-md space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <Lock className="h-5 w-5 text-primary" aria-hidden="true" />
-          <h1 id="lock-migration-title" className="text-lg font-semibold">
-            {__("A simpler way to protect your mailbox", "pressedmail")}
-          </h1>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {__(
-            "The “require account verification after logout” option was replaced by PressedMail Lock: one optional passphrase that locks your mailbox on logout, after inactivity, or on demand, without re-entering every account password.",
-            "pressedmail",
-          )}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {__(
-            "Your mail stays accessible until you set it up. Enable it any time under Settings → Security.",
-            "pressedmail",
-          )}
-        </p>
-        {/* The only control in a blocking overlay, so it takes focus on mount:
-            without it a keyboard user is left behind the prompt. */}
-        <Button
-          autoFocus
-          className="w-full"
-          onClick={() => void dismiss()}
-          disabled={dismissing}>
-          {dismissing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {__("Got it", "pressedmail")}
-        </Button>
-      </div>
-    </div>
+    <AlertDialog open>
+      <PressedAlertDialogContent
+        size="confirmation"
+        data-test="lock-migration-prompt"
+        data-testid="lock-migration-prompt"
+        onEscapeKeyDown={(event) => event.preventDefault()}>
+        <PressedAlertDialogHeader
+          icon={Lock}
+          title={__("A simpler way to protect your mailbox", "pressedmail")}
+        />
+        <PressedOverlayBody className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {__(
+              "The “require account verification after logout” option was replaced by PressedMail Lock: one optional passphrase that locks your mailbox on logout, after inactivity, or on demand, without re-entering every account password.",
+              "pressedmail",
+            )}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {__(
+              "Your mail stays accessible until you set it up. Enable it any time under Settings → Security.",
+              "pressedmail",
+            )}
+          </p>
+        </PressedOverlayBody>
+        <PressedOverlayFooter>
+          {/* The only control in a blocking overlay, so it takes focus on mount:
+              without it a keyboard user is left behind the prompt. */}
+          <Button
+            autoFocus
+            className="w-full"
+            onClick={() => void dismiss()}
+            disabled={dismissing}>
+            {dismissing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {__("Got it", "pressedmail")}
+          </Button>
+        </PressedOverlayFooter>
+      </PressedAlertDialogContent>
+    </AlertDialog>
   );
 }
 

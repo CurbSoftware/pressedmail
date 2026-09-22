@@ -11,14 +11,15 @@ import { __, sprintf } from "@wordpress/i18n";
 import {
   AlertDialog,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayError,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import {
   PlusCircle,
   PenTool,
@@ -332,19 +333,16 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
             setDeleteError("");
           }
         }}>
-        <AlertDialogContent
-          className="sm:max-w-sm"
+        <PressedAlertDialogContent
+          size="confirmation"
           data-test="signature-delete-dialog"
           data-testid="signature-delete-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow variant="destructive">
-                <Trash2 />
-                <span>{__("Delete Signature", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteConfirm
+          <PressedAlertDialogHeader
+            title={__("Delete Signature", "pressedmail")}
+            icon={Trash2}
+            tone="destructive"
+            description={
+              deleteConfirm
                 ? sprintf(
                     /* translators: %s: the signature's name. */
                     __(
@@ -353,15 +351,15 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
                     ),
                     deleteConfirm.name,
                   )
-                : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+                : null
+            }
+          />
           {deleteError ? (
-            <p role="alert" className="text-sm text-destructive">
-              {deleteError}
-            </p>
+            <PressedOverlayBody>
+              <PressedOverlayError>{deleteError}</PressedOverlayError>
+            </PressedOverlayBody>
           ) : null}
-          <AlertDialogFooter>
+          <PressedOverlayFooter>
             <AlertDialogCancel
               disabled={saving}
               data-test="signature-delete-cancel"
@@ -382,8 +380,8 @@ export const SignatureManager: React.FC<SignatureManagerProps> = ({
               )}
               {__("Delete", "pressedmail")}
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
     </div>
   );

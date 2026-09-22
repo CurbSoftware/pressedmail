@@ -35,7 +35,6 @@ import {
   Button,
   cn,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Select,
   SelectContent,
@@ -47,6 +46,9 @@ import {
   TabsList,
   TabsTrigger,
 } from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { ThemePaletteIcon } from "./HeaderIconSvgs";
 import { useTheme as useAppearanceTheme } from "@/components/theme-provider";
@@ -206,7 +208,7 @@ export function FreeThemePopover() {
           <ThemePaletteIcon className="size-4" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-4">
+      <PressedPopoverContent size="menu" align="end" className="p-4">
         {/* Mode */}
         <div className="mb-4">
           <SectionLabel icon={SunMoon}>
@@ -245,7 +247,7 @@ export function FreeThemePopover() {
               value={fontStack}
               onValueChange={(value) => setFontStack(value)}>
               <SelectTrigger
-                className="h-9 text-xs"
+                className="text-xs"
                 data-test="free-font-family">
                 <SelectValue />
               </SelectTrigger>
@@ -268,7 +270,7 @@ export function FreeThemePopover() {
             <Select
               value={fontSize}
               onValueChange={(value) => setFontSize(value)}>
-              <SelectTrigger className="h-9 text-xs" data-test="free-font-size">
+              <SelectTrigger className="text-xs" data-test="free-font-size">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -422,7 +424,7 @@ export function FreeThemePopover() {
             </button>
           </div>
         </div>
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

@@ -46,15 +46,14 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Switch,
   Skeleton,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import { cn } from "@/lib/utils";
 import type {
   FilterRule,
@@ -823,22 +822,17 @@ export function FilterRulesManager({
       <AlertDialog
         open={!!deleteConfirmRule}
         onOpenChange={() => setDeleteConfirmRule(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow variant="destructive">
-                <Trash2 />
-                <span>{__("Delete rule", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "Are you sure you want to delete this rule? This action cannot be undone.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+        <PressedAlertDialogContent size="confirmation">
+          <PressedAlertDialogHeader
+            title={__("Delete rule", "pressedmail")}
+            icon={Trash2}
+            tone="destructive"
+            description={__(
+              "Are you sure you want to delete this rule? This action cannot be undone.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayFooter>
             <AlertDialogCancel>{__("Cancel", "pressedmail")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
@@ -847,8 +841,8 @@ export function FilterRulesManager({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               {__("Delete", "pressedmail")}
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
     </div>
   );

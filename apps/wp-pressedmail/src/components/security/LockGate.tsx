@@ -263,7 +263,6 @@ export function LockGate({ children }: LockGateProps) {
                 <Input
                   id="lock-gate-wp-password"
                   type="password"
-                  className="h-12"
                   {...sensitiveInputProps("wordpress-password")}
                   placeholder={__(
                     "Enter your WordPress password",
@@ -315,7 +314,7 @@ export function LockGate({ children }: LockGateProps) {
                   <Input
                     id="lock-gate-passphrase"
                     type={showPassphrase ? "text" : "password"}
-                    className="h-12 pr-12"
+                    className="pr-12"
                     {...sensitiveInputProps("mailbox-lock-passphrase")}
                     placeholder={__("Enter your passphrase", "pressedmail")}
                     value={passphrase}

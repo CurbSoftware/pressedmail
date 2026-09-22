@@ -75,11 +75,13 @@ import { buildReplyRecipients } from "./reply-recipients";
 import {
   Button,
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogTitle,
   TooltipProvider,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+} from "@/components/ui/pressed-overlay";
 import {
   getScheduledComposeData,
   parseScheduledDraftHandoff,
@@ -513,7 +515,6 @@ export function RightPaneContainer({
         subject: draft.subject ?? "",
         body: draft.body ?? "",
         draftDocument: draft.draftDocument,
-        draftDocumentExpired: draft.draftDocumentExpired,
         contentType: draft.contentType ?? preferredContentType,
         mode: nextComposeMode,
         bodyBackgroundColor: draft.bodyBackgroundColor,
@@ -1548,9 +1549,10 @@ export function RightPaneContainer({
         onOpenChange={(open) =>
           open ? setExpanded(true) : handleClosePopout()
         }>
-        <DialogContent
+        <PressedDialogContent
+          size="picker"
           showCloseButton={false}
-          className="flex h-[90vh] w-[92vw] max-w-5xl flex-col gap-0 p-0">
+          className="flex h-[90vh] flex-col">
           <DialogTitle className="sr-only">
             {__("Expanded reading view", "pressedmail")}
           </DialogTitle>
@@ -1610,7 +1612,7 @@ export function RightPaneContainer({
               readingPaneContent
             )}
           </div>
-        </DialogContent>
+        </PressedDialogContent>
       </Dialog>
     </TooltipProvider>
   );

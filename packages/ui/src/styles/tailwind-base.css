@@ -120,6 +120,10 @@
       height: 0;
     }
   }
+
+  /* Control height for Input, SelectTrigger, NativeSelect, InputGroup and the
+     default/icon Button. PressedMail overrides `--control-height` to 1.75rem. */
+  --spacing-control: var(--control-height, 2.25rem);
 }
 
 @utility max-w-section {

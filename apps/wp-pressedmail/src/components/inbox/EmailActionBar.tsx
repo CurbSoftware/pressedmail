@@ -53,11 +53,6 @@ import {
 import {
   Button,
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -65,6 +60,11 @@ import {
   Separator,
   toast,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayBody,
+} from "@/components/ui/pressed-overlay";
 import { cn } from "@/lib/utils";
 import {
   useInbox,
@@ -1460,26 +1460,26 @@ export function EmailActionBar({
 
   const headersDialog = (
     <Dialog open={headersOpen} onOpenChange={setHeadersOpen}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>
-            <DialogTitleRow>
-              <FileText />
-              <span>{__("Message headers", "pressedmail")}</span>
-            </DialogTitleRow>
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            {__("Full raw headers for the selected message.", "pressedmail")}
-          </DialogDescription>
-        </DialogHeader>
-        <pre
-          data-test="reading-pane-headers"
-          className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs text-foreground">
-          {headersLoading && headersText === null
-            ? __("Loading headers…", "pressedmail")
-            : (headersText ?? buildReconstructedHeaders(message))}
-        </pre>
-      </DialogContent>
+      <PressedDialogContent size="compactForm">
+        <PressedDialogHeader
+          title={__("Message headers", "pressedmail")}
+          icon={FileText}
+          description={__(
+            "Full raw headers for the selected message.",
+            "pressedmail",
+          )}
+          descriptionMode="sr-only"
+        />
+        <PressedOverlayBody>
+          <pre
+            data-test="reading-pane-headers"
+            className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-xs text-foreground">
+            {headersLoading && headersText === null
+              ? __("Loading headers…", "pressedmail")
+              : (headersText ?? buildReconstructedHeaders(message))}
+          </pre>
+        </PressedOverlayBody>
+      </PressedDialogContent>
     </Dialog>
   );
 

@@ -2,7 +2,7 @@ import { useRef, type ChangeEvent } from "react";
 import { __ } from "@wordpress/i18n";
 
 import type { UseComposeFormReturn } from "@/hooks/compose/v2/useComposeForm";
-import { Button } from "@kit/ui/plugin";
+import { Button, ButtonGroup } from "@kit/ui/plugin";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -74,9 +74,7 @@ export function ComposerSubjectAttachmentActions({
     : EmailImportantOutlineIcon;
 
   return (
-    <div
-      className="flex shrink-0 items-center gap-1"
-      data-test="subject-attachment-actions">
+    <ButtonGroup data-test="subject-attachment-actions">
       {/* Sender-set importance: stamps cross-provider priority headers on send. */}
       <PressedTooltip
         content={
@@ -90,7 +88,7 @@ export function ComposerSubjectAttachmentActions({
           variant="ghost"
           size="icon"
           className={cn(
-            "h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11",
+            "pointer-coarse:min-h-11 pointer-coarse:min-w-11",
             isImportant && "text-primary",
           )}
           onClick={() => setIsImportant(!isImportant)}
@@ -111,7 +109,7 @@ export function ComposerSubjectAttachmentActions({
               type="button"
               variant="ghost"
               size="icon"
-              className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+              className="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
               onClick={handleAttachClick}
               disabled={isDeliveryPending}
               aria-label={__("Attach files", "pressedmail")}
@@ -151,7 +149,7 @@ export function ComposerSubjectAttachmentActions({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+            className="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
             onClick={() => void handleMediaLibraryAttachment()}
             disabled={isDeliveryPending}
             aria-label={__("Attach from Media Library", "pressedmail")}
@@ -172,6 +170,6 @@ export function ComposerSubjectAttachmentActions({
           </Button>
         </PressedTooltip>
       )}
-    </div>
+    </ButtonGroup>
   );
 }

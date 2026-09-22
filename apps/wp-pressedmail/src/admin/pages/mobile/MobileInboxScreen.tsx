@@ -754,7 +754,6 @@ export function MobileInboxScreen() {
         subject: draft.subject ?? "",
         body: draft.body ?? "",
         draftDocument: draft.draftDocument,
-        draftDocumentExpired: draft.draftDocumentExpired,
         contentType: draft.contentType ?? "html",
         mode: "new",
         bodyBackgroundColor: draft.bodyBackgroundColor,

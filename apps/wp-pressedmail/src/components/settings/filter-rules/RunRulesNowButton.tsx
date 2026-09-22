@@ -13,12 +13,6 @@ import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   AlertDialog,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
   Checkbox,
   Dialog,
@@ -36,6 +30,8 @@ import {
 import type { FilterRule, FilterRuleRunJob } from "@/types/filter-rules";
 import { ruleCanRunManually } from "@/types/filter-rules";
 import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
   PressedDialogContent,
   PressedDialogHeader,
   PressedOverlayBody,
@@ -449,26 +445,21 @@ export function RunRulesNowButton({
         </PressedDialogContent>
       </Dialog>
       <AlertDialog open={reportOpen} onOpenChange={setReportOpen}>
-        <AlertDialogContent
+        <PressedAlertDialogContent
+          size="compactForm"
           role="dialog"
           data-test="run-rules-report-modal"
           data-testid="run-rules-report-modal">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow>
-                <CheckCircle2 />
-                <span>{__("Rule run results", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "Aggregate results for the last manual rule run.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
+          <PressedAlertDialogHeader
+            title={__("Rule run results", "pressedmail")}
+            icon={CheckCircle2}
+            description={__(
+              "Aggregate results for the last manual rule run.",
+              "pressedmail",
+            )}
+          />
           {runReport && (
-            <div className="space-y-4 text-sm">
+            <PressedOverlayBody className="space-y-4 text-sm">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <ResultMetric
                   label={__("Candidates", "pressedmail")}
@@ -538,12 +529,12 @@ export function RunRulesNowButton({
                   {runReport.errorMessage}
                 </div>
               )}
-            </div>
+            </PressedOverlayBody>
           )}
-          <AlertDialogFooter>
+          <PressedOverlayFooter>
             <AlertDialogCancel>{__("Close", "pressedmail")}</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
     </div>
   );

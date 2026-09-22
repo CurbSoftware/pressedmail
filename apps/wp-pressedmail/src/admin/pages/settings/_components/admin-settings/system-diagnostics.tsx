@@ -1,16 +1,11 @@
-import { __, _n, sprintf } from "@wordpress/i18n";
-import { useEffect, useState } from "react";
+import { __, sprintf } from "@wordpress/i18n";
+import { useState } from "react";
 import { CheckCircle, AlertTriangle, Info } from "lucide-react";
 import {
   Alert,
   AlertDescription,
   Badge,
-  Button,
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
 } from "@kit/ui/plugin";
-import { getCalendarLocale } from "@/components/calendar/calendar-intl";
 import {
   SettingsEmptyState,
   SettingsSectionCard,
@@ -18,8 +13,6 @@ import {
   settingsInfoTooltips,
 } from "@/components/settings-ui";
 import { useLatestRelease } from "@/admin/pages/settings/_components/admin-settings/use-latest-release";
-import { runBackgroundPassNow } from "@/services/sync-driver.service";
-import { PermissionError } from "@/lib/api-client";
 
 type ExtensionInfo = {
   name: string;
@@ -89,84 +82,7 @@ function PluginStatusRow({
   );
 }
 
-/** Human label for a worker cadence. 0 means a one-shot single event. */
-function formatInterval(seconds: number): string {
-  if (seconds <= 0) {
-    return __("Once", "pressedmail");
-  }
-  if (seconds < 60) {
-    return sprintf(__("Every %d s", "pressedmail"), String(seconds));
-  }
-  if (seconds < 3600) {
-    return sprintf(
-      __("Every %d min", "pressedmail"),
-      String(Math.round(seconds / 60)),
-    );
-  }
-  if (seconds < 86400) {
-    return sprintf(
-      __("Every %d h", "pressedmail"),
-      String(Math.round(seconds / 3600)),
-    );
-  }
-  return sprintf(
-    __("Every %d d", "pressedmail"),
-    String(Math.round(seconds / 86400)),
-  );
-}
-
-/**
- * A dispatcher pass runs every minute, so three missed passes is where calling
- * it healthy would be a lie rather than a rounding error.
- */
-const DISPATCH_STALE_SECONDS = 180;
-
-/**
- * How long ago a unix-seconds stamp was, in the plugin's own locale.
- *
- * Minutes and seconds here, not days: the whole point of the row is to show a
- * live heartbeat, and `Intl.RelativeTimeFormat` is what words "38 seconds ago"
- * in the reader's language.
- */
-function formatSince(timestamp: number, nowSeconds: number): string {
-  const seconds = Math.max(0, nowSeconds - timestamp);
-  const relative = new Intl.RelativeTimeFormat(getCalendarLocale(), {
-    numeric: "auto",
-    style: "long",
-  });
-  if (seconds < 60) return relative.format(-seconds, "second");
-  if (seconds < 3600)
-    return relative.format(-Math.floor(seconds / 60), "minute");
-  if (seconds < 86400)
-    return relative.format(-Math.floor(seconds / 3600), "hour");
-  return relative.format(-Math.floor(seconds / 86400), "day");
-}
-
-/**
- * How often the heartbeat is re-measured.
- *
- * The dispatcher runs once a minute, so anything finer is noise. 0 means the
- * clock has not been read yet, which the caller renders as an absolute time.
- */
-const HEARTBEAT_TICK_MS = 15_000;
-
 export function SystemDiagnostics() {
-  // Reading the clock during render is impure, so the heartbeat is measured
-  // after mount and re-measured on a timer. A settings tab left open would
-  // otherwise keep claiming a pass that happened an hour ago.
-  const [nowSeconds, setNowSeconds] = useState(0);
-  // A "Run now" pass returns the heartbeat it just wrote, which then outranks
-  // the boot payload's copy: the point of the button is that the card stops
-  // reporting a fault the moment it has been resolved.
-  const [freshDispatch, setFreshDispatch] = useState<{
-    lastRun?: number;
-    nextRun?: number;
-    loopback?: boolean | null;
-    hasMailbox?: boolean;
-  } | null>(null);
-  const [manualPassCompleted, setManualPassCompleted] = useState(false);
-  const [passRunning, setPassRunning] = useState(false);
-  const [passError, setPassError] = useState<string | null>(null);
   const diagnostics = window.pressedmailPlugin?.systemDiagnostics;
   const {
     extensions,
@@ -176,7 +92,6 @@ export function SystemDiagnostics() {
     memory,
     phpLimits,
     syncSchedule,
-    cronHealth,
   } = diagnostics ?? {};
   const imapExtension = extensions?.imap as ExtensionInfo | undefined;
   const currentVersion =
@@ -187,139 +102,6 @@ export function SystemDiagnostics() {
 
   // Check if IMAP native extension is missing
   const imapMissing = imapExtension && !imapExtension.loaded;
-  const cronWorkers = cronHealth?.workers ?? [];
-  const overdueWorkers = cronWorkers.filter(
-    (worker) => worker.overdue === true,
-  );
-
-  // PressedMail's own wp-cron entry. This replaced a printed crontab line: the
-  // command was install-specific and most administrators cannot run it, so the
-  // panel reports whether background work is actually happening instead.
-  const dispatch = freshDispatch ?? cronHealth?.dispatch;
-  const dispatchLastRun = dispatch?.lastRun ?? 0;
-  const dispatchNextRun = dispatch?.nextRun ?? 0;
-  const dispatchStale =
-    nowSeconds > 0 &&
-    dispatchLastRun > 0 &&
-    nowSeconds - dispatchLastRun > DISPATCH_STALE_SECONDS;
-  // A late heartbeat is only a fault when the site cannot reach itself. Without
-  // that evidence it is the normal state of a quiet site, and calling it broken
-  // told most administrators their site was faulty most of the time.
-  const dispatchState:
-    | "disabled"
-    | "missing"
-    | "noMailbox"
-    | "never"
-    | "blocked"
-    | "idle"
-    | "manual"
-    | "ok" = cronHealth?.wpCronDisabled
-    ? "disabled"
-    : dispatch?.hasMailbox === false
-      ? "noMailbox"
-      : manualPassCompleted && !dispatchStale
-        ? "manual"
-        : dispatch?.loopback === false &&
-            (dispatchLastRun === 0 || dispatchStale)
-          ? "blocked"
-          : dispatchNextRun === 0
-            ? "missing"
-            : dispatchLastRun === 0
-              ? "never"
-              : !dispatchStale
-                ? "ok"
-                : "idle";
-  // The disabled case is the one explanation the panel owes a reader even when
-  // the server sends no dispatch block at all: it is the reason nothing runs,
-  // and the card exists to say so. Every other note describes a heartbeat, so
-  // it is only shown once there is one to describe.
-  const showDispatchNote =
-    dispatchState === "disabled" || dispatch !== undefined;
-  const dispatchBadge = {
-    disabled: {
-      label: __("Not running", "pressedmail"),
-      variant: "destructive" as const,
-    },
-    // The recurrence re-arms on the next request, so this is usually a
-    // snapshot of a moment rather than a lasting fault.
-    missing: {
-      label: __("Not scheduled", "pressedmail"),
-      variant: "destructive" as const,
-    },
-    noMailbox: {
-      label: __("No mailbox connected", "pressedmail"),
-      variant: "secondary" as const,
-    },
-    never: {
-      label: __("Waiting for first run", "pressedmail"),
-      variant: "secondary" as const,
-    },
-    // Quiet, not broken. WordPress runs scheduled work on a visit, so a site
-    // nobody has visited since the last pass is late by definition.
-    idle: {
-      label: __("Waiting for traffic", "pressedmail"),
-      variant: "secondary" as const,
-    },
-    blocked: {
-      label: __("Cannot reach itself", "pressedmail"),
-      variant: "destructive" as const,
-    },
-    manual: {
-      label: __("Manual pass completed", "pressedmail"),
-      variant: "secondary" as const,
-    },
-    ok: {
-      label:
-        overdueWorkers.length > 0
-          ? __("Dispatcher running", "pressedmail")
-          : __("Running normally", "pressedmail"),
-      variant: "success" as const,
-    },
-  }[dispatchState];
-  const dispatchNote = {
-    disabled: __(
-      "WP-Cron is switched off on this site (DISABLE_WP_CRON), so WordPress runs no scheduled work at all. Background mail will not start until it is switched back on.",
-      "pressedmail",
-    ),
-    missing: __(
-      "No background task is scheduled right now. Reload to check whether PressedMail re-arms it. If it remains unscheduled, review WordPress cron settings.",
-      "pressedmail",
-    ),
-    noMailbox: __(
-      "Background work starts after a mailbox is connected. No scheduled pass is needed yet.",
-      "pressedmail",
-    ),
-    never: __(
-      "No background pass has completed yet. A site visit may start one if WordPress can reach itself. Reload this page after the next visit to check.",
-      "pressedmail",
-    ),
-    idle:
-      dispatch?.loopback === true
-        ? __(
-            "The last background pass was over three minutes ago. This site can reach itself, so the next visit should start scheduled work and this notice should clear itself after a reload.",
-            "pressedmail",
-          )
-        : __(
-            "The last background pass was over three minutes ago. WordPress starts scheduled work when the site receives traffic. The next visit may run it if the site can reach itself; reload after that visit to check.",
-            "pressedmail",
-          ),
-    blocked:
-      dispatchLastRun === 0
-        ? __(
-            "No background pass has completed, and this site could not reach its own WordPress address. WordPress cannot start scheduled work on a visit. Run one pass now while the loopback issue is investigated.",
-            "pressedmail",
-          )
-        : __(
-            "The last background pass was over three minutes ago and this site could not reach its own WordPress address, so WordPress cannot start its scheduled work on a visit. PressedMail still drains the queue while the app is open. Run one pass now while you investigate the loopback issue.",
-            "pressedmail",
-          ),
-    manual: __(
-      "One background pass completed. Automatic scheduling has not been verified; reload after the next scheduled check to see whether it recovered.",
-      "pressedmail",
-    ),
-    ok: null,
-  }[dispatchState];
-
   const syncOverdue = syncSchedule?.overdue === true;
   const syncLabel = !syncSchedule
     ? __("Unknown", "pressedmail")
@@ -337,41 +119,6 @@ export function SystemDiagnostics() {
         new URL(window.pressedmailPlugin.adminAjaxUrl, window.location.href),
       ).href
     : undefined;
-  // Server side this is the plugin-admin capability; here it only decides
-  // whether to offer a button the server would refuse anyway. The Diagnostics
-  // tab is already a settings-manager screen, so this pair is belt and braces.
-  const canRunPass = window.pressedmailPlugin?.canManageSettings ?? false;
-
-  const runPassNow = async () => {
-    setPassRunning(true);
-    setPassError(null);
-    try {
-      const next = await runBackgroundPassNow();
-      setFreshDispatch(next);
-      setManualPassCompleted(true);
-    } catch (error) {
-      // A refusal says so. A button that quietly does nothing is how a panel
-      // keeps reporting a fault nobody ever actually tried to clear.
-      setPassError(
-        error instanceof PermissionError
-          ? error.message
-          : __(
-              "The background pass could not be run. Reload the page and try again.",
-              "pressedmail",
-            ),
-      );
-    } finally {
-      setPassRunning(false);
-    }
-  };
-
-  useEffect(() => {
-    const tick = () => setNowSeconds(Math.floor(Date.now() / 1000));
-    tick();
-    const timer = window.setInterval(tick, HEARTBEAT_TICK_MS);
-    return () => window.clearInterval(timer);
-  }, []);
-
   // The boot payload carries the diagnostics. If it is missing, say so rather
   // than rendering a blank tab under the header.
   if (!diagnostics) {
@@ -563,194 +310,6 @@ export function SystemDiagnostics() {
         ) : null}
       </SettingsSectionCard>
 
-      {cronWorkers.length > 0 || cronHealth?.wpCronDisabled || dispatch ? (
-        <SettingsSectionCard
-          title={__("Background tasks", "pressedmail")}
-          description={__(
-            "Scheduled mail work: sends, reminders, rules and mailbox sync.",
-            "pressedmail",
-          )}
-          dataTest="scheduled-work-diagnostics">
-          {/*
-            Guarded on `dispatch` itself, not on the derived numbers. A partial
-            upgrade (new admin bundle beside an older server payload) sends no
-            dispatch block, and defaulting that to zero would render "Not
-            scheduled" for a site that is running fine.
-          */}
-          {dispatch ? (
-            <div
-              className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm"
-              data-test="background-task-summary"
-              data-testid="background-task-summary">
-              <Badge variant={dispatchBadge.variant}>
-                {dispatchBadge.label}
-              </Badge>
-              <p className="text-muted-foreground">
-                {__("Last check", "pressedmail")}{" "}
-                <span className="text-foreground">
-                  {dispatchLastRun === 0
-                    ? __("Not yet", "pressedmail")
-                    : nowSeconds > 0
-                      ? formatSince(dispatchLastRun, nowSeconds)
-                      : new Date(dispatchLastRun * 1000).toLocaleTimeString()}
-                </span>
-              </p>
-              <p className="text-muted-foreground">
-                {__("Next check", "pressedmail")}{" "}
-                <span className="text-foreground">
-                  {dispatchNextRun > 0
-                    ? new Date(dispatchNextRun * 1000).toLocaleTimeString()
-                    : __("Not scheduled", "pressedmail")}
-                </span>
-              </p>
-              {/*
-                Only offered while something is actually wrong. Next to a green
-                "Running normally" it would be noise: there is no fault for it to
-                clear, and the dispatcher's own minute is about to pass anyway.
-                The card exists to report trouble, so its action belongs there.
-              */}
-              {canRunPass &&
-              !["ok", "manual", "noMailbox"].includes(dispatchState) ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={passRunning}
-                  onClick={() => void runPassNow()}>
-                  {passRunning
-                    ? __("Running…", "pressedmail")
-                    : __("Run now", "pressedmail")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-
-          {passError ? (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="text-sm">
-                {passError}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {overdueWorkers.length > 0 ? (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription className="text-sm">
-                {sprintf(
-                  _n(
-                    "%d background task is overdue.",
-                    "%d background tasks are overdue.",
-                    overdueWorkers.length,
-                    "pressedmail",
-                  ),
-                  String(overdueWorkers.length),
-                )}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {showDispatchNote && dispatchNote ? (
-            <Alert className="bg-muted/50 border-muted">
-              <Info className="h-4 w-4" />
-              <AlertDescription className="text-sm">
-                {dispatchNote}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {cronWorkers.length > 0 ? (
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  {sprintf(
-                    /* translators: %d: number of scheduled background workers. */
-                    _n(
-                      "Show %d worker",
-                      "Show %d workers",
-                      cronWorkers.length,
-                      "pressedmail",
-                    ),
-                    String(cronWorkers.length),
-                  )}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="overflow-x-auto">
-                  <table
-                    className="w-full text-sm"
-                    data-test="cron-worker-table"
-                    data-testid="cron-worker-table">
-                    <thead>
-                      <tr className="border-b text-left text-xs text-muted-foreground">
-                        <th className="py-2 pr-3 font-medium">
-                          {__("Worker", "pressedmail")}
-                        </th>
-                        <th className="py-2 pr-3 font-medium">
-                          {__("Repeats", "pressedmail")}
-                        </th>
-                        <th className="py-2 pr-3 font-medium">
-                          {__("Next run", "pressedmail")}
-                        </th>
-                        <th className="py-2 font-medium">
-                          {__("Last run", "pressedmail")}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {cronWorkers.map((worker) => (
-                        <tr
-                          key={worker.hook}
-                          className="border-b border-border align-top last:border-b-0"
-                          data-test={`cron-worker-${worker.hook}`}>
-                          <td className="py-2 pr-3">
-                            <span className="break-all font-mono text-xs">
-                              {worker.hook}
-                            </span>
-                            {worker.events > 1 ? (
-                              <span className="ml-2 text-xs text-muted-foreground">
-                                {sprintf(
-                                  __("%d jobs", "pressedmail"),
-                                  String(worker.events),
-                                )}
-                              </span>
-                            ) : null}
-                          </td>
-                          <td className="py-2 pr-3 whitespace-nowrap">
-                            {formatInterval(worker.intervalSeconds)}
-                          </td>
-                          <td className="py-2 pr-3">
-                            {worker.overdue ? (
-                              <Badge
-                                variant="destructive"
-                                className="mb-1 mr-2">
-                                {__("Overdue", "pressedmail")}
-                              </Badge>
-                            ) : null}
-                            <span className="whitespace-nowrap">
-                              {worker.nextRun
-                                ? new Date(
-                                    worker.nextRun * 1000,
-                                  ).toLocaleString()
-                                : __("Unknown", "pressedmail")}
-                            </span>
-                          </td>
-                          <td className="py-2 whitespace-nowrap">
-                            {worker.lastRun
-                              ? new Date(worker.lastRun * 1000).toLocaleString()
-                              : __("Not recorded", "pressedmail")}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CollapsibleContent>
-            </Collapsible>
-          ) : null}
-        </SettingsSectionCard>
-      ) : null}
 
       <div className="grid gap-4">
         <SettingsSectionCard

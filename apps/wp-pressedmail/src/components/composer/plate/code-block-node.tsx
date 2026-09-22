@@ -24,9 +24,11 @@ import {
   CommandItem,
   CommandList,
   Popover,
-  PopoverContent,
   PopoverTrigger,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
 
@@ -116,8 +118,8 @@ function CodeBlockCombobox() {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-[200px] p-0"
+      <PressedPopoverContent
+        size="menu"
         onCloseAutoFocus={() => setSearchValue('')}
       >
         <Command shouldFilter={false}>
@@ -156,7 +158,7 @@ function CodeBlockCombobox() {
             </CommandGroup>
           </CommandList>
         </Command>
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }
@@ -199,6 +201,28 @@ function CopyButton({
 
 export function CodeLineElement(props: PlateElementProps) {
   return <PlateElement {...props} />;
+}
+
+/**
+ * The code block as the Rich text dialect renders it live: the themed
+ * surface of CodeBlockElement without the authoring toolbar. The boundary
+ * CSS (tailwind-base.css pre rule) paints it through --pm-email-code-*,
+ * exactly like the Markdown dialect, so a code block never carries its own
+ * background. Email serialization stays on code-block-node-static.tsx and
+ * its inline literals.
+ */
+export function CodeBlockElementReadOnly(
+  props: PlateElementProps<TCodeBlockElement>,
+) {
+  return (
+    <PlateElement className="py-1" {...props}>
+      <div className="relative rounded-md bg-transparent">
+        <pre className="whitespace-pre-wrap break-words rounded-md border p-8 pr-4 font-mono text-sm leading-[normal] [tab-size:2] print:break-inside-avoid">
+          <code>{props.children}</code>
+        </pre>
+      </div>
+    </PlateElement>
+  );
 }
 
 export function CodeSyntaxLeaf(props: PlateLeafProps<TCodeSyntaxLeaf>) {

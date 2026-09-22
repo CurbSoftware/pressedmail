@@ -27,19 +27,20 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuTrigger,
   Input,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 
 import { appMessage } from '@/context/toast';
 import {
@@ -202,13 +203,13 @@ export function MediaUrlDialog({
 
   return (
     <AlertDialog onOpenChange={onOpenChange} open={open}>
-      <AlertDialogContent className="gap-6">
+      <PressedAlertDialogContent size="paletteForm">
         <MediaUrlDialogContent
           currentConfig={currentConfig}
           nodeType={nodeType}
           setOpen={onOpenChange}
         />
-      </AlertDialogContent>
+      </PressedAlertDialogContent>
     </AlertDialog>
   );
 }
@@ -251,39 +252,37 @@ function MediaUrlDialogContent({
 
   return (
     <>
-      <AlertDialogHeader>
-        <AlertDialogTitle>
-          <AlertDialogTitleRow>
-            <LinkIcon />
-            <span>{currentConfig?.title}</span>
-          </AlertDialogTitleRow>
-        </AlertDialogTitle>
-      </AlertDialogHeader>
+      <PressedAlertDialogHeader
+        title={currentConfig?.title}
+        icon={LinkIcon}
+      />
 
-      <AlertDialogDescription asChild>
-        <div className="w-full space-y-1.5">
-          <label
-            className="text-xs font-medium text-muted-foreground"
-            htmlFor="composer-media-url"
-          >
-            {__('URL', 'pressedmail')}
-          </label>
-          <Input autoComplete="off"
-            autoFocus
-            className="w-full"
-            id="composer-media-url"
-            onChange={(e) => setUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') embedMedia();
-            }}
-            placeholder="https://"
-            type="url"
-            value={url}
-          />
-        </div>
-      </AlertDialogDescription>
+      <PressedOverlayBody>
+        <AlertDialogDescription asChild>
+          <div className="w-full space-y-1.5">
+            <label
+              className="text-xs font-medium text-muted-foreground"
+              htmlFor="composer-media-url"
+            >
+              {__('URL', 'pressedmail')}
+            </label>
+            <Input autoComplete="off"
+              autoFocus
+              className="w-full"
+              id="composer-media-url"
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') embedMedia();
+              }}
+              placeholder="https://"
+              type="url"
+              value={url}
+            />
+          </div>
+        </AlertDialogDescription>
+      </PressedOverlayBody>
 
-      <AlertDialogFooter>
+      <PressedOverlayFooter>
         <AlertDialogCancel>{__('Cancel', 'pressedmail')}</AlertDialogCancel>
         <AlertDialogAction
           onClick={(e) => {
@@ -293,7 +292,7 @@ function MediaUrlDialogContent({
         >
           {__('Insert', 'pressedmail')}
         </AlertDialogAction>
-      </AlertDialogFooter>
+      </PressedOverlayFooter>
     </>
   );
 }

@@ -210,7 +210,6 @@ export interface UseComposeFormReturn {
   subject: string;
   body: string;
   draftDocument?: DraftDocument;
-  draftDocumentExpired: boolean;
   draftDocumentStorageUnavailable: boolean;
   composeSessionVersion: number | null;
   setDraftDocument: (
@@ -980,9 +979,6 @@ export function useComposeForm({
   const draftDocument = isContextMode
     ? composerContext!.composeData.draftDocument
     : localDraftDocument;
-  const draftDocumentExpired = isContextMode
-    ? composerContext!.composeData.draftDocumentExpired === true
-    : false;
   const draftDocumentRef = useRef(draftDocument);
   draftDocumentRef.current = draftDocument;
   const [draftDocumentStorageUnavailable, setDraftDocumentStorageUnavailable] =
@@ -1928,12 +1924,6 @@ export function useComposeForm({
           data?.draft_document_stored === false;
         if (ownsComposeSession(composeSessionVersion)) {
           setDraftDocumentStorageUnavailable(documentNotStored);
-          if (isContextMode) {
-            composerContext!.setComposeData((previous) => ({
-              ...previous,
-              draftDocumentExpired: false,
-            }));
-          }
         }
         if (documentNotStored && !opts?.silent) {
           appMessage(
@@ -2375,13 +2365,7 @@ export function useComposeForm({
         formData.append("is_reply", "true");
       }
 
-      // A copied site keeps Undo Send paused, because the queued send is
-      // unattended work. Send right away instead of queueing a send that cannot
-      // run until an administrator approves this site.
-      const undoSendPaused =
-        window.pressedmailPlugin?.automationPaused === true;
-
-      if (__IS_PRO__ && undoSendEnabled && !undoSendPaused) {
+      if (__IS_PRO__ && undoSendEnabled) {
         if (currentAttachments.length > 0) {
           appMessage(
             __(
@@ -4004,7 +3988,6 @@ export function useComposeForm({
     subject,
     body,
     draftDocument,
-    draftDocumentExpired,
     draftDocumentStorageUnavailable,
     composeSessionVersion,
     setDraftDocument,

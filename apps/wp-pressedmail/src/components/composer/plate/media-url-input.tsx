@@ -6,6 +6,7 @@ import { KEYS } from '@kit/plate';
 import type { TElement } from '@kit/plate';
 import type { PlateEditor } from '@kit/plate/react';
 import { __ } from '@wordpress/i18n';
+import { Input } from '@kit/ui/plugin';
 
 import { cn } from '@/lib/utils';
 
@@ -61,9 +62,10 @@ export function MediaUrlInput({
       <span className="flex text-muted-foreground/80 [&_svg]:size-5">
         {meta.icon}
       </span>
-      <input autoComplete="off"
+      <Input
+        autoComplete="off"
         autoFocus
-        className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="flex-1"
         onChange={(event) => setValue(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') {

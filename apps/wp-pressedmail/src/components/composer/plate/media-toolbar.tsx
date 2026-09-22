@@ -26,9 +26,11 @@ import {
   buttonVariants,
   Popover,
   PopoverAnchor,
-  PopoverContent,
   Separator,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { CaptionButton } from './caption';
 
@@ -72,7 +74,8 @@ export function MediaToolbar({
     <Popover modal={false} open={open}>
       <PopoverAnchor>{children}</PopoverAnchor>
 
-      <PopoverContent
+      <PressedPopoverContent
+        size="menu"
         className="w-auto p-1"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
@@ -114,7 +117,7 @@ export function MediaToolbar({
             </Button>
           </div>
         )}
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

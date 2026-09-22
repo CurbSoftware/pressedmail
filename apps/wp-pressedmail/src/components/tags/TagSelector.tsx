@@ -9,7 +9,7 @@
 import { __, _n, sprintf } from "@wordpress/i18n";
 import { appMessage } from "@/context/toast";
 import React, { useState, useCallback } from "react";
-import { Popover, PopoverArrow, PopoverTrigger } from "@kit/ui/plugin";
+import { Input, Popover, PopoverArrow, PopoverTrigger } from "@kit/ui/plugin";
 import { Tag as TagIcon, Plus, Check, Search } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
@@ -106,18 +106,14 @@ export const TagSelector: React.FC<TagSelectorProps> = ({
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
               size={14}
             />
-            <input
+            <Input
               autoComplete="off"
               type="text"
               aria-label={__("Search tags", "pressedmail")}
               placeholder={__("Search tags...", "pressedmail")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={cn(
-                "w-full pl-8 pr-3 py-1.5 text-sm rounded-md",
-                "bg-muted",
-                "border border-border",
-              )}
+              className="pl-8"
             />
           </div>
         </div>

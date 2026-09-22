@@ -30,12 +30,6 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
   Input,
   Label,
@@ -46,6 +40,12 @@ import {
   SelectValue,
   Switch,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 import {
   setMailboxLockStatus,
@@ -894,22 +894,16 @@ export function SecuritySettingsCard() {
 
       {/* Change passphrase dialog */}
       <AlertDialog open={changeOpen} onOpenChange={setChangeOpen}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow>
-                <Lock />
-                <span>{__("Change your passphrase", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "Changing the passphrase locks every other browser session; only this one stays unlocked.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2">
+        <PressedAlertDialogContent size="paletteForm">
+          <PressedAlertDialogHeader
+            title={__("Change your passphrase", "pressedmail")}
+            icon={Lock}
+            description={__(
+              "Changing the passphrase locks every other browser session; only this one stays unlocked.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayBody className="space-y-2">
             {lockError && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -949,8 +943,8 @@ export function SecuritySettingsCard() {
               aria-label={__("Repeat new passphrase", "pressedmail")}
               data-test="security-lock-change-new-confirm"
             />
-          </div>
-          <AlertDialogFooter>
+          </PressedOverlayBody>
+          <PressedOverlayFooter>
             <AlertDialogCancel disabled={lockBusy}>
               {__("Cancel", "pressedmail")}
             </AlertDialogCancel>
@@ -964,28 +958,23 @@ export function SecuritySettingsCard() {
               }}>
               {__("Change passphrase", "pressedmail")}
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
 
       {/* Disable lock dialog */}
       <AlertDialog open={disableOpen} onOpenChange={setDisableOpen}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow variant="destructive">
-                <Lock />
-                <span>{__("Turn off PressedMail Lock?", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "Your mailbox will open without a passphrase in any logged-in WordPress session. Enter your passphrase to confirm.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2">
+        <PressedAlertDialogContent size="confirmation">
+          <PressedAlertDialogHeader
+            title={__("Turn off PressedMail Lock?", "pressedmail")}
+            icon={Lock}
+            tone="destructive"
+            description={__(
+              "Your mailbox will open without a passphrase in any logged-in WordPress session. Enter your passphrase to confirm.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayBody className="space-y-2">
             {lockError && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -1002,8 +991,8 @@ export function SecuritySettingsCard() {
               aria-label={__("Passphrase", "pressedmail")}
               data-test="security-lock-disable-passphrase"
             />
-          </div>
-          <AlertDialogFooter>
+          </PressedOverlayBody>
+          <PressedOverlayFooter>
             <AlertDialogCancel disabled={lockBusy}>
               {__("Cancel", "pressedmail")}
             </AlertDialogCancel>
@@ -1016,33 +1005,26 @@ export function SecuritySettingsCard() {
               }}>
               {__("Turn off", "pressedmail")}
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
 
       {/* Email-cache confirm dialog */}
       <AlertDialog open={cacheConfirmOpen} onOpenChange={setCacheConfirmOpen}>
-        <AlertDialogContent
-          className="sm:max-w-md"
+        <PressedAlertDialogContent
+          size="confirmation"
           data-test="cache-email-body-confirm"
           data-testid="cache-email-body-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow variant="destructive">
-                <Trash2 />
-                <span>
-                  {__("Turn off email content caching?", "pressedmail")}
-                </span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "Turning this off deletes the email content already cached for your account and loads each message live from your mail server. This can make opening emails slower. You can turn it back on at any time.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+          <PressedAlertDialogHeader
+            title={__("Turn off email content caching?", "pressedmail")}
+            icon={Trash2}
+            tone="destructive"
+            description={__(
+              "Turning this off deletes the email content already cached for your account and loads each message live from your mail server. This can make opening emails slower. You can turn it back on at any time.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayFooter>
             <AlertDialogCancel
               onClick={() => setCacheConfirmOpen(false)}
               disabled={cacheBusy}
@@ -1061,8 +1043,8 @@ export function SecuritySettingsCard() {
               }}>
               {__("Turn off and clear cache", "pressedmail")}
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
     </>
   );

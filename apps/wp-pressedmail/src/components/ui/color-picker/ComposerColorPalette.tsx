@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { __ } from "@wordpress/i18n";
 import { Plus, X } from "lucide-react";
 
-import { Button } from "@kit/ui/plugin";
+import { Button, Input } from "@kit/ui/plugin";
 
 import {
   COMPOSER_CUSTOM_COLOR_COLUMNS,
@@ -21,12 +21,12 @@ import {
   isComposerBackgroundColor,
   normalizeComposerBackgroundColor,
 } from "@/lib/composer-background-color";
+import { isHexColor } from "@/lib/hex-color";
 import { isPaletteDisabled } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 
 import { PalettePicker } from "./PalettePicker";
 
-const VALID_HEX = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/;
 const DEFAULT_DRAFT = "#000000";
 export type ComposerColorPaletteMode = "picker" | "preview" | "manager";
 export type ComposerCustomEditorLayout = "default" | "background";
@@ -77,7 +77,7 @@ export function pushRecentColor(
   cap: number = COMPOSER_RECENT_COLOR_MAX,
 ): string[] {
   const normalized = hex.trim().toLowerCase();
-  if (!VALID_HEX.test(normalized)) {
+  if (!isHexColor(normalized)) {
     return [...list];
   }
   const filtered = list.filter((entry) => entry !== normalized);
@@ -202,7 +202,7 @@ export function ComposerColorPalette({
   const draftValid =
     (isBackgroundEditor
       ? Boolean(normalizedBackgroundDraft)
-      : VALID_HEX.test(normalizedDraft)) &&
+      : isHexColor(normalizedDraft)) &&
     // The settings manager curates the list, so a duplicate there is a real
     // mistake worth refusing. A picker is being asked for a colour: if the user
     // lands on one already saved, apply it rather than disabling Save with no
@@ -506,16 +506,16 @@ export function ComposerColorPalette({
                   <span className="font-medium">
                     {__("Hex value", "pressedmail")}
                   </span>
-                  <input
+                  <Input
                     autoComplete="off"
                     type="text"
                     aria-label={__("Hex value", "pressedmail")}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
-                    className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-xs"
+                    className="flex-1 px-2 text-xs"
                   />
                 </label>
-                {!VALID_HEX.test(normalizedDraft) &&
+                {!isHexColor(normalizedDraft) &&
                   draft !== DEFAULT_DRAFT && (
                     <p className="text-xs text-destructive">
                       {__(
@@ -524,7 +524,7 @@ export function ComposerColorPalette({
                       )}
                     </p>
                   )}
-                {VALID_HEX.test(normalizedDraft) &&
+                {isHexColor(normalizedDraft) &&
                   duplicateIndex !== -1 &&
                   duplicateIndex !== editingIndex && (
                     <p className="text-xs text-destructive">

@@ -15,14 +15,13 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 
 export interface ConfirmationPanelProps {
   /** Whether the panel is open */
@@ -85,20 +84,21 @@ export function ConfirmationPanel({
 
   return (
     <AlertDialog open={open} onOpenChange={handleOpenChange}>
-      <AlertDialogContent
-        className="max-w-md"
+      <PressedAlertDialogContent
+        size="confirmation"
         onCloseAutoFocus={onCloseAutoFocus}>
-        <AlertDialogHeader>
-          <AlertDialogTitle>
-            <AlertDialogTitleRow
-              variant={variant === "destructive" ? "destructive" : "default"}>
+        {/* `icon` is a node, not a component, so it rides inside the title. */}
+        <PressedAlertDialogHeader
+          title={
+            <span className="flex min-w-0 items-center gap-2">
               {leadingIcon}
               <span>{title}</span>
-            </AlertDialogTitleRow>
-          </AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
+            </span>
+          }
+          tone={variant === "destructive" ? "destructive" : "default"}
+          description={description}
+        />
+        <PressedOverlayFooter>
           {/* Cancel auto-closes via the primitive, which fires handleOpenChange
               → onCancel. Do not also wire onClick here or it double-fires. */}
           <AlertDialogCancel disabled={loading}>{cancelText}</AlertDialogCancel>
@@ -115,8 +115,8 @@ export function ConfirmationPanel({
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {confirmText}
           </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+        </PressedOverlayFooter>
+      </PressedAlertDialogContent>
     </AlertDialog>
   );
 }

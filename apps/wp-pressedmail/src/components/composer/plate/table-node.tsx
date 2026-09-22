@@ -93,6 +93,7 @@ import {
   PopoverAnchor,
   PopoverContent,
 } from '@kit/ui/plugin';
+import { PressedPopoverContent } from '@/components/ui/pressed-overlay';
 import { cn } from '@/lib/utils';
 
 import { blockSelectionVariants } from './block-selection';
@@ -997,14 +998,15 @@ function TableFloatingToolbarContent({
   onSplit?: () => void;
 }) {
   return (
-    <PopoverContent
-      asChild
+    <PressedPopoverContent
+      size="menu"
+      className="w-auto max-w-[80vw] p-1 print:hidden"
       contentEditable={false}
       onOpenAutoFocus={(e) => e.preventDefault()}
       {...props}
     >
       <Toolbar
-        className="scrollbar-hide flex w-auto max-w-[80vw] flex-row overflow-x-auto rounded-md border bg-popover p-1 shadow-md print:hidden"
+        className="scrollbar-hide flex w-auto flex-row overflow-x-auto"
         contentEditable={false}
       >
         <ToolbarGroup>
@@ -1106,7 +1108,7 @@ function TableFloatingToolbarContent({
           </ToolbarGroup>
         )}
       </Toolbar>
-    </PopoverContent>
+    </PressedPopoverContent>
   );
 }
 

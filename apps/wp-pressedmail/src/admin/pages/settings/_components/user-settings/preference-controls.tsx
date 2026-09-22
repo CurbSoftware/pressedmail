@@ -78,7 +78,7 @@ export function PreferenceSelectRow({
           onValueChange={onValueChange}
           disabled={disabled}>
           <SelectTrigger
-            className="min-h-11 w-full max-w-full @3xl/preferences-nav:min-h-9 @3xl/preferences-nav:w-fit @3xl/preferences-nav:max-w-xs"
+            className="w-full max-w-full @3xl/preferences-nav:w-fit @3xl/preferences-nav:max-w-xs"
             data-test={dataTest}
             aria-label={String(title)}>
             <SelectValue placeholder={__("Select…", "pressedmail")} />

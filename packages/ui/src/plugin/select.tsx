@@ -41,8 +41,8 @@ const SelectTrigger: React.FC<
             // UNLAYERED: an unlayered normal declaration beats anything in Tailwind's
             // @layer utilities no matter how specific, so a plain `min-h-11` silently
             // resolves to 40px. An important declaration is the one thing that wins.
-            // The same rule is why `py-1` computes to zero padding in wp-admin.
-            'border-input bg-card text-foreground placeholder:text-muted-foreground/70 hover:bg-card focus-visible:border-ring focus-visible:ring-ring/30 flex h-9 w-full items-center justify-between rounded-md border px-3 py-1 text-sm whitespace-nowrap shadow-2xs transition-[border-color,box-shadow,color,background-color] outline-none focus-visible:ring-[2px] disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-11! [&>span]:line-clamp-1',
+            // The same rule is why `py-0.5` computes to zero padding in wp-admin.
+            'border-input bg-card text-foreground placeholder:text-muted-foreground/70 hover:bg-card focus-visible:border-ring focus-visible:ring-ring/30 flex h-control w-full items-center justify-between rounded-md border px-3 py-0.5 text-sm whitespace-nowrap shadow-2xs transition-[border-color,box-shadow,color,background-color] outline-none focus-visible:ring-[2px] disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-h-11! [&>span]:line-clamp-1',
             className,
           )
     }

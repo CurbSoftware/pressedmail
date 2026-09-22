@@ -17,7 +17,10 @@ import { useEditorRef } from '@kit/plate/react';
 import { BaselineIcon, Highlighter } from 'lucide-react';
 
 import { __ } from '@wordpress/i18n';
-import { Popover, PopoverContent, PopoverTrigger } from '@kit/ui/plugin';
+import { Popover, PopoverTrigger } from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import {
   COMPOSER_TOOLBAR_BUTTON_CLASS,
@@ -42,13 +45,13 @@ export function TextColorToolbarButton() {
           <BaselineIcon />
         </ToolbarButton>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-2">
+      <PressedPopoverContent size="menu" align="start" className="w-auto p-2">
         <ComposerColorPalette
           level="reduced"
           onPick={(hex) => { editor.tf.addMark('color', hex); editor.tf.focus(); setOpen(false); }}
           onClear={() => { editor.tf.removeMarks('color'); editor.tf.focus(); setOpen(false); }}
         />
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }
@@ -68,13 +71,13 @@ export function HighlightColorToolbarButton() {
           <Highlighter />
         </ToolbarButton>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-2">
+      <PressedPopoverContent size="menu" align="start" className="w-auto p-2">
         <ComposerColorPalette
           level="reduced"
           onPick={(hex) => { editor.tf.addMark('backgroundColor', hex); editor.tf.focus(); setOpen(false); }}
           onClear={() => { editor.tf.removeMarks('backgroundColor'); editor.tf.focus(); setOpen(false); }}
         />
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }

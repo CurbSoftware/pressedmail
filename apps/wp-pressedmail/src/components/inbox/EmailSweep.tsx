@@ -807,7 +807,7 @@ export function EmailSweep({
               <SelectTrigger
                 data-test="sweep-folder-select-trigger"
                 data-testid="sweep-folder-select-trigger"
-                className="h-8 w-full bg-card text-foreground">
+                className="w-full bg-card text-foreground">
                 <SelectValue placeholder={__("Choose folder", "pressedmail")} />
               </SelectTrigger>
               <SelectContent

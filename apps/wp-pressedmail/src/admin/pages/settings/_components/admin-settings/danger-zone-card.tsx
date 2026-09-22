@@ -6,17 +6,16 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   AlertDescription,
   AlertTitle,
   Label,
   Switch,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import {
   SettingsRow,
   SettingsSectionCard,
@@ -109,27 +108,20 @@ export function DangerZoneCard({
       )}
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialogContent
-          className="sm:max-w-md"
+        <PressedAlertDialogContent
+          size="confirmation"
           data-test="danger-zone-confirm"
           data-testid="danger-zone-confirm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow variant="destructive">
-                <Trash2 />
-                <span>
-                  {__("Delete plugin data on uninstall?", "pressedmail")}
-                </span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "This can permanently delete PressedMail accounts, messages, contacts, calendars, and settings when the plugin is removed.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+          <PressedAlertDialogHeader
+            title={__("Delete plugin data on uninstall?", "pressedmail")}
+            icon={Trash2}
+            tone="destructive"
+            description={__(
+              "This can permanently delete PressedMail accounts, messages, contacts, calendars, and settings when the plugin is removed.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayFooter>
             <AlertDialogCancel
               onClick={() => setConfirmOpen(false)}
               data-test="danger-zone-confirm-cancel"
@@ -143,8 +135,8 @@ export function DangerZoneCard({
               onClick={handleConfirmEnable}>
               {__("Are you sure?", "pressedmail")}
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
     </SettingsSectionCard>
   );

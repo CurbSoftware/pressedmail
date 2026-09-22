@@ -5,11 +5,6 @@ import { Sliders } from "lucide-react";
 import {
   Button,
   Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
   Label,
   Switch,
   Tabs,
@@ -17,6 +12,11 @@ import {
   TabsTrigger,
   cn,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useComposerPalettesEnabled } from "@/hooks/useComposerPalettesEnabled";
 import type {
@@ -233,27 +233,24 @@ export function ComposerToolbarCustomizeDialog({
         </Button>
       )}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent
-          className="h-[min(82vh,42rem)] max-w-[min(92vw,42rem)] grid-rows-[2rem_auto_minmax(0,1fr)_auto] overflow-x-hidden"
+        <PressedDialogContent
+          size="compactForm"
+          className="h-[min(82vh,42rem)] grid-rows-[auto_auto_minmax(0,1fr)_auto]"
           data-test="composer-toolbar-customize-dialog">
-          <DialogHeader className="min-h-0 overflow-hidden">
-            <DialogTitle>
-              <DialogTitleRow>
-                <Sliders />
-                <span>
-                  {isMobileTarget
-                    ? __("Customize mobile toolbar", "pressedmail")
-                    : __("Customize desktop toolbar", "pressedmail")}
-                </span>
-              </DialogTitleRow>
-            </DialogTitle>
-          </DialogHeader>
+          <PressedDialogHeader
+            icon={Sliders}
+            title={
+              isMobileTarget
+                ? __("Customize mobile toolbar", "pressedmail")
+                : __("Customize desktop toolbar", "pressedmail")
+            }
+          />
           <Tabs
             value={selectedTarget}
             onValueChange={(value) =>
               setSelectedTarget(value === "mobile" ? "mobile" : "desktop")
             }
-            className="min-w-0">
+            className="min-w-0 px-6 pt-5">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="desktop">
                 {__("Desktop", "pressedmail")}
@@ -265,7 +262,7 @@ export function ComposerToolbarCustomizeDialog({
           </Tabs>
           <div
             data-test="composer-toolbar-customize-grid"
-            className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden overflow-y-auto pr-1 sm:grid-cols-2">
+            className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden overflow-y-auto px-6 py-4 sm:grid-cols-2">
             {groupColumns.map((columnGroups, columnIndex) => (
               <div key={columnIndex} className="min-w-0 space-y-4">
                 {columnGroups.map((group) => (
@@ -317,7 +314,7 @@ export function ComposerToolbarCustomizeDialog({
               </div>
             ))}
           </div>
-          <DialogFooter>
+          <PressedOverlayFooter>
             <Button type="button" variant="outline" onClick={resetToDefault}>
               {isMobileTarget
                 ? __("Reset Mobile", "pressedmail")
@@ -326,8 +323,8 @@ export function ComposerToolbarCustomizeDialog({
             <Button type="button" onClick={() => setOpen(false)}>
               {__("Done", "pressedmail")}
             </Button>
-          </DialogFooter>
-        </DialogContent>
+          </PressedOverlayFooter>
+        </PressedDialogContent>
       </Dialog>
     </>
   );

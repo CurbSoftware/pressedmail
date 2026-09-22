@@ -56,8 +56,6 @@ export interface EmailMessage {
   textBody?: string;
   /** Site-local editor state for this exact IMAP draft. Never part of MIME. */
   draftDocument?: DraftDocument;
-  /** The site copy of this draft's editor structure passed its retention window. */
-  draftDocumentExpired?: boolean;
   /** Normalized MIME body kind (camelCase and REST-compatible snake_case). */
   contentType?: EmailContentType;
   content_type?: EmailContentType;
@@ -225,7 +223,6 @@ export interface ComposeData {
   subject: string;
   body: string;
   draftDocument?: DraftDocument;
-  draftDocumentExpired?: boolean;
   /** MIME body mode. Missing legacy drafts are treated as HTML. */
   contentType?: EmailContentType;
   /** Persisted compose intent so forwards do not reopen as new messages. */

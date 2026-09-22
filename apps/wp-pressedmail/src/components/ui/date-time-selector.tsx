@@ -265,7 +265,7 @@ function TimeControls({
           value={hourValue}
           onValueChange={handleHourChange}
           disabled={disabled}>
-          <SelectTrigger className="h-8 w-[4.5rem]">
+          <SelectTrigger className="w-[4.5rem]">
             <SelectValue placeholder={__("HH", "pressedmail")} />
           </SelectTrigger>
           <SelectContent>
@@ -285,7 +285,7 @@ function TimeControls({
           value={minuteValue}
           onValueChange={handleMinuteChange}
           disabled={disabled}>
-          <SelectTrigger className="h-8 w-[4.5rem]">
+          <SelectTrigger className="w-[4.5rem]">
             <SelectValue placeholder={__("MM", "pressedmail")} />
           </SelectTrigger>
           <SelectContent>
@@ -306,7 +306,7 @@ function TimeControls({
             onValueChange={handleModeChange}
             disabled={disabled}>
             <SelectTrigger
-              className="h-8 w-[4.5rem]"
+              className="w-[4.5rem]"
               data-test="time-selector-mode-trigger"
               data-testid="time-selector-mode-trigger">
               <SelectValue placeholder={__("Mode", "pressedmail")} />

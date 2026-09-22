@@ -12,12 +12,12 @@
 import { useCallback } from "react";
 
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { isHexColor } from "@/lib/hex-color";
 import { TAG_COLORS } from "@/types/tags";
 import { normalizeKeyword } from "./keyword-utils";
 
 export type FlagColorMap = Record<string, string>;
 
-const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const FALLBACK_COLOR = "var(--muted-foreground)";
 
 function stableIndex(name: string): number {
@@ -46,7 +46,7 @@ export function resolveFlagColor(
 ): string {
   const normalized = normalizeKeyword(name);
   const explicit = colors?.[normalized]?.trim();
-  if (explicit && HEX_RE.test(explicit)) {
+  if (explicit && isHexColor(explicit)) {
     return explicit;
   }
   return fallbackFlagColor(name);
@@ -94,7 +94,7 @@ export function normalizeFlagColorMap(value: unknown): FlagColorMap {
       continue;
     }
     const hex = raw.trim().toLowerCase();
-    if (HEX_RE.test(hex)) {
+    if (isHexColor(hex)) {
       out[name] = hex;
     }
   }
@@ -115,7 +115,7 @@ export function useFlagColors() {
     (name: string, hex: string) => {
       const normalized = normalizeKeyword(name);
       const value = hex.trim().toLowerCase();
-      if (!normalized || !HEX_RE.test(value)) {
+      if (!normalized || !isHexColor(value)) {
         return Promise.resolve(false);
       }
       return updatePreference("contact_flag_colors", {

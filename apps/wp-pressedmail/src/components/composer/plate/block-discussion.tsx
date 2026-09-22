@@ -28,9 +28,11 @@ import {
   Button,
   Popover,
   PopoverAnchor,
-  PopoverContent,
   PopoverTrigger,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 import { cn } from '@/lib/utils';
 
 import { commentPlugin } from './comment-kit';
@@ -167,9 +169,10 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
           />
         )}
 
-        <PopoverContent
+        <PressedPopoverContent
+          size="paletteForm"
           align="center"
-          className="max-h-[min(50dvh,calc(-24px+var(--radix-popper-available-height)))] w-[380px] min-w-[130px] max-w-[calc(100vw-24px)] overflow-y-auto p-0"
+          className="max-h-[min(50dvh,calc(-24px+var(--radix-popper-available-height)))]"
           onCloseAutoFocus={(e) => e.preventDefault()}
           onOpenAutoFocus={(e) => e.preventDefault()}
           side="bottom"
@@ -209,7 +212,7 @@ const BlockCommentContent = ({ children, element }: PlateElementProps) => {
               )}
             </>
           )}
-        </PopoverContent>
+        </PressedPopoverContent>
 
         {totalCount > 0 && (
           <div className="relative left-0 size-0 select-none">

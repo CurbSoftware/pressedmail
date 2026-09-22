@@ -72,6 +72,12 @@ let mountCount = 0;
 let consecutiveFailures = 0;
 let consecutiveTimeouts = 0;
 let overdueStreak = 0;
+/**
+ * Depth the app's own last FULL drain left behind, or null when that drain could not
+ * answer. Read by the cron-health chip so it reports work the app has already tried to
+ * clear, not a count that only reflects how late wp-cron's wakes are.
+ */
+let lastDrainOverdue: number | null = null;
 let activeTickCount = 0;
 
 /**
@@ -200,15 +206,23 @@ async function runTick(): Promise<void> {
   consecutiveTimeouts = 0;
   connectionState.clearSessionError();
 
-  // Cron-health hint: a sustained overdue backlog (>= threshold on 2 consecutive ticks) means
-  // wp-cron's loopback is starved. Surface the info chip. Any drop clears it.
+  // Cron-health chip: it means work PressedMail owes you is not getting done. The count the
+  // server reports already excludes dispatcher wakes that nothing can drain, so a depth
+  // at/over the threshold is real queued work. On top of that the app must have run its OWN
+  // full drain and still been left with the same backlog: a backlog the drain is relieving
+  // is progress, and wp-cron being late on a site that is keeping up is not a fault either.
   if (advance.overdueJobs >= OVERDUE_HINT_THRESHOLD) {
     overdueStreak += 1;
-    if (overdueStreak >= OVERDUE_HINT_TICKS) {
+    if (
+      overdueStreak >= OVERDUE_HINT_TICKS &&
+      lastDrainOverdue !== null &&
+      lastDrainOverdue >= OVERDUE_HINT_THRESHOLD
+    ) {
       connectionState.markSyncDelayed(BACKGROUND_DELAYED_HINT);
     }
   } else {
     overdueStreak = 0;
+    lastDrainOverdue = null;
     connectionState.clearSyncDelayed();
   }
 
@@ -224,7 +238,10 @@ async function runTick(): Promise<void> {
     advance.remaining === 0 ||
     (active && activeTickCount % PROCESS_QUEUE_EVERY === 0);
   if (shouldDrain) {
-    await processQueueSync();
+    const drained = await processQueueSync();
+    if (drained !== null) {
+      lastDrainOverdue = drained;
+    }
   }
 
   schedule(active ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);

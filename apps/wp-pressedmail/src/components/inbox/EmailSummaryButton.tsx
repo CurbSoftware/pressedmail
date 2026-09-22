@@ -11,14 +11,14 @@ import { EmailSummaryMarkdown } from "./EmailSummaryMarkdown";
 import {
   Button,
   Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTitleRow,
   DialogTrigger,
 } from "@kit/ui/plugin";
+import {
+  PressedDialogContent,
+  PressedDialogHeader,
+  PressedOverlayBody,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 
 /**
  * Copies the raw markdown summary and flips to a "Copied" confirmation for a
@@ -139,28 +139,26 @@ export function EmailSummaryButton({
           <SummaryMailIcon className="h-4 w-4 text-primary" />
         </Button>
       </DialogTrigger>
-      <DialogContent
-        className="sm:max-w-lg"
+      <PressedDialogContent
+        size="compactForm"
         onClick={(event) => event.stopPropagation()}>
-        <DialogHeader>
-          <DialogTitle>
-            <DialogTitleRow>
-              <Sparkles />
-              <span>{__("Email summary", "pressedmail")}</span>
-            </DialogTitleRow>
-          </DialogTitle>
-          <DialogDescription>{subject}</DialogDescription>
-        </DialogHeader>
-        <div
-          data-test="email-summary-body"
-          data-testid="email-summary-body"
-          className="max-h-[60vh] overflow-y-auto rounded-lg border border-primary/20 bg-muted/40 p-4">
-          <EmailSummaryMarkdown markdown={record.summary} />
-        </div>
-        <DialogFooter>
+        <PressedDialogHeader
+          title={__("Email summary", "pressedmail")}
+          icon={Sparkles}
+          description={subject}
+        />
+        <PressedOverlayBody>
+          <div
+            data-test="email-summary-body"
+            data-testid="email-summary-body"
+            className="max-h-[60vh] overflow-y-auto rounded-lg border border-primary/20 bg-muted/40 p-4">
+            <EmailSummaryMarkdown markdown={record.summary} />
+          </div>
+        </PressedOverlayBody>
+        <PressedOverlayFooter>
           <CopySummaryButton summary={record.summary} />
-        </DialogFooter>
-      </DialogContent>
+        </PressedOverlayFooter>
+      </PressedDialogContent>
     </Dialog>
   );
 }

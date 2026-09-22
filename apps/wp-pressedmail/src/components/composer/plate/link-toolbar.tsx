@@ -38,8 +38,10 @@ const popoverVariants = cva(
   'z-50 w-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none',
 );
 
+// The plugin Input's class string minus its size (h-control): the two fields
+// sit in a fixed 330px popover, so only the box height differs from Input.
 const inputVariants = cva(
-  'flex h-[28px] w-full rounded-md border-none bg-transparent px-1.5 py-1 text-base placeholder:text-muted-foreground md:text-sm',
+  'border-input bg-background text-foreground placeholder:text-muted-foreground/70 dark:bg-input/30 dark:placeholder:text-muted-foreground/60 focus-visible:border-ring flex w-full min-w-0 rounded-md border px-3 py-0.5 text-sm shadow-xs transition-[border-color,box-shadow,color,background-color] outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50',
 );
 
 export function LinkFloatingToolbar({

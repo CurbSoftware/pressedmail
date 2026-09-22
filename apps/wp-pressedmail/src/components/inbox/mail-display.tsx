@@ -82,15 +82,14 @@ import type { Tag } from "@/types/tags";
 import {
   AlertDialog,
   AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTitleRow,
   Button,
   Separator,
 } from "@kit/ui/plugin";
+import {
+  PressedAlertDialogContent,
+  PressedAlertDialogHeader,
+  PressedOverlayFooter,
+} from "@/components/ui/pressed-overlay";
 type AttachmentLike = EmailAttachment & {
   content?: string;
   mime?: string;
@@ -1430,25 +1429,19 @@ export function MailDisplay({
         onConfirm={handleRemoveSenderFromContacts}
       />
       <AlertDialog open={manageSummaryOpen} onOpenChange={setManageSummaryOpen}>
-        <AlertDialogContent
+        <PressedAlertDialogContent
+          size="confirmation"
           role="dialog"
-          aria-label={__("Manage AI summary", "pressedmail")}
-          className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              <AlertDialogTitleRow>
-                <Sparkles />
-                <span>{__("Manage AI summary", "pressedmail")}</span>
-              </AlertDialogTitleRow>
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {__(
-                "This email already has an AI summary. Choose how to handle the current summary.",
-                "pressedmail",
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
+          aria-label={__("Manage AI summary", "pressedmail")}>
+          <PressedAlertDialogHeader
+            title={__("Manage AI summary", "pressedmail")}
+            icon={Sparkles}
+            description={__(
+              "This email already has an AI summary. Choose how to handle the current summary.",
+              "pressedmail",
+            )}
+          />
+          <PressedOverlayFooter>
             <AlertDialogCancel disabled={summaryMutationPending}>
               {__("Cancel", "pressedmail")}
             </AlertDialogCancel>
@@ -1472,8 +1465,8 @@ export function MailDisplay({
               ) : null}
               {__("Overwrite", "pressedmail")}
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
+          </PressedOverlayFooter>
+        </PressedAlertDialogContent>
       </AlertDialog>
 
       <ImportIcsPreview

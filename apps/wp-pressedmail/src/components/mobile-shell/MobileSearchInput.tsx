@@ -4,6 +4,8 @@ import * as React from "react";
 import { __ } from "@wordpress/i18n";
 import { Search, X } from "lucide-react";
 
+import { Button, Input } from "@kit/ui/plugin";
+
 import { cn } from "@/lib/utils";
 
 export interface MobileSearchInputProps {
@@ -24,10 +26,9 @@ export interface MobileSearchInputProps {
 }
 
 /**
- * Shared phone-shell search field. A fixed leading icon slot plus padded input
- * means the icon never overlaps the placeholder or typed text (the recurring
- * mobile bug), and the optional trailing clear button reserves its own column.
- * Reuses theme tokens only, no bespoke styling.
+ * The one phone search field: the shared `Input` (which already carries the
+ * 44px touch floor) with a leading icon column and an optional clear button.
+ * Both are padded for, so neither overlaps the placeholder or typed text.
  */
 export function MobileSearchInput({
   value,
@@ -51,10 +52,10 @@ export function MobileSearchInput({
         {label}
       </label>
       <Search
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
         aria-hidden="true"
       />
-      <input
+      <Input
         autoComplete="off"
         id={inputId}
         ref={inputRef}
@@ -64,24 +65,18 @@ export function MobileSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className={cn(
-          "h-11 w-full rounded-full border border-border bg-card pl-10 text-sm leading-none outline-none placeholder:text-muted-foreground",
-          showClear ? "pr-10" : "pr-4",
-        )}
+        className={cn("pl-10", showClear && "pr-10")}
       />
       {showClear ? (
-        <button
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           aria-label={__("Clear search", "pressedmail")}
           onClick={onClear}
-          className={cn(
-            "pm-no-tap-highlight absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground active:bg-muted",
-            // Visually a 28px circle, but a thumb gets the full 44px: the
-            // pseudo-element grows the target without growing the field.
-            "after:absolute after:-inset-2 after:content-['']",
-          )}>
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
+          className="pm-no-tap-highlight absolute right-1 top-1/2 -translate-y-1/2 after:absolute after:-inset-2 after:content-['']">
+          <X aria-hidden="true" />
+        </Button>
       ) : null}
     </div>
   );

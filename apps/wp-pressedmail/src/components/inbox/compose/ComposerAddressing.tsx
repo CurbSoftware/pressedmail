@@ -1,8 +1,9 @@
 /**
  * ComposerAddressing: Addressing section for the email composer.
  *
- * Full-width recipient fields with inline Cc and Bcc text toggles, the way
- * mail clients show them, so they read as words rather than glyphs. Each
+ * Recipient rows with inline Cc and Bcc text toggles, the way mail clients
+ * show them, so they read as words rather than glyphs. The row grid itself
+ * (label | field | actions) lives in RecipientInput. Each
  * toggle is a disclosure button: its name stays "Cc" or "Bcc" and
  * aria-expanded carries the state, so a screen reader never hears a name that
  * contradicts it.
@@ -113,7 +114,7 @@ export function ComposerAddressing({
                     aria-expanded={showCc}
                     aria-controls={showCc ? ccFieldId : undefined}
                     data-test="toggle-cc-button"
-                    className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
+                    className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowCcChange(!showCc);
@@ -137,7 +138,7 @@ export function ComposerAddressing({
                     aria-expanded={showBcc}
                     aria-controls={showBcc ? bccFieldId : undefined}
                     data-test="toggle-bcc-button"
-                    className="h-7 w-7 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
+                    className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-xs font-medium text-muted-foreground aria-expanded:text-foreground"
                     onClick={(e) => {
                       e.stopPropagation();
                       onShowBccChange(!showBcc);

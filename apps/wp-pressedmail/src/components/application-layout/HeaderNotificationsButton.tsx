@@ -26,10 +26,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   toast,
 } from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import {
@@ -156,7 +158,7 @@ export function HeaderNotificationsButton({
           </PopoverTrigger>
         </PressedTooltip>
 
-        <PopoverContent align="end" className="w-96 p-0">
+        <PressedPopoverContent size="paletteForm" align="end">
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div>
               <p className="text-sm font-semibold">{label}</p>
@@ -317,7 +319,7 @@ export function HeaderNotificationsButton({
               ))}
             </ul>
           )}
-        </PopoverContent>
+        </PressedPopoverContent>
       </Popover>
 
       <ConfirmationPanel

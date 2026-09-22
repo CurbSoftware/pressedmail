@@ -9,6 +9,14 @@
 import React, { useState, useCallback, useMemo, useRef } from "react";
 import { __ } from "@wordpress/i18n";
 import { Loader2, Save, X, AlertCircle } from "lucide-react";
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Input,
+  Label,
+  Switch,
+} from "@kit/ui/plugin";
 import type {
   Signature,
   CreateSignatureData,
@@ -120,12 +128,12 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
   );
 
   return (
-    <div className="pm-form-card">
+    <div className="w-full rounded-lg border border-border bg-card text-card-foreground">
       {guardDialog}
       <form onSubmit={handleSubmit}>
         {/* Header */}
         <div className="px-6 py-3 border-b border-border">
-          <h3 className="pm-form-title">
+          <h3 className="text-lg font-semibold text-foreground">
             {isEditing
               ? __("Edit Signature", "pressedmail")
               : __("Create Signature", "pressedmail")}
@@ -133,12 +141,12 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
         </div>
 
         {/* Content */}
-        <div className="pm-form-content">
+        <div className="space-y-6 p-6">
           {error && (
-            <div className="pm-alert-error">
+            <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
-              <span>{error}</span>
-            </div>
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           )}
 
           <div
@@ -162,19 +170,16 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               className="space-y-4 rounded-md border border-border bg-card p-4"
               data-test="signature-settings-card"
               data-testid="signature-settings-card">
-              <label className="pm-label">
-                {__("Settings", "pressedmail")}
-              </label>
+              <Label>{__("Settings", "pressedmail")}</Label>
 
               {/* Signature Name */}
               <div className="space-y-2">
-                <label htmlFor="signature-name" className="pm-label">
+                <Label htmlFor="signature-name">
                   {__("Signature Name", "pressedmail")}
-                </label>
-                <input
+                </Label>
+                <Input
                   autoComplete="off"
                   id="signature-name"
-                  type="text"
                   placeholder={__(
                     "e.g., Work Signature, Personal",
                     "pressedmail",
@@ -184,7 +189,6 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
                   disabled={saving}
                   data-test="signature-name-input"
                   data-testid="signature-name-input"
-                  className="pm-input"
                 />
               </div>
 
@@ -194,93 +198,74 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
               {/* New Messages */}
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <label
-                    htmlFor="include-new"
-                    className="pm-label cursor-pointer">
+                  <Label htmlFor="include-new" className="cursor-pointer">
                     {__("New Messages", "pressedmail")}
-                  </label>
+                  </Label>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
+                <Switch
                   id="include-new"
-                  aria-checked={includeForNew}
-                  onClick={() => setIncludeForNew(!includeForNew)}
+                  checked={includeForNew}
+                  onCheckedChange={setIncludeForNew}
                   disabled={saving}
                   data-test="signature-include-new"
                   data-testid="signature-include-new"
-                  className="pm-toggle">
-                  <span className="pm-toggle-thumb" />
-                </button>
+                />
               </div>
 
               {/* Replies */}
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <label
-                    htmlFor="include-reply"
-                    className="pm-label cursor-pointer">
+                  <Label htmlFor="include-reply" className="cursor-pointer">
                     {__("Replies", "pressedmail")}
-                  </label>
+                  </Label>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
+                <Switch
                   id="include-reply"
-                  aria-checked={includeForReply}
-                  onClick={() => setIncludeForReply(!includeForReply)}
+                  checked={includeForReply}
+                  onCheckedChange={setIncludeForReply}
                   disabled={saving}
                   data-test="signature-include-reply"
                   data-testid="signature-include-reply"
-                  className="pm-toggle">
-                  <span className="pm-toggle-thumb" />
-                </button>
+                />
               </div>
 
               {/* Forwards */}
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <label
-                    htmlFor="include-forward"
-                    className="pm-label cursor-pointer">
+                  <Label htmlFor="include-forward" className="cursor-pointer">
                     {__("Forwards", "pressedmail")}
-                  </label>
+                  </Label>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
+                <Switch
                   id="include-forward"
-                  aria-checked={includeForForward}
-                  onClick={() => setIncludeForForward(!includeForForward)}
+                  checked={includeForForward}
+                  onCheckedChange={setIncludeForForward}
                   disabled={saving}
                   data-test="signature-include-forward"
                   data-testid="signature-include-forward"
-                  className="pm-toggle">
-                  <span className="pm-toggle-thumb" />
-                </button>
+                />
               </div>
             </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="pm-form-footer">
-          <button
+        <div className="flex justify-end gap-2 border-t border-border p-6">
+          <Button
             type="button"
+            variant="outline"
             onClick={() => guardedAction(onCancel)}
             disabled={saving}
             data-test="signature-cancel"
-            data-testid="signature-cancel"
-            className="pm-btn-outline">
+            data-testid="signature-cancel">
             <X className="h-4 w-4" />
             {__("Cancel", "pressedmail")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="submit"
             disabled={saving}
             data-test="signature-save"
-            data-testid="signature-save"
-            className="pm-btn-primary">
+            data-testid="signature-save">
             {saving ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
@@ -289,7 +274,7 @@ export const SignatureEditor: React.FC<SignatureEditorProps> = ({
             {isEditing
               ? __("Save Changes", "pressedmail")
               : __("Create Signature", "pressedmail")}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

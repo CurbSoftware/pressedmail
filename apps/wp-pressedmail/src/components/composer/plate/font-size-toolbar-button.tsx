@@ -17,7 +17,10 @@ import { KEYS } from '@kit/plate';
 import { useEditorPlugin, useEditorSelector } from '@kit/plate/react';
 
 import { __ } from '@wordpress/i18n';
-import { Popover, PopoverContent, PopoverTrigger } from '@kit/ui/plugin';
+import { Popover, PopoverTrigger } from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
 import {
@@ -163,7 +166,8 @@ export function FontSizeToolbarButton({
             value={displayValue}
           />
         </PopoverTrigger>
-        <PopoverContent
+        <PressedPopoverContent
+          size="menu"
           className="w-10 px-px py-1"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
@@ -192,7 +196,7 @@ export function FontSizeToolbarButton({
               {size}
             </button>
           ))}
-        </PopoverContent>
+        </PressedPopoverContent>
       </Popover>
 
       <button

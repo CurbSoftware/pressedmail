@@ -16,6 +16,11 @@ import {
   AlertTitle,
   Button,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   Tabs,
   TabsContent,
   TabsList,
@@ -237,19 +242,22 @@ export function PreferencesTabView({
         <Label htmlFor="preference-category">
           {__("Preference category", "pressedmail")}
         </Label>
-        <select
-          id="preference-category"
-          className="h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-xs outline-none focus-visible:border-ring]"
+        <Select
           value={selectedCategory}
-          onChange={(event) =>
-            selectCategory(event.target.value as PreferenceCategoryId)
+          onValueChange={(value) =>
+            selectCategory(value as PreferenceCategoryId)
           }>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.label}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger id="preference-category" className="w-full min-w-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <Tabs

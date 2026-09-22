@@ -42,14 +42,17 @@ import {
 import { __ } from '@wordpress/i18n';
 import {
   Button,
+  Input,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
 import { ToolbarButton } from '@/components/composer/toolbar';
@@ -163,12 +166,13 @@ export function EmojiPopover({
     <Popover onOpenChange={setIsOpen} open={isOpen}>
       <PopoverTrigger asChild>{control}</PopoverTrigger>
 
-      <PopoverContent
+      <PressedPopoverContent
+        size="menu"
         align="start"
-        className="w-auto border-none bg-transparent p-0 shadow-none"
+        className="w-auto border-none bg-transparent shadow-none"
       >
         {children}
-      </PopoverContent>
+      </PressedPopoverContent>
     </Popover>
   );
 }
@@ -440,11 +444,11 @@ function EmojiPickerSearchBar({
   return (
     <div className="flex items-center px-2">
       <div className="relative flex grow items-center">
-        <input
+        <Input
           aria-label={__('Search', 'pressedmail')}
           autoComplete="off"
           autoFocus
-          className="block w-full appearance-none rounded-full border-0 bg-muted px-10 py-2 text-sm outline-none placeholder:text-muted-foreground"
+          className="px-10"
           onChange={(event) => setSearch(event.target.value)}
           placeholder={i18n.search}
           type="text"

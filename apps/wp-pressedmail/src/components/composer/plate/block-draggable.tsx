@@ -29,13 +29,15 @@ import {
 import {
   Button,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@kit/ui/plugin';
+} from "@kit/ui/plugin";
+import {
+  PressedPopoverContent,
+} from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
 import { getBlockMoveTarget, moveBlock } from './block-move';
@@ -196,8 +198,9 @@ function Draggable(props: PlateElementProps) {
                   />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent
-                className="w-44 p-1"
+              <PressedPopoverContent
+                size="menu"
+                className="p-1"
                 align="start"
                 aria-label={__('Move this block', 'pressedmail')}
               >
@@ -223,7 +226,7 @@ function Draggable(props: PlateElementProps) {
                       : __('Move down', 'pressedmail')}
                   </Button>
                 ))}
-              </PopoverContent>
+              </PressedPopoverContent>
             </Popover>
           </div>
         </div>

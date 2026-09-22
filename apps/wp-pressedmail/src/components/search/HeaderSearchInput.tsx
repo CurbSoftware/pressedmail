@@ -12,7 +12,6 @@ import {
   Input,
   Label,
   Popover,
-  PopoverContent,
   PopoverTrigger,
   Separator,
   cn,
@@ -32,6 +31,12 @@ import {
 } from "@/types/search";
 import { getSearchService } from "@/services/implementations/search.service";
 import { DateTimeSelector } from "@/components/ui/date-time-selector";
+import {
+  PressedOverlayBody,
+  PressedOverlayFooter,
+  PressedPopoverContent,
+  PressedPopoverHeader,
+} from "@/components/ui/pressed-overlay";
 import {
   SEARCH_SCOPE_OPTIONS,
   SearchScopeDropdown,
@@ -699,28 +704,15 @@ export function HeaderSearchInput({
   return (
     <div className={cn("relative w-full", className)}>
       {/*
-        No overflow-hidden. There used to be, to stop the square-cornered
-        children poking past the rounded container, and it clipped the focus
-        indicator of whichever segment had keyboard focus: the indicator is
-        drawn outside the border box, so it was cut off on all four sides. The
-        end children carry the container's radius themselves instead.
-
-        The container no longer draws its own focus-within ring either. The
-        scope, the field, the clear button and the filter button are four
-        separate tab stops, and one ring around all of them said the whole
-        field had focus when only one segment did. The border tint stays: it
-        reads as the field being active without claiming to be the indicator.
+        Three unstyled primitives in a row. The scope button, the field and the
+        filter button are separate tab stops with their own chrome and their own
+        focus indicator; no container draws a border around them.
       */}
-      <div
-        className={cn(
-          "flex h-9 items-center gap-0 rounded-md border border-input bg-card px-0 text-sm shadow-sm transition-colors",
-          "focus-within:border-primary/70",
-        )}>
+      <div className="flex items-center gap-1">
         <SearchScopeDropdown
           value={effectiveScope}
           options={availableScopeOptions}
           onChange={handleScopeChange}
-          className="h-full w-11 rounded-l-md rounded-r-none border-r border-input py-0"
         />
         <Input
           autoComplete="off"
@@ -733,8 +725,7 @@ export function HeaderSearchInput({
           onFocus={() => setIsFocused(true)}
           onBlur={() => window.setTimeout(() => setIsFocused(false), 120)}
           placeholder={resolvedPlaceholder}
-          data-no-theme
-          className="h-full max-h-full min-h-0 flex-1 rounded-none border-0 bg-transparent px-3 py-0 leading-5 shadow-none"
+          className="min-w-0 flex-1"
         />
         {activeFilterLabels.slice(0, 1).map((label) => (
           <Badge
@@ -756,34 +747,24 @@ export function HeaderSearchInput({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-full w-9 shrink-0 rounded-none py-0"
             onClick={handleClearSearch}
             aria-label={__("Clear search", "pressedmail")}>
-            <X className="h-4 w-4" />
+            <X />
           </Button>
         )}
         <Popover open={filterOpen} onOpenChange={setFilterOpen}>
           <PopoverTrigger asChild>
             <Button
               type="button"
-              variant={hasFilters ? "secondary" : "ghost"}
+              variant={hasFilters ? "secondary" : "outline"}
               size="icon"
-              className={cn(
-                "h-full w-10 shrink-0 rounded-l-none rounded-r-md border-l border-input py-0",
-                __IS_PRO__ &&
-                  "bg-clip-border hover:bg-accent data-[state=open]:bg-accent",
-              )}
               aria-label={__("Filter search", "pressedmail")}>
-              <Filter className="h-4 w-4" />
+              <Filter />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="end" sideOffset={8} className="w-[23rem] p-4">
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
-                  {__("Search filters", "pressedmail")}
-                </h3>
-              </div>
+          <PressedPopoverContent size="paletteForm" align="end" sideOffset={8}>
+            <PressedPopoverHeader title={__("Search filters", "pressedmail")} />
+            <PressedOverlayBody className="space-y-4">
               {effectiveScope === "emails" ? (
                 <MailFiltersForm draft={draftFilters} update={updateDraft} />
               ) : effectiveScope === "contacts" ? (
@@ -797,19 +778,16 @@ export function HeaderSearchInput({
                   update={updateCalendarDraft}
                 />
               )}
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={clearDraftFilters}>
-                  {__("Clear filters", "pressedmail")}
-                </Button>
-                <Button type="button" onClick={applyDraftFilters}>
-                  {__("Apply filters", "pressedmail")}
-                </Button>
-              </div>
-            </div>
-          </PopoverContent>
+            </PressedOverlayBody>
+            <PressedOverlayFooter>
+              <Button type="button" variant="ghost" onClick={clearDraftFilters}>
+                {__("Clear filters", "pressedmail")}
+              </Button>
+              <Button type="button" onClick={applyDraftFilters}>
+                {__("Apply filters", "pressedmail")}
+              </Button>
+            </PressedOverlayFooter>
+          </PressedPopoverContent>
         </Popover>
       </div>
       {suggestions.length > 0 && (
@@ -819,7 +797,7 @@ export function HeaderSearchInput({
             overflow-hidden here cut the focus outline off the top and bottom
             row of every keyboard user tabbing through the suggestions.
           */
-          className="absolute left-0 right-0 top-full z-40 mt-1 rounded-md border bg-popover shadow-md [&>*:first-child]:rounded-t-md [&>*:last-child]:rounded-b-md"
+          className="absolute left-0 right-0 top-full z-40 mt-1 rounded-md border border-border bg-popover text-popover-foreground shadow-lg [&>*:first-child]:rounded-t-md [&>*:last-child]:rounded-b-md"
           data-test="header-search-suggestions"
           data-testid="header-search-suggestions">
           {effectiveTerm.length >= 2 ? (

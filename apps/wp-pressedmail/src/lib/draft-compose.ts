@@ -135,7 +135,6 @@ export function getDraftComposeData(
     subject: message.subject ?? "",
     body,
     draftDocument: message.draftDocument,
-    draftDocumentExpired: message.draftDocumentExpired,
     contentType,
     bodyBackgroundColor:
       message.bodyBackgroundColor ?? unwrapped.bodyBackgroundColor,

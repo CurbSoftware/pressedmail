@@ -92,11 +92,16 @@ export function AccountSwitcher({
    */
   const activeIcon = isConsolidatedView ? (
     <Layers className="h-4 w-4" />
-  ) : activeAccount?.provider ? (
-    (PROVIDER_ICONS[activeAccount.provider as keyof typeof PROVIDER_ICONS] ??
-    PROVIDER_ICONS.default)
   ) : (
-    PROVIDER_ICONS.default
+    // The provider svgs arrive unsized, so they get their box here rather
+    // than through descendant utilities on the trigger's own className.
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center [&_svg]:h-full [&_svg]:w-full">
+      {activeAccount?.provider
+        ? (PROVIDER_ICONS[
+            activeAccount.provider as keyof typeof PROVIDER_ICONS
+          ] ?? PROVIDER_ICONS.default)
+        : PROVIDER_ICONS.default}
+    </span>
   );
   const activeLabel = isConsolidatedView
     ? sprintf(
@@ -130,9 +135,9 @@ export function AccountSwitcher({
       }}>
       <SelectTrigger
         className={cn(
-          "flex items-center gap-2 [&>span]:line-clamp-1 [&>span]:flex [&>span]:w-full [&>span]:items-center [&>span]:gap-1 [&>span]:truncate [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0",
+          "flex items-center gap-2 [&>span]:line-clamp-1 [&>span]:flex [&>span]:w-full [&>span]:items-center [&>span]:gap-1 [&>span]:truncate",
           isCollapsed &&
-            "flex h-9 w-9 shrink-0 items-center justify-center p-0 [&>span]:w-auto [&>svg]:hidden",
+            "flex w-8 shrink-0 items-center justify-center p-0 [&>span]:w-auto [&>svg]:hidden",
         )}
         aria-label={__("Select account", "pressedmail")}>
         <SelectValue placeholder={__("Switch accounts", "pressedmail")}>

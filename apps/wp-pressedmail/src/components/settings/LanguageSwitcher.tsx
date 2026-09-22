@@ -10,6 +10,13 @@
 
 import * as React from "react";
 import { __ } from "@wordpress/i18n";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@kit/ui/plugin";
 
 import { appMessage } from "@/context/toast";
 import { useSettingsGuardedAction } from "@/components/settings-ui";
@@ -43,18 +50,10 @@ export function LanguageSwitcher({
       <label htmlFor={selectId} className="text-sm font-medium text-foreground">
         {__("Language", "pressedmail")}
       </label>
-      <select
-        id={selectId}
-        data-test="language-select"
-        aria-label={__("Interface language", "pressedmail")}
-        className={cn(
-          "h-11 w-full max-w-full rounded-md border border-input bg-background px-3 text-sm text-foreground @3xl/preferences-nav:h-9 @3xl/preferences-nav:max-w-xs",
-          isSaving && "opacity-60",
-        )}
+      <Select
         value={selectedLocale}
         disabled={isSaving}
-        onChange={(event) => {
-          const nextLocale = event.target.value;
+        onValueChange={(nextLocale) => {
           if (onValueChange) {
             onValueChange(nextLocale);
             return;
@@ -68,12 +67,30 @@ export function LanguageSwitcher({
             });
           });
         }}>
-        {locales.map((entry) => (
-          <option key={entry.wp} value={entry.wp} lang={toBcp47(entry.wp)}>
-            {entry.nativeLabel}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger
+          id={selectId}
+          data-test="language-select"
+          data-testid="language-select"
+          aria-label={__("Interface language", "pressedmail")}
+          className={cn(
+            "max-w-full @3xl/preferences-nav:max-w-xs",
+            isSaving && "opacity-60",
+          )}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {locales.map((entry) => (
+            <SelectItem
+              key={entry.wp}
+              value={entry.wp}
+              lang={toBcp47(entry.wp)}
+              data-test={`language-select-option-${entry.wp}`}
+              data-testid={`language-select-option-${entry.wp}`}>
+              {entry.nativeLabel}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <p className="text-xs text-muted-foreground">
         {__(
           "Changes only PressedMail for your account. Some text remains in English.",

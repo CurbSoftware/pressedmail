@@ -1044,16 +1044,16 @@
     --pm-email-muted-bg: var(--muted);
     --pm-email-accent-bg: var(--accent);
     --pm-email-quote-fg: var(--muted-foreground);
-    --pm-email-quote-border: var(--pm-control-border);
+    --pm-email-quote-border: var(--pm-canvas-border);
     --pm-email-link: var(--pm-primary-text);
     --pm-email-primary-fg: var(--primary-foreground);
     --pm-email-destructive: var(--destructive);
     --pm-email-destructive-fg: var(--destructive-foreground);
     --pm-email-success: var(--success);
     --pm-email-pro: var(--pro);
-    --pm-email-table-border: var(--pm-control-border);
+    --pm-email-table-border: var(--pm-canvas-border);
     --pm-email-code-bg: var(--muted);
-    --pm-email-code-border: var(--pm-control-border);
+    --pm-email-code-border: var(--pm-canvas-border);
     --pm-email-hljs-keyword: var(--pm-destructive-text);
     --pm-email-hljs-attr: var(--pm-primary-text);
     --pm-email-hljs-string: var(--pm-info-text);
@@ -1407,10 +1407,18 @@
   --pm-info-text: oklch(from var(--info) min(l, 0.5) c h);
   --pm-destructive-text: color-mix(in oklch, var(--destructive) 70%, black);
   --pm-destructive-text: oklch(from var(--destructive) min(l, 0.5) c h);
-  /* Boundary of a control, and the keyboard focus indicator: both owe 3:1 to
-     WCAG 1.4.11, and both are measured against the surface behind them, so
-     they mix with the surface rather than with a fixed colour. */
-  --pm-control-border: color-mix(in oklch, var(--foreground) 55%, var(--card));
+  /* Boundary of a control, mixed with the surface behind it rather than with
+     a fixed colour. At 27.5% it carries half the strength it had at 55%,
+     which is the look this product ships deliberately: fields read softer in
+     light mode and dimmer in dark mode. That knowingly sits below WCAG
+     1.4.11's 3:1 non-text floor for field boundaries; the keyboard focus
+     indicator one token down keeps its 3:1 duty. The accessibility-floor
+     test pins this trade-off. */
+  --pm-control-border: color-mix(in oklch, var(--foreground) 27.5%, var(--card));
+  /* Boundary of authored email content (quotes, tables, code). Email content
+     is read, not operated, and its boundaries keep the pre-halving strength:
+     the composer canvas theme test holds them to WCAG 1.4.11's 3:1. */
+  --pm-canvas-border: color-mix(in oklch, var(--foreground) 55%, var(--card));
   /* Every .border-input consumer inside the plugin takes that derived
      boundary, whatever element it is. Five of the twenty palette blocks state
      --input below the 3:1 non-text floor, worst 1.06:1, and the element rules

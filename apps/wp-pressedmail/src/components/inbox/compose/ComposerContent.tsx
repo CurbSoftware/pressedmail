@@ -21,7 +21,10 @@ import { findReadOnlyBlockNodeLabels } from "@/components/composer/plate-compose
 import { ComposerPlainTextToolbar } from "./ComposerEditorToolbar";
 import { ComposerAuthoringEditor } from "./ComposerAuthoringEditor";
 import { buildComposerSurfaceStyle } from "./composer-background-style";
-import { composerFontFamilyCss } from "@/lib/preference-behavior";
+import {
+  composerDefaultFormatToDialect,
+  composerFontFamilyCss,
+} from "@/lib/preference-behavior";
 import { ComposerFooter } from "./ComposerFooter";
 import {
   ComposerHeaderCloseButton,
@@ -113,6 +116,9 @@ export function ComposerContent({
 }: ComposerContentProps) {
   const { accounts } = useAppContext();
   const { preferences } = useUserPreferences();
+  const preferredDialect = composerDefaultFormatToDialect(
+    preferences.composer_default_format,
+  );
   const composerFontSizePx =
     Number(preferences.composer_default_font_size) || 14;
   const composerFontFamily = composerFontFamilyCss(
@@ -124,11 +130,13 @@ export function ComposerContent({
   // The per-compose dialect override. Plain is not held here: it is a real
   // format change and `form.contentType` already owns it.
   const [dialect, setDialect] = useState<ComposerBlockDialect>(
-    form.draftDocument?.dialect ?? "markdown",
+    form.draftDocument?.dialect ??
+      (preferredDialect === "plain" ? "markdown" : preferredDialect),
   );
   useEffect(() => {
-    setDialect(form.draftDocument?.dialect ?? "markdown");
-  }, [form.composeSessionVersion]);
+    const nextDialect = form.draftDocument?.dialect ?? preferredDialect;
+    setDialect(nextDialect === "plain" ? "markdown" : nextDialect);
+  }, [form.composeSessionVersion, form.draftDocument?.dialect, preferredDialect]);
   const [pendingDialect, setPendingDialect] =
     useState<ComposerBlockDialect | null>(null);
   const [pendingInertLabels, setPendingInertLabels] = useState<string[]>([]);
@@ -461,7 +469,7 @@ export function ComposerContent({
         />
 
         {/* ── 4. Subject ──
-            The shared metadata grid (composer-row.ts). The compact "Sub"
+            The shared metadata grid (composer-row.ts). The compact "Re"
             label matches To/Cc/Bcc (RECIPIENT_LABEL_CLASS), so the field
             starts in column two naturally and the attachment cluster takes
             the action cell. The placeholder and aria-label keep the field's
@@ -471,7 +479,7 @@ export function ComposerContent({
           data-test="subject-row">
           <div className={COMPOSER_ROW_CLASS} data-test="subject-input-shell">
             <span className={RECIPIENT_LABEL_CLASS} aria-hidden="true">
-              {__("Sub", "pressedmail")}
+              {__("Re", "pressedmail")}
             </span>
             <input
               autoComplete="off"

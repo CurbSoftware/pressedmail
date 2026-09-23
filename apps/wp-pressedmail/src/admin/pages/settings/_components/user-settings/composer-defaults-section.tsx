@@ -64,9 +64,10 @@ export function ComposerDefaultsSection({
         labels={{
           // The stored value still reads `rich_text`; the label follows what the
           // composer now calls that editor so the two cannot disagree. Adding
-          // the chrome-less dialect as a default needs a migration for the
-          // value existing users already have, and is not done here.
+          // the chrome-less dialect uses a separate value so existing users
+          // keep their Markdown default.
           rich_text: __("Markdown", "pressedmail"),
+          rtf: __("Rich text", "pressedmail"),
           plain_text: __("Plain text", "pressedmail"),
         }}
         onValueChange={(value) =>

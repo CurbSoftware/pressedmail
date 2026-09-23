@@ -82,7 +82,7 @@ export type EmailListUnreadIndicator = "dot_and_bold" | "dot" | "bold";
 export type EmailListDateGrouping = "none" | "day" | "week";
 export type EmailListGroupingPreference = "list" | "threads";
 export type AdminFaviconModePreference = "site" | "pressed";
-export type ComposerDefaultFormat = "rich_text" | "plain_text";
+export type ComposerDefaultFormat = "rich_text" | "rtf" | "plain_text";
 export type ComposerDefaultFont = "system" | "sans" | "serif" | "mono";
 export type ComposerDefaultFontSize = "12" | "14" | "16" | "18";
 export type ComposerSignaturePlacement = "end" | "before_quote";
@@ -171,7 +171,7 @@ export const PREFERENCE_ALLOWED_VALUES = {
   email_list_date_grouping: ["none", "day", "week"],
   email_list_grouping: ["list", "threads"],
   composer_ai_default_tone: ["professional", "casual", "friendly", "formal"],
-  composer_default_format: ["rich_text", "plain_text"],
+  composer_default_format: ["rich_text", "rtf", "plain_text"],
   composer_default_font: ["system", "sans", "serif", "mono"],
   composer_default_font_size: ["12", "14", "16", "18"],
   composer_signature_placement: ["end", "before_quote"],

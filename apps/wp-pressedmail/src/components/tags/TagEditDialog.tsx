@@ -186,7 +186,7 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
 
             {/* Preview */}
             <div className="space-y-2">
-              <span className="text-sm font-medium leading-none">
+              <span className="block text-sm font-medium leading-none">
                 {__("Preview", "pressedmail")}
               </span>
               <TagBadge

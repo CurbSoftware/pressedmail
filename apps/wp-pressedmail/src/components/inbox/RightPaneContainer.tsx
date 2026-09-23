@@ -21,6 +21,7 @@ import { X } from "lucide-react";
 import { EmailComposeNewIcon } from "@/components/icons/MailActionIcons";
 
 import { cn } from "@/lib/utils";
+import { composerDefaultFormatToContentType } from "@/lib/preference-behavior";
 import { useAppContext } from "@/context/AppProvider";
 import {
   useInbox,
@@ -174,8 +175,9 @@ export function RightPaneContainer({
   const paneComposeRequest = paneCompose?.paneComposeRequest ?? null;
   const resumingComposeRef = React.useRef(false);
   const { preferences } = useUserPreferences();
-  const preferredContentType =
-    preferences.composer_default_format === "plain_text" ? "plain" : "html";
+  const preferredContentType = composerDefaultFormatToContentType(
+    preferences.composer_default_format,
+  );
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<PendingDelete | null>(null);

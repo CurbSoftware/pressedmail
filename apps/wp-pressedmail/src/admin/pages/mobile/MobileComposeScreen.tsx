@@ -32,6 +32,7 @@ import {
 } from "@/lib/mailto";
 import { cn } from "@/lib/utils";
 import { savePaneMode } from "@/lib/open-pane-persistence";
+import { composerDefaultFormatToContentType } from "@/lib/preference-behavior";
 import { parseEmailString } from "@/types/recipients";
 import { ComposerReadReceiptButton } from "@/components/inbox/compose/ComposerScheduleActions.active";
 import { MobileScheduleActions } from "@/admin/pages/mobile/MobileScheduleActions.active";
@@ -180,7 +181,7 @@ export function MobileComposeScreen({
     prefillBody: incomingFields.body || composeData.body || "",
     defaultContentType:
       composeData.contentType ??
-      (preferences.composer_default_format === "plain_text" ? "plain" : "html"),
+      composerDefaultFormatToContentType(preferences.composer_default_format),
     editorRef,
     autoSaveOnClose: preferences.auto_save_drafts,
     undoSendEnabled:

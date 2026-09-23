@@ -2,8 +2,10 @@
  * Swatch colour picker
  *
  * The Tags picker, shared: a row of circular swatches as a radio group with
- * arrow-key roving focus, plus an optional custom hex field. Tags, contact
- * flags and calendars render it with their own palette. The Plate editor keeps
+ * arrow-key roving focus, plus an optional custom hex field whose swatch
+ * opens the same picker popover the Branding & Appearance page uses. Tags,
+ * contact lists, contact flags and calendars render it with their own
+ * palette. The Plate editor keeps
  * `ComposerColorPalette`, which has levels and a different job.
  *
  * The `data-test` ids are the Tags contract names. Keep them.
@@ -15,6 +17,8 @@ import { useId, useState } from "react";
 import { __ } from "@wordpress/i18n";
 import { Input, Label } from "@kit/ui/plugin";
 
+import { ColorSwatchPopover } from "@/components/ui/color-picker/ColorSwatchPopover";
+import { PalettePicker } from "@/components/ui/color-picker/PalettePicker";
 import { isHexColor } from "@/lib/hex-color";
 import { cn } from "@/lib/utils";
 
@@ -144,6 +148,22 @@ export function SwatchColorPicker({
               }}
               className="w-28 font-mono text-sm"
             />
+            <ColorSwatchPopover
+              value={custom || value}
+              label={__("Choose a custom color", "pressedmail")}
+              data-test="tag-color-custom-swatch">
+              <PalettePicker
+                value={custom || value}
+                layout="background"
+                onChange={(hex) => {
+                  // These colours are hex-only (no alpha), so an eight-digit
+                  // pick from the picker collapses to its opaque six digits.
+                  const opaque = hex.slice(0, 7);
+                  setCustom(opaque);
+                  if (isHexColor(opaque)) onChange(opaque);
+                }}
+              />
+            </ColorSwatchPopover>
           </div>
           {customInvalid ? (
             <p id={customErrorId} className="text-xs text-destructive">

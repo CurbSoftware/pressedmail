@@ -23,6 +23,7 @@ import {
 import { useComposeForm } from "@/hooks/compose/v2/useComposeForm";
 import { useModalPanel } from "@/hooks/compose/useModalPanel";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { composerDefaultFormatToContentType } from "@/lib/preference-behavior";
 import { ComposerContent } from "./ComposerContent";
 import type { EmailEditorRef } from "@/components/composer";
 import type { EmailMessage } from "@/types";
@@ -96,8 +97,9 @@ export function ComposePane({
     prefillBody: composeContext?.prefillBody,
     quotedText: composeContext?.quotedText,
     editorRef,
-    defaultContentType:
-      preferences.composer_default_format === "plain_text" ? "plain" : "html",
+    defaultContentType: composerDefaultFormatToContentType(
+      preferences.composer_default_format,
+    ),
     composerContext,
     autoSaveOnClose: preferences.auto_save_drafts,
     gateNavigation: true,

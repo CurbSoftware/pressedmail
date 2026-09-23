@@ -13,6 +13,7 @@ import { useComposer } from "@/context/composer";
 import { useComposeForm } from "@/hooks/compose/v2/useComposeForm";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
+import { composerDefaultFormatToContentType } from "@/lib/preference-behavior";
 import { ComposerContent } from "./ComposerContent";
 import type { EmailEditorRef } from "@/components/composer";
 
@@ -47,8 +48,9 @@ export function ComposeForm({
       composerCtx.composeData.mode ??
       (composerCtx.composeData.is_reply ? "reply" : "new"),
     editorRef,
-    defaultContentType:
-      preferences.composer_default_format === "plain_text" ? "plain" : "html",
+    defaultContentType: composerDefaultFormatToContentType(
+      preferences.composer_default_format,
+    ),
     composerContext: composerCtx,
     autoSaveOnClose: preferences.auto_save_drafts,
     undoSendEnabled:

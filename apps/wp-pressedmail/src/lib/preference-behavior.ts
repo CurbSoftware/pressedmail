@@ -1,4 +1,5 @@
 import type { EmailListSortState } from "@/lib/email-list-sort";
+import type { PlateEmailEditorDialect } from "@kit/plate/email-surfaces";
 import { utcIsoToZonedInput } from "@/components/calendar/calendar-timezone";
 import { getRuntimeSiteTimezone } from "@/lib/runtime-config";
 import { getMessageIdentityKey } from "@/lib/message-identity";
@@ -13,6 +14,30 @@ import type {
   SendSafetyConfirmation,
   UserPreferences,
 } from "@/hooks/useUserPreferences";
+
+export function composerDefaultFormatToContentType(
+  format: UserPreferences["composer_default_format"] | undefined,
+): "html" | "plain" {
+  return format === "plain_text" ? "plain" : "html";
+}
+
+/**
+ * `rich_text` is the legacy preference value that currently means Markdown.
+ * `rtf` selects the existing chrome-less Rich text dialect.
+ */
+export function composerDefaultFormatToDialect(
+  format: UserPreferences["composer_default_format"] | undefined,
+): PlateEmailEditorDialect {
+  switch (format) {
+    case "rtf":
+      return "rich_text";
+    case "plain_text":
+      return "plain";
+    case "rich_text":
+    default:
+      return "markdown";
+  }
+}
 
 export function markAsReadDelayMs(
   behavior: MarkAsReadBehavior,

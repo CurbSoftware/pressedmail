@@ -43,7 +43,10 @@ import {
 } from "@/lib/message-identity";
 import { getFolderRole } from "@/lib/bulk-mail-actions";
 import { isDraftMessage } from "@/lib/draft-compose";
-import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
+import {
+  composerDefaultFormatToContentType,
+  nextVisibleMessageAfterRemoval,
+} from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 import type { EmailMessage } from "@/types";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -100,8 +103,9 @@ export function MobileMailReaderScreen() {
   } = useMessageOperations();
   const { setComposeData } = useComposer();
   const { preferences } = useUserPreferences();
-  const preferredContentType =
-    preferences.composer_default_format === "plain_text" ? "plain" : "html";
+  const preferredContentType = composerDefaultFormatToContentType(
+    preferences.composer_default_format,
+  );
   const preferredReplyMode: "reply" | "reply-all" =
     preferences.default_reply_action === "reply_all" ? "reply-all" : "reply";
   const alternateReplyMode: "reply" | "reply-all" =

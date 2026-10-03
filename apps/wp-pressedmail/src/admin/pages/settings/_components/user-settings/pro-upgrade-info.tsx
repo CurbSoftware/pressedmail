@@ -16,8 +16,8 @@ import {
   Inbox,
   Infinity as InfinityIcon,
   Palette,
-  Send,
-  ShieldCheck,
+  Sparkles,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 
@@ -25,155 +25,194 @@ import { Badge, Button, Card, CardContent } from "@kit/ui/plugin";
 
 const PRICING_URL = "https://pressedmail.com/pricing";
 
+type ProFeature = {
+  label: string;
+  /** Included with Ultimate only, not every paid plan. */
+  ultimate?: boolean;
+};
+
 type ProCategory = {
   icon: LucideIcon;
   title: string;
   description: string;
-  features: string[];
-};
-
-type ProCapability = {
-  label: string;
-  /** Genuinely unlimited, rather than "more than Free". */
-  unlimited: boolean;
+  features: ProFeature[];
+  /** The whole group is Ultimate only. */
+  ultimate?: boolean;
+  /** Extra detail shown under the checklist. */
+  note?: string;
 };
 
 const WHY_PRO = [
   {
-    title: __("Stay ahead of busy inboxes", "pressedmail"),
+    title: __("One inbox for every account", "pressedmail"),
     description: __(
-      "Prioritize, snooze, and follow up without losing track.",
+      "Read all your accounts in one list, then snooze or schedule what can wait.",
       "pressedmail",
     ),
   },
   {
-    title: __("Keep work connected", "pressedmail"),
+    title: __("People and dates next to your mail", "pressedmail"),
     description: __(
-      "Manage email, contacts, and calendars in one workspace.",
+      "A contact book and a calendar live in WordPress, right beside your messages.",
       "pressedmail",
     ),
   },
   {
-    title: __("Make it your workspace", "pressedmail"),
+    title: __("Switch without starting over", "pressedmail"),
     description: __(
-      "Choose Pro themes, layouts, and mobile enhancements.",
+      "Compatible accounts, settings, and local data carry over from Free.",
       "pressedmail",
     ),
   },
 ];
 
 /**
- * Every claim here has to be true of the shipped builds.
- *
- * An unlimited-sites claim was not: yearly plans are priced by number of sites
- * and Lifetime covers up to 100, so the sites line states the rule instead.
- * Tags are unlimited in Free too (readme-free.txt), so the unlimited line is
- * about signatures, which Free ships one of.
+ * Every claim here has to be true of the shipped builds, and only genuinely
+ * unlimited things belong in this strip. Sites are not: yearly plans are
+ * priced by number of sites and Lifetime covers up to 100, so the site rule
+ * lives in the closing section. Tags are unlimited in Free too
+ * (readme-free.txt), so the unlimited line is about signatures, which Free
+ * ships one of.
  */
-const PRO_CAPABILITIES: ProCapability[] = [
-  { label: __("Unlimited accounts", "pressedmail"), unlimited: true },
-  { label: __("Unlimited signatures", "pressedmail"), unlimited: true },
-  {
-    label: __("Unlimited contacts & calendars", "pressedmail"),
-    unlimited: true,
-  },
-  { label: __("Sites depend on your plan", "pressedmail"), unlimited: false },
+const PRO_CAPABILITIES = [
+  __("Unlimited accounts", "pressedmail"),
+  __("Unlimited signatures", "pressedmail"),
+  __("Unlimited contacts and calendars", "pressedmail"),
 ];
 
+const feature = (label: string): ProFeature => ({ label });
+const ultimateFeature = (label: string): ProFeature => ({
+  label,
+  ultimate: true,
+});
+
+/**
+ * Tiers follow plugin-files/includes/Config/feature-flags.php: a
+ * `licensed_value` is every paid plan, an `extended_value` is Ultimate only.
+ * Only list features that ship in a released Pro build: this page ships in the
+ * Free build and cannot be corrected until the next release.
+ *
+ * Left out on purpose: things Free already has (folders, the rich composer,
+ * role access, site SMTP), flags with no screen yet (
+ * audit log, webhooks, free/busy, custom shortcuts), licensing plumbing, and
+ * anything not built (open/click tracking, delivery analytics, bounce
+ * handling).
+ */
 const PRO_CATEGORIES: ProCategory[] = [
   {
     icon: Inbox,
-    title: __("Inbox & Organization", "pressedmail"),
+    title: __("Mail and sending", "pressedmail"),
     description: __(
-      "See what matters, organize every account, and keep follow-ups from slipping.",
+      "See what matters across every account, and send on your schedule.",
       "pressedmail",
     ),
     features: [
-      __("Combined inbox across accounts", "pressedmail"),
-      __("Smart inbox prioritization", "pressedmail"),
-      __("Snooze emails", "pressedmail"),
-      __("Automatic follow-up reminders", "pressedmail"),
-    ],
-  },
-  {
-    icon: Send,
-    title: __("Writing & Sending", "pressedmail"),
-    description: __(
-      "Compose polished messages and send them on your schedule.",
-      "pressedmail",
-    ),
-    features: [
-      __("Scheduled send", "pressedmail"),
-      __("Undo send", "pressedmail"),
-    ],
-  },
-  {
-    icon: Brain,
-    title: __("AI Assistance", "pressedmail"),
-    description: __(
-      "Use your own API key to draft, refine, summarize, organize, and flag suspicious messages.",
-      "pressedmail",
-    ),
-    features: [
-      __("AI drafting", "pressedmail"),
-      __("AI reply suggestions", "pressedmail"),
-      __("AI enhance & polish", "pressedmail"),
-      __("AI thread summaries", "pressedmail"),
-      __("AI auto-tagger", "pressedmail"),
-      __("AI inbox organizer", "pressedmail"),
-      __("AI phishing detection", "pressedmail"),
+      feature(__("Combined inbox across accounts", "pressedmail")),
+      feature(__("Snooze emails", "pressedmail")),
+      feature(__("Automatic follow-up reminders", "pressedmail")),
+      feature(__("Auto-replies", "pressedmail")),
+      feature(__("Scheduled send", "pressedmail")),
+      feature(__("Undo send", "pressedmail")),
+      feature(__("Read receipts", "pressedmail")),
+      feature(__("Multiple SMTP servers, routed by sender", "pressedmail")),
+      feature(__("Managed mail settings for your domains", "pressedmail")),
     ],
   },
   {
     icon: Contact,
-    title: __("Contacts & Calendar", "pressedmail"),
+    title: __("Contacts and calendar", "pressedmail"),
     description: __(
-      "Keep people, context, and schedules close to every conversation.",
+      "Keep people and schedules next to every conversation.",
       "pressedmail",
     ),
     features: [
-      __("Contact book", "pressedmail"),
-      __("Contact lists & sharing", "pressedmail"),
-      __("Activity tracking & notes", "pressedmail"),
-      __("Custom contact fields", "pressedmail"),
-      __("CSV & vCard import/export", "pressedmail"),
-      __("Local calendar", "pressedmail"),
-      __("Recurring events", "pressedmail"),
+      feature(__("Contact book and lists", "pressedmail")),
+      feature(__("Activity tracking and notes", "pressedmail")),
+      feature(__("CSV and vCard import and export", "pressedmail")),
+      feature(__("Built-in calendar", "pressedmail")),
+      feature(__("Recurring events", "pressedmail")),
+      feature(__("Add email invites to your calendar", "pressedmail")),
+      feature(
+        __("Calendar conflict warnings on scheduled send", "pressedmail"),
+      ),
     ],
   },
   {
-    icon: ShieldCheck,
-    title: __("Accounts & Protection", "pressedmail"),
+    icon: Brain,
+    title: __("AI with your own key", "pressedmail"),
     description: __(
-      "Connect more mailboxes and verify your Pro installation.",
+      "Connect your AI provider to draft, polish, summarize, and sort.",
       "pressedmail",
     ),
     features: [
-      __("Multiple mail accounts", "pressedmail"),
-      __("Plugin integrity checks", "pressedmail"),
+      feature(__("Drafting and reply suggestions", "pressedmail")),
+      feature(__("Enhance and polish", "pressedmail")),
+      feature(__("Email summaries", "pressedmail")),
+      feature(__("Auto-tagging", "pressedmail")),
+      feature(__("Filing into folders", "pressedmail")),
+      feature(__("Phishing detection", "pressedmail")),
     ],
+  },
+  {
+    icon: Sparkles,
+    title: __("Hosted AI", "pressedmail"),
+    description: __(
+      "No key to set up. Our hosted AI runs auto-tagging and phishing checks for you.",
+      "pressedmail",
+    ),
+    features: [],
+    note: __(
+      "Hosted AI uses credits: one credit per email for spam and phishing together, and one for tagging. Paid plans include credits and you can buy more. Your own AI key never uses them.",
+      "pressedmail",
+    ),
   },
   {
     icon: Palette,
-    title: __("Themes, Layouts & Support", "pressedmail"),
+    title: __("Themes, layouts, and support", "pressedmail"),
     description: __(
-      "Shape PressedMail around your preferred look, layout, and device.",
+      "Shape PressedMail around your look, your layout, and your device.",
       "pressedmail",
     ),
     features: [
-      __("Premium themes", "pressedmail"),
-      __("Premium layouts", "pressedmail"),
-      __("Enhanced mobile layouts", "pressedmail"),
-      __("Priority support", "pressedmail"),
+      feature(__("Premium themes", "pressedmail")),
+      feature(__("Premium layouts", "pressedmail")),
+      feature(__("Priority support", "pressedmail")),
+      ultimateFeature(__("White-labeling", "pressedmail")),
+    ],
+  },
+  {
+    icon: Users,
+    title: __("Team sharing", "pressedmail"),
+    description: __(
+      "Share an inbox, calendar, or contact list with teammates on your site. You stay the owner and can remove anyone at any time.",
+      "pressedmail",
+    ),
+    ultimate: true,
+    features: [
+      feature(__("Shared inboxes", "pressedmail")),
+      feature(__("Shared calendars", "pressedmail")),
+      feature(__("Shared contact lists", "pressedmail")),
+      feature(__("Choose who can view, reply, or edit", "pressedmail")),
     ],
   },
 ];
 
+/** Foreground text on the page background keeps small text above 4.5:1. */
+const PRO_BADGE = "shrink-0 border-pro-border bg-background text-foreground";
+
+function UltimateBadge() {
+  return (
+    <Badge variant="outline" className={PRO_BADGE}>
+      {__("Ultimate", "pressedmail")}
+    </Badge>
+  );
+}
+
 function PricingLink() {
   return (
-    <Button asChild>
+    <Button asChild className="bg-pro text-pro-foreground hover:bg-pro/90">
       <a href={PRICING_URL} target="_blank" rel="noopener noreferrer">
-        {__("Explore PressedMail Pro", "pressedmail")}{" "}
+        {__("See Pro plans", "pressedmail")}{" "}
         <span className="sr-only">
           {__("(opens in a new tab)", "pressedmail")}
         </span>
@@ -192,33 +231,37 @@ export function ProUpgradeInfo() {
             aria-label={__("PressedMail Pro upgrade overview", "pressedmail")}
             className="grid gap-5 overflow-hidden rounded-xl border border-pro-border bg-pro-muted p-5 sm:p-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.65fr)] lg:items-stretch">
             <div className="flex min-w-0 flex-col items-start justify-center">
-              <div className="mb-4 flex flex-wrap items-center gap-2.5">
+              <div className="mb-4 flex items-center gap-2.5">
                 <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-pro-border bg-background/70 text-pro">
                   <Crown className="size-5" aria-hidden="true" />
                 </span>
-                <span className="text-base font-bold tracking-tight text-foreground">
-                  {__("PressedMail Pro", "pressedmail")}
+                {/* Stacked, not a badge beside the name: it fits a phone
+                    without wrapping and reads on the tinted panel. */}
+                <span className="min-w-0">
+                  <span className="block text-base font-bold tracking-tight text-foreground">
+                    {__("PressedMail Pro", "pressedmail")}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {__("Separate plugin", "pressedmail")}
+                  </span>
                 </span>
-                <Badge variant="secondary">
-                  {__("Separate plugin", "pressedmail")}
-                </Badge>
               </div>
 
               <h2 className="max-w-xl text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-                {__("Make every inbox easier to manage.", "pressedmail")}
+                {__(
+                  "Everything in Free, plus contacts, a calendar, and AI",
+                  "pressedmail",
+                )}
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
                 {__(
-                  "Bring smarter organization, AI-assisted writing, contacts, calendars, and workspace customization into one WordPress-native mail experience.",
+                  "Pro adds a combined inbox for unlimited accounts, scheduled send, snooze, a contact book, a built-in calendar, and AI that drafts, summarizes, and sorts. Ultimate adds team sharing.",
                   "pressedmail",
                 )}
               </p>
 
-              <div className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <div className="mt-5">
                 <PricingLink />
-                <span className="text-xs text-muted-foreground">
-                  {__("Opens pressedmail.com in a new tab.", "pressedmail")}
-                </span>
               </div>
             </div>
 
@@ -255,24 +298,17 @@ export function ProUpgradeInfo() {
 
           <ul
             aria-label={__("PressedMail Pro capability summary", "pressedmail")}
-            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            className="grid gap-2 sm:grid-cols-3">
             {PRO_CAPABILITIES.map((capability) => (
               <li
-                key={capability.label}
-                className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2.5">
-                {capability.unlimited ? (
-                  <InfinityIcon
-                    className="size-4 shrink-0 text-pro"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <Check
-                    className="size-4 shrink-0 text-pro"
-                    aria-hidden="true"
-                  />
-                )}
+                key={capability}
+                className="flex items-center gap-2 rounded-lg border border-pro-border bg-pro-muted px-3 py-2.5">
+                <InfinityIcon
+                  className="size-4 shrink-0 text-pro"
+                  aria-hidden="true"
+                />
                 <span className="text-xs font-medium text-foreground">
-                  {capability.label}
+                  {capability}
                 </span>
               </li>
             ))}
@@ -285,11 +321,16 @@ export function ProUpgradeInfo() {
               <h2 className="text-lg font-semibold text-foreground">
                 {__("A more capable workspace, at a glance", "pressedmail")}
               </h2>
-              <p className="text-sm text-muted-foreground">
-                {__(
-                  "Six focused toolsets for managing mail, people, schedules, and day-to-day follow-through.",
-                  "pressedmail",
-                )}
+              {/* A legend, badge first, so translators get a whole sentence
+                  and the badge never wraps onto a line by itself. */}
+              <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
+                <UltimateBadge />
+                <span>
+                  {__(
+                    "Needs an Ultimate plan. Every Pro plan includes everything else below.",
+                    "pressedmail",
+                  )}
+                </span>
               </p>
             </div>
 
@@ -308,23 +349,34 @@ export function ProUpgradeInfo() {
                       <h3 className="text-sm font-semibold text-foreground">
                         {category.title}
                       </h3>
+                      {category.ultimate ? <UltimateBadge /> : null}
                     </div>
                     <p className="mt-2 text-xs leading-5 text-muted-foreground">
                       {category.description}
                     </p>
-                    <ul className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
-                      {category.features.map((feature) => (
-                        <li key={feature} className="flex items-start gap-2">
-                          <Check
-                            className="mt-0.5 size-3.5 shrink-0 text-pro"
-                            aria-hidden="true"
-                          />
-                          <span className="text-xs leading-5 font-medium text-foreground">
-                            {feature}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
+                    {category.features.length > 0 ? (
+                      <ul className="mt-3 grid gap-x-4 gap-y-1.5 sm:grid-cols-2">
+                        {category.features.map((item) => (
+                          <li
+                            key={item.label}
+                            className="flex items-start gap-2">
+                            <Check
+                              className="mt-0.5 size-3.5 shrink-0 text-pro"
+                              aria-hidden="true"
+                            />
+                            <span className="text-xs leading-5 font-medium text-foreground">
+                              {item.label}
+                            </span>
+                            {item.ultimate ? <UltimateBadge /> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    {category.note ? (
+                      <span className="mt-3 block text-xs leading-5 text-muted-foreground">
+                        {category.note}
+                      </span>
+                    ) : null}
                   </article>
                 );
               })}
@@ -334,11 +386,11 @@ export function ProUpgradeInfo() {
           <section className="grid items-center gap-4 rounded-xl border border-pro-border bg-pro-muted px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]">
             <div>
               <h2 className="text-base font-semibold text-foreground">
-                {__("Ready to get more from your inbox?", "pressedmail")}
+                {__("Compare Pro plans", "pressedmail")}
               </h2>
               <p className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
                 {__(
-                  "Add smarter organization, AI assistance, connected contacts and calendars, and a workspace that adapts to the way you work.",
+                  "Plans differ by how many sites they cover. The pricing page lists what each one includes.",
                   "pressedmail",
                 )}
               </p>
@@ -348,7 +400,7 @@ export function ProUpgradeInfo() {
 
           <p className="text-center text-xs text-muted-foreground">
             {__(
-              "PressedMail Pro is separately distributed. Nothing in PressedMail Free is locked behind a purchase.",
+              "PressedMail Pro is a separate plugin. Nothing in PressedMail Free is locked behind a purchase.",
               "pressedmail",
             )}
           </p>

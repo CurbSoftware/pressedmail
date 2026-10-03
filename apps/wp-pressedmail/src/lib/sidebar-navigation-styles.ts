@@ -27,3 +27,10 @@ export const SETTINGS_NAV_INDICATOR_CLASS =
   "w-full justify-start border-l-[3px] border-l-transparent";
 export const SETTINGS_NAV_ACTIVE_CLASS =
   "border-l-primary bg-accent text-primary";
+
+/**
+ * The "Default" chip on a calendar or contact list row. Foreground text on
+ * the muted fill: the old teal on a teal tint measured 2.58:1 at 10px.
+ */
+export const SIDEBAR_NAV_DEFAULT_BADGE_CLASS =
+  "ml-1 shrink-0 rounded-sm bg-muted px-1 text-2xs font-medium leading-tight text-foreground";

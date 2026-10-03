@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { MailComp } from "@/components/inbox/mail";
 import { useTheme } from "@/components/themes";
 import { useLayout } from "@/components/layouts";
@@ -9,14 +9,11 @@ import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { MobileInboxLayout } from "@/components/mobile";
 import { useMobileShellFlag } from "@/components/mobile-shell";
 import { MobileInboxScreen } from "@/admin/pages/mobile/MobileInboxScreen";
-import {
-  useFolderOperations,
-  useInboxState,
-  useMessageOperations,
-} from "@/context/InboxContext";
 import { useAppContext } from "@/context/AppProvider";
-import { useOpenFromSearchParam } from "@/hooks/useOpenFromSearchParam";
-import type { MailProps } from "@/types";
+import { useOpenMessageFromUrl } from "@/hooks/useOpenMessageFromUrl";
+import { useFolderOperations } from "@/layouts/shared/hooks/useFolderOperations";
+import { getMessageIdentityKey } from "@/lib/message-identity";
+import type { EmailMessage, MailProps } from "@/types";
 
 interface ThemedMailLayoutProps extends Omit<
   MailProps,
@@ -28,22 +25,21 @@ interface ThemedMailLayoutProps extends Omit<
 }
 
 /**
- * Themed Mail Layout Component
+ * Brings the inbox to the folder a link names: `?folder=<name>&accountId=<id>`.
  *
- * Wraps the main mail component and applies layout and theme styling.
- * Layout (Gmail, Outlook, Roundcube) is now independent of color theme.
+ * A notification for a failed scheduled send, a header search hit and the like
+ * link to a folder with no message in it. The folder is chosen by the same call
+ * the sidebar makes, which is the one that knows Scheduled, Starred and
+ * Important are views over another folder: they fetch the folder behind them
+ * with their filter on, and the sidebar highlights them. Choosing them as a bare
+ * folder name asked the mailbox for a folder called "Scheduled", which it does
+ * not have, and showed an empty list with nothing highlighted.
+ *
+ * A component of its own, so the folder state this reads re-renders nothing but
+ * itself.
  */
-export function ThemedMailLayout({
-  className,
-  ...mailProps
-}: ThemedMailLayoutProps) {
-  const { currentTheme, theme } = useTheme();
-  const { currentLayout, layoutConfig } = useLayout();
-  const isMobileOrTablet = useIsMobileOrTablet();
-  const mobileShellEnabled = useMobileShellFlag();
-  const { messages } = useInboxState();
-  const { selectMessage } = useMessageOperations();
-  const { selectedFolder, selectFolder } = useFolderOperations();
+function OpenFolderFromUrl() {
+  const { selectedNav, selectFolder } = useFolderOperations();
   const { accounts, selectedAccount, setSelectedAccount } = useAppContext();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -64,77 +60,54 @@ export function ThemedMailLayout({
       }
     }
 
-    let cancelled = false;
-    void (async () => {
-      if (requestedFolder.toLowerCase() !== selectedFolder.toLowerCase()) {
-        await selectFolder(requestedFolder);
-      }
-      if (cancelled) return;
-      const next = new URLSearchParams(searchParams);
-      next.delete("accountId");
-      next.delete("folder");
-      setSearchParams(next, { replace: true });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    if (requestedFolder.toLowerCase() !== selectedNav.toLowerCase()) {
+      selectFolder(requestedFolder);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("accountId");
+    next.delete("folder");
+    setSearchParams(next, { replace: true });
   }, [
     accounts,
     searchParams,
     selectFolder,
     selectedAccount,
-    selectedFolder,
+    selectedNav,
     setSearchParams,
     setSelectedAccount,
   ]);
 
-  const handleOpenMessageFromUrl = React.useCallback(
-    (id: number) => {
-      const requestedAccountId = Number(searchParams.get("accountId"));
-      if (Number.isSafeInteger(requestedAccountId) && requestedAccountId > 0) {
-        const requestedAccount = accounts.find(
-          (account) => Number(account.id) === requestedAccountId,
-        );
-        const requestedEmail = requestedAccount?.email?.toString() ?? "";
-        if (requestedEmail && requestedEmail !== selectedAccount) {
-          setSelectedAccount(requestedEmail);
-          return false;
-        }
-      }
+  return null;
+}
 
-      const requestedFolder = searchParams.get("folder")?.trim() ?? "";
-      if (
-        requestedFolder &&
-        requestedFolder.toLowerCase() !== selectedFolder.toLowerCase()
-      ) {
-        void selectFolder(requestedFolder);
-        return false;
-      }
+/**
+ * Themed Mail Layout Component
+ *
+ * Wraps the main mail component and applies layout and theme styling.
+ * Layout (Gmail, Outlook, Roundcube) is now independent of color theme.
+ */
+export function ThemedMailLayout({
+  className,
+  ...mailProps
+}: ThemedMailLayoutProps) {
+  const { currentTheme, theme } = useTheme();
+  const { currentLayout, layoutConfig } = useLayout();
+  const isMobileOrTablet = useIsMobileOrTablet();
+  const mobileShellEnabled = useMobileShellFlag();
 
-      const match = messages.find((m) => Number(m.id) === id);
-      if (match) {
-        void selectMessage(match);
-        return true;
-      }
-      return false;
+  // The phone shell lists messages and reads them on a screen of their own, so a
+  // link that selects one has to go on to that screen. The desktop panes already
+  // show what is selected.
+  const navigate = useNavigate();
+  const phoneShell = isMobileOrTablet && mobileShellEnabled;
+  const openPhoneReader = React.useCallback(
+    (message: EmailMessage) => {
+      const identity = getMessageIdentityKey(message);
+      if (identity) navigate(`/inbox/m/${encodeURIComponent(identity)}`);
     },
-    [
-      accounts,
-      messages,
-      searchParams,
-      selectFolder,
-      selectMessage,
-      selectedAccount,
-      selectedFolder,
-      setSelectedAccount,
-    ],
+    [navigate],
   );
-
-  useOpenFromSearchParam("openMessageId", handleOpenMessageFromUrl, [
-    "accountId",
-    "folder",
-  ]);
+  useOpenMessageFromUrl(phoneShell ? openPhoneReader : undefined);
 
   // Boot is handled by layout variants (e.g., DefaultLayout, PressedGLayout)
   // or InboxView for frontend. Do NOT boot here to avoid double initialization.
@@ -152,6 +125,7 @@ export function ThemedMailLayout({
         data-theme={currentTheme}
         data-layout={currentLayout}
         data-theme-variant="phone">
+        <OpenFolderFromUrl />
         <MobileInboxScreen />
       </div>
     );
@@ -170,6 +144,7 @@ export function ThemedMailLayout({
         data-theme={currentTheme}
         data-layout={currentLayout}
         data-theme-variant="mobile">
+        <OpenFolderFromUrl />
         <MobileInboxLayout accounts={mailProps.accounts} />
       </div>
     );
@@ -185,6 +160,7 @@ export function ThemedMailLayout({
       )}
       data-theme={currentTheme}
       data-layout={currentLayout}>
+      <OpenFolderFromUrl />
       <MailComp
         {...mailProps}
         defaultLayout={layoutConfig.defaultPanelSizes}

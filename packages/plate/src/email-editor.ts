@@ -279,6 +279,9 @@ export function createPlateEmailChangeScheduler<TValue = Value>({
   return {
     handleChange(value, callbacks = {}) {
       callbacks.onValueChange?.(value);
+      // A previous value may still be serializing while this value waits for
+      // the debounce timer. It must not publish HTML over the newer document.
+      cache.cancelPendingSerialization();
       cache.markDirty();
 
       if (timer !== null) {
@@ -347,6 +350,8 @@ export function createPlateEmailEditorController<TValue = Value>({
       cache.commitProgrammaticHtml(html);
     },
     insertContent(html, options) {
+      changeScheduler.cancel();
+      cache.markDirty();
       insertPlateEmailHtmlContent({
         html,
         ...options,
@@ -375,6 +380,8 @@ export function createPlateEmailEditorController<TValue = Value>({
     },
     insertContentAtSavedSelection(html, { select, ...options }) {
       selectionStore.restore(select);
+      changeScheduler.cancel();
+      cache.markDirty();
       insertPlateEmailHtmlContent({
         html,
         ...options,
@@ -391,6 +398,8 @@ export function createPlateEmailEditorController<TValue = Value>({
         selectionStore.restore(select);
       }
 
+      changeScheduler.cancel();
+      cache.markDirty();
       insertNode(createPlateEmailInlineImageNode(normalizedImage));
       return true;
     },
@@ -572,7 +581,8 @@ export function sanitizePlateEmailEditorHtml(html: string): string {
     .replace(/\s*data-readonly="[^"]*"/gi, '')
     .replace(/\s*spellcheck="[^"]*"/gi, '')
     .replace(/\s*translate="[^"]*"/gi, '')
-    .replace(/\s*role="[^"]*"/gi, '')
+    // Editor roles go; role="presentation" on an email layout table stays.
+    .replace(/\s*role="(?!presentation")[^"]*"/gi, '')
     .replace(/\s*autocorrect="[^"]*"/gi, '')
     .replace(/\s*autocapitalize="[^"]*"/gi, '')
     .replace(/\s*data-gramm="[^"]*"/gi, '')

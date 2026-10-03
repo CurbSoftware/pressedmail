@@ -9,8 +9,10 @@ export const settingsInfoTooltips = {
     "Show PressedMail entry points across the WordPress admin.",
   emailList:
     "Layout, density, and loading behavior for the inbox message list.",
-  composer:
-    "Defaults for the new-message editor, including formatting helpers and AI tone.",
+  // AI tone is Pro, so only Pro's copy mentions it.
+  composer: __IS_FREE__
+    ? "Defaults for the new-message editor: starting format, font, and signature placement."
+    : "Defaults for the new-message editor, including formatting helpers and AI tone.",
   emailSignatures: "Create and manage signatures appended to outgoing email.",
   emailConnections:
     "Connect IMAP, SMTP, or OAuth mail accounts for PressedMail to send and receive.",

@@ -12,6 +12,7 @@ import { Badge, Button } from "@kit/ui/plugin";
 
 import { SettingsEmptyState } from "@/components/settings-ui";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
+import { proRouteLabel } from "@/components/wp-mail/smtp-pro-copy.active";
 import {
   clearWpMailLog,
   fetchWpMailLog,
@@ -19,6 +20,27 @@ import {
 } from "@/lib/wp-mail-api";
 
 const PER_PAGE = 25;
+
+/**
+ * How a message that did not go through SMTP left the site. A message that did,
+ * and a row written before this was recorded, say nothing: SMTP is what the
+ * Server column already names.
+ *
+ * `native` is everything PressedMail did not send and cannot name: PHP mail(),
+ * or a transport another mail plugin owns. Calling it "PHP mail" would claim
+ * more than is known, so it says only what is true.
+ */
+function routeLabel(route: WpMailLogEntry["route"]): string {
+  switch (route) {
+    case "native":
+      return __("Not sent by PressedMail", "pressedmail");
+    case "paused":
+      return __("Paused", "pressedmail");
+    default:
+      // A route only several connections can produce, worded by Pro.
+      return proRouteLabel(route);
+  }
+}
 
 export interface WpMailLogTableProps {
   /** Retention in days. 0 means logging is off. */
@@ -234,6 +256,14 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
                     {entry.attempt > 1 ? (
                       <Badge variant="outline" className="ml-1">
                         {__("Fallback", "pressedmail")}
+                      </Badge>
+                    ) : null}
+                    {routeLabel(entry.route) ? (
+                      <Badge
+                        variant="outline"
+                        className="ml-1"
+                        data-test={`wp-mail-log-route-${entry.id}`}>
+                        {routeLabel(entry.route)}
                       </Badge>
                     ) : null}
                   </td>

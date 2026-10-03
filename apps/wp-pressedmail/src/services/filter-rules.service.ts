@@ -21,6 +21,11 @@ import type {
   FilterRuleRunPreview,
   FilterRuleRunRequest,
   FilterRuleRunScope,
+  FilterRuleRunRef,
+  FilterRuleSchema,
+  FilterRuleRunHistory,
+  FilterRuleRunHistoryItem,
+  FilterRuleTestResult,
 } from "@/types/filter-rules";
 import { DEFAULT_FILTER_RULE_TRIGGERS } from "@/types/filter-rules";
 import type { EmailMessage } from "@/types/index";
@@ -40,17 +45,21 @@ function generateId(): string {
 }
 
 /**
- * Fetch all filter rules for an account.
+ * Fetch the rules for an account together with the rule schema this site offers.
+ *
+ * `sharedAccountId` reads the owner's rules for a mailbox someone shared with
+ * the current user (Ultimate); the server answers 403 without that role.
  */
-export async function fetchFilterRules(
+export async function fetchFilterRuleList(
   accountId?: number | null,
-): Promise<FilterRule[]> {
-  const url =
-    typeof accountId === "number"
-      ? buildApiUrl(`${routeApiPrefix}/filter-rules`, {
-          account_id: accountId,
-        })
-      : buildApiUrl(`${routeApiPrefix}/filter-rules`);
+  sharedAccountId?: number | null,
+): Promise<{ rules: FilterRule[]; schema: FilterRuleSchema | null }> {
+  const query: Record<string, number> = {};
+  if (typeof accountId === "number") query.account_id = accountId;
+  // Sharing is Ultimate-only: the Free build compiles no shared-rules param.
+  if (!__IS_FREE__ && typeof sharedAccountId === "number" && sharedAccountId > 0)
+    query.shared_account_id = sharedAccountId;
+  const url = buildApiUrl(`${routeApiPrefix}/filter-rules`, query);
 
   const response = await apiFetch(url, {
     method: "GET",
@@ -59,11 +68,33 @@ export async function fetchFilterRules(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch filter rules: ${response.statusText}`);
+    const error = await response.json().catch(() => ({}));
+    throw new Error(
+      error.message || `Failed to fetch filter rules: ${response.statusText}`,
+    );
   }
 
   const data = await response.json();
-  return data.rules || [];
+  return {
+    rules: data.rules || [],
+    schema: data.schema && typeof data.schema === "object" ? data.schema : null,
+  };
+}
+
+/**
+ * Fetch all filter rules for an account.
+ */
+export async function fetchFilterRules(
+  accountId?: number | null,
+): Promise<FilterRule[]> {
+  return (await fetchFilterRuleList(accountId)).rules;
+}
+
+/** Body field that points a write at a shared mailbox's owner rules. */
+function sharedField(sharedAccountId?: number | null): Record<string, number> {
+  return !__IS_FREE__ && typeof sharedAccountId === "number" && sharedAccountId > 0
+    ? { shared_account_id: sharedAccountId }
+    : {};
 }
 
 /**
@@ -71,6 +102,7 @@ export async function fetchFilterRules(
  */
 export async function createFilterRule(
   data: CreateFilterRuleData,
+  sharedAccountId?: number | null,
 ): Promise<FilterRuleOperationResult> {
   const url = buildApiUrl(`${routeApiPrefix}/filter-rules/create`);
 
@@ -78,9 +110,13 @@ export async function createFilterRule(
   const ruleData = {
     ...data,
     runTriggers: data.runTriggers ?? DEFAULT_FILTER_RULE_TRIGGERS,
-    scheduleIntervalMinutes: data.scheduleIntervalMinutes ?? null,
+    // Timed rules are Pro.
+    ...(__IS_FREE__
+      ? null
+      : { scheduleIntervalMinutes: data.scheduleIntervalMinutes ?? null }),
     conditions: data.conditions.map((c) => ({ ...c, id: generateId() })),
     actions: data.actions.map((a) => ({ ...a, id: generateId() })),
+    ...sharedField(sharedAccountId),
   };
 
   const response = await apiFetch(url, {
@@ -96,6 +132,7 @@ export async function createFilterRule(
       success: false,
       error:
         error.message || `Failed to create filter rule: ${response.statusText}`,
+      errorCode: typeof error.code === "string" ? error.code : undefined,
     };
   }
 
@@ -112,6 +149,7 @@ export async function createFilterRule(
 export async function updateFilterRule(
   ruleId: string,
   data: UpdateFilterRuleData,
+  sharedAccountId?: number | null,
 ): Promise<FilterRuleOperationResult> {
   // Route class supports GET/POST only. Update is POST /update/{id}.
   const url = buildApiUrl(`${routeApiPrefix}/filter-rules/update/${ruleId}`);
@@ -127,6 +165,7 @@ export async function updateFilterRule(
       ...a,
       id: (a as FilterAction).id || generateId(),
     })),
+    ...sharedField(sharedAccountId),
   };
 
   const response = await apiFetch(url, {
@@ -142,6 +181,7 @@ export async function updateFilterRule(
       success: false,
       error:
         error.message || `Failed to update filter rule: ${response.statusText}`,
+      errorCode: typeof error.code === "string" ? error.code : undefined,
     };
   }
 
@@ -157,14 +197,17 @@ export async function updateFilterRule(
  */
 export async function deleteFilterRule(
   ruleId: string,
+  sharedAccountId?: number | null,
 ): Promise<{ success: boolean; error?: string }> {
   // Route class supports GET/POST only. Delete is POST /delete/{id}.
   const url = buildApiUrl(`${routeApiPrefix}/filter-rules/delete/${ruleId}`);
+  const shared = sharedField(sharedAccountId);
 
   const response = await apiFetch(url, {
     method: "POST",
     credentials: "include",
     headers: getApiHeaders(),
+    ...(Object.keys(shared).length > 0 ? { body: JSON.stringify(shared) } : {}),
   });
 
   if (!response.ok) {
@@ -185,8 +228,9 @@ export async function deleteFilterRule(
 export async function toggleFilterRule(
   ruleId: string,
   enabled: boolean,
+  sharedAccountId?: number | null,
 ): Promise<FilterRuleOperationResult> {
-  return updateFilterRule(ruleId, { enabled });
+  return updateFilterRule(ruleId, { enabled }, sharedAccountId);
 }
 
 /**
@@ -203,6 +247,7 @@ export async function toggleFilterRule(
  */
 export async function reorderFilterRules(
   ruleIds: string[],
+  sharedAccountId?: number | null,
 ): Promise<{ success: boolean; error?: string }> {
   const url = buildApiUrl(`${routeApiPrefix}/filter-rules/reorder`);
 
@@ -210,7 +255,10 @@ export async function reorderFilterRules(
     method: "POST",
     credentials: "include",
     headers: getApiHeaders(),
-    body: JSON.stringify({ rule_ids: ruleIds }),
+    body: JSON.stringify({
+      rule_ids: ruleIds,
+      ...sharedField(sharedAccountId),
+    }),
   });
 
   if (!response.ok) {
@@ -226,6 +274,17 @@ export async function reorderFilterRules(
   return { success: true };
 }
 
+function toApiRef(ref: FilterRuleRunRef): Record<string, unknown> {
+  // The server refuses a ref without its folder generation, so a selection
+  // run without it never matched anything and always answered 409.
+  return {
+    account_id: ref.accountId,
+    uid: ref.uid,
+    uid_validity: ref.uidValidity,
+    folder: ref.folder,
+  };
+}
+
 function toApiScope(scope: FilterRuleRunScope): Record<string, unknown> {
   return {
     mode: scope.mode,
@@ -235,11 +294,8 @@ function toApiScope(scope: FilterRuleRunScope): Record<string, unknown> {
     folder_map: scope.folderMap ?? {},
     filters: scope.filters ?? {},
     sync_first: scope.syncFirst ?? true,
-    refs: (scope.refs ?? []).map((ref) => ({
-      account_id: ref.accountId,
-      uid: ref.uid,
-      folder: ref.folder,
-    })),
+    refs: (scope.refs ?? []).map(toApiRef),
+    exclude_refs: (scope.excludeRefs ?? []).map(toApiRef),
   };
 }
 
@@ -249,6 +305,7 @@ function toApiRunRequest(
   return {
     rule_ids: request.ruleIds,
     scope: toApiScope(request.scope),
+    ...(request.sweep ? { sweep: request.sweep } : {}),
   };
 }
 
@@ -339,7 +396,14 @@ export async function startFilterRuleRun(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to start rule run: ${response.statusText}`);
+    // The server's reason (a refused sweep, a reversed range) is plain copy;
+    // fall back to the status line when there is none.
+    const data = (await response.json().catch(() => ({}))) as { message?: unknown };
+    throw new Error(
+      typeof data.message === "string" && data.message
+        ? data.message
+        : `Failed to start rule run: ${response.statusText}`,
+    );
   }
 
   return normalizeRun((await response.json()) as Record<string, unknown>);
@@ -361,6 +425,72 @@ export async function fetchFilterRuleRun(
   }
 
   return normalizeRun((await response.json()) as Record<string, unknown>);
+}
+
+/**
+ * Try a rule draft on the newest mail of its folder. Nothing is changed.
+ * `sharedAccountId` tries it on a shared inbox, as that inbox's owner.
+ */
+export async function testFilterRule(
+  draft: {
+    conditions: Omit<FilterCondition, "id">[];
+    conditionLogic: ConditionLogic;
+    accountId: number;
+  },
+  sharedAccountId?: number | null,
+): Promise<FilterRuleTestResult> {
+  const url = buildApiUrl(`${routeApiPrefix}/filter-rules/test`);
+  const response = await apiFetch(url, {
+    method: "POST",
+    credentials: "include",
+    headers: getApiHeaders(),
+    body: JSON.stringify({ ...draft, ...sharedField(sharedAccountId) }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      data.message || `Failed to test the rule: ${response.statusText}`,
+    );
+  }
+  const test = (data.test ?? {}) as Partial<FilterRuleTestResult>;
+  return {
+    checked: Number(test.checked ?? 0),
+    matched: Number(test.matched ?? 0),
+    unknown: Number(test.unknown ?? 0),
+    folder: String(test.folder ?? "INBOX"),
+    samples: Array.isArray(test.samples) ? test.samples : [],
+  };
+}
+
+/** Rule-run history: manual runs one by one, automatic runs summed over a week. */
+export async function fetchFilterRuleRuns(): Promise<FilterRuleRunHistory> {
+  const url = buildApiUrl(`${routeApiPrefix}/filter-rules/runs`);
+  const response = await apiFetch(url, {
+    method: "GET",
+    credentials: "include",
+    headers: getApiHeaders(),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(
+      data.message || `Failed to load rule history: ${response.statusText}`,
+    );
+  }
+  const present = (row: Record<string, unknown>): FilterRuleRunHistoryItem => ({
+    ...normalizeRun(row),
+    trigger: String(row.trigger ?? "manual"),
+  });
+  const summary = (data.automaticSummary ?? {}) as Record<string, unknown>;
+  return {
+    runs: Array.isArray(data.runs) ? data.runs.map(present) : [],
+    automatic: Array.isArray(data.automatic) ? data.automatic.map(present) : [],
+    automaticSummary: {
+      runs: Number(summary.runs ?? 0),
+      matched: Number(summary.matched ?? 0),
+      changed: Number(summary.changed ?? 0),
+      failed: Number(summary.failed ?? 0),
+    },
+  };
 }
 
 export async function cancelFilterRuleRun(

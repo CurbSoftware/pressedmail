@@ -36,21 +36,39 @@ function DropdownMenuTrigger({
   );
 }
 
+/**
+ * An app shell that opts in with `data-menu-portal` on its <main>. A menu
+ * portalled to <body> sits outside every landmark, which axe reports as
+ * `region` whenever it's open. Without the attribute, menus portal to <body>.
+ */
+function menuPortalRoot() {
+  if (typeof document === 'undefined') return undefined;
+
+  return document.querySelector<HTMLElement>('[data-menu-portal]') ?? undefined;
+}
+
 function DropdownMenuContent({
   align = 'start',
   alignOffset = 0,
   side = 'bottom',
   sideOffset = 4,
   className,
+  container,
   ...props
 }: MenuPrimitive.Popup.Props &
   Pick<
     MenuPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset'
-  >) {
+  > &
+  Pick<MenuPrimitive.Portal.Props, 'container'>) {
+  const shellRoot = container ? undefined : menuPortalRoot();
+
   return (
-    <MenuPrimitive.Portal>
+    <MenuPrimitive.Portal container={container ?? shellRoot}>
+      {/* Fixed inside an opted-in shell, so its overflow-hidden <main> can't
+          clip a menu opened from the sidebar. */}
       <MenuPrimitive.Positioner
+        positionMethod={shellRoot ? 'fixed' : undefined}
         className="isolate z-50 outline-none"
         align={align}
         alignOffset={alignOffset}

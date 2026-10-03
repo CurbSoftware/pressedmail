@@ -7,7 +7,7 @@ import {
 } from "react";
 import { __ } from "@wordpress/i18n";
 import {
-  Filter,
+  ListFilter,
   Mail,
   MailCheck,
   PenTool,
@@ -63,7 +63,7 @@ const PERSONAL_CONTENT: Record<
     content: <PreferencesTab />,
   },
   "email-rules": {
-    icon: Filter,
+    icon: ListFilter,
     content: (
       <Suspense fallback={null}>
         <EmailRulesTab />

@@ -1,15 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation, type Location } from "react-router-dom";
 
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 
 import { useMobileShellFlag } from "./useMobileShellFlag";
 
 export interface MobileOnlyRouteProps {
-  /** Desktop destination to redirect to when the compact shell is not active. */
-  redirectTo: string;
+  /**
+   * Desktop destination to redirect to when the compact shell is not active. A
+   * function is given the address that was asked for, so a screen that is a
+   * place on the desktop too (a settings tab) can send its place along with it.
+   */
+  redirectTo: string | ((location: Location) => string);
   children: React.ReactNode;
 }
 
@@ -30,8 +34,14 @@ export function MobileOnlyRoute({ redirectTo, children }: MobileOnlyRouteProps) 
   const isMobileOrTablet = useIsMobileOrTablet();
   const mobileShellEnabled = useMobileShellFlag();
   const compactShellEnabled = isMobileOrTablet && mobileShellEnabled;
+  const location = useLocation();
   if (!compactShellEnabled) {
-    return <Navigate to={redirectTo} replace />;
+    return (
+      <Navigate
+        to={typeof redirectTo === "function" ? redirectTo(location) : redirectTo}
+        replace
+      />
+    );
   }
   return <>{children}</>;
 }

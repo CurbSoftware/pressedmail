@@ -1,3 +1,5 @@
+import { normalizeComposerLinkColor } from "./plate/link-style";
+
 /** Capture pending edits without Plate's surrounding editor controls. */
 export function getComposerDomHtml(
   container: HTMLElement | null,
@@ -6,6 +8,19 @@ export function getComposerDomHtml(
   if (!editable) return null;
 
   const body = editable.cloneNode(true) as HTMLElement;
+  // Immediate Preview/Send can precede structured serialization. Rewrite the
+  // attribute text, since assigning style.color would expand hex back to RGB.
+  body.querySelectorAll("a[style]").forEach((link) => {
+    link.setAttribute("style", link.getAttribute("style")!.replace(
+      /(^|;)(\s*(?:color|background-color)\s*:\s*)([^;]+)/gi,
+      (_declaration, separator, property, value: string) => `${separator}${property}${normalizeComposerLinkColor(value)}`,
+    ));
+  });
+  // An inline void whose label is not what gets sent (a merge-field chip)
+  // names its serialized text here.
+  body.querySelectorAll<HTMLElement>("[data-pm-dom-text]").forEach((node) => {
+    node.replaceWith(node.dataset.pmDomText ?? "");
+  });
   // Noneditable figures and inline voids contain authored content. Remove
   // explicit decorations only, never all contenteditable="false" elements.
   body

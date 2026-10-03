@@ -1,3 +1,10 @@
+import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+
+import type {
+  ManagedSetupFormData,
+  ManagedSetupFormErrors,
+} from "@/components/setup/types";
+
 export const DOMAIN_POLICY_VERSION = 1 as const;
 
 export type ManagedSecurity = "SSL/TLS" | "STARTTLS" | "None";
@@ -164,4 +171,24 @@ export interface PurgeResult {
   purged_count: number;
   failed_count: number;
   failures: Array<{ account_id: number; code: string }>;
+}
+
+/** The account-setup state for a managed domain. Pro builds it; Free has none. */
+export interface ManagedDomainSetup {
+  runtime: ManagedDomainSetupRuntime;
+  /** The policy is on but lists no usable domain, so a new mailbox cannot be set up. */
+  blocked: boolean;
+  formData: ManagedSetupFormData;
+  setFormData: Dispatch<SetStateAction<ManagedSetupFormData>>;
+  errors: ManagedSetupFormErrors;
+  setErrors: (errors: ManagedSetupFormErrors) => void;
+  fingerprint: string;
+  dirty: boolean;
+  testedPayloadRef: MutableRefObject<ManagedDomainAccountInput | null>;
+  clearPasswords: () => void;
+  reset: () => void;
+  validate: () => {
+    valid: boolean;
+    payload: ManagedDomainAccountInput | null;
+  };
 }

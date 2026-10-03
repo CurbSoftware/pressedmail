@@ -6,9 +6,9 @@
  * instead of `scheduled-email-edit.ts`, which keeps the endpoint out of the
  * Free bundle entirely.
  *
- * Throwing rather than resolving keeps a future Free caller loud: the two call
- * sites only reach here through the scheduled context, which is a stub in Free,
- * so this is a guard against a wiring mistake and not a user-facing path.
+ * Both call sites are compiled out of the Free build, so this body is never
+ * bundled. It throws rather than resolving so a future Free caller fails loudly,
+ * and it carries no user-facing copy.
  */
 import type { DraftComposeIdentity } from "@/lib/draft-compose";
 
@@ -16,5 +16,5 @@ export async function requestScheduledDraftHandoff(
   _scheduledEmailId: number,
   _identity: DraftComposeIdentity,
 ): Promise<unknown> {
-  throw new Error("Scheduled sending is not included in this build.");
+  throw new Error("scheduled-email-edit");
 }

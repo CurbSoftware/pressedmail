@@ -124,3 +124,4 @@ export const ContactsHeaderIcon = forwardRef<SVGSVGElement, HeaderIconProps>(
     );
   },
 );
+

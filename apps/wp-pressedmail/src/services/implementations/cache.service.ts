@@ -1,5 +1,7 @@
 import {
   getPrincipalStorageItem,
+  canCacheEmailInBrowser,
+  EMAIL_CACHE_POLICY_EVENT,
   removePrincipalStorageItem,
   setPrincipalStorageItem,
 } from "@/lib/principal-storage";
@@ -90,7 +92,7 @@ function buildCacheKeyString(key: CacheKey): string {
     key.folder,
     key.grouping ?? "list",
     key.filterSignature ?? "nofilters",
-    key.consolidatedKey ?? null,
+    __SINGLE_MAILBOX__ ? null : (key.consolidatedKey ?? null),
     key.offset ?? null,
     key.limit ?? null,
   ]);
@@ -218,6 +220,19 @@ export class CacheService implements ICacheService {
   // Stats tracking
   private hits = 0;
   private misses = 0;
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly onEmailCachePolicy = () => this.clear();
+
+  dispose(): void {
+    this.clear();
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+    this.cleanupTimer = null;
+    if (typeof window !== "undefined")
+      window.removeEventListener(
+        EMAIL_CACHE_POLICY_EVENT,
+        this.onEmailCachePolicy,
+      );
+  }
 
   constructor() {
     // Superseded payloads. v1 held a different shape, and v2 held message bodies
@@ -233,16 +248,22 @@ export class CacheService implements ICacheService {
     }
     // Restore from session storage on initialization
     this.restoreFromStorage();
+    if (typeof window !== "undefined")
+      window.addEventListener(
+        EMAIL_CACHE_POLICY_EVENT,
+        this.onEmailCachePolicy,
+      );
 
     // Setup periodic cleanup (every 5 minutes)
     if (typeof window !== "undefined") {
-      setInterval(() => this.cleanup(), 5 * 60 * 1000);
+      this.cleanupTimer = setInterval(() => this.cleanup(), 5 * 60 * 1000);
     }
   }
 
   // ============== Message List Cache ==============
 
   getMessages(key: CacheKey): CachedMessageList | null {
+    if (!canCacheEmailInBrowser()) return null;
     const cacheKey = buildCacheKeyString(key);
     const entry = this.messageCache.get(cacheKey);
 
@@ -259,6 +280,7 @@ export class CacheService implements ICacheService {
   }
 
   getMessagesAllowStale(key: CacheKey): StaleWhileRevalidateResult | null {
+    if (!canCacheEmailInBrowser()) return null;
     const cacheKey = buildCacheKeyString(key);
     const entry = this.messageCache.get(cacheKey);
 
@@ -285,7 +307,7 @@ export class CacheService implements ICacheService {
     data: CachedMessageList,
     ttl = DEFAULT_CACHE_TTL.MESSAGE_LIST,
   ): void {
-    if (!completeList(data)) return;
+    if (!canCacheEmailInBrowser() || !completeList(data)) return;
     const cacheKey = buildCacheKeyString(key);
     this.messageCache.set(cacheKey, {
       data,
@@ -306,9 +328,7 @@ export class CacheService implements ICacheService {
    * least likely to render again, and dropping them bounds what the list holds.
    */
   private evictMessageCachePages(): void {
-    if (
-      this.messageCache.size <= STORAGE_BUDGETS.MAX_MEMORY_MESSAGE_PAGES
-    ) {
+    if (this.messageCache.size <= STORAGE_BUDGETS.MAX_MEMORY_MESSAGE_PAGES) {
       return;
     }
 
@@ -342,6 +362,7 @@ export class CacheService implements ICacheService {
     folder: string,
     messageId: string | number,
   ): EmailMessage | null {
+    if (!canCacheEmailInBrowser()) return null;
     const cacheKey = buildDetailKeyString(accountId, folder, messageId);
     const entry = this.detailCache.get(cacheKey);
 
@@ -383,6 +404,7 @@ export class CacheService implements ICacheService {
     message: EmailMessage,
     ttl = DEFAULT_CACHE_TTL.MESSAGE_DETAIL,
   ): void {
+    if (!canCacheEmailInBrowser()) return;
     const messageId = getMessageIdentityKey(message);
     if (!buildDetailKeyString(accountId, folder, messageId)) return;
 
@@ -438,6 +460,7 @@ export class CacheService implements ICacheService {
   // ============== Folder Cache ==============
 
   getFolders(accountId: string): ImapFolder[] | null {
+    if (!canCacheEmailInBrowser()) return null;
     const entry = this.folderCache.get(accountId);
 
     if (!entry || isExpired(entry)) {
@@ -457,6 +480,7 @@ export class CacheService implements ICacheService {
     folders: ImapFolder[],
     ttl = DEFAULT_CACHE_TTL.FOLDER_LIST,
   ): void {
+    if (!canCacheEmailInBrowser()) return;
     this.folderCache.set(accountId, {
       data: folders,
       timestamp: Date.now(),
@@ -477,6 +501,8 @@ export class CacheService implements ICacheService {
   // ============== Cache Management ==============
 
   clear(): void {
+    if (this.persistTimeout) clearTimeout(this.persistTimeout);
+    this.persistTimeout = null;
     this.messageCache.clear();
     this.detailCache.clear();
     this.folderCache.clear();
@@ -545,6 +571,7 @@ export class CacheService implements ICacheService {
   }
 
   persistToStorage(): void {
+    if (!canCacheEmailInBrowser()) return;
     if (typeof window === "undefined") return;
 
     try {
@@ -570,6 +597,7 @@ export class CacheService implements ICacheService {
   }
 
   restoreFromStorage(): void {
+    if (!canCacheEmailInBrowser()) return;
     if (typeof window === "undefined") return;
 
     try {
@@ -870,7 +898,7 @@ export function getCacheService(): CacheService {
  */
 export function resetCacheService(): void {
   if (cacheServiceInstance) {
-    cacheServiceInstance.clear();
+    cacheServiceInstance.dispose();
   }
   cacheServiceInstance = null;
 }

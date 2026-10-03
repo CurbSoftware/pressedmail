@@ -14,7 +14,7 @@ import { __, sprintf } from "@wordpress/i18n";
 import {
   getPlateEmailEditorSurfacePreset,
   type PlateEmailEditorDialect,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 
 import type { EmailEditorRef } from "@/components/composer";
 import { findReadOnlyBlockNodeLabels } from "@/components/composer/plate-composer-dialect";
@@ -33,6 +33,7 @@ import {
 import { ComposerAttachmentChips } from "./ComposerAttachmentChips";
 import { ComposerSubjectAttachmentActions } from "./ComposerSubjectAttachmentActions";
 import { ComposerAddressing } from "./ComposerAddressing";
+import { Button } from "@kit/ui/plugin";
 import { ComposerFromAccountSelect } from "./ComposerFromAccountSelect";
 import { ComposeContextLabel } from "./ComposeContextLabel";
 import { COMPOSER_ROW_CLASS } from "@/components/compose/composer-row";
@@ -45,7 +46,7 @@ import {
   type UseComposeFormReturn,
 } from "@/hooks/compose/v2/useComposeForm";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import { useMediaLibraryPicker } from "./media-library/MediaLibraryPickerProvider";
+import { useMediaLibraryPicker } from "./useMediaLibraryPicker";
 import { uploadImage, validateImage } from "@/services/image-upload.service";
 import { cn } from "@/lib/utils";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
@@ -136,7 +137,11 @@ export function ComposerContent({
   useEffect(() => {
     const nextDialect = form.draftDocument?.dialect ?? preferredDialect;
     setDialect(nextDialect === "plain" ? "markdown" : nextDialect);
-  }, [form.composeSessionVersion, form.draftDocument?.dialect, preferredDialect]);
+  }, [
+    form.composeSessionVersion,
+    form.draftDocument?.dialect,
+    preferredDialect,
+  ]);
   const [pendingDialect, setPendingDialect] =
     useState<ComposerBlockDialect | null>(null);
   const [pendingInertLabels, setPendingInertLabels] = useState<string[]>([]);
@@ -155,7 +160,7 @@ export function ComposerContent({
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
   const imageUploadSessionRef = useRef<number | null | undefined>(undefined);
   const isExclusiveOperationPending =
-    form.isSending || form.isScheduling || form.isDiscarding;
+    form.isSending || (!__IS_FREE__ && form.isScheduling) || form.isDiscarding;
   const isExclusiveOperationPendingRef = useRef(isExclusiveOperationPending);
   isExclusiveOperationPendingRef.current = isExclusiveOperationPending;
   useEffect(() => {
@@ -166,7 +171,7 @@ export function ComposerContent({
     setPendingInertLabels([]);
   }, [isExclusiveOperationPending]);
   const aiEnabled = Boolean(
-    form.showAIPanel && emailSurfaceFeatures.aiCommands,
+    !__IS_FREE__ && form.showAIPanel && emailSurfaceFeatures.aiCommands,
   );
   const canUseMediaLibraryInlineImages =
     canUseMediaLibraryAttachments &&
@@ -451,6 +456,19 @@ export function ComposerContent({
         className="flex flex-1 flex-col overflow-y-auto overflow-x-hidden min-h-0"
         data-test="composer-payload"
         inert={isExclusiveOperationPending ? true : undefined}>
+        {form.senderNeedsConfirmation && (
+          <div role="alert" className="grid gap-2 px-3 py-2 text-sm">
+            <span>
+              {__("This draft's sender is no longer available.", "pressedmail")}
+            </span>
+            <button
+              type="button"
+              className="w-fit text-left underline underline-offset-2"
+              onClick={form.confirmAccountSender}>
+              {__("Use connected mailbox address", "pressedmail")}
+            </button>
+          </div>
+        )}
         {/* ── 3. Addressing (To, Cc, Bcc) ── */}
         <ComposerAddressing
           toRecipients={form.toRecipients}
@@ -463,10 +481,28 @@ export function ComposerContent({
           onBccChange={form.setBccRecipients}
           onShowCcChange={form.setShowCc}
           onShowBccChange={form.setShowBcc}
-          showListSuggestions={form.contactListsEnabled}
+          showListSuggestions={!__IS_FREE__ && form.contactListsEnabled}
           disabled={isExclusiveOperationPending}
           autoFocusTo={form.mode === "new"}
+          subject={form.subject}
+          body={form.body}
+          contentType={form.contentType}
         />
+
+        {__ENABLE_CONTACT_LISTS__ &&
+        !form.listDelivery &&
+        [
+          ...form.toRecipients,
+          ...form.ccRecipients,
+          ...form.bccRecipients,
+        ].some((recipient) => recipient.type === "list") ? (
+          <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
+            {__(
+              "Contact-list members receive this email privately as Bcc recipients. Individual contacts keep their selected To, Cc or Bcc field.",
+              "pressedmail",
+            )}
+          </div>
+        ) : null}
 
         {/* ── 4. Subject ──
             The shared metadata grid (composer-row.ts). The compact "Re"
@@ -474,6 +510,26 @@ export function ComposerContent({
             starts in column two naturally and the attachment cluster takes
             the action cell. The placeholder and aria-label keep the field's
             full name for naming. */}
+        {__ENABLE_CONTACT_LISTS__ && form.listDelivery ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
+            <p className="text-muted-foreground">
+              {__(
+                "Full list email. Choose one list in To, Cc or Bcc, with no individual recipients. Each subscribed member gets a private message with their own personal fields and unsubscribe link.",
+                "pressedmail",
+              )}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={isExclusiveOperationPending}
+              onClick={() => form.setListDelivery?.(false)}
+              data-test="composer-list-delivery-clear"
+              data-testid="composer-list-delivery-clear">
+              {__("Use individual recipients", "pressedmail")}
+            </Button>
+          </div>
+        ) : null}
         <div
           className="border-b border-border bg-transparent px-4 py-2"
           data-test="subject-row">

@@ -17,11 +17,11 @@ import React, {
 } from "react";
 import { routeApiPrefix } from "../Strings";
 import { apiFetch } from "@/lib/api-client";
-import type { ThemeColorVariables } from "@/types/theme";
 import type {
-  AppearanceMode,
   EffectiveWhitelabelRuntime,
+  WhitelabelAppearanceDefaults,
 } from "@/types/whitelabel";
+import { useWhitelabelRuntime } from "@/context/admin-settings/whitelabel-runtime.active";
 
 /**
  * Plugin-wide settings controlled by admin.
@@ -29,6 +29,7 @@ import type {
 interface PluginSettings {
   purge_data_on_uninstall: boolean;
   allow_external_images: boolean;
+  /** Read-only, from the Pro policy service. Absent (Free, or loading) means allowed. */
   allow_user_attachment_uploads: boolean;
   allow_media_library_attachments: boolean;
   allow_user_attachment_downloads: boolean;
@@ -38,16 +39,15 @@ interface PluginSettings {
   admin_bar_enabled: boolean;
 }
 
-type ThemeTokenMap = Partial<ThemeColorVariables>;
-
 /**
- * Combined admin settings context value.
+ * Combined admin settings context value. The whitelabel defaults are present
+ * only in Pro, which reads them from the whitelabel runtime.
  */
-interface AdminSettingsContextValue {
+interface AdminSettingsContextValue extends Partial<WhitelabelAppearanceDefaults> {
   // Plugin settings
   pluginSettings: PluginSettings | null;
-  // Whitelabel settings
-  whitelabelSettings: EffectiveWhitelabelRuntime | null;
+  // Whitelabel settings (Pro). Absent in Free.
+  whitelabelSettings?: EffectiveWhitelabelRuntime | null;
   // Loading state
   loading: boolean;
   // Error state
@@ -57,17 +57,7 @@ interface AdminSettingsContextValue {
   canUseMediaLibraryAttachments: boolean;
   canDownloadAttachments: boolean;
   canShowExternalImages: boolean;
-  // Theme/palette restriction helpers
-  areProPalettesDisabled: boolean;
-  // Whitelabel defaults and switching
-  defaultLayout: "pressedm" | "pressedg" | "pressedout";
-  defaultTheme: string;
-  allowUserLayoutSwitching: boolean;
-  allowUserThemeSwitching: boolean;
-  defaultMode: AppearanceMode;
-  allowUserModeSwitching: boolean;
-  themeTokensLight: ThemeTokenMap;
-  themeTokensDark: ThemeTokenMap;
+  /** The site setting for this user's role. The per-user preference is not included. */
   // Refresh function
   refreshSettings: () => Promise<void>;
 }
@@ -101,29 +91,12 @@ interface AdminSettingsProviderProps {
   children: React.ReactNode;
 }
 
-function readEffectiveWhitelabelRuntime(): EffectiveWhitelabelRuntime | null {
-  const runtime = window.pressedmailPlugin?.whitelabel;
-  if (
-    !runtime ||
-    runtime.version !== 1 ||
-    runtime.enabled !== true ||
-    typeof runtime.revision !== "string" ||
-    runtime.revision.length === 0
-  ) {
-    return null;
-  }
-
-  return runtime;
-}
-
 export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
   children,
 }) => {
   const [pluginSettings, setPluginSettings] = useState<PluginSettings | null>(
     null,
   );
-  const [whitelabelSettings, setWhitelabelSettings] =
-    useState<EffectiveWhitelabelRuntime | null>(readEffectiveWhitelabelRuntime);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
@@ -171,7 +144,6 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
 
       try {
         await fetchPluginSettings(signal);
-        setWhitelabelSettings(readEffectiveWhitelabelRuntime());
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           return;
@@ -204,23 +176,6 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
       abortController.abort();
     };
   }, [fetchSettings]);
-
-  useEffect(() => {
-    const syncEffectiveRuntime = () => {
-      setWhitelabelSettings(readEffectiveWhitelabelRuntime());
-    };
-
-    window.addEventListener(
-      "pressedmail-whitelabel-runtime-updated",
-      syncEffectiveRuntime,
-    );
-    return () => {
-      window.removeEventListener(
-        "pressedmail-whitelabel-runtime-updated",
-        syncEffectiveRuntime,
-      );
-    };
-  }, []);
 
   // A request still in flight and a request that failed are different states.
   // In flight, the permissive answer keeps the composer usable for the moment
@@ -257,83 +212,39 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
     return pluginSettings ? pluginSettings.allow_external_images : false;
   }, [pluginSettings]);
 
-  const areProPalettesDisabled = useMemo(() => {
-    return false;
-  }, []);
+  // Templates are Pro and the key arrives with the settings: absent means the
+  // policy service never answered (Free, or still loading), so the build flag
+  // stays the only gate rather than a missing key hiding the page.
 
-  const defaultLayout = useMemo(() => {
-    return whitelabelSettings?.appearance.default_layout ?? "pressedm";
-  }, [whitelabelSettings]);
-
-  const defaultTheme = useMemo(() => {
-    return whitelabelSettings?.appearance.theme_id ?? "pressedm";
-  }, [whitelabelSettings]);
-
-  const allowUserLayoutSwitching = useMemo(() => {
-    return whitelabelSettings?.appearance.allow_user_layout_switching ?? true;
-  }, [whitelabelSettings]);
-
-  const allowUserThemeSwitching = useMemo(() => {
-    return whitelabelSettings?.appearance.allow_user_theme_switching ?? true;
-  }, [whitelabelSettings]);
-
-  const defaultMode = useMemo(
-    () => whitelabelSettings?.appearance.default_mode ?? "system",
-    [whitelabelSettings],
-  );
-
-  const allowUserModeSwitching = useMemo(
-    () => whitelabelSettings?.appearance.allow_user_mode_switching ?? true,
-    [whitelabelSettings],
-  );
-
-  const themeTokensLight = useMemo(() => {
-    return {};
-  }, []);
-
-  const themeTokensDark = useMemo(() => {
-    return {};
-  }, []);
+  // Whitelabel is Pro: Free has no runtime and no defaults to add.
+  const whitelabel = useWhitelabelRuntime(pluginSettings);
 
   const value: AdminSettingsContextValue = useMemo(
     () => ({
+      ...(__IS_FREE__
+        ? null
+        : {
+            ...whitelabel?.defaults,
+            whitelabelSettings: whitelabel?.runtime ?? null,
+          }),
       pluginSettings,
-      whitelabelSettings,
       loading,
       error,
       canUploadAttachments,
       canUseMediaLibraryAttachments,
       canDownloadAttachments,
       canShowExternalImages,
-      areProPalettesDisabled,
-      defaultLayout,
-      defaultTheme,
-      allowUserLayoutSwitching,
-      allowUserThemeSwitching,
-      defaultMode,
-      allowUserModeSwitching,
-      themeTokensLight,
-      themeTokensDark,
       refreshSettings,
     }),
     [
+      whitelabel,
       pluginSettings,
-      whitelabelSettings,
       loading,
       error,
       canUploadAttachments,
       canUseMediaLibraryAttachments,
       canDownloadAttachments,
       canShowExternalImages,
-      areProPalettesDisabled,
-      defaultLayout,
-      defaultTheme,
-      allowUserLayoutSwitching,
-      allowUserThemeSwitching,
-      defaultMode,
-      allowUserModeSwitching,
-      themeTokensLight,
-      themeTokensDark,
       refreshSettings,
     ],
   );
@@ -403,6 +314,7 @@ export const useCanShowExternalImages = (): boolean => {
   return context?.canShowExternalImages ?? true;
 };
 
+
 /**
  * Hook to get max attachment size in MB.
  * Returns 10 (default) if context not available.
@@ -426,15 +338,6 @@ export const useSyncIntervalMinutes = (): number => {
  */
 export const useAutoSyncDisabled = (): boolean => {
   return useSyncIntervalMinutes() <= 0;
-};
-
-/**
- * Hook to check if pro palettes are disabled.
- * Returns false (not disabled) if context not available.
- */
-export const useAreProPalettesDisabled = (): boolean => {
-  const context = useContext(AdminSettingsContext);
-  return context?.areProPalettesDisabled ?? false;
 };
 
 /**
@@ -470,30 +373,10 @@ export const useAllowUserThemeSwitching = (): boolean => {
   return context?.allowUserThemeSwitching ?? true;
 };
 
-/** Get the administrator default appearance mode. */
-export const useWhitelabelDefaultMode = (): AppearanceMode => {
-  const context = useContext(AdminSettingsContext);
-  return context?.defaultMode ?? "system";
-};
-
 /** Check whether users may switch light/dark/system appearance. */
 export const useAllowUserModeSwitching = (): boolean => {
   const context = useContext(AdminSettingsContext);
   return context?.allowUserModeSwitching ?? true;
-};
-
-/**
- * Hook to get whitelabel theme tokens.
- */
-export const useWhitelabelThemeTokens = (): {
-  light: ThemeTokenMap;
-  dark: ThemeTokenMap;
-} => {
-  const context = useContext(AdminSettingsContext);
-  return {
-    light: context?.themeTokensLight ?? {},
-    dark: context?.themeTokensDark ?? {},
-  };
 };
 
 export default AdminSettingsContext;

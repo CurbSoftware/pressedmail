@@ -9,6 +9,7 @@ import {
   serializePlateValueToHtml,
 } from "@/components/composer/plate-composer-serialization.active";
 import { ComposerEditorPlugins } from "@/components/composer/plate-composer-plugins";
+import { templateVariablesToText } from "@/components/composer/nodes/template-variable-kit.active";
 
 const SAFE_LINK_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const UNSAFE_LINK_PROTOCOLS = new Set([
@@ -367,6 +368,23 @@ function collectImportWarnings(doc: Document, warnings: Set<string>): void {
   }
 }
 
+/**
+ * The body background an HTML document carries: the composer's export
+ * metadata first, then the body's inline style, then a legacy bgcolor.
+ */
+export function readHtmlDocumentBackgroundColor(
+  doc: Document,
+): string | undefined {
+  const metadataBackground =
+    doc.body.getAttribute("data-pm-body-background") ??
+    doc.documentElement.getAttribute("data-pm-body-background");
+  return normalizeCssColor(
+    metadataBackground ||
+      doc.body.style.backgroundColor ||
+      doc.body.getAttribute("bgcolor"),
+  );
+}
+
 function extractComposerDocument(html: string): {
   bodyBackgroundColor?: string;
   bodyStyle?: string;
@@ -392,14 +410,7 @@ function extractComposerDocument(html: string): {
   const canonicalBody = doc.querySelector<HTMLElement>(
     '[data-pm-composer-body="true"]',
   );
-  const metadataBackground =
-    doc.body.getAttribute("data-pm-body-background") ??
-    doc.documentElement.getAttribute("data-pm-body-background");
-  const bodyBackgroundColor = normalizeCssColor(
-    metadataBackground ||
-      doc.body.style.backgroundColor ||
-      doc.body.getAttribute("bgcolor"),
-  );
+  const bodyBackgroundColor = readHtmlDocumentBackgroundColor(doc);
 
   return {
     ...(bodyBackgroundColor ? { bodyBackgroundColor } : {}),
@@ -590,7 +601,7 @@ async function inlineEmbeddedComposerCss(
   }
 }
 
-function valueHasImportableContent(value: Value): boolean {
+export function valueHasImportableContent(value: Value): boolean {
   const meaningfulTypes = new Set([
     "attachment",
     "audio",
@@ -1389,7 +1400,8 @@ export async function serializePlateValueToMarkdown(
 ): Promise<string> {
   const { serializeMd } = await import("@kit/plate/markdown");
   const normalized = normalizeComposerNodesForMarkdown(
-    value as unknown as ComposerSerializationNode[],
+    // Chips are inline voids with no text of their own; Markdown gets the token they stand for.
+    templateVariablesToText(value) as unknown as ComposerSerializationNode[],
   ) as unknown as Value;
   const editor = await createMarkdownEditor(normalized);
   const markdown = serializeMd(editor, {

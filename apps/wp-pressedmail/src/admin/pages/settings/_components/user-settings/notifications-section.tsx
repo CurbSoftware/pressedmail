@@ -14,6 +14,7 @@ import {
 } from "@/hooks/useUserPreferences";
 import { getRuntimeSiteTimezone } from "@/lib/runtime-config";
 
+import { NotificationSilenceNote } from "./notification-silence-note";
 import {
   PreferenceSelectRow,
   PreferenceSwitchRow,
@@ -52,6 +53,7 @@ export function NotificationsSection({
       )}
       tooltip={settingsInfoTooltips.notifications}
       docHref={settingsInfoDocHrefs.notifications}>
+      <NotificationSilenceNote />
       <PreferenceSwitchRow
         title={__("Desktop notifications", "pressedmail")}
         checked={draft.desktop_notifications}
@@ -67,14 +69,18 @@ export function NotificationsSection({
         }}
         dataTest="pref-desktop-notifications"
       />
-      <PreferenceSwitchRow
-        title={__("Email notifications", "pressedmail")}
-        checked={draft.email_notifications}
-        onCheckedChange={(checked) =>
-          patchDraft({ email_notifications: checked })
-        }
-        dataTest="pref-email-notifications"
-      />
+      {/* The email copy of a notification is sent by Pro. Free has no sender, so
+          a switch for it would do nothing. */}
+      {!__IS_FREE__ ? (
+        <PreferenceSwitchRow
+          title={__("Email notifications", "pressedmail")}
+          checked={draft.email_notifications}
+          onCheckedChange={(checked) =>
+            patchDraft({ email_notifications: checked })
+          }
+          dataTest="pref-email-notifications"
+        />
+      ) : null}
       <PreferenceSelectRow
         title={__("Sound", "pressedmail")}
         value={draft.notification_sound}

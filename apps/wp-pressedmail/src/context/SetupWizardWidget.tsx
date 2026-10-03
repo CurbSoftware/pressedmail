@@ -18,10 +18,6 @@ import { useAppContext } from "./AppProvider";
 // undefined (this hid the free Outlook OAuth button).
 import { useFeaturesOptional } from "@/context/features/FeaturesContext";
 import type { AccountData, EmailAccount } from "@/types";
-import type {
-  ManagedDomainAccountInput,
-  ManagedDomainSetupRuntime,
-} from "@/types/domain-policy";
 
 import {
   isAdvancedProvider,
@@ -31,14 +27,15 @@ import {
 import type {
   ConnectionStatus,
   ConnectionTestState,
-  ManagedSetupFormData,
-  ManagedSetupFormErrors,
   ProviderConfig,
   ProviderKey,
   SetupFormData,
   SetupFormErrors,
 } from "@/components/setup/types";
-import { ManagedDomainCredentialsStep } from "@/components/setup/managed-domain-credentials-step";
+import {
+  ManagedDomainCredentialsStep,
+  useManagedDomainSetup,
+} from "@/components/setup/managed-domain-setup.active";
 import {
   StepCredentials,
   StepProviderSelect,
@@ -247,108 +244,6 @@ const getConnectionFingerprint = (data: SetupFormData): string =>
     outgoingProviderConfig: data.outgoingProviderConfig,
   });
 
-const normalizeManagedDomainSetup = (
-  value: unknown,
-): ManagedDomainSetupRuntime | null => {
-  if (!value || typeof value !== "object") return null;
-  const runtime = value as Partial<ManagedDomainSetupRuntime>;
-  if (runtime.enabled !== true) return null;
-  if (
-    !Array.isArray(runtime.domains) ||
-    typeof runtime.revision !== "string" ||
-    !/^[a-f0-9]{64}$/.test(runtime.revision)
-  ) {
-    return { enabled: true, domains: [], revision: "invalid" };
-  }
-  const validDomain = (domain: unknown): domain is string => {
-    if (typeof domain !== "string") return false;
-    const candidate = domain.trim().toLowerCase();
-    if (
-      candidate !== domain ||
-      candidate.length > 253 ||
-      !candidate.includes(".") ||
-      /[@\s\p{Cc}]/u.test(candidate)
-    ) {
-      return false;
-    }
-    return candidate
-      .split(".")
-      .every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label));
-  };
-  const domains = runtime.domains;
-  const seen = new Set<string>();
-  const valid = domains.every((entry) => {
-    if (
-      !entry ||
-      !validDomain(entry.domain) ||
-      (entry.imap_username_format !== "full_email" &&
-        entry.imap_username_format !== "local_part") ||
-      (entry.smtp_username_format !== "full_email" &&
-        entry.smtp_username_format !== "local_part") ||
-      (entry.credential_mode !== "shared" &&
-        entry.credential_mode !== "separate") ||
-      seen.has(entry.domain)
-    ) {
-      return false;
-    }
-    seen.add(entry.domain);
-    return true;
-  });
-  if (!valid) {
-    return { enabled: true, domains: [], revision: "invalid" };
-  }
-  return { enabled: true, domains, revision: runtime.revision };
-};
-
-const createManagedSetupFormData = (
-  runtime: ManagedDomainSetupRuntime | null,
-  account: EmailAccount | null,
-): ManagedSetupFormData => {
-  const [localPart = "", accountDomain = ""] = (account?.email ?? "").split(
-    "@",
-  );
-  const matched = runtime?.domains.find(
-    (entry) => entry.domain.toLowerCase() === accountDomain.toLowerCase(),
-  );
-  const selected = matched ?? runtime?.domains[0];
-  return {
-    localPart,
-    domain: account ? accountDomain : (selected?.domain ?? ""),
-    senderName: account
-      ? getAccountDisplayName(account)
-      : (window.pressedmailPlugin?.userInfo?.displayName ?? ""),
-    credentialMode: selected?.credential_mode ?? "shared",
-    password: "",
-    imapPassword: "",
-    smtpPassword: "",
-  };
-};
-
-const clearManagedPasswords = (
-  data: ManagedSetupFormData,
-): ManagedSetupFormData => ({
-  ...data,
-  password: "",
-  imapPassword: "",
-  smtpPassword: "",
-});
-
-const getManagedIdentityFingerprint = (
-  data: ManagedSetupFormData,
-  runtime: ManagedDomainSetupRuntime | null,
-): string =>
-  JSON.stringify({
-    localPart: data.localPart.trim().toLowerCase(),
-    domain: data.domain.trim().toLowerCase(),
-    credentialMode: data.credentialMode,
-    revision: runtime?.revision ?? "disabled",
-    domains:
-      runtime?.domains.map((entry) => ({
-        domain: entry.domain.trim().toLowerCase(),
-        credentialMode: entry.credential_mode,
-      })) ?? [],
-  });
-
 export default function SetupWizard({
   onComplete,
   isLoading: externalLoading = false,
@@ -368,18 +263,21 @@ export default function SetupWizard({
   const isMobileOrTablet = useIsMobileOrTablet();
   const mobileShellEnabled = useMobileShellFlag();
   const compactSetupShell = isMobileOrTablet && mobileShellEnabled;
-  const { pluginName } = useWhitelabelTheme();
-  const managedDomainRuntime = window.pressedmailPlugin?.managedDomainSetup;
-  const managedDomainSetup = React.useMemo(
-    () => normalizeManagedDomainSetup(managedDomainRuntime),
-    [managedDomainRuntime],
-  );
-  const managedSetupEnabled = managedDomainSetup !== null;
+  const branding = useWhitelabelTheme();
+  const pluginName = __IS_FREE__ ? "PressedMail" : branding.pluginName;
+  // Managed-domain setup is Pro. The define lets the Free build drop every
+  // branch below that reads it.
+  const managed = useManagedDomainSetup(editingAccount, getAccountDisplayName);
   const managedSetupBlocked =
-    managedSetupEnabled &&
-    managedDomainSetup.domains.length === 0 &&
-    !isEditing;
-  const managedSetupMode = managedSetupEnabled && !managedSetupBlocked;
+    !__IS_FREE__ && managed !== null && managed.blocked;
+  const managedSetupMode = !__IS_FREE__ && managed !== null && !managed.blocked;
+  const managedFingerprint =
+    __IS_FREE__ || managed === null ? null : managed.fingerprint;
+  const managedTestedPayloadRef =
+    __IS_FREE__ || managed === null ? null : managed.testedPayloadRef;
+  const clearManagedPasswords =
+    __IS_FREE__ || managed === null ? null : managed.clearPasswords;
+  const resetManaged = __IS_FREE__ || managed === null ? null : managed.reset;
 
   const [currentStep, setCurrentStep] = useState<number>(
     editingAccount ? 2 : 1,
@@ -387,17 +285,6 @@ export default function SetupWizard({
   const [formData, setFormData] = useState<SetupFormData>(() =>
     createInitialSetupFormData(editingAccount),
   );
-  const [managedFormData, setManagedFormData] = useState<ManagedSetupFormData>(
-    () => createManagedSetupFormData(managedDomainSetup, editingAccount),
-  );
-  const [managedErrors, setManagedErrors] = useState<ManagedSetupFormErrors>(
-    {},
-  );
-  const initialManagedFingerprintRef = React.useRef(
-    getManagedIdentityFingerprint(managedFormData, managedDomainSetup),
-  );
-  const successfulManagedPayloadRef =
-    React.useRef<ManagedDomainAccountInput | null>(null);
   const initialFormDataRef = React.useRef<SetupFormData | null>(null);
   if (initialFormDataRef.current === null) {
     initialFormDataRef.current = formData;
@@ -441,10 +328,6 @@ export default function SetupWizard({
   const ordinaryConnectionChanged =
     connectionFingerprint !==
     getConnectionFingerprint(initialFormDataRef.current ?? formData);
-  const managedFingerprint = getManagedIdentityFingerprint(
-    managedFormData,
-    managedDomainSetup,
-  );
   const setupContextClearedRef = React.useRef(false);
   const clearSetupContext = React.useCallback(() => {
     if (setupContextClearedRef.current) {
@@ -463,9 +346,11 @@ export default function SetupWizard({
       connectionTestTimeoutRef.current = null;
     }
     successfulConnectionFingerprintRef.current = null;
-    successfulManagedPayloadRef.current = null;
+    if (!__IS_FREE__ && managedTestedPayloadRef) {
+      managedTestedPayloadRef.current = null;
+    }
     activeConnectionFingerprintRef.current = null;
-  }, []);
+  }, [managedTestedPayloadRef]);
   const invalidateManagedCredentialTest = React.useCallback(() => {
     if (
       !managedSetupMode ||
@@ -527,18 +412,21 @@ export default function SetupWizard({
     setConnectionStatus(null);
     setTestState(createPendingConnectionTestState());
     setFormData((previous) => ({ ...previous, testConnection: false }));
-    setManagedFormData((previous) => clearManagedPasswords(previous));
+    if (!__IS_FREE__) clearManagedPasswords?.();
     setIsLoading(false);
-  }, [managedFingerprint, managedSetupMode, invalidateConnectionTest]);
+  }, [
+    managedFingerprint,
+    managedSetupMode,
+    invalidateConnectionTest,
+    clearManagedPasswords,
+  ]);
   const clearPartialSetupState = React.useCallback(() => {
     const initial = createInitialSetupFormData(null);
 
     invalidateConnectionTest();
     initialFormDataRef.current = initial;
     setFormData(initial);
-    const initialManaged = createManagedSetupFormData(managedDomainSetup, null);
-    setManagedFormData(initialManaged);
-    setManagedErrors({});
+    if (!__IS_FREE__) resetManaged?.();
     setCurrentStep(1);
     setErrors({});
     setOauthConnected(false);
@@ -547,11 +435,11 @@ export default function SetupWizard({
     setTestState(createPendingConnectionTestState());
     setIsLoading(false);
     clearSetupContext();
-  }, [clearSetupContext, invalidateConnectionTest, managedDomainSetup]);
+  }, [clearSetupContext, invalidateConnectionTest, resetManaged]);
 
   const { guardedAction, guardDialog } = useUnsavedChangesGuard({
     dirty:
-      managedFingerprint !== initialManagedFingerprintRef.current ||
+      (!__IS_FREE__ && managed !== null && managed.dirty) ||
       JSON.stringify(formData) !==
         JSON.stringify(initialFormDataRef.current ?? formData),
     onDiscard: clearPartialSetupState,
@@ -564,24 +452,13 @@ export default function SetupWizard({
 
     setCurrentStep(2);
     const nextFormData = createInitialSetupFormData(editingAccount);
-    const nextManaged = createManagedSetupFormData(
-      managedDomainSetup,
-      editingAccount,
-    );
 
     initialFormDataRef.current = nextFormData;
-    initialManagedFingerprintRef.current = getManagedIdentityFingerprint(
-      nextManaged,
-      managedDomainSetup,
-    );
     setFormData(() => nextFormData);
-    setManagedFormData(nextManaged);
-    setManagedErrors({});
-    successfulManagedPayloadRef.current = null;
     setConnectionStatus(null);
     setErrors({});
     setTestState(createPendingConnectionTestState());
-  }, [editingAccount, managedDomainSetup?.revision]);
+  }, [editingAccount]);
 
   // Use external loading state if provided
   const loading = externalLoading || isLoading;
@@ -623,91 +500,11 @@ export default function SetupWizard({
     }
   }, [editingAccount]);
 
-  const managedHasEnteredCredentials = Boolean(
-    managedFormData.password ||
-    managedFormData.imapPassword ||
-    managedFormData.smtpPassword,
-  );
-  const managedConnectionChanged =
-    managedFingerprint !== initialManagedFingerprintRef.current ||
-    managedHasEnteredCredentials;
-
-  const validateManagedSetup = (): {
-    valid: boolean;
-    payload: ManagedDomainAccountInput | null;
-  } => {
-    const nextErrors: ManagedSetupFormErrors = {};
-    const localPart = managedFormData.localPart.trim();
-    const domain = managedFormData.domain.trim().toLowerCase();
-    const senderName = managedFormData.senderName.trim();
-    const selectedDomain = managedDomainSetup?.domains.find(
-      (entry) => entry.domain.toLowerCase() === domain,
-    );
-    const requiresCredentials = !isEditing || managedConnectionChanged;
-
-    if (
-      localPart.length < 1 ||
-      localPart.length > 64 ||
-      /[@\s\p{Cc}]/u.test(localPart)
-    ) {
-      nextErrors.localPart = __("Enter a valid email prefix", "pressedmail");
-    }
-    if (!selectedDomain && requiresCredentials) {
-      nextErrors.domain = __("Select an allowed email domain", "pressedmail");
-    }
-    if (!senderName) {
-      nextErrors.senderName = __("Sender name is required", "pressedmail");
-    }
-
-    if (requiresCredentials && selectedDomain) {
-      if (selectedDomain.credential_mode === "separate") {
-        if (!managedFormData.imapPassword) {
-          nextErrors.imapPassword = __(
-            "Incoming password is required",
-            "pressedmail",
-          );
-        }
-        if (!managedFormData.smtpPassword) {
-          nextErrors.smtpPassword = __(
-            "Outgoing password is required",
-            "pressedmail",
-          );
-        }
-      } else if (!managedFormData.password) {
-        nextErrors.password = __("Mailbox password is required", "pressedmail");
-      }
-    }
-
-    setManagedErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      return { valid: false, payload: null };
-    }
-    if (!requiresCredentials) {
-      return { valid: true, payload: null };
-    }
-    if (!selectedDomain) return { valid: false, payload: null };
-
-    const common = { managed: true as const, localPart, domain, senderName };
-    return {
-      valid: true,
-      payload:
-        selectedDomain.credential_mode === "separate"
-          ? {
-              ...common,
-              imapPassword: managedFormData.imapPassword,
-              smtpPassword: managedFormData.smtpPassword,
-            }
-          : {
-              ...common,
-              password: managedFormData.password,
-            },
-    };
-  };
 
   const validateStep = (step: number): boolean => {
     if (managedSetupMode) {
       if (step === 1) return true;
-      return validateManagedSetup().valid;
+      return managed.validate().valid;
     }
 
     const newErrors: SetupFormErrors = {};
@@ -839,8 +636,10 @@ export default function SetupWizard({
   };
 
   const handleBack = (): void => {
-    successfulManagedPayloadRef.current = null;
-    setManagedFormData((previous) => clearManagedPasswords(previous));
+    if (!__IS_FREE__ && managedTestedPayloadRef) {
+      managedTestedPayloadRef.current = null;
+    }
+    if (!__IS_FREE__) clearManagedPasswords?.();
     if (setupReturnTo && currentStep <= entryStep) {
       guardedAction(leaveSetupWizard);
       return;
@@ -913,15 +712,15 @@ export default function SetupWizard({
   };
 
   const testConnection = async (): Promise<void> => {
-    const managedValidation = managedSetupMode ? validateManagedSetup() : null;
+    const managedValidation = managedSetupMode ? managed.validate() : null;
     if (
       managedValidation ? !managedValidation.valid : !validateStep(currentStep)
     ) {
       setConnectionStatus(null);
       setFormData((prev) => ({ ...prev, testConnection: false }));
       if (managedSetupMode) {
-        successfulManagedPayloadRef.current = null;
-        setManagedFormData((previous) => clearManagedPasswords(previous));
+        managed.testedPayloadRef.current = null;
+        managed.clearPasswords();
       }
       return;
     }
@@ -1047,8 +846,10 @@ export default function SetupWizard({
           successfulConnectionFingerprintRef.current = managedSetupMode
             ? managedFingerprint
             : connectionFingerprint;
-          successfulManagedPayloadRef.current =
-            managedValidation?.payload ?? null;
+          if (managedSetupMode) {
+            managed.testedPayloadRef.current =
+              managedValidation?.payload ?? null;
+          }
           setFormData((prev) => ({ ...prev, testConnection: true }));
         } else {
           const errorPayload = extractConnectionTestError(result);
@@ -1144,7 +945,7 @@ export default function SetupWizard({
       setFormData((prev) => ({ ...prev, testConnection: false }));
     } finally {
       if (isCurrentConnectionTest() && managedSetupMode) {
-        setManagedFormData((previous) => clearManagedPasswords(previous));
+        managed.clearPasswords();
       }
       if (isCurrentConnectionTest()) {
         if (connectionTestAbortRef.current === controller) {
@@ -1177,9 +978,9 @@ export default function SetupWizard({
 
     try {
       if (managedSetupMode) {
-        const testedPayload = successfulManagedPayloadRef.current;
-        successfulManagedPayloadRef.current = null;
-        const senderName = managedFormData.senderName.trim();
+        const testedPayload = managed.testedPayloadRef.current;
+        managed.testedPayloadRef.current = null;
+        const senderName = managed.formData.senderName.trim();
 
         if (editingAccount) {
           if (testedPayload) {
@@ -1202,7 +1003,7 @@ export default function SetupWizard({
         }
 
         if (!testedPayload || !onComplete) {
-          setManagedErrors({
+          managed.setErrors({
             submit: __("Please test the connection again.", "pressedmail"),
           });
           return;
@@ -1299,7 +1100,9 @@ export default function SetupWizard({
         initialFormDataRef.current = formData;
       }
     } catch (error) {
-      successfulManagedPayloadRef.current = null;
+      if (!__IS_FREE__ && managedTestedPayloadRef) {
+        managedTestedPayloadRef.current = null;
+      }
       // The server already says WHY: mailbox already connected, seat limit
       // reached, provider rejected the sign-in. Its message is localized, and
       // AppProvider carries it here on the Error. Replacing it with one
@@ -1310,7 +1113,7 @@ export default function SetupWizard({
           : __("Failed to save account. Please try again.", "pressedmail");
 
       if (managedSetupMode) {
-        setManagedErrors({ submit: reason });
+        managed.setErrors({ submit: reason });
       } else {
         setErrors({ submit: reason });
       }
@@ -1364,13 +1167,13 @@ export default function SetupWizard({
           />
         );
       case 2:
-        if (managedSetupMode && managedDomainSetup) {
+        if (managedSetupMode) {
           return (
             <ManagedDomainCredentialsStep
-              domains={managedDomainSetup.domains}
-              formData={managedFormData}
-              setFormData={setManagedFormData}
-              errors={managedErrors}
+              domains={managed.runtime.domains}
+              formData={managed.formData}
+              setFormData={managed.setFormData}
+              errors={managed.errors}
               loading={loading}
               connectionStatus={connectionStatus}
               onTestConnection={() => void testConnection()}

@@ -18,8 +18,11 @@ export interface Tag {
   description?: string;
   color: string;
   icon: string | null;
-  ai_prompt: string;
-  ai_auto_tag_enabled: boolean;
+  /** Pro auto-tagging only; the Free server neither sends nor accepts these. */
+  ai_prompt?: string;
+  ai_auto_tag_enabled?: boolean;
+  /** Minimum AI confidence, 1 to 99 percent, before the tag applies automatically. */
+  ai_confidence?: number;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -58,6 +61,7 @@ export interface CreateTagData {
   icon?: string;
   ai_prompt?: string;
   ai_auto_tag_enabled?: boolean;
+  ai_confidence?: number;
   account_id?: number | null;
 }
 
@@ -71,6 +75,7 @@ export interface UpdateTagData {
   icon?: string;
   ai_prompt?: string;
   ai_auto_tag_enabled?: boolean;
+  ai_confidence?: number;
   sort_order?: number;
   is_active?: boolean;
   account_id?: number | null;

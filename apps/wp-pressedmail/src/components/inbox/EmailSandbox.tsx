@@ -32,7 +32,7 @@ interface EmailSandboxProps {
   /**
    * Hex color (#rgb or #rrggbb) painted on the iframe's html/body so the
    * sender's chosen email background fills the preview surface edge to edge.
-   * When omitted the iframe falls back to the host's UI theme background.
+   * When omitted the iframe uses a white email canvas, independent of the UI theme.
    */
   bodyBackgroundColor?: string;
 }

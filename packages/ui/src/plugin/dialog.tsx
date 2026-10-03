@@ -107,8 +107,11 @@ const DialogOverlay: React.FC<
   React.ComponentPropsWithRef<typeof DialogPrimitive.Overlay>
 > = ({ className, ...props }) => (
   <DialogPrimitive.Overlay
+    data-pm-dialog-overlay
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-background/80 fixed inset-0 z-50',
+      // A darker scrim in dark mode: at 80% background the dialog's edge
+      // nearly vanished against the page (about 1.1:1).
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-background/80 dark:bg-black/70 fixed inset-0 z-50',
       className,
     )}
     {...props}
@@ -137,7 +140,8 @@ const DialogContent: React.FC<
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none pointer-coarse:top-1.5 pointer-coarse:right-1.5 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center">
+            {/* 44px on coarse pointers: the 16px icon alone is a hard tap. */}
             <Cross2Icon className="h-4 w-4" />
             <span className="sr-only">Close</span>
           </DialogPrimitive.Close>

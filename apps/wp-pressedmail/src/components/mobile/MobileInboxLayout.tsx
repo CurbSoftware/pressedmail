@@ -230,7 +230,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => refreshMessages()}
+                onClick={() => refreshMessages({ syncAllAccounts: true })}
                 disabled={isLoading}
                 aria-label={__("Refresh messages", "pressedmail")}
                 className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
@@ -264,7 +264,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
               </button>
               <button
                 type="button"
-                onClick={() => refreshMessages()}
+                onClick={() => refreshMessages({ syncAllAccounts: true })}
                 disabled={isLoading}
                 aria-label={__("Refresh messages", "pressedmail")}
                 className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
@@ -442,6 +442,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
                           {mail.tags?.length ? (
                             <div className="mt-1">
                               <EmailTagBadges
+                                inEmailList
                                 tags={mail.tags}
                                 maxVisible={2}
                                 onTagClick={(tag) =>

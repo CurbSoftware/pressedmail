@@ -17,10 +17,15 @@ import React, {
   useId,
   useMemo,
 } from "react";
-import { __, sprintf, _n } from "@wordpress/i18n";
-import { User, Users, Loader2 } from "lucide-react";
+import { __, sprintf } from "@wordpress/i18n";
+import { BookUser, User, Users, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ButtonGroup } from "@kit/ui/plugin";
+import { Button, ButtonGroup } from "@kit/ui/plugin";
+import { PressedTooltip } from "@/components/ui/pressed-tooltip";
+import {
+  isDeviceContactPickerAvailable,
+  pickDeviceContacts,
+} from "@/lib/device-contacts";
 import {
   RecipientContactsButton,
   useRecipientSuggestions,
@@ -67,6 +72,14 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
   // Set when the typed text cannot be read as an address, so the field says so
   // instead of swallowing it.
   const [showInvalidEntry, setShowInvalidEntry] = useState(false);
+  // The phone's own contact sheet, where the browser offers one (Chrome on
+  // Android). Detected once; iOS and desktop simply get no button.
+  const [hasDevicePicker] = useState(isDeviceContactPickerAvailable);
+  const devicePickerLabel = sprintf(
+    /* translators: %s: recipient field name, e.g. To, Cc or Bcc. */
+    __("Add to %s from phone contacts", "pressedmail"),
+    label,
+  );
 
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -170,6 +183,8 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
 
   const handleSelectSuggestion = useCallback(
     (suggestion: RecipientSuggestion) => {
+      // Contact and list suggestions only exist where contacts ship (Pro).
+      if (!__ENABLE_CONTACTS__) return;
       if (suggestion.type === "contact" && suggestion.contact) {
         addRecipients([createRecipientFromContact(suggestion.contact)]);
         return;
@@ -327,8 +342,14 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
   const hasSuggestions = suggestions.length > 0;
   const showDropdown = showSuggestions && (hasSuggestions || isSearching);
   const listboxOpen = showDropdown && hasSuggestions && !isSearching;
-  const contactSuggestions = suggestions.filter((s) => s.type === "contact");
-  const listSuggestions = suggestions.filter((s) => s.type === "list");
+  // Suggestions come only from an edition's address book; the Free build has
+  // none, so it draws no suggestion groups at all.
+  const contactSuggestions = __IS_FREE__
+    ? []
+    : suggestions.filter((s) => s.type === "contact");
+  const listSuggestions = __IS_FREE__
+    ? []
+    : suggestions.filter((s) => s.type === "list");
 
   return (
     <div
@@ -403,6 +424,23 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
               showLists={showListSuggestions}
               onSelect={addRecipients}
             />
+            {hasDevicePicker && (
+              <PressedTooltip content={devicePickerLabel} side="bottom">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+                  aria-label={devicePickerLabel}
+                  onClick={async () => {
+                    const picked = await pickDeviceContacts();
+                    if (picked.length > 0) addRecipients(picked);
+                  }}
+                  data-test={`device-contacts-button-${label.toLowerCase()}`}>
+                  <BookUser className="h-3.5 w-3.5 text-muted-foreground" />
+                </Button>
+              </PressedTooltip>
+            )}
             {trailingActions}
           </ButtonGroup>
         )}
@@ -456,7 +494,7 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
             label,
           )}
           hidden={!listboxOpen}>
-          {contactSuggestions.length > 0 && (
+          {!__IS_FREE__ && contactSuggestions.length > 0 && (
             <div role="group" aria-labelledby={`${suggestionsId}-contacts`}>
               <div
                 id={`${suggestionsId}-contacts`}
@@ -514,7 +552,7 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
             </div>
           )}
 
-          {listSuggestions.length > 0 && (
+          {!__IS_FREE__ && listSuggestions.length > 0 && (
             <div role="group" aria-labelledby={`${suggestionsId}-lists`}>
               <div
                 id={`${suggestionsId}-lists`}
@@ -546,12 +584,8 @@ export const RecipientInput: React.FC<RecipientInputProps> = ({
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {sprintf(
-                          _n(
-                            "%d member",
-                            "%d members",
-                            suggestion.memberCount ?? 0,
-                            "pressedmail",
-                          ),
+                          /* translators: %d: number of people the message will be sent to. */
+                          __("%d will be mailed", "pressedmail"),
                           suggestion.memberCount ?? 0,
                         )}
                       </p>

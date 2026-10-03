@@ -1,5 +1,6 @@
 "use client";
 
+import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import { useCallback, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layers, Plus } from "lucide-react";
@@ -7,13 +8,15 @@ import { __, sprintf } from "@wordpress/i18n";
 
 import { cn } from "@/lib/utils";
 import { getEffectiveConsolidatedAccountIds } from "@/lib/consolidated-account-scope";
+import { SharedBadge } from "@/components/sharing";
 
 import { useAppContext, PROVIDER_ICONS } from "@/context/AppProvider";
-import { useInboxState } from "@/context/InboxContext";
 import {
-  useEntitlements,
-  useFeatureAvailableOrPending,
-} from "@/context/features/FeaturesContext";
+  useCombinedAccountIds,
+  useCombinedViewAvailable,
+} from "@/hooks/useCombinedAccountIds";
+import { useInboxState } from "@/context/InboxContext";
+import { useEntitlements } from "@/context/features/FeaturesContext";
 import type { EmailAccount } from "@/types";
 
 import {
@@ -29,7 +32,7 @@ import {
 /** Sentinel value for the "add account" action in the Select. */
 const ADD_ACCOUNT_VALUE = "__add_account__";
 
-/** Special value for consolidated inbox view. */
+/** Special value for the combined view. */
 export const CONSOLIDATED_INBOX_VALUE = "all";
 interface AccountSwitcherProps {
   isCollapsed: boolean;
@@ -40,16 +43,12 @@ export function AccountSwitcher({
   isCollapsed,
   accounts,
 }: AccountSwitcherProps) {
-  const {
-    user,
-    selectedAccount,
-    selectedConsolidatedAccountIds,
-    setSelectedAccount,
-    setIsAddAccount,
-  } = useAppContext();
+  const { user, selectedAccount, setSelectedAccount, setIsAddAccount } =
+    useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
   const { isLoading } = useInboxState();
-  const { licenseValid } = useEntitlements();
-  const combinedInboxAvailable = useFeatureAvailableOrPending("combined_inbox");
+  const licenseValid = useProLicenseValid();
+  const combinedInboxAvailable = useCombinedViewAvailable();
   const queryClient = useQueryClient();
   const switchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -77,11 +76,14 @@ export function AccountSwitcher({
   }, []);
 
   const currentValue = selectedAccount ?? user?.email ?? undefined;
-  const isConsolidatedView = currentValue === CONSOLIDATED_INBOX_VALUE;
-  const effectiveConsolidatedAccountIds = getEffectiveConsolidatedAccountIds(
-    accounts,
-    selectedConsolidatedAccountIds,
-  );
+  const isConsolidatedView =
+    !__SINGLE_MAILBOX__ && currentValue === CONSOLIDATED_INBOX_VALUE;
+  const effectiveConsolidatedAccountIds = __SINGLE_MAILBOX__
+    ? []
+    : getEffectiveConsolidatedAccountIds(
+        accounts,
+        selectedConsolidatedAccountIds,
+      );
   const activeAccount = isConsolidatedView
     ? null
     : accounts.find((account) => account.email?.toString() === currentValue);
@@ -118,6 +120,7 @@ export function AccountSwitcher({
   // option appear a second after the inbox does.
   const showConsolidatedOption =
     !__IS_FREE__ &&
+    !__SINGLE_MAILBOX__ &&
     licenseValid &&
     combinedInboxAvailable &&
     accounts.length > 0;
@@ -145,11 +148,7 @@ export function AccountSwitcher({
           <span
             className={cn("ml-2 text-sm truncate", isCollapsed && "hidden")}>
             {activeLabel}
-            {activeAccount?.is_shared && (
-              <Badge variant="secondary" className="ml-2 text-xs">
-                {__("Shared", "pressedmail")}
-              </Badge>
-            )}
+            <SharedBadge resource={activeAccount} className="ml-2" />
           </span>
         </SelectValue>
       </SelectTrigger>
@@ -189,11 +188,7 @@ export function AccountSwitcher({
                 {accountIcon}
                 <div className="flex items-center gap-2">
                   <span>{account.email}</span>
-                  {account.is_shared && (
-                    <Badge variant="secondary" className="text-xs">
-                      {__("Shared", "pressedmail")}
-                    </Badge>
-                  )}
+                  <SharedBadge resource={account} />
                 </div>
               </div>
             </SelectItem>

@@ -1,44 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { __, sprintf } from "@wordpress/i18n";
-import { formatDistanceToNow } from "date-fns";
-import {
-  AlertCircle,
-  Bell,
-  CalendarDays,
-  CheckCheck,
-  Clock3,
-  Filter,
-  Loader2,
-  Mail,
-  MoreHorizontal,
-  RefreshCw,
-  ShieldAlert,
-  Trash2,
-} from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-  Popover,
-  PopoverTrigger,
-  toast,
-} from "@kit/ui/plugin";
-import {
-  PressedPopoverContent,
-} from "@/components/ui/pressed-overlay";
-import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
+import { __ } from "@wordpress/i18n";
+import { Bell, BellOff, Pause } from "lucide-react";
+import { Button, Popover, PopoverTrigger } from "@kit/ui/plugin";
+import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
-import {
-  getNotificationTargetPath,
-  type NotificationFeedState,
-  type PressedMailNotification,
-} from "@/layouts/shared/hooks/useNotificationFeed";
+import { useNotificationPause } from "@/hooks/useNotificationPause";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import type { NotificationFeedState } from "@/layouts/shared/hooks/useNotificationFeed";
+import { describePause } from "@/lib/notification-pause";
+
+import { notificationBellName } from "./notification-bell-name";
+import { NotificationsPanel } from "./NotificationsPanel";
 
 type TooltipSide = "top" | "right" | "bottom" | "left";
 
@@ -46,297 +20,154 @@ export interface HeaderNotificationsButtonProps extends NotificationFeedState {
   tooltipSide?: TooltipSide;
 }
 
-function NotificationIcon({ item }: { item: PressedMailNotification }) {
-  const className = "h-4 w-4";
-  if (item.targetKind === "plugin_integrity") {
-    return <ShieldAlert className={className} aria-hidden="true" />;
-  }
-  if (item.targetKind === "calendar_event") {
-    return <CalendarDays className={className} aria-hidden="true" />;
-  }
-  if (item.targetKind === "email_rules") {
-    return <Filter className={className} aria-hidden="true" />;
-  }
-  if (item.targetKind === "scheduled" || item.type.includes("scheduled")) {
-    return <Clock3 className={className} aria-hidden="true" />;
-  }
-  if (item.type.includes("failed") || item.type.includes("failure")) {
-    return <AlertCircle className={className} aria-hidden="true" />;
-  }
-  return <Mail className={className} aria-hidden="true" />;
-}
+/** Settings > Preferences > Alert behavior, where "Unread only" and the alert scope live. */
+const ALERT_SETTINGS_PATH = "/settings?tab=preferences&subtab=alert-behavior";
 
-function relativeTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? ""
-    : formatDistanceToNow(date, { addSuffix: true });
-}
-
-export function HeaderNotificationsButton({
-  items,
-  unreadCount,
-  isLoading,
-  error,
-  refresh,
-  markRead,
-  markAllRead,
-  dismiss,
-  clearAll,
-  tooltipSide = "bottom",
-}: HeaderNotificationsButtonProps) {
-  const navigate = useNavigate();
-  const [clearOpen, setClearOpen] = React.useState(false);
-  const [clearing, setClearing] = React.useState(false);
-  const label = __("Notifications", "pressedmail");
-  const badgeDisplay =
-    unreadCount > 0 ? (unreadCount > 99 ? "99+" : String(unreadCount)) : null;
-
-  const runMutation = React.useCallback(
-    async (mutation: () => Promise<void>, failureMessage: string) => {
-      try {
-        await mutation();
-        return true;
-      } catch (caught) {
-        toast.error(caught instanceof Error ? caught.message : failureMessage);
-        return false;
-      }
-    },
-    [],
+/**
+ * Where focus lands when the popover opens: the newest row, not the first button
+ * of the toolbar. The toolbar's first button is Mark all as read, and a second
+ * Enter, or a held one, would have done that. The toolbar is one Shift+Tab away.
+ * With no rows to land on yet, the popover itself takes focus, so a screen reader
+ * is inside it and Tab starts from its top.
+ */
+function focusFirstRow(event: Event) {
+  event.preventDefault();
+  const popover = (event.currentTarget ?? event.target) as HTMLElement | null;
+  if (!popover) return;
+  const row = popover.querySelector<HTMLElement>(
+    "[data-notification-id] [data-roving-item]",
   );
+  (row ?? popover).focus({ preventScroll: true });
+}
 
-  const openNotification = async (item: PressedMailNotification) => {
-    if (!item.readAt) {
-      const updated = await runMutation(
-        () => markRead(item.id, true),
-        __("Could not mark notification as read", "pressedmail"),
-      );
-      if (!updated) return;
-    }
-    const target = getNotificationTargetPath(item);
-    if (target) navigate(target);
-  };
+/**
+ * The Undo toast lives outside the popover, so pressing it counts as an outside
+ * click and would close the panel the reader is working in. A toast is theirs to
+ * use without leaving.
+ */
+function keepOpenForToast(event: Event) {
+  const target = event.target as Element | null;
+  if (target?.closest?.("[data-sonner-toast], [data-sonner-toaster]")) {
+    event.preventDefault();
+  }
+}
 
-  const confirmClear = async () => {
-    setClearing(true);
-    const cleared = await runMutation(
-      clearAll,
-      __("Could not clear notifications", "pressedmail"),
-    );
-    setClearing(false);
-    if (cleared) setClearOpen(false);
-  };
+/**
+ * The bell, its badge, and the popover that holds the feed. Everything inside the
+ * popover is `NotificationsPanel`, which the phone's sheet holds as well.
+ */
+export function HeaderNotificationsButton({
+  tooltipSide = "bottom",
+  ...feed
+}: HeaderNotificationsButtonProps) {
+  const silence = useNotificationPause();
+  const { preferences } = useUserPreferences();
+  const [open, setOpen] = React.useState(false);
+  // Whether the clear-all confirm is up. It opens over the popup, and a click in
+  // it or focus moving into it reads as the popup losing focus, so a close that
+  // arrives while it is up is not a close.
+  const confirming = React.useRef(false);
+  const bell = React.useRef<HTMLButtonElement>(null);
+  const titleId = React.useId();
+
+  const { unreadCount } = feed;
+  const label = __("Notifications", "pressedmail");
+  const paused = silence.paused;
+  // Muted keeps the list and the badge and takes away sound and pop-ups, so the
+  // bell wears a slash and the badge stays.
+  const muted = preferences.notification_muted === true;
+  const pausedText =
+    silence.endsAt !== null ? describePause(silence.endsAt) : null;
+  // A paused bell is quiet: the number is held back, and a glyph says why.
+  const badgeDisplay =
+    !paused && unreadCount > 0
+      ? unreadCount > 99
+        ? "99+"
+        : String(unreadCount)
+      : null;
+  const bellName = notificationBellName({ unreadCount, pausedText, muted });
 
   return (
-    <>
-      <Popover
-        onOpenChange={(open) => {
-          if (open) void refresh();
-        }}>
-        <PressedTooltip content={label} side={tooltipSide}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              type="button"
-              aria-label={label}
-              data-test="notifications-button"
-              className="relative h-8 w-8 rounded-md text-muted-foreground hover:text-foreground">
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && confirming.current) return;
+        setOpen(next);
+      }}>
+      <PressedTooltip
+        content={paused || muted ? bellName : label}
+        side={tooltipSide}>
+        <PopoverTrigger asChild>
+          <Button
+            ref={bell}
+            variant="ghost"
+            size="icon"
+            type="button"
+            aria-label={bellName}
+            data-test="notifications-button"
+            className="relative h-8 w-8 rounded-md text-muted-foreground hover:text-foreground">
+            {muted ? (
+              <BellOff
+                data-test="notifications-muted-glyph"
+                className="h-5 w-5"
+                aria-hidden="true"
+              />
+            ) : (
               <Bell className="h-5 w-5" aria-hidden="true" />
-              {badgeDisplay ? (
-                <span
-                  data-test="notifications-badge"
-                  aria-label={sprintf(
-                    __("%d unread notifications", "pressedmail"),
-                    unreadCount,
-                  )}
-                  className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
-                  {badgeDisplay}
-                </span>
-              ) : null}
-            </Button>
-          </PopoverTrigger>
-        </PressedTooltip>
+            )}
+            {badgeDisplay ? (
+              <span
+                data-test="notifications-badge"
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
+                {badgeDisplay}
+              </span>
+            ) : null}
+            {paused ? (
+              <span
+                data-test="notifications-paused-glyph"
+                aria-hidden="true"
+                className="pointer-events-none absolute -right-1 -top-1 flex size-[18px] items-center justify-center rounded-full border-2 border-background bg-primary text-primary-foreground">
+                {/* 10px, because at the 8px it was this was a dot, and a dot is
+                    what an unread badge looks like. */}
+                <Pause className="size-2.5 fill-current" />
+              </span>
+            ) : null}
+          </Button>
+        </PopoverTrigger>
+      </PressedTooltip>
 
-        <PressedPopoverContent size="paletteForm" align="end">
-          <div className="flex items-center justify-between border-b px-3 py-2">
-            <div>
-              <p className="text-sm font-semibold">{label}</p>
-              <p className="text-xs text-muted-foreground">
-                {unreadCount > 0
-                  ? sprintf(__("%d unread", "pressedmail"), unreadCount)
-                  : __("You are all caught up", "pressedmail")}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={unreadCount === 0}
-                aria-label={__("Mark all as read", "pressedmail")}
-                className="h-8 gap-1.5 px-2 text-xs"
-                onClick={() => {
-                  void runMutation(
-                    markAllRead,
-                    __("Could not mark notifications as read", "pressedmail"),
-                  );
-                }}>
-                <CheckCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                {__("Mark all as read", "pressedmail")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground"
-                disabled={items.length === 0}
-                aria-label={__("Clear all", "pressedmail")}
-                onClick={() => setClearOpen(true)}>
-                <Trash2 className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          </div>
-
-          {isLoading && items.length === 0 ? (
-            <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              {__("Loading notifications…", "pressedmail")}
-            </div>
-          ) : error && items.length === 0 ? (
-            <div className="space-y-3 px-4 py-7 text-center">
-              <p className="text-sm text-destructive">{error}</p>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => void refresh()}>
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                {__("Retry", "pressedmail")}
-              </Button>
-            </div>
-          ) : items.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              {__("No notifications yet.", "pressedmail")}
-            </p>
-          ) : (
-            <ul
-              data-test="notifications-list"
-              className="max-h-96 divide-y overflow-y-auto"
-              aria-label={__("Notifications", "pressedmail")}>
-              {items.map((item) => (
-                <li
-                  key={item.id}
-                  className={item.readAt ? "bg-background" : "bg-primary/5"}>
-                  <div className="group flex items-start gap-2 px-2 py-2">
-                    <button
-                      type="button"
-                      className="flex min-w-0 flex-1 items-start gap-2 rounded-sm p-1.5 text-left outline-none hover:bg-muted"
-                      aria-label={`${item.title}: ${item.summary}`}
-                      onClick={() => void openNotification(item)}>
-                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                        <NotificationIcon item={item} />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="flex items-start gap-2">
-                          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                            {item.title}
-                          </span>
-                          {!item.readAt ? (
-                            <span
-                              data-test={`notification-unread-${item.id}`}
-                              data-testid={`notification-unread-${item.id}`}
-                              className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary"
-                              aria-label={__("Unread", "pressedmail")}
-                            />
-                          ) : null}
-                        </span>
-                        <span className="line-clamp-2 text-xs text-muted-foreground">
-                          {item.summary}
-                        </span>
-                        <span className="mt-1 block text-[11px] text-muted-foreground">
-                          {relativeTime(item.createdAt)}
-                        </span>
-                      </span>
-                    </button>
-
-                    <DropdownMenu modal={false}>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0"
-                          aria-label={sprintf(
-                            __("Actions for %s", "pressedmail"),
-                            item.title,
-                          )}
-                          onClick={(event) => event.stopPropagation()}>
-                          <MoreHorizontal
-                            className="h-4 w-4"
-                            aria-hidden="true"
-                          />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={() => {
-                            void runMutation(
-                              () => markRead(item.id, !item.readAt),
-                              __(
-                                "Could not update notification",
-                                "pressedmail",
-                              ),
-                            );
-                          }}>
-                          {item.readAt
-                            ? __("Mark as unread", "pressedmail")
-                            : __("Mark as read", "pressedmail")}
-                        </DropdownMenuItem>
-                        {item.dismissable && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => {
-                                void runMutation(
-                                  () => dismiss(item.id),
-                                  __(
-                                    "Could not dismiss notification",
-                                    "pressedmail",
-                                  ),
-                                );
-                              }}>
-                              {__("Dismiss", "pressedmail")}
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </PressedPopoverContent>
-      </Popover>
-
-      <ConfirmationPanel
-        open={clearOpen}
-        onOpenChange={setClearOpen}
-        title={__("Clear all notifications?", "pressedmail")}
-        description={__(
-          "This permanently deletes every notification in your feed.",
-          "pressedmail",
-        )}
-        confirmText={__("Delete notifications", "pressedmail")}
-        cancelText={__("Cancel", "pressedmail")}
-        variant="destructive"
-        loading={clearing}
-        onConfirm={confirmClear}
-      />
-    </>
+      <PressedPopoverContent
+        size="paletteForm"
+        align="end"
+        aria-labelledby={titleId}
+        data-test="notifications-popover"
+        onOpenAutoFocus={focusFirstRow}
+        onInteractOutside={keepOpenForToast}
+        // A column that never scrolls itself: the panel inside it caps the list
+        // to what is left of the available height, so the header and the toolbar
+        // stay put and only the rows move. The cap is the room the page leaves,
+        // and no taller than a long list is worth.
+        //
+        // A short fade and drop on the way in, from the browser's own starting
+        // style (`starting:`), which is the first style the popup is drawn with.
+        // Radix does not set a starting or ending state of its own, so the
+        // classes that waited for one never matched and the popup just appeared.
+        // It leaves at once, because Radix removes it the moment it closes.
+        // Reduced motion turns the transition off.
+        className="flex max-h-[min(var(--radix-popover-content-available-height),80vh,44rem)] flex-col overflow-hidden transition-[opacity,translate] duration-150 ease-out starting:-translate-y-1 starting:opacity-0 motion-reduce:transition-none">
+        <NotificationsPanel
+          {...feed}
+          variant="popover"
+          titleId={titleId}
+          alertSettingsPath={ALERT_SETTINGS_PATH}
+          onNavigate={() => setOpen(false)}
+          onConfirmingChange={(next) => {
+            confirming.current = next;
+          }}
+        />
+      </PressedPopoverContent>
+    </Popover>
   );
 }
 

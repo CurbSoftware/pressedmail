@@ -7,6 +7,8 @@
  * @since 1.5.0
  */
 
+import { __ } from "@wordpress/i18n";
+
 /**
  * Condition field types that can be matched.
  */
@@ -19,7 +21,24 @@ export type FilterConditionField =
   | "body"
   | "has_attachment"
   | "size"
-  | "date";
+  | "date"
+  | "tag"
+  | "is_read"
+  | "is_starred"
+  | "is_important"
+  | "folder"
+  | "account"
+  | "list_id"
+  | "reply_to"
+  // Registered by Pro while phishing detection is available.
+  | "ai_tag"
+  | "phishing_verdict"
+  | "phishing_score"
+  | "phishing_band"
+  | "spam_score"
+  | "spam_band"
+  | "spam_category"
+  | "is_bulk";
 
 /**
  * Operators for string matching conditions.
@@ -59,6 +78,19 @@ export type DateOperator =
   | "older_than_days"
   | "newer_than_days";
 
+/** Operators for the tag condition. */
+export type TagOperator = "has" | "has_not";
+
+/** Operators for the account condition. */
+export type AccountOperator = "equals" | "not_equals";
+
+/** Operators for the folder condition. */
+export type FolderOperator =
+  | "equals"
+  | "not_equals"
+  | "starts_with"
+  | "contains";
+
 /**
  * Combined operator type.
  */
@@ -66,7 +98,8 @@ export type FilterOperator =
   | StringMatchOperator
   | BooleanOperator
   | NumericOperator
-  | DateOperator;
+  | DateOperator
+  | TagOperator;
 
 /**
  * A single condition within a filter rule.
@@ -84,7 +117,13 @@ export interface FilterCondition {
  */
 export type ConditionLogic = "and" | "or";
 
-export type FilterRuleRunTrigger = "manual" | "on_receive" | "scheduled";
+export type FilterRuleRunTrigger =
+  | "manual"
+  | "on_receive"
+  | "scheduled"
+  // Registered by Pro while the auto-tagger / phishing detection is available.
+  | "on_classified"
+  | "on_phishing_scanned";
 
 export const DEFAULT_FILTER_RULE_TRIGGERS: FilterRuleRunTrigger[] = ["manual"];
 
@@ -99,16 +138,27 @@ export type FilterRuleScheduleInterval =
 export type FilterActionType =
   | "move_to_folder"
   | "move_to_trash"
-  | "apply_label"
   | "mark_as_read"
+  | "mark_as_unread"
   | "mark_as_starred"
   | "mark_as_important"
+  | "add_tag"
+  | "remove_tag"
   | "archive"
   | "delete"
-  | "forward"
-  | "skip_inbox"
   | "never_spam"
-  | "always_spam";
+  | "always_spam"
+  // Registered by Pro while the feature is available.
+  | "run_auto_tagger"
+  | "run_phishing_check"
+  | "snooze"
+  | "run_spam_check"
+  | "run_security_check"
+  | "send_template"
+  // Legacy: older rules may still carry these; they can no longer be saved.
+  | "apply_label"
+  | "forward"
+  | "skip_inbox";
 
 export interface FilterRuleFolderTarget {
   accountId: number;
@@ -135,6 +185,7 @@ export interface FilterRule {
   description?: string;
   source?: "manual" | "sweep";
   enabled: boolean;
+  inactiveReason?: string;
   priority: number;
   accountId: number;
   conditions: FilterCondition[];
@@ -146,6 +197,11 @@ export interface FilterRule {
   lastScheduledRunAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Shared-inbox lists only: the rule holds a step only the owner may add,
+   * so a manager can turn it off or delete it but not change it.
+   */
+  sharedLocked?: boolean;
 }
 
 /**
@@ -191,6 +247,8 @@ export interface FilterRuleOperationResult {
   success: boolean;
   rule?: FilterRule;
   error?: string;
+  /** The server's error code, when it sent one. */
+  errorCode?: string;
 }
 
 /**
@@ -218,11 +276,85 @@ export interface FilterRuleRunScope {
   filters?: unknown;
   syncFirst?: boolean;
   refs?: FilterRuleRunRef[];
+  /** Whole-view runs leave these messages alone. */
+  excludeRefs?: FilterRuleRunRef[];
+}
+
+/** Actions a tag/scan sweep can run through the rule engine. */
+export type SweepRuleActionType =
+  | "add_tag"
+  | "remove_tag"
+  | "run_phishing_check"
+  | "run_auto_tagger";
+
+/**
+ * A one-off sweep carried by a rule run instead of saved rules. The server
+ * builds one unsaved rule per match value.
+ */
+export interface FilterRuleRunSweep {
+  match: {
+    type: "sender_email" | "sender_domain" | "subject_contains";
+    values: string[];
+  };
+  actions: Array<{ type: SweepRuleActionType; value?: string }>;
+  scoreMin?: number;
+  scoreMax?: number;
+  /** Pro: spam score range and "this result or worse". */
+  spamMin?: number;
+  spamMax?: number;
+  spamBand?: string;
 }
 
 export interface FilterRuleRunRequest {
   ruleIds: string[];
   scope: FilterRuleRunScope;
+  sweep?: FilterRuleRunSweep;
+}
+
+/**
+ * What this site can build rules from right now. Returned with the rule list
+ * by GET /filter-rules; Pro fields, actions and triggers appear only while the
+ * feature behind them is available.
+ */
+export interface FilterRuleSchema {
+  fields: Record<
+    string,
+    {
+      operators: string[];
+      value: "none" | "number" | "text" | "id" | "date" | "enum";
+      options?: string[];
+    }
+  >;
+  actions: Record<string, { terminal: boolean }>;
+  triggers: string[];
+}
+
+/** One rule run in the history list. */
+export interface FilterRuleRunHistoryItem extends FilterRuleRunJob {
+  trigger: string;
+}
+
+export interface FilterRuleRunHistory {
+  runs: FilterRuleRunHistoryItem[];
+  automatic: FilterRuleRunHistoryItem[];
+  automaticSummary: {
+    runs: number;
+    matched: number;
+    changed: number;
+    failed: number;
+  };
+}
+
+/** Result of trying a rule draft on the newest mail. */
+export interface FilterRuleTestResult {
+  /** Messages it could judge: matches plus known misses. */
+  checked: number;
+  matched: number;
+  /** Messages it could not judge: their body or headers were never saved. */
+  unknown: number;
+  /** Folder it tried: the Inbox unless a Folder condition names one. */
+  folder: string;
+  samples: Array<{ subject: string; from: string; receivedAt: string }>;
 }
 
 export interface FilterRuleRunUnsupportedRule {
@@ -271,19 +403,52 @@ export interface FilterRuleRunJob {
   completedAt?: string;
 }
 
+/** Fields every build offers. Pro fields carry their labels in the Pro module. */
+export type CoreConditionField = Exclude<
+  FilterConditionField,
+  | "ai_tag"
+  | "phishing_verdict"
+  | "phishing_score"
+  | "phishing_band"
+  | "spam_score"
+  | "spam_band"
+  | "spam_category"
+  | "is_bulk"
+>;
+
+/** Actions every build can save, plus legacy ones older rules may carry. */
+export type CoreActionType = Exclude<
+  FilterActionType,
+  | "run_auto_tagger"
+  | "run_phishing_check"
+  | "run_spam_check"
+  | "run_security_check"
+  | "snooze"
+  | "send_template"
+>;
+
 /**
- * Labels for condition fields (for UI display).
+ * Labels for condition fields. Keys are the schema the QA inventory reads;
+ * the UI shows conditionFieldLabel(), which is translated.
  */
-export const CONDITION_FIELD_LABELS: Record<FilterConditionField, string> = {
+export const CONDITION_FIELD_LABELS: Record<CoreConditionField, string> = {
   from: "From",
   to: "To",
   cc: "CC",
   bcc: "BCC",
   subject: "Subject",
-  body: "Body/Content",
-  has_attachment: "Has Attachment",
-  size: "Size (bytes)",
+  body: "Body",
+  has_attachment: "Has attachment",
+  size: "Body size (bytes)",
   date: "Date",
+  tag: "Tag",
+  is_read: "Read",
+  is_starred: "Starred",
+  is_important: "Important",
+  folder: "Folder",
+  account: "Account",
+  list_id: "List-Id header",
+  reply_to: "Reply-To header",
 };
 
 /**
@@ -330,29 +495,222 @@ export const DATE_OPERATOR_LABELS: Record<DateOperator, string> = {
   newer_than_days: "Newer than (days)",
 };
 
+export const TAG_OPERATOR_LABELS: Record<TagOperator, string> = {
+  has: "Has tag",
+  has_not: "Does not have tag",
+};
+
+export const ACCOUNT_OPERATOR_LABELS: Record<AccountOperator, string> = {
+  equals: "Is",
+  not_equals: "Is not",
+};
+
+export const FOLDER_OPERATOR_LABELS: Record<FolderOperator, string> = {
+  equals: "Is",
+  not_equals: "Is not",
+  starts_with: "Is inside",
+  contains: "Name contains",
+};
+
 /**
  * Labels for action types.
  */
-export const ACTION_TYPE_LABELS: Record<FilterActionType, string> = {
+export const ACTION_TYPE_LABELS: Record<
+  Exclude<CoreActionType, "apply_label" | "forward" | "skip_inbox">,
+  string
+> = {
   move_to_folder: "Move to folder",
   move_to_trash: "Move to trash",
-  apply_label: "Apply label",
   mark_as_read: "Mark as read",
+  mark_as_unread: "Mark as unread",
   mark_as_starred: "Star",
   mark_as_important: "Mark important",
+  add_tag: "Add tag",
+  remove_tag: "Remove tag",
   archive: "Archive",
   delete: "Delete",
-  forward: "Forward to",
-  skip_inbox: "Skip inbox",
   never_spam: "Never mark as spam",
   always_spam: "Always mark as spam",
 };
 
-export const RUN_TRIGGER_LABELS: Record<FilterRuleRunTrigger, string> = {
+export const RUN_TRIGGER_LABELS: Record<
+  Exclude<FilterRuleRunTrigger, "on_classified" | "on_phishing_scanned">,
+  string
+> = {
   manual: "Manual",
   on_receive: "On receive",
   scheduled: "Scheduled",
 };
+
+/** Translated label for a core condition field, or "" for one this map does not know. */
+export function conditionFieldLabel(field: string): string {
+  switch (field) {
+    case "from":
+      return __("From", "pressedmail");
+    case "to":
+      return __("To", "pressedmail");
+    case "cc":
+      return __("Cc", "pressedmail");
+    case "bcc":
+      return __("Bcc", "pressedmail");
+    case "subject":
+      return __("Subject", "pressedmail");
+    case "body":
+      return __("Body", "pressedmail");
+    case "has_attachment":
+      return __("Has attachment", "pressedmail");
+    case "size":
+      return __("Body size (bytes)", "pressedmail");
+    case "date":
+      return __("Date", "pressedmail");
+    case "tag":
+      return __("Tag", "pressedmail");
+    case "is_read":
+      return __("Read", "pressedmail");
+    case "is_starred":
+      return __("Starred", "pressedmail");
+    case "is_important":
+      return __("Important", "pressedmail");
+    case "folder":
+      return __("Folder", "pressedmail");
+    case "account":
+      return __("Account", "pressedmail");
+    case "list_id":
+      return __("Mailing list (List-Id)", "pressedmail");
+    case "reply_to":
+      return __("Reply-To", "pressedmail");
+    default:
+      return "";
+  }
+}
+
+/**
+ * Translated label for an operator as it reads on a given field. Pass
+ * `numeric` for a number field an extension adds, so "equals" reads as a
+ * comparison, the way it does on size.
+ */
+export function operatorLabel(
+  field: string,
+  operator: string,
+  numeric = false,
+): string {
+  // Flag fields, core or added by an extension, take only these two.
+  if (operator === "is_true" || operator === "is_false") {
+    return operator === "is_true"
+      ? __("Yes", "pressedmail")
+      : __("No", "pressedmail");
+  }
+  if (field === "tag") {
+    return operator === "has"
+      ? __("Has tag", "pressedmail")
+      : __("Does not have tag", "pressedmail");
+  }
+  if (
+    field === "account" ||
+    (field === "folder" && ["equals", "not_equals"].includes(operator))
+  ) {
+    return operator === "equals"
+      ? __("Is", "pressedmail")
+      : __("Is not", "pressedmail");
+  }
+  if (field === "folder") {
+    return operator === "starts_with"
+      ? __("Is inside", "pressedmail")
+      : __("Name contains", "pressedmail");
+  }
+  switch (operator) {
+    case "contains":
+      return __("Contains", "pressedmail");
+    case "not_contains":
+      return __("Does not contain", "pressedmail");
+    case "equals":
+      return field === "size" || numeric
+        ? __("Equals", "pressedmail")
+        : __("Equals exactly", "pressedmail");
+    case "not_equals":
+      return __("Does not equal", "pressedmail");
+    case "starts_with":
+      return __("Starts with", "pressedmail");
+    case "ends_with":
+      return __("Ends with", "pressedmail");
+    case "matches_regex":
+      return __("Matches pattern (regex)", "pressedmail");
+    case "greater_than":
+      return __("More than", "pressedmail");
+    case "less_than":
+      return __("Less than", "pressedmail");
+    case "greater_or_equal":
+      return __("At least", "pressedmail");
+    case "less_or_equal":
+      return __("At most", "pressedmail");
+    case "before":
+      return __("Before", "pressedmail");
+    case "after":
+      return __("After", "pressedmail");
+    case "on":
+      return __("On", "pressedmail");
+    case "older_than_days":
+      return __("Older than (days)", "pressedmail");
+    case "newer_than_days":
+      return __("Newer than (days)", "pressedmail");
+    default:
+      return operator;
+  }
+}
+
+/** Translated label for a core action, or "" for one this map does not know. */
+export function actionTypeLabel(type: string): string {
+  switch (type) {
+    case "move_to_folder":
+      return __("Move to folder", "pressedmail");
+    case "move_to_trash":
+      return __("Move to Trash", "pressedmail");
+    case "mark_as_read":
+      return __("Mark as read", "pressedmail");
+    case "mark_as_unread":
+      return __("Mark as unread", "pressedmail");
+    case "mark_as_starred":
+      return __("Star", "pressedmail");
+    case "mark_as_important":
+      return __("Mark important", "pressedmail");
+    case "add_tag":
+      return __("Add tag", "pressedmail");
+    case "remove_tag":
+      return __("Remove tag", "pressedmail");
+    case "archive":
+      return __("Archive", "pressedmail");
+    case "delete":
+      return __("Delete", "pressedmail");
+    case "never_spam":
+      return __("Never send to Junk", "pressedmail");
+    case "always_spam":
+      return __("Send to Junk", "pressedmail");
+    case "apply_label":
+      return __("Apply label (no longer runs)", "pressedmail");
+    case "forward":
+      return __("Forward (no longer runs)", "pressedmail");
+    case "skip_inbox":
+      return __("Skip inbox", "pressedmail");
+    default:
+      return "";
+  }
+}
+
+/** Translated label for a core run trigger, or "" for one this map does not know. */
+export function runTriggerLabel(trigger: string): string {
+  // Timed rules are Pro; Free has no scheduled trigger to name.
+  if (!__IS_FREE__ && trigger === "scheduled") {
+    return __("On a schedule", "pressedmail");
+  }
+  switch (trigger) {
+    case "manual":
+      return __("When I run it", "pressedmail");
+    case "on_receive":
+      return __("When mail arrives", "pressedmail");
+    default:
+      return "";
+  }
+}
 
 export function ruleCanRunManually(rule: Pick<FilterRule, "runTriggers">) {
   return (rule.runTriggers ?? DEFAULT_FILTER_RULE_TRIGGERS).includes("manual");
@@ -370,21 +728,15 @@ export function ruleRunsOnReceive(rule: Pick<FilterRule, "runTriggers">) {
 }
 
 /**
- * Actions a rule can still carry but that nothing executes, on either side.
- * The server lists them in FilterRuleMatcher::UNSUPPORTED_ACTION_TYPES, so
- * the editor hides them rather than letting people save a rule that does
- * nothing. They keep their labels so rules stored before this list still read
- * correctly.
- *
- * To offer one again it needs a real executor first: tag resolution for
- * apply_label, outbound send plumbing for forward, and a persisted inbox/spam
- * flag on the mailbox mirror for skip_inbox and never_spam.
+ * Legacy actions an older rule can still carry but nothing executes. The
+ * server lists apply_label and forward in FilterRuleMatcher::UNSUPPORTED_ACTION_TYPES;
+ * skip_inbox is read back as archive. The editor never offers them; they keep
+ * labels so an old rule still reads correctly.
  */
 export const UNIMPLEMENTED_ACTIONS: FilterActionType[] = [
   "apply_label",
   "forward",
   "skip_inbox",
-  "never_spam",
 ];
 
 export function isUnimplementedAction(action: FilterActionType): boolean {
@@ -392,43 +744,35 @@ export function isUnimplementedAction(action: FilterActionType): boolean {
 }
 
 /**
- * Condition fields the SERVER run engine cannot evaluate.
- *
- * Mirrors FilterRuleMatcher::UNSUPPORTED_CONDITION_FIELDS. The mirror stores a
- * truncated snippet, not the message body, and no size at all. These rules are
- * deliberately still creatable for manual use, because the browser holds the
- * full message and can match them: see test-filter-rule-production-safety.php.
- * They just cannot run on cron or through "Run rules now".
+ * Condition fields the server run engine cannot evaluate. None any more: body
+ * and size read the cached body (an uncached body never matches).
  */
-export const SERVER_UNSUPPORTED_CONDITION_FIELDS: FilterConditionField[] = [
-  "body",
-  "size",
-];
+export const SERVER_UNSUPPORTED_CONDITION_FIELDS: FilterConditionField[] = [];
 
 /**
  * Whether the server run engine will execute this rule, or skip it.
  *
- * Mirrors FilterRuleMatcher::is_rule_runnable. "Run rules now" posts to the
- * server, so a rule that fails this check does nothing there while Organize
- * still applies it in the browser. Use it to say so, not to hide the rule.
+ * Mirrors FilterRuleMatcher::is_rule_runnable for the core schema: a rule
+ * that still carries a legacy action does nothing there.
  */
 export function ruleRunsOnServer(
   rule: Pick<FilterRule, "conditions" | "actions">,
 ): boolean {
-  const conditions = rule.conditions ?? [];
   const actions = rule.actions ?? [];
-
-  if (
-    conditions.some((c) => SERVER_UNSUPPORTED_CONDITION_FIELDS.includes(c.field))
-  ) {
-    return false;
-  }
   if (actions.some((a) => isUnimplementedAction(a.type))) {
     return false;
   }
 
   return actions.length > 0;
 }
+
+/** Condition fields that test a flag and take no value. */
+export const FLAG_CONDITION_FIELDS: FilterConditionField[] = [
+  "has_attachment",
+  "is_read",
+  "is_starred",
+  "is_important",
+];
 
 /**
  * Get available operators for a condition field.
@@ -443,6 +787,8 @@ export function getOperatorsForField(
     case "bcc":
     case "subject":
     case "body":
+    case "list_id":
+    case "reply_to":
       return [
         "contains",
         "not_contains",
@@ -453,6 +799,9 @@ export function getOperatorsForField(
         "matches_regex",
       ];
     case "has_attachment":
+    case "is_read":
+    case "is_starred":
+    case "is_important":
       return ["is_true", "is_false"];
     case "size":
       return [
@@ -465,6 +814,12 @@ export function getOperatorsForField(
       ];
     case "date":
       return ["before", "after", "on", "older_than_days", "newer_than_days"];
+    case "tag":
+      return ["has", "has_not"];
+    case "account":
+      return ["equals", "not_equals"];
+    case "folder":
+      return ["equals", "not_equals", "starts_with", "contains"];
     default:
       return [];
   }
@@ -474,7 +829,7 @@ export function getOperatorsForField(
  * Check if an action type requires a value.
  */
 export function actionRequiresValue(actionType: FilterActionType): boolean {
-  return ["move_to_folder", "apply_label", "forward"].includes(actionType);
+  return ["move_to_folder", "add_tag", "remove_tag"].includes(actionType);
 }
 
 /**

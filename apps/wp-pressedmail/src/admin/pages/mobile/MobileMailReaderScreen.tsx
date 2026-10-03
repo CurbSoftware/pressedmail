@@ -1,4 +1,4 @@
-"use client";
+("use client");
 
 import * as React from "react";
 import { __, _x, sprintf } from "@wordpress/i18n";
@@ -21,6 +21,7 @@ import {
   useHideTabBar,
 } from "@/components/mobile-shell";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
+import { useSharedMailboxRole } from "@/components/sharing";
 import { MailDisplay } from "@/components/inbox/mail-display";
 import {
   formatForwardedText,
@@ -136,6 +137,10 @@ export function MobileMailReaderScreen() {
   const displayMessage =
     routeId && selectedIdentity === routeId ? selectedMessage : routeMessage;
   const displayedIdentity = getMessageIdentityKey(displayMessage);
+  // A Viewer of a shared mailbox reads only: no reply, star, archive or delete.
+  const { canWrite } = useSharedMailboxRole(
+    getMessageIdentityRef(displayMessage)?.accountId,
+  );
   const liveReader = React.useRef({
     routeId,
     displayedIdentity,
@@ -410,90 +415,92 @@ export function MobileMailReaderScreen() {
     }
   }, [displayMessage, markAsRead, markAsUnread]);
 
-  const messageActions = displayMessage
-    ? [
-        {
-          id: "mark-read",
-          label: displayMessage.read
-            ? __("Mark as unread", "pressedmail")
-            : __("Mark as read", "pressedmail"),
-          icon: displayMessage.read ? EmailMarkUnreadIcon : EmailMarkReadIcon,
-          onAction: handleToggleRead,
-        },
-        {
-          id: "archive",
-          label: _x("Archive", "verb", "pressedmail"),
-          icon: EmailArchiveIcon,
-          onAction: handleArchive,
-        },
-        {
-          id: "delete",
-          label: __("Delete", "pressedmail"),
-          icon: EmailTrashIcon,
-          onAction: handleDelete,
-          destructive: true,
-        },
-      ]
-    : [];
+  const messageActions =
+    displayMessage && canWrite
+      ? [
+          {
+            id: "mark-read",
+            label: displayMessage.read
+              ? __("Mark as unread", "pressedmail")
+              : __("Mark as read", "pressedmail"),
+            icon: displayMessage.read ? EmailMarkUnreadIcon : EmailMarkReadIcon,
+            onAction: handleToggleRead,
+          },
+          {
+            id: "archive",
+            label: _x("Archive", "verb", "pressedmail"),
+            icon: EmailArchiveIcon,
+            onAction: handleArchive,
+          },
+          {
+            id: "delete",
+            label: __("Delete", "pressedmail"),
+            icon: EmailTrashIcon,
+            onAction: handleDelete,
+            destructive: true,
+          },
+        ]
+      : [];
 
-  const primaryActionBar = displayMessage ? (
-    <div className="sticky top-0 z-20 -mx-4 flex items-center gap-1 border-y border-border bg-background/95 px-3 py-2 backdrop-blur">
-      <button
-        type="button"
-        data-test="mobile-default-reply-action"
-        data-testid="mobile-default-reply-action"
-        aria-label={
-          preferredReplyMode === "reply-all"
-            ? __("Reply to all recipients", "pressedmail")
-            : __("Reply to sender", "pressedmail")
-        }
-        onClick={() => void openCompose(preferredReplyMode)}
-        className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
-        {preferredReplyMode === "reply-all" ? (
-          <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
-        ) : (
-          <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
-        )}
-        {preferredReplyMode === "reply-all"
-          ? __("Reply All", "pressedmail")
-          : __("Reply", "pressedmail")}
-      </button>
-      <button
-        type="button"
-        aria-label={
-          alternateReplyMode === "reply-all"
-            ? __("Reply to all recipients", "pressedmail")
-            : __("Reply to sender", "pressedmail")
-        }
-        onClick={() => void openCompose(alternateReplyMode)}
-        className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
-        {alternateReplyMode === "reply-all" ? (
-          <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
-        ) : (
-          <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
-        )}
-        {alternateReplyMode === "reply-all"
-          ? __("Reply All", "pressedmail")
-          : __("Reply", "pressedmail")}
-      </button>
-      <button
-        type="button"
-        aria-label={__("Forward message", "pressedmail")}
-        onClick={() => void openCompose("forward")}
-        className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
-        <EmailForwardIcon className="h-4 w-4" aria-hidden="true" />
-        {__("Forward", "pressedmail")}
-      </button>
-      <button
-        type="button"
-        ref={moreActionsRef}
-        aria-label={__("More actions", "pressedmail")}
-        onClick={() => setActionSheetOpen(true)}
-        className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-2 text-foreground active:bg-muted">
-        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-      </button>
-    </div>
-  ) : null;
+  const primaryActionBar =
+    displayMessage && canWrite ? (
+      <div className="sticky top-0 z-20 -mx-4 flex items-center gap-1 border-y border-border bg-background/95 px-3 py-2 backdrop-blur">
+        <button
+          type="button"
+          data-test="mobile-default-reply-action"
+          data-testid="mobile-default-reply-action"
+          aria-label={
+            preferredReplyMode === "reply-all"
+              ? __("Reply to all recipients", "pressedmail")
+              : __("Reply to sender", "pressedmail")
+          }
+          onClick={() => void openCompose(preferredReplyMode)}
+          className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
+          {preferredReplyMode === "reply-all" ? (
+            <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
+          )}
+          {preferredReplyMode === "reply-all"
+            ? __("Reply All", "pressedmail")
+            : __("Reply", "pressedmail")}
+        </button>
+        <button
+          type="button"
+          aria-label={
+            alternateReplyMode === "reply-all"
+              ? __("Reply to all recipients", "pressedmail")
+              : __("Reply to sender", "pressedmail")
+          }
+          onClick={() => void openCompose(alternateReplyMode)}
+          className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
+          {alternateReplyMode === "reply-all" ? (
+            <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
+          ) : (
+            <EmailReplyIcon className="h-4 w-4" aria-hidden="true" />
+          )}
+          {alternateReplyMode === "reply-all"
+            ? __("Reply All", "pressedmail")
+            : __("Reply", "pressedmail")}
+        </button>
+        <button
+          type="button"
+          aria-label={__("Forward message", "pressedmail")}
+          onClick={() => void openCompose("forward")}
+          className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
+          <EmailForwardIcon className="h-4 w-4" aria-hidden="true" />
+          {__("Forward", "pressedmail")}
+        </button>
+        <button
+          type="button"
+          ref={moreActionsRef}
+          aria-label={__("More actions", "pressedmail")}
+          onClick={() => setActionSheetOpen(true)}
+          className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full px-2 text-foreground active:bg-muted">
+          <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    ) : null;
 
   return (
     <MobileScreen
@@ -501,7 +508,7 @@ export function MobileMailReaderScreen() {
         <MobileScreenHeader
           title={subject}
           trailing={
-            displayMessage ? (
+            displayMessage && canWrite ? (
               <button
                 type="button"
                 aria-label={

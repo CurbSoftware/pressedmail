@@ -4,6 +4,7 @@ import { __, _n, sprintf } from "@wordpress/i18n";
 
 import { cn } from "@/lib/utils";
 import type { EmailMessageTag } from "@/types";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   EmailTagVisualIcon,
   emailTagSoftBadgeClassName,
@@ -15,6 +16,8 @@ export { getEmailTagBadgeStyle, resolveEmailTagColor } from "./tag-visuals";
 
 interface EmailTagBadgesProps {
   tags?: EmailMessageTag[];
+  /** List badges follow Reports visibility; reading-pane badges stay visible. */
+  inEmailList?: boolean;
   /** Max badges to show before collapsing into a "+N" indicator. */
   maxVisible?: number;
   /** Allow the +N indicator to reveal hidden badges in-place. */
@@ -126,6 +129,7 @@ export function EmailTagBadge({
  */
 export function EmailTagBadges({
   tags,
+  inEmailList = false,
   maxVisible = 3,
   expandable = false,
   onTagClick,
@@ -135,6 +139,7 @@ export function EmailTagBadges({
   dataTest = testId,
   wrap = false,
 }: EmailTagBadgesProps) {
+  const { preferences } = useUserPreferences();
   const [expanded, setExpanded] = React.useState(false);
   const uniqueTags = React.useMemo(() => {
     if (!tags?.length) return [];
@@ -149,7 +154,10 @@ export function EmailTagBadges({
     });
   }, [tags]);
 
-  if (uniqueTags.length === 0) return null;
+  if (
+    uniqueTags.length === 0 ||
+    (inEmailList && preferences.email_list_show_reports === false)
+  ) return null;
 
   const hasHiddenTags = Boolean(maxVisible && uniqueTags.length > maxVisible);
   const collapsedVisible = maxVisible

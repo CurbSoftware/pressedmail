@@ -1,5 +1,6 @@
 import { __ } from "@wordpress/i18n";
 
+import type { PhishingIconMark } from "@/components/icons/PhishingIcons";
 import type {
   PhishingAnalysisResult,
   PhishingSuspectLevel,
@@ -123,6 +124,18 @@ export function getPhishingButtonCopy(status: PhishingUiStatus): {
         buttonClassName: "text-primary hover:bg-primary/10",
       };
   }
+}
+
+/**
+ * The mark the fish wears for a verdict, so colour is never the only signal:
+ * a check, a warning triangle and a cross, as on the spam bag beside it. Any
+ * other state draws the plain fish.
+ */
+export function getPhishingMark(status: PhishingUiStatus): PhishingIconMark {
+  if (status === "safe") return "check";
+  if (status === "caution") return "warn";
+  if (status === "danger") return "cross";
+  return "none";
 }
 
 /**

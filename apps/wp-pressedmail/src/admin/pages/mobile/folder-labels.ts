@@ -11,6 +11,11 @@ import type { ImapFolder, SystemFolderType } from "@/services/interfaces";
  * ever translated it.
  */
 export function getMailboxSlotLabel(type: SystemFolderType | "junk"): string {
+  // Snoozed and Scheduled are Pro views.
+  if (!__IS_FREE__ && type === "snoozed") return __("Snoozed", "pressedmail");
+  if (!__IS_FREE__ && type === "scheduled") {
+    return __("Scheduled", "pressedmail");
+  }
   switch (type) {
     case "inbox":
       return __("Inbox", "pressedmail");
@@ -19,12 +24,8 @@ export function getMailboxSlotLabel(type: SystemFolderType | "junk"): string {
       return __("Starred", "pressedmail");
     case "important":
       return __("Important", "pressedmail");
-    case "snoozed":
-      return __("Snoozed", "pressedmail");
     case "sent":
       return __("Sent", "pressedmail");
-    case "scheduled":
-      return __("Scheduled", "pressedmail");
     case "outbox":
       return __("Outbox", "pressedmail");
     case "drafts":

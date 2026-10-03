@@ -28,8 +28,10 @@ export const FREE_SETTINGS_SECTION_DESCRIPTIONS: Record<string, string> = {
     "Send WordPress system email through your own SMTP server.",
     "pressedmail",
   ),
+  // One seat, so there is no one to give or refuse access: the page is the two
+  // things a single mailbox owner does choose. The Pro line names permissions.
   "admin-security-access": __(
-    "Control attachment, remote content, and role permissions.",
+    "Control attachments and remote content.",
     "pressedmail",
   ),
   "admin-diagnostics": __(

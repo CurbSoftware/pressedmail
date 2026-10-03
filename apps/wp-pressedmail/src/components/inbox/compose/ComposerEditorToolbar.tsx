@@ -16,7 +16,7 @@ import {
   PLATE_EMAIL_EDITOR_DIALECTS,
   type PlateEmailEditorDialect,
   type PlateEmailEditorSurface,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 import { useEditorRef } from "@kit/plate/react";
 import {
   CaseSensitive,
@@ -55,9 +55,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@kit/ui/plugin";
-import {
-  PressedPopoverContent,
-} from "@/components/ui/pressed-overlay";
+import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 
 import { __ } from "@wordpress/i18n";
 
@@ -84,6 +82,7 @@ import {
   IndentToolbarButton,
   OutdentToolbarButton,
 } from "@/components/composer/plate/indent-toolbar-button";
+import { InsertBlockToolbarButton } from "@/components/composer/plate/composer-blocks-kit.active";
 import { HorizontalRuleToolbarButton } from "@/components/composer/plate/horizontal-rule-toolbar-button";
 import { EmojiToolbarButton } from "@/components/composer/plate/emoji-toolbar-button";
 import { LineHeightToolbarButton } from "@/components/composer/plate/line-height-toolbar-button";
@@ -106,10 +105,7 @@ import {
   resolveComposerToolbarItems,
 } from "./composer-toolbar-registry";
 import { printEmailContent } from "@/lib/print-email-content";
-import {
-  recipientsToString,
-  type Recipient,
-} from "@/types/recipients";
+import { recipientsToString, type Recipient } from "@/types/recipients";
 import {
   getComposerFontOptions,
   resolveComposerFontOptionFromFamily,
@@ -120,6 +116,7 @@ import {
   type ComposerToolbarItemId,
 } from "@/hooks/useUserPreferences";
 import { useComposerPalettesEnabled } from "@/hooks/useComposerPalettesEnabled";
+import { useFeaturesOptional } from "@/context/features/FeaturesContext";
 import type { Signature } from "@/types/signatures";
 
 export type ComposerAuthoringSurface = PlateEmailEditorSurface;
@@ -147,8 +144,13 @@ export interface ComposerToolbarForm {
   body: string;
   bodyBackgroundColor?: string;
   canvasBackgroundColor?: string;
-  showAIPanel: boolean;
+  /** Pro inline AI tools. Absent in Free. */
+  showAIPanel?: boolean;
   handleSignatureSelect: (signatureId: number) => void;
+  /** The mailbox the email is sent from. Only the message composer has one. */
+  sendingAccountId?: number | null;
+  /** Send a separate personalized copy to each subscribed contact. */
+  listDelivery?: boolean;
 }
 
 export interface ComposerEditorToolbarProps {
@@ -163,6 +165,12 @@ export interface ComposerEditorToolbarProps {
   onImageUpload: () => void;
   onTogglePreview: () => void;
   previewActive: boolean;
+  /** Hosts may withhold preview until their context is ready, without disabling authoring. */
+  previewEnabled?: boolean;
+  /** Read-only templates can preview even though their editing commands are disabled. */
+  previewDisabled?: boolean;
+  previewLabel?: string;
+  previewControl?: { testId: string };
   /** The block editor's current dialect. Defaults to Markdown. */
   dialect?: PlateEmailEditorDialect;
   /** Picks the per-compose dialect override. */
@@ -193,6 +201,10 @@ export function ComposerEditorToolbar({
   onImageUpload,
   onTogglePreview,
   previewActive,
+  previewEnabled = true,
+  previewDisabled = disabled,
+  previewLabel,
+  previewControl,
   dialect = "markdown",
   onSelectDialect,
   onSetBodyBackgroundColor,
@@ -206,8 +218,14 @@ export function ComposerEditorToolbar({
   const isEmailSurface = surface === "email";
   const surfacePreset = getPlateEmailEditorSurfacePreset(surface);
   const surfaceFeatures = surfacePreset.features;
+  const hasPreviewToggle = previewEnabled && surfaceFeatures.preview &&
+    (isEmailSurface || surface === "template" || surface === "content_block");
+  // Preview locks authoring, but its Edit control must stay reachable. Native
+  // inert on the whole toolbar overrides even an explicitly enabled button.
+  const toolbarDisabled = disabled && (!hasPreviewToggle || previewDisabled);
   const isMobileToolbar = toolbarVariant === "mobile";
-  const aiEnabled = surfaceFeatures.aiCommands && Boolean(form.showAIPanel);
+  const aiEnabled =
+    !__IS_FREE__ && surfaceFeatures.aiCommands && Boolean(form.showAIPanel);
   const contentBlocksAvailable =
     contentBlocksEnabled && surfaceFeatures.contentBlocks;
   const canUseMediaLibraryInlineImages =
@@ -220,7 +238,6 @@ export function ComposerEditorToolbar({
     surfaceFeatures.localImageUpload;
   const inlineImagesEnabled =
     canUseMediaLibraryInlineImages || canUploadInlineImages;
-
   const visibleItems = React.useMemo(
     () =>
       resolveComposerToolbarItems(
@@ -257,6 +274,8 @@ export function ComposerEditorToolbar({
       case "history_redo":
         return <RedoToolbarButton key={id} />;
       case "ai":
+        // AI drafting is Pro: the Free build compiles no AI Tools button.
+        if (!__ENABLE_AI_DRAFTING__) return null;
         return (
           <AIToolbarButton
             key={id}
@@ -340,7 +359,7 @@ export function ComposerEditorToolbar({
           <HighlightColorToolbarButton key={id} />
         ) : null;
       case "body_background":
-        return isEmailSurface && palettesEnabled && onSetBodyBackgroundColor ? (
+        return palettesEnabled && onSetBodyBackgroundColor ? (
           <BodyBackgroundPopover
             key={id}
             disabled={disabled}
@@ -378,7 +397,9 @@ export function ComposerEditorToolbar({
       case "indent":
         return <IndentToolbarButton key={id} />;
       case "content_blocks":
-        return null;
+        // Saved blocks are Pro: Free resolves this to a button that renders
+        // nothing, and its registry item is already filtered out.
+        return <InsertBlockToolbarButton key={id} />;
       case "more_menu":
         return (
           <MoreToolbarButton
@@ -406,8 +427,8 @@ export function ComposerEditorToolbar({
         "bg-card text-card-foreground [color-scheme:light_dark] px-1 py-1",
         isMobileToolbar && "[&_button]:min-h-11 [&_button]:min-w-11",
       )}
-      aria-disabled={disabled || undefined}
-      inert={disabled ? true : undefined}
+      aria-disabled={toolbarDisabled || undefined}
+      inert={toolbarDisabled ? true : undefined}
       data-test="composer-toolbar">
       <Toolbar className="flex flex-wrap items-center gap-0.5">
         {COMPOSER_TOOLBAR_GROUPS.filter((group) => group.id !== "actions").map(
@@ -419,7 +440,11 @@ export function ComposerEditorToolbar({
 
             if (children.length === 0) return null;
 
-            return <ToolbarGroup key={group.id}>{children}</ToolbarGroup>;
+            return (
+              <ToolbarGroup key={group.id} inert={disabled ? true : undefined}>
+                {children}
+              </ToolbarGroup>
+            );
           },
         )}
 
@@ -441,12 +466,14 @@ export function ComposerEditorToolbar({
               </ToolbarGroup>
             )}
 
-          {/* Preview, email surface only (the authoring-surface parity
-              tests pin Preview as an intentional email-only control) */}
-          {isEmailSurface && (
+          {/* Preview, on the surfaces that become an email (the
+              signature parity tests pin it off everywhere else) */}
+          {hasPreviewToggle && (
             <ToolbarGroup>
               <ToolbarButton
-                tooltip={__("Preview", "pressedmail")}
+                tooltip={previewLabel ?? __("Preview", "pressedmail")}
+                data-test={previewControl?.testId ?? "composer-preview-toggle"}
+                data-testid={previewControl?.testId ?? "composer-preview-toggle"}
                 pressed={previewActive}
                 className={
                   previewActive
@@ -454,7 +481,7 @@ export function ComposerEditorToolbar({
                     : ""
                 }
                 onClick={onTogglePreview}
-                disabled={disabled}>
+                disabled={previewDisabled}>
                 <Eye className="size-4" />
               </ToolbarButton>
             </ToolbarGroup>
@@ -524,7 +551,7 @@ export function ComposerEditorToolbar({
               }}
             />
           ) : (
-            <ToolbarGroup>
+            <ToolbarGroup inert={disabled ? true : undefined}>
               <ComposerToolbarCustomizeDialog
                 surface={surface}
                 target={isMobileToolbar ? "mobile" : "desktop"}
@@ -726,9 +753,6 @@ function ComposerFormatDropdown({
           tooltip={__("Format", "pressedmail")}
           disabled={disabled}>
           <FileText className={COMPOSER_TOOLBAR_ICON_CLASS} />
-          <span className="ml-1 hidden text-xs md:inline">
-            {composerDialectLabel(dialect)}
-          </span>
           <ChevronDown className="ml-0.5 size-3" />
         </ToolbarButton>
       </DropdownMenuTrigger>

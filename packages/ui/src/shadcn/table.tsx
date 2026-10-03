@@ -4,7 +4,26 @@ import * as React from 'react';
 
 import { cn } from '#lib/utils';
 
-function Table({ className, ...props }: React.ComponentProps<'table'>) {
+const ScrollRegionsContext = React.createContext(false);
+
+/**
+ * Opt-in for an app: inside it, a Table wider than its box becomes a named,
+ * focusable region, since keyboard users can only scroll what they can focus.
+ * Outside it, Table renders exactly as before.
+ */
+function TableScrollRegions({ children }: React.PropsWithChildren) {
+  return <ScrollRegionsContext value={true}>{children}</ScrollRegionsContext>;
+}
+
+function Table(props: React.ComponentProps<'table'>) {
+  return React.useContext(ScrollRegionsContext) ? (
+    <ScrollRegionTable {...props} />
+  ) : (
+    <PlainTable {...props} />
+  );
+}
+
+function PlainTable({ className, ...props }: React.ComponentProps<'table'>) {
   return (
     <div
       data-slot="table-container"
@@ -17,6 +36,79 @@ function Table({ className, ...props }: React.ComponentProps<'table'>) {
       />
     </div>
   );
+}
+
+function ScrollRegionTable({
+  className,
+  'aria-label': ariaLabel,
+  ...props
+}: React.ComponentProps<'table'>) {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const regionLabel = useScrollRegionLabel(containerRef, ariaLabel);
+
+  return (
+    // The name goes on the region or the table, never both.
+    <div
+      ref={containerRef}
+      data-slot="table-container"
+      className="focus-visible:ring-ring/50 relative w-full overflow-x-auto outline-none focus-visible:ring-[3px]"
+      {...(regionLabel
+        ? { tabIndex: 0, role: 'region', 'aria-label': regionLabel }
+        : {})}
+    >
+      <table
+        data-slot="table"
+        aria-label={regionLabel ? undefined : ariaLabel}
+        className={cn('w-full caption-bottom text-sm', className)}
+        {...props}
+      />
+    </div>
+  );
+}
+
+/**
+ * The region's name while the table scrolls sideways, else null. Without an
+ * aria-label it borrows the nearest heading (the card or section title), so
+ * two scrolling tables on one page don't both announce the same name.
+ */
+function useScrollRegionLabel(
+  ref: React.RefObject<HTMLDivElement | null>,
+  ariaLabel: string | undefined,
+) {
+  const [label, setLabel] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const element = ref.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+
+    const check = () =>
+      setLabel(
+        element.scrollWidth > element.clientWidth + 1
+          ? (ariaLabel ?? nearestHeading(element) ?? 'Table')
+          : null,
+      );
+    const observer = new ResizeObserver(check);
+
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    check();
+
+    return () => observer.disconnect();
+  }, [ref, ariaLabel]);
+
+  return label;
+}
+
+const HEADING = 'h1, h2, h3, h4, h5, h6, [role="heading"]';
+
+function nearestHeading(element: HTMLElement) {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const heading = node.querySelector(HEADING);
+    const text = heading?.textContent?.trim();
+    if (text) return text;
+  }
+
+  return null;
 }
 
 function TableHeader({ className, ...props }: React.ComponentProps<'thead'>) {
@@ -113,4 +205,5 @@ export {
   TableRow,
   TableCell,
   TableCaption,
+  TableScrollRegions,
 };

@@ -34,6 +34,32 @@ const PROCESS_QUEUE_TIMEOUT_MS = 30_000;
  */
 const RUN_NOW_TIMEOUT_MS = 60_000;
 
+/**
+ * The server answered but is not taking work right now (rate limited, overloaded, or a
+ * gateway error in front of it). Carries how long to wait, from `Retry-After` or the
+ * body's `retry_after`, so the driver waits at least that long instead of hammering.
+ */
+export class ServerBusyError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly retryAfterMs: number,
+  ) {
+    super(`The server is busy (${status}).`);
+    this.name = "ServerBusyError";
+  }
+}
+
+/** Seconds from `Retry-After` (header) or `retry_after` (body), as milliseconds; 0 if absent. */
+function retryAfterMs(response: Response, body: unknown): number {
+  const header = Number(response.headers?.get?.("Retry-After"));
+  const fromBody = Number(
+    (body as { retry_after?: unknown; data?: { retry_after?: unknown } })?.retry_after ??
+      (body as { data?: { retry_after?: unknown } })?.data?.retry_after,
+  );
+  const seconds = [header, fromBody].find((n) => Number.isFinite(n) && n > 0) ?? 0;
+  return Math.min(seconds, 600) * 1000;
+}
+
 export interface AdvanceSyncResult {
   advanced: number;
   remaining: number;
@@ -65,6 +91,15 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
   const data = (await response.json().catch(() => ({}))) as {
     data?: Partial<AdvanceSyncResult> & { overdue_jobs?: number };
   };
+  // Any other non-2xx is a failure, not an empty success. Counting it as success used to
+  // trigger a full drain on top. Only 429 and 5xx (rate limit, busy, gateway page) mean
+  // load; a 400/404/405/410 is permanent, so it takes the normal failure path and surfaces.
+  if (response.status === 429 || response.status >= 500) {
+    throw new ServerBusyError(response.status, retryAfterMs(response, data));
+  }
+  if (!response.ok) {
+    throw new Error(`Sync advance failed with HTTP ${response.status}.`);
+  }
   const payload = data.data ?? {};
   return {
     advanced: Number(payload.advanced ?? 0),

@@ -41,10 +41,13 @@ interface PhishingContextValue {
     accountId: number,
     emails: PhishingEmailData[],
     folder?: string,
+    options?: { signal?: AbortSignal; force?: boolean },
   ) => Promise<{
     total: number;
     suspicious: number;
     results: Record<string, PhishingAnalysisResult>;
+    /** message_id => why that email was not checked. */
+    errors?: Record<string, string>;
   } | null>;
   fetchCachedResults: (
     accountId: number,
@@ -54,6 +57,7 @@ interface PhishingContextValue {
   isEmailSuspicious: (messageId: string) => boolean;
   isAnalyzing: (messageId: string) => boolean;
   clearCache: (accountId: number) => Promise<boolean>;
+  mergeResults: (results: Record<string, PhishingAnalysisResult>) => void;
   enqueuePhishingScan: (
     accountId: number,
     items: Array<{ uid: string; folder: string }>,
@@ -73,7 +77,7 @@ const disabledContext: PhishingContextValue = {
   updateAdminSettings: async () => false,
   updateUserSettings: async () => false,
   analyzeEmail: async () => {
-    throw new Error("Phishing detection is disabled");
+    throw new Error();
   },
   batchAnalyze: async () => null,
   fetchCachedResults: async () => {},
@@ -81,6 +85,7 @@ const disabledContext: PhishingContextValue = {
   isEmailSuspicious: () => false,
   isAnalyzing: () => false,
   clearCache: async () => false,
+  mergeResults: () => {},
   enqueuePhishingScan: async () => ({ enqueued: 0, skipped: 0 }),
 };
 

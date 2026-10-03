@@ -9,12 +9,9 @@ export {
   useMaxAttachmentSizeMb,
   useSyncIntervalMinutes,
   useAutoSyncDisabled,
-  useAreProPalettesDisabled,
   useWhitelabelDefaultLayout,
   useWhitelabelDefaultTheme,
   useAllowUserLayoutSwitching,
   useAllowUserThemeSwitching,
   useAllowUserModeSwitching,
-  useWhitelabelDefaultMode,
-  useWhitelabelThemeTokens,
 } from "./AdminSettingsContext";

@@ -12,7 +12,15 @@ import * as React from 'react';
 import { DndPlugin, useDraggable, useDropLine } from '@kit/plate/dnd';
 import { expandListItemsWithChildren } from '@kit/plate/list';
 import { BlockSelectionPlugin } from '@kit/plate/selection/react';
-import { ArrowUp, ArrowDown, GripVertical } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpLeft,
+  ChevronRight,
+  GripVertical,
+  RemoveFormatting,
+  Trash2,
+} from 'lucide-react';
 import { getPluginByType, isType, KEYS, type TElement } from '@kit/plate';
 import {
   MemoizedChildren,
@@ -40,7 +48,19 @@ import {
 } from "@/components/ui/pressed-overlay";
 
 import { cn } from '@/lib/utils';
-import { getBlockMoveTarget, moveBlock } from './block-move';
+import {
+  canConvertBlock,
+  canMoveBlockOut,
+  canUnwrapBlock,
+  deleteBlock,
+  getBlockMoveTarget,
+  isInsideQuote,
+  moveBlock,
+  moveBlockOut,
+  unwrapBlock,
+} from './block-move';
+import { getTurnIntoItems } from './turn-into-toolbar-button';
+import { ACTION_THREE_COLUMNS, getBlockType, setBlockType } from './transforms';
 
 const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
 
@@ -147,6 +167,22 @@ function Draggable(props: PlateElementProps) {
   // type (heading vs paragraph vs callout).
   const [handleTop, setHandleTop] = React.useState(0);
   const [moveMenuOpen, setMoveMenuOpen] = React.useState(false);
+  const [convertOpen, setConvertOpen] = React.useState(false);
+  const [menuSide, setMenuSide] = React.useState<'top' | 'bottom'>('bottom');
+  const menuItemClass = 'min-h-11 w-full justify-start gap-2';
+  const convertItems = canConvertBlock(editor, element)
+    ? getTurnIntoItems().filter(
+        (item) =>
+          item.value !== getBlockType(element) &&
+          (path.length === 1 || item.value !== ACTION_THREE_COLUMNS) &&
+          (item.value !== KEYS.blockquote || !isInsideQuote(editor, element)),
+      )
+    : [];
+  const runAndClose = (action: () => void) => {
+    action();
+    setMoveMenuOpen(false);
+    setConvertOpen(false);
+  };
 
   React.useEffect(() => {
     setHandleTop(calcFirstLineCenter(editor, element));
@@ -180,7 +216,17 @@ function Draggable(props: PlateElementProps) {
               isInColumn && 'mr-1.5',
             )}
           >
-            <Popover open={moveMenuOpen} onOpenChange={setMoveMenuOpen}>
+            <Popover
+              open={moveMenuOpen}
+              onOpenChange={(open) => {
+                if (open) {
+                  const top = nodeRef.current?.getBoundingClientRect().top ?? 0;
+                  setMenuSide(top > window.innerHeight / 2 ? 'top' : 'bottom');
+                }
+                setMoveMenuOpen(open);
+                if (!open) setConvertOpen(false);
+              }}
+            >
               <PopoverTrigger asChild>
                 <Button
                   aria-label={__('Move this block', 'pressedmail')}
@@ -200,16 +246,21 @@ function Draggable(props: PlateElementProps) {
               </PopoverTrigger>
               <PressedPopoverContent
                 size="menu"
+                // Open toward the roomier half. The base cap holds the menu to
+                // the space on that side (it scrolls past it), so no row can
+                // land off screen, and a grip near the bottom never leaves an
+                // opened Convert to list one row tall.
                 className="p-1"
+                side={menuSide}
                 align="start"
-                aria-label={__('Move this block', 'pressedmail')}
+                aria-label={__('Block actions', 'pressedmail')}
               >
                 {([-1, 1] as const).map((direction) => (
                   <Button
                     key={direction}
                     type="button"
                     variant="ghost"
-                    className="min-h-11 w-full justify-start gap-2"
+                    className={menuItemClass}
                     disabled={!getBlockMoveTarget(editor, element, direction)}
                     onClick={() => {
                       moveBlock(editor, element, direction);
@@ -226,6 +277,72 @@ function Draggable(props: PlateElementProps) {
                       : __('Move down', 'pressedmail')}
                   </Button>
                 ))}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={menuItemClass}
+                  disabled={!canMoveBlockOut(editor, element)}
+                  onClick={() => runAndClose(() => moveBlockOut(editor, element))}
+                >
+                  <ArrowUpLeft aria-hidden="true" className="size-4" />
+                  {__('Move out', 'pressedmail')}
+                </Button>
+                {canUnwrapBlock(element) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className={menuItemClass}
+                    onClick={() => runAndClose(() => unwrapBlock(editor, element))}
+                  >
+                    <RemoveFormatting aria-hidden="true" className="size-4" />
+                    {__('Remove quote', 'pressedmail')}
+                  </Button>
+                )}
+                {convertItems.length > 0 && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className={menuItemClass}
+                      aria-expanded={convertOpen}
+                      onClick={() => setConvertOpen((open) => !open)}
+                    >
+                      <ChevronRight
+                        aria-hidden="true"
+                        className={cn('size-4 transition-transform', convertOpen && 'rotate-90')}
+                      />
+                      {__('Convert to', 'pressedmail')}
+                    </Button>
+                    {convertOpen &&
+                      convertItems.map((item) => (
+                        <Button
+                          key={item.value}
+                          type="button"
+                          variant="ghost"
+                          className={cn(menuItemClass, 'pl-8 [&_svg]:size-4 [&_svg]:text-muted-foreground')}
+                          onClick={() =>
+                            runAndClose(() => {
+                              const start = editor.api.start(editor.api.findPath(element) ?? path);
+                              if (start) editor.tf.select(start);
+                              setBlockType(editor, item.value);
+                            })
+                          }
+                        >
+                          {item.icon}
+                          {item.label}
+                        </Button>
+                      ))}
+                  </>
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={cn(menuItemClass, 'text-destructive')}
+                  onClick={() => runAndClose(() => deleteBlock(editor, element))}
+                >
+                  <Trash2 aria-hidden="true" className="size-4" />
+                  {__('Delete', 'pressedmail')}
+                </Button>
               </PressedPopoverContent>
             </Popover>
           </div>

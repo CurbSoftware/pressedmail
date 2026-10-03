@@ -41,7 +41,6 @@ export function ComposeForm({
   const composerCtx = useComposer();
   const editorRef = useRef<EmailEditorRef>(null);
   const { preferences } = useUserPreferences();
-  const undoSendAvailable = useFeatureAvailable("undo_send");
 
   const form = useComposeForm({
     mode:
@@ -53,9 +52,7 @@ export function ComposeForm({
     ),
     composerContext: composerCtx,
     autoSaveOnClose: preferences.auto_save_drafts,
-    undoSendEnabled:
-      __IS_PRO__ && undoSendAvailable && preferences.undo_send_enabled,
-    undoSendDelaySeconds: preferences.undo_send_delay_seconds,
+    extras: __IS_FREE__ ? undefined : { undoSend: true },
     gateNavigation: true,
     onClose,
   });

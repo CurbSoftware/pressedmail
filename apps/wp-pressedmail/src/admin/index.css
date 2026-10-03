@@ -189,10 +189,13 @@ body.toplevel_page_pressedmail-plugin {
    PressedMail on a site with a missing PHP extension saw a broken app and no
    explanation anywhere.
 
-   So keep the notices and give them a place to sit. #wpbody-content becomes the
-   column: notices at the top, the app taking the rest of the height, and the
-   notice strip scrolling on its own if a site has a wall of them. Immersive mode
-   is left out because it owns the whole viewport by design. */
+   Other plugins', themes' and core's notices (the update nag included) are
+   unhooked server side by Assets\Admin::drop_foreign_admin_notices(), so what
+   reaches this screen is PressedMail's own. Keep those and give them a place to
+   sit. #wpbody-content becomes the column: notices at the top, the app taking
+   the rest of the height, and the notice strip scrolling on its own if there is
+   a wall of them. Immersive mode is left out because it owns the whole viewport
+   by design. */
 body.toplevel_page_pressedmail-plugin:not(.pressedmail-immersive):has(
     #wpbody-content > :is(.notice, .update-nag),
     #wpbody-content > :not(#pressedmail-plugin) :is(.notice, .update-nag)
@@ -581,9 +584,51 @@ body.toplevel_page_pressedmail-plugin [data-slot="dialog-content"] {
   z-index: 99999 !important;
 }
 
+/* Kit plugin dialogs centre in a frame that sits at z-index 50 inline. A
+   dialog opened from inside a popover (Create tag in the tag popover) then
+   painted under the popover's 99999 wrapper. Same tier as the poppers, and
+   later in the DOM, so the newest layer wins. */
+body.toplevel_page_pressedmail-plugin [data-pm-overlay-frame] {
+  z-index: 99999 !important;
+}
+
+/* The dialog's max-height follows the viewport, but it centres in the app
+   frame, which is shorter (admin bar, phone chrome). A tall dialog such as
+   Create tag then ran past the bottom of a phone screen with its buttons out
+   of reach. Size the theme wrapper to the frame and let the dialog shrink to
+   fit it as a flex item, so it scrolls inside the frame. The dialog's own
+   max-height still applies on top: a dialog capped lower (Sweep at 85vh, the
+   contact picker at 80dvh) keeps its cap, which a max-height override here
+   used to replace. */
+body.toplevel_page_pressedmail-plugin [data-pm-overlay-frame] > [data-pm-portal] {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding-block: 1rem;
+  align-items: center;
+  justify-content: center;
+}
+
+body.toplevel_page_pressedmail-plugin
+  [data-pm-overlay-frame]
+  > [data-pm-portal]
+  > :is([role="dialog"], [role="alertdialog"]) {
+  min-height: 0;
+  flex-shrink: 1;
+}
+
+/* Scrims share the top tier too, and win by DOM order. At 50 (the kit dialog
+   overlay) or 99998 they sat under a popover that opened the dialog (Create
+   tag over the tag popover left the popover bright above the scrim, still
+   clickable) and under #wpadminbar (99999), so the admin chrome stayed lit
+   behind a modal. Content and poppers opened from the dialog come later in
+   the DOM, so they still paint on top. */
 body.toplevel_page_pressedmail-plugin [data-slot="sheet-overlay"],
-body.toplevel_page_pressedmail-plugin [data-slot="dialog-overlay"] {
-  z-index: 99998 !important;
+body.toplevel_page_pressedmail-plugin [data-slot="dialog-overlay"],
+body.toplevel_page_pressedmail-plugin [data-pm-dialog-overlay] {
+  z-index: 99999 !important;
 }
 
 /* ============================================================================

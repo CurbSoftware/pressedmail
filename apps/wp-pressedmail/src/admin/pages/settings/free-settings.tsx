@@ -16,6 +16,8 @@ import SettingsLayout from "./layout";
 import {
   SETTINGS_NAV_ACTIVE_CLASS,
   SETTINGS_NAV_INDICATOR_CLASS,
+  SIDEBAR_NAV_ICON_CLASS,
+  SIDEBAR_NAV_ITEM_CLASS,
 } from "@/lib/sidebar-navigation-styles";
 import { FreeMobileSettingsList } from "./free-mobile-settings-list";
 import {
@@ -65,6 +67,9 @@ function FreeDesktopSettings() {
   useEffect(() => setHeaderActions(null), [activeId]);
 
   const selectSection = (sectionId: string) => {
+    // The section showing is not being left, so there is nothing to confirm or discard.
+    if (sectionId === activeId) return;
+
     guardedAction(() => {
       const next = new URLSearchParams(searchParams);
       next.set("tab", sectionId);
@@ -104,8 +109,11 @@ function FreeDesktopSettings() {
                           type="button"
                           variant="ghost"
                           aria-current={isActive ? "page" : undefined}
+                          // The same row as the paid build's, so the one page looks
+                          // the same in both editions: the size, the icon and the
+                          // colour of the icon before it is chosen.
                           className={cn(
-                            "gap-2 text-sm",
+                            SIDEBAR_NAV_ITEM_CLASS,
                             SETTINGS_NAV_INDICATOR_CLASS,
                             isActive && SETTINGS_NAV_ACTIVE_CLASS,
                           )}
@@ -113,7 +121,8 @@ function FreeDesktopSettings() {
                           data-test={`settings-tab-${section.id}`}>
                           <Icon
                             className={cn(
-                              "h-4 w-4",
+                              SIDEBAR_NAV_ICON_CLASS,
+                              "text-muted-foreground",
                               isActive && "text-primary",
                             )}
                           />
@@ -134,6 +143,7 @@ function FreeDesktopSettings() {
               1248 is 1280 minus px-4 on both sides, 1504 is 1536 minus the
               same. */}
           <PageTopBar
+            stacked
             className="py-1.5"
             contentClassName="mx-auto w-full max-w-[1248px] min-h-[40px] 2xl:max-w-[1504px]"
             icon={

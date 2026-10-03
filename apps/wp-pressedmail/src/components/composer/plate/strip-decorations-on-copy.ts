@@ -46,6 +46,52 @@ export function stripDecorationsFromClipboard(data: DataTransfer): void {
   data.setData("text/plain", plain);
 }
 
+type FragmentNode = { type?: string; text?: string; children?: FragmentNode[] };
+
+const SLATE_FRAGMENT = "application/x-slate-fragment";
+
+/**
+ * Copy the text, not the wrapper it sat in.
+ *
+ * Slate's fragment carries every ancestor from the root, so a line copied from
+ * inside a quote pasted back as a whole new quote, border and all, and a line
+ * from a signature as a second signature block. A signature's lines are plain
+ * text once copied, and a copy from inside one quote is that quote's text. A
+ * selection spanning a quote and the text around it keeps the quote.
+ */
+export function unwrapCopiedFragment(fragment: FragmentNode[]): FragmentNode[] {
+  const blocksOf = (node: FragmentNode) =>
+    node.children?.length && node.children.every((child) => "children" in child)
+      ? node.children
+      : null;
+  let nodes = fragment.flatMap(
+    (node) => (node.type === "signature" && blocksOf(node)) || [node],
+  );
+  while (nodes.length === 1 && nodes[0]!.type === "blockquote") {
+    const inner = blocksOf(nodes[0]!);
+    if (!inner) break;
+    nodes = inner;
+  }
+  return nodes;
+}
+
+/** Rewrite Slate's own clipboard copy of the selection, which paste reads first. */
+export function unwrapClipboardFragment(data: DataTransfer): void {
+  const encoded = data.getData(SLATE_FRAGMENT);
+  if (!encoded) return;
+  let fragment: unknown;
+  try {
+    fragment = JSON.parse(decodeURIComponent(window.atob(encoded)));
+  } catch {
+    return;
+  }
+  if (!Array.isArray(fragment)) return;
+  data.setData(
+    SLATE_FRAGMENT,
+    window.btoa(encodeURIComponent(JSON.stringify(unwrapCopiedFragment(fragment)))),
+  );
+}
+
 export const StripDecorationsOnCopyPlugin = createSlatePlugin({
   key: "pmStripDecorationsOnCopy",
 }).overrideEditor(({ tf: { setFragmentData } }) => ({
@@ -53,6 +99,7 @@ export const StripDecorationsOnCopyPlugin = createSlatePlugin({
     setFragmentData(data: DataTransfer, originEvent?: "copy" | "cut" | "drag") {
       setFragmentData(data, originEvent);
       stripDecorationsFromClipboard(data);
+      unwrapClipboardFragment(data);
     },
   },
 }));

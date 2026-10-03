@@ -1,3 +1,4 @@
+import { isEmailCacheEnabled } from "@/lib/principal-storage";
 /**
  * Inbox Service Implementation
  *
@@ -46,6 +47,7 @@ import {
   serializeConsolidatedAccountIds,
 } from "@/lib/consolidated-account-scope";
 import { serializeConsolidatedFolderMap } from "@/lib/consolidated-folder-map";
+import { lastLocalActionAt } from "@/lib/tab-channel";
 import {
   parseConsolidatedAccountReadiness,
   type ConsolidatedAccountReadiness,
@@ -117,7 +119,6 @@ function hasRequestParams(params: Record<string, unknown>): boolean {
 
 function getMessageListSourceRequestParams(options: {
   folder: string | null | undefined;
-  consolidated: boolean;
   hasTags: boolean;
   hasFilters: boolean;
   threaded: boolean;
@@ -203,6 +204,80 @@ function resolveConsolidatedRequestScope(
         : accountId,
     accountIds: normalizedAccountIds,
   };
+}
+
+/**
+ * The combined scope of a service: several mailboxes read as one. It is kept
+ * beside the service rather than on it, and every read and write sits behind
+ * `__SINGLE_MAILBOX__`, so a single-mailbox build carries neither the state
+ * nor its names.
+ */
+export interface CombinedScope {
+  accountIds: number[];
+  folderMap?: Record<string | number, string>;
+  folderMapKey: string;
+}
+
+const combinedScopes = /* @__PURE__ */ new WeakMap<object, CombinedScope>();
+const combinedReadiness = /* @__PURE__ */ new WeakMap<
+  object,
+  ConsolidatedAccountReadiness[]
+>();
+
+function getCombinedScope(service: object): CombinedScope | null {
+  return combinedScopes.get(service) ?? null;
+}
+
+/** Exported for tests, which put a service into combined scope directly. */
+export function setCombinedScope(
+  service: object,
+  scope: CombinedScope | null,
+): void {
+  if (scope) {
+    combinedScopes.set(service, scope);
+  } else {
+    combinedScopes.delete(service);
+  }
+}
+
+/**
+ * Combined scope discriminator for cache keys: the account scope plus the
+ * serialized per-account folder map, or undefined for single-mailbox reads (so
+ * their keys stay byte-identical). Two combined pages over the same logical
+ * folder but different per-account routing, or over different selected
+ * accounts, must not collide.
+ */
+function combinedCacheKey(
+  service: object,
+  currentAccountId: string | number | null,
+): string | undefined {
+  const combined = getCombinedScope(service);
+  if (!combined) {
+    return undefined;
+  }
+  const scope = String(currentAccountId ?? "consolidated");
+  const folderMap = combined.folderMapKey || "";
+  return folderMap ? `${scope}|${folderMap}` : scope;
+}
+
+/** Load options that repeat the service's combined scope, if it has one. */
+function combinedRequestOptions(
+  service: object,
+): Pick<LoadMessagesOptions, "consolidated" | "accountIds" | "folderMap"> {
+  if (__SINGLE_MAILBOX__) return {};
+  const combined = getCombinedScope(service);
+  return {
+    consolidated: combined !== null,
+    accountIds: combined?.accountIds,
+    folderMap: combined?.folderMap,
+  };
+}
+
+/** The per-account readiness of the service's last combined read. */
+export function getCombinedReadiness(
+  service: object,
+): ConsolidatedAccountReadiness[] {
+  return combinedReadiness.get(service) ?? [];
 }
 
 function buildGroupedMessages(
@@ -312,7 +387,7 @@ function getSearchableMessageText(message: EmailMessage): string {
     message.uid,
     message.msg_no,
     message.messageId,
-    message.consolidatedUid,
+    message.identityKey,
     message.subject,
     message.from,
     message.email,
@@ -398,7 +473,9 @@ function buildListFilterRequestParams(
   if (typeof filters.hasAttachments === "boolean") {
     params.has_attachments = filters.hasAttachments ? 1 : 0;
   }
-  if (filters.scheduledOnly) {
+  if (__IS_PRO__ && filters.smartCategory)
+    params.smart_category = filters.smartCategory;
+  if (!__IS_FREE__ && filters.scheduledOnly) {
     params.scheduled_only = 1;
   }
 
@@ -478,7 +555,12 @@ export function filterMessages(
       if (hasAtt !== filters.hasAttachments) return false;
     }
 
-    if (filters.scheduledOnly && !msg.scheduledEmailId && !msg.isScheduled) {
+    if (
+      !__IS_FREE__ &&
+      filters.scheduledOnly &&
+      !msg.scheduledEmailId &&
+      !msg.isScheduled
+    ) {
       return false;
     }
 
@@ -550,7 +632,7 @@ export function filterMessages(
       }
     }
 
-    // Account filter (consolidated inbox view)
+    // Account filter
     if (filters.accountEmails && filters.accountEmails.length > 0) {
       if (
         !msg.accountEmail ||
@@ -716,14 +798,7 @@ export class InboxService implements IInboxOperations {
   private _hasMore = false;
   private _totalCount = 0;
   private _currentFolder = "INBOX";
-  private _isConsolidated = false;
   private _currentAccountId: string | number | null = null;
-  private _currentConsolidatedAccountIds: number[] = [];
-  private _currentConsolidatedFolderMap?: Record<string | number, string>;
-  private _currentConsolidatedFolderMapKey = "";
-  // Per-account readiness from the last combined read (empty for single-mailbox),
-  // so the UI can show "Syncing N of M mailboxes…" instead of a silently-partial page.
-  private _consolidatedAccountReadiness: ConsolidatedAccountReadiness[] = [];
   private _activeFilters: MessageFilters = {};
   // Numeric PressedMail tag ids driving the server-side `tags=<ids>` query.
   // Derived from _activeFilters.tags; non-numeric values (legacy names) are
@@ -745,7 +820,7 @@ export class InboxService implements IInboxOperations {
 
   // Request deduplication: if a fetch for the same context is already in
   // flight, return that promise instead of firing a duplicate request.
-  // Key: "{accountId}:{folder}:{offset}:{limit}:{consolidated}"
+  // Key: "{accountId}:{folder}:{offset}:{limit}:{scope}"
   private _inFlightRequests = new Map<string, Promise<LoadMessagesResult>>();
 
   // Monotonic counter bumped on every context switch/reset. A list fetch
@@ -850,14 +925,6 @@ export class InboxService implements IInboxOperations {
     return this._isLoadingMore;
   }
 
-  /**
-   * Per-account readiness from the most recent combined read (empty for
-   * single-mailbox reads). Drives the "Syncing N of M mailboxes…" affordance.
-   */
-  get consolidatedAccountReadiness(): ConsolidatedAccountReadiness[] {
-    return this._consolidatedAccountReadiness;
-  }
-
   get activeFilters(): MessageFilters {
     return { ...this._activeFilters };
   }
@@ -898,30 +965,10 @@ export class InboxService implements IInboxOperations {
       folder,
       grouping,
       filterSignature,
-      consolidatedKey: this.currentConsolidatedCacheKey(),
+      ...(__SINGLE_MAILBOX__
+        ? null
+        : { consolidatedKey: combinedCacheKey(this, this._currentAccountId) }),
     };
-  }
-
-  /**
-   * Consolidated scope discriminator for cache keys: the serialized per-account
-   * folder_map for the current combined read, or undefined for single-mailbox
-   * reads (so their keys stay byte-identical). Two combined pages over the same
-   * logical folder but different per-account routing must not collide.
-   */
-  private currentConsolidatedCacheKey(): string | undefined {
-    if (!this._isConsolidated) {
-      return undefined;
-    }
-    // Fold the ACCOUNT-SCOPE into the consolidated cache key. `_currentAccountId`
-    // is the combined-inbox scope id (`buildConsolidatedAccountScopeKey`, e.g.
-    // "all:2,5"), so switching the selected accounts changes the key and the page
-    // is refetched instead of serving the previous selection's cached results.
-    // Previously this returned the folder-map only ("consolidated" when no map),
-    // so [2,5] → [1,3] (same folder/offset) collided → the combined inbox showed
-    // the wrong, unchanged messages.
-    const scope = String(this._currentAccountId ?? "consolidated");
-    const folderMap = this._currentConsolidatedFolderMapKey || "";
-    return folderMap ? `${scope}|${folderMap}` : scope;
   }
 
   private getPageCacheKey(
@@ -943,7 +990,9 @@ export class InboxService implements IInboxOperations {
       limit,
       grouping,
       filterSignature,
-      consolidatedKey: this.currentConsolidatedCacheKey(),
+      ...(__SINGLE_MAILBOX__
+        ? null
+        : { consolidatedKey: combinedCacheKey(this, this._currentAccountId) }),
     };
   }
 
@@ -1260,7 +1309,9 @@ export class InboxService implements IInboxOperations {
       this._tagIds,
       sort,
     );
-    const { requestScopeId } = options.consolidated
+    const combinedRequest =
+      !__SINGLE_MAILBOX__ && options.consolidated === true;
+    const { requestScopeId } = combinedRequest
       ? resolveConsolidatedRequestScope(options.accountId, options.accountIds)
       : { requestScopeId: options.accountId };
 
@@ -1277,7 +1328,7 @@ export class InboxService implements IInboxOperations {
       options.folder ?? "INBOX",
       options.offset ?? 0,
       options.limit ?? DEFAULT_LIMIT,
-      options.consolidated ? "1" : "0",
+      combinedRequest ? "1" : "0",
       grouping,
       sort,
       filterSignature,
@@ -1310,10 +1361,8 @@ export class InboxService implements IInboxOperations {
       forceRefresh = false,
       signal,
       timeoutMs,
-      consolidated = false,
-      accountIds,
-      folderMap,
     } = options;
+    const consolidated = !__SINGLE_MAILBOX__ && options.consolidated === true;
     const grouping = getEffectiveEmailListGrouping(options.grouping ?? "list");
     const sort = normalizeMessageListSort(options.sort);
     const activeFilterParams = buildListFilterRequestParams(
@@ -1321,16 +1370,15 @@ export class InboxService implements IInboxOperations {
     );
     const listSourceParams = getMessageListSourceRequestParams({
       folder,
-      consolidated,
       hasTags: this._tagIds.length > 0,
       hasFilters: hasRequestParams(activeFilterParams),
       threaded: grouping === "threads",
     });
     const { requestScopeId, accountIds: consolidatedAccountIds } = consolidated
-      ? resolveConsolidatedRequestScope(accountId, accountIds)
+      ? resolveConsolidatedRequestScope(accountId, options.accountIds)
       : { requestScopeId: accountId, accountIds: [] };
     const consolidatedFolderMapKey = consolidated
-      ? (serializeConsolidatedFolderMap(folderMap) ?? "")
+      ? (serializeConsolidatedFolderMap(options.folderMap) ?? "")
       : "";
     let requestController: AbortController | null = null;
 
@@ -1340,33 +1388,40 @@ export class InboxService implements IInboxOperations {
       const effectiveSignal = requestController.signal;
 
       const fetchMessages = async () => {
-        const apiUrl = consolidated
-          ? buildApiUrl(messagesConsolidatedRouteApi, {
-              offset,
-              limit,
-              folder: folder !== "INBOX" ? folder : undefined,
-              account_ids: serializeConsolidatedAccountIds(
-                consolidatedAccountIds,
-              ),
-              folder_map: consolidatedFolderMapKey || undefined,
-              force: forceRefresh ? 1 : undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: grouping === "threads" ? 1 : undefined,
-              sort,
-              ...activeFilterParams,
-              ...listSourceParams,
-            })
-          : buildApiUrl(`${messagesLoadRouteApi}${accountId}`, {
-              offset,
-              limit,
-              folder: folder !== "INBOX" ? folder : undefined,
-              force: forceRefresh ? 1 : undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: grouping === "threads" ? 1 : undefined,
-              sort,
-              ...activeFilterParams,
-              ...listSourceParams,
-            });
+        const apiUrl =
+          !__SINGLE_MAILBOX__ && consolidated
+            ? buildApiUrl(messagesConsolidatedRouteApi, {
+                offset,
+                limit,
+                folder: folder !== "INBOX" ? folder : undefined,
+                account_ids: serializeConsolidatedAccountIds(
+                  consolidatedAccountIds,
+                ),
+                folder_map: consolidatedFolderMapKey || undefined,
+                force: forceRefresh ? 1 : undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && grouping === "threads"
+                    ? 1
+                    : undefined,
+                sort,
+                ...activeFilterParams,
+                ...listSourceParams,
+              })
+            : buildApiUrl(`${messagesLoadRouteApi}${accountId}`, {
+                offset,
+                limit,
+                folder: folder !== "INBOX" ? folder : undefined,
+                force: forceRefresh ? 1 : undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && grouping === "threads"
+                    ? 1
+                    : undefined,
+                sort,
+                ...activeFilterParams,
+                ...listSourceParams,
+              });
 
         const defaultTimeout =
           folder !== "INBOX" ? NON_INBOX_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
@@ -1516,11 +1571,9 @@ export class InboxService implements IInboxOperations {
       forceRefresh = false,
       signal,
       timeoutMs,
-      consolidated = false,
       silent = false,
-      accountIds,
-      folderMap,
     } = options;
+    const consolidated = !__SINGLE_MAILBOX__ && options.consolidated === true;
     const grouping = getEffectiveEmailListGrouping(options.grouping ?? "list");
     const sort = normalizeMessageListSort(options.sort);
     const activeFilterParams = buildListFilterRequestParams(
@@ -1528,7 +1581,6 @@ export class InboxService implements IInboxOperations {
     );
     const listSourceParams = getMessageListSourceRequestParams({
       folder,
-      consolidated,
       hasTags: this._tagIds.length > 0,
       hasFilters: hasRequestParams(activeFilterParams),
       threaded: grouping === "threads",
@@ -1539,17 +1591,20 @@ export class InboxService implements IInboxOperations {
       sort,
     );
     const { requestScopeId, accountIds: consolidatedAccountIds } = consolidated
-      ? resolveConsolidatedRequestScope(accountId, accountIds)
+      ? resolveConsolidatedRequestScope(accountId, options.accountIds)
       : { requestScopeId: accountId, accountIds: [] };
     const consolidatedFolderMapKey = consolidated
-      ? (serializeConsolidatedFolderMap(folderMap) ?? "")
+      ? (serializeConsolidatedFolderMap(options.folderMap) ?? "")
       : "";
 
+    const previousCombined = __SINGLE_MAILBOX__ ? null : getCombinedScope(this);
     const isNewContext =
       requestScopeId !== this._currentAccountId ||
       folder !== this._currentFolder ||
-      consolidated !== this._isConsolidated ||
-      consolidatedFolderMapKey !== this._currentConsolidatedFolderMapKey ||
+      (!__SINGLE_MAILBOX__ &&
+        (consolidated !== (previousCombined !== null) ||
+          consolidatedFolderMapKey !==
+            (previousCombined?.folderMapKey ?? ""))) ||
       grouping !== this._currentGrouping ||
       sort !== this._currentSort;
 
@@ -1564,14 +1619,18 @@ export class InboxService implements IInboxOperations {
 
     this._currentAccountId = requestScopeId;
     this._currentFolder = folder;
-    this._isConsolidated = consolidated;
-    this._currentConsolidatedAccountIds = consolidated
-      ? consolidatedAccountIds
-      : [];
-    this._currentConsolidatedFolderMap = consolidated ? folderMap : undefined;
-    this._currentConsolidatedFolderMapKey = consolidated
-      ? consolidatedFolderMapKey
-      : "";
+    if (!__SINGLE_MAILBOX__) {
+      setCombinedScope(
+        this,
+        consolidated
+          ? {
+              accountIds: consolidatedAccountIds,
+              folderMap: options.folderMap,
+              folderMapKey: consolidatedFolderMapKey,
+            }
+          : null,
+      );
+    }
     this._currentOffsetStart = offset;
     this._currentLimit = limit;
     this._currentGrouping = grouping;
@@ -1713,6 +1772,9 @@ export class InboxService implements IInboxOperations {
     // generation), a stale request's error must not be surfaced or mark the
     // account unhealthy.
     const startGeneration = this._requestGeneration;
+    // A mail change this tab makes after this moment may commit after the server
+    // built the page, so a page that lands later can put back what it changed.
+    const requestStartedAt = Date.now();
     const filtersChanged = () =>
       activeFilterSignature !==
       buildListCacheSignature(
@@ -1724,7 +1786,8 @@ export class InboxService implements IInboxOperations {
       startGeneration !== this._requestGeneration ||
       filtersChanged() ||
       !isSameFolderPath(folder, this._currentFolder) ||
-      consolidated !== this._isConsolidated ||
+      (!__SINGLE_MAILBOX__ &&
+        consolidated !== (getCombinedScope(this) !== null)) ||
       sort !== this._currentSort ||
       !isSameRequestScope(requestScopeId, this._currentAccountId);
 
@@ -1734,33 +1797,40 @@ export class InboxService implements IInboxOperations {
       const effectiveSignal = requestController.signal;
 
       const fetchMessages = async () => {
-        const apiUrl = consolidated
-          ? buildApiUrl(messagesConsolidatedRouteApi, {
-              offset,
-              limit,
-              folder: folder !== "INBOX" ? folder : undefined,
-              account_ids: serializeConsolidatedAccountIds(
-                consolidatedAccountIds,
-              ),
-              folder_map: consolidatedFolderMapKey || undefined,
-              force: forceRefresh ? 1 : undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: grouping === "threads" ? 1 : undefined,
-              sort,
-              ...activeFilterParams,
-              ...listSourceParams,
-            })
-          : buildApiUrl(`${messagesLoadRouteApi}${accountId}`, {
-              offset,
-              limit,
-              folder: folder !== "INBOX" ? folder : undefined,
-              force: forceRefresh ? 1 : undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: grouping === "threads" ? 1 : undefined,
-              sort,
-              ...activeFilterParams,
-              ...listSourceParams,
-            });
+        const apiUrl =
+          !__SINGLE_MAILBOX__ && consolidated
+            ? buildApiUrl(messagesConsolidatedRouteApi, {
+                offset,
+                limit,
+                folder: folder !== "INBOX" ? folder : undefined,
+                account_ids: serializeConsolidatedAccountIds(
+                  consolidatedAccountIds,
+                ),
+                folder_map: consolidatedFolderMapKey || undefined,
+                force: forceRefresh ? 1 : undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && grouping === "threads"
+                    ? 1
+                    : undefined,
+                sort,
+                ...activeFilterParams,
+                ...listSourceParams,
+              })
+            : buildApiUrl(`${messagesLoadRouteApi}${accountId}`, {
+                offset,
+                limit,
+                folder: folder !== "INBOX" ? folder : undefined,
+                force: forceRefresh ? 1 : undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && grouping === "threads"
+                    ? 1
+                    : undefined,
+                sort,
+                ...activeFilterParams,
+                ...listSourceParams,
+              });
 
         const defaultTimeout =
           folder !== "INBOX" ? NON_INBOX_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
@@ -1863,11 +1933,12 @@ export class InboxService implements IInboxOperations {
         data?.data?.served_partial ?? data?.served_partial ?? undefined;
       // Per-account readiness (combined inbox only) so the UI can flag mailboxes
       // that are still cold/syncing rather than presenting a partial page as done.
-      const consolidatedAccountReadiness = consolidated
-        ? parseConsolidatedAccountReadiness(
-            data?.data?.accounts ?? data?.accounts,
-          )
-        : [];
+      const consolidatedAccountReadiness =
+        !__SINGLE_MAILBOX__ && consolidated
+          ? parseConsolidatedAccountReadiness(
+              data?.data?.accounts ?? data?.accounts,
+            )
+          : [];
       const lastSyncedAt = Date.now();
       const normalizedMessages = rawMessages.map(normalizeMessage);
 
@@ -1881,7 +1952,9 @@ export class InboxService implements IInboxOperations {
       // the very first paint of a freshly-loaded folder.
       const generationSuperseded = startGeneration !== this._requestGeneration;
       const folderChanged = !isSameFolderPath(folder, this._currentFolder);
-      const consolidationChanged = consolidated !== this._isConsolidated;
+      const consolidationChanged =
+        !__SINGLE_MAILBOX__ &&
+        consolidated !== (getCombinedScope(this) !== null);
       const sortChanged = sort !== this._currentSort;
       const scopeChanged = !isSameRequestScope(
         requestScopeId,
@@ -1952,6 +2025,13 @@ export class InboxService implements IInboxOperations {
         };
       }
 
+      // The user changed mail here while this page was in flight (a flag, a move,
+      // a delete). The page may predate that commit and would revert it until the
+      // next refresh, so fetch again rather than apply or cache it.
+      if (lastLocalActionAt() > requestStartedAt) {
+        return this._loadMessagesImpl({ ...options, forceRefresh: true });
+      }
+
       // A still-warming mirror can serve an empty served_partial page; that must
       // not wipe an already-populated folder (the "emails disappear during
       // background sync" flash). Keep the visible rows, refresh only the sync
@@ -1997,7 +2077,9 @@ export class InboxService implements IInboxOperations {
       this._hasMore = this._offset < this._totalCount;
       this._currentSyncToken = syncToken;
       this._lastSyncedAt = lastSyncedAt;
-      this._consolidatedAccountReadiness = consolidatedAccountReadiness;
+      if (!__SINGLE_MAILBOX__) {
+        combinedReadiness.set(this, consolidatedAccountReadiness);
+      }
       this.reconcileSelectedMessage(this._messages, isNewContext);
 
       this.cachePage(
@@ -2129,13 +2211,13 @@ export class InboxService implements IInboxOperations {
     const requestFolder = this._currentFolder;
     const requestOffset = this._offset;
     const requestTotalCount = this._totalCount;
-    const requestConsolidated = this._isConsolidated;
+    const requestCombined = __SINGLE_MAILBOX__ ? null : getCombinedScope(this);
+    const requestConsolidated = requestCombined !== null;
     const requestConsolidatedAccountIds = [
-      ...this._currentConsolidatedAccountIds,
+      ...(requestCombined?.accountIds ?? []),
     ];
-    const requestConsolidatedFolderMap = this._currentConsolidatedFolderMap;
-    const requestConsolidatedFolderMapKey =
-      this._currentConsolidatedFolderMapKey;
+    const requestConsolidatedFolderMap = requestCombined?.folderMap;
+    const requestConsolidatedFolderMapKey = requestCombined?.folderMapKey ?? "";
     const requestGrouping = this._currentGrouping;
     const requestSort = this._currentSort;
     const requestFilterParams = buildListFilterRequestParams(
@@ -2143,7 +2225,6 @@ export class InboxService implements IInboxOperations {
     );
     const requestListSourceParams = getMessageListSourceRequestParams({
       folder: requestFolder,
-      consolidated: requestConsolidated,
       hasTags: this._tagIds.length > 0,
       hasFilters: hasRequestParams(requestFilterParams),
       threaded: requestGrouping === "threads",
@@ -2159,31 +2240,38 @@ export class InboxService implements IInboxOperations {
 
     try {
       const fetchMore = async () => {
-        const apiUrl = requestConsolidated
-          ? buildApiUrl(messagesConsolidatedRouteApi, {
-              offset: requestOffset,
-              limit: LOAD_MORE_LIMIT,
-              folder: requestFolder !== "INBOX" ? requestFolder : undefined,
-              account_ids: serializeConsolidatedAccountIds(
-                requestConsolidatedAccountIds,
-              ),
-              folder_map: requestConsolidatedFolderMapKey || undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: requestGrouping === "threads" ? 1 : undefined,
-              sort: requestSort,
-              ...requestFilterParams,
-              ...requestListSourceParams,
-            })
-          : buildApiUrl(`${messagesLoadRouteApi}${requestAccountId}`, {
-              offset: requestOffset,
-              limit: LOAD_MORE_LIMIT,
-              folder: requestFolder !== "INBOX" ? requestFolder : undefined,
-              tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
-              threaded: requestGrouping === "threads" ? 1 : undefined,
-              sort: requestSort,
-              ...requestFilterParams,
-              ...requestListSourceParams,
-            });
+        const apiUrl =
+          !__SINGLE_MAILBOX__ && requestConsolidated
+            ? buildApiUrl(messagesConsolidatedRouteApi, {
+                offset: requestOffset,
+                limit: LOAD_MORE_LIMIT,
+                folder: requestFolder !== "INBOX" ? requestFolder : undefined,
+                account_ids: serializeConsolidatedAccountIds(
+                  requestConsolidatedAccountIds,
+                ),
+                folder_map: requestConsolidatedFolderMapKey || undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && requestGrouping === "threads"
+                    ? 1
+                    : undefined,
+                sort: requestSort,
+                ...requestFilterParams,
+                ...requestListSourceParams,
+              })
+            : buildApiUrl(`${messagesLoadRouteApi}${requestAccountId}`, {
+                offset: requestOffset,
+                limit: LOAD_MORE_LIMIT,
+                folder: requestFolder !== "INBOX" ? requestFolder : undefined,
+                tags: this._tagIds.length ? this._tagIds.join(",") : undefined,
+                threaded:
+                  isEmailCacheEnabled() && requestGrouping === "threads"
+                    ? 1
+                    : undefined,
+                sort: requestSort,
+                ...requestFilterParams,
+                ...requestListSourceParams,
+              });
 
         const response = await apiFetch(
           apiUrl,
@@ -2264,7 +2352,8 @@ export class InboxService implements IInboxOperations {
       if (
         requestAccountId !== this._currentAccountId ||
         requestFolder !== this._currentFolder ||
-        requestConsolidated !== this._isConsolidated ||
+        (!__SINGLE_MAILBOX__ &&
+          requestConsolidated !== (getCombinedScope(this) !== null)) ||
         requestSort !== this._currentSort
       ) {
         return {
@@ -2307,7 +2396,10 @@ export class InboxService implements IInboxOperations {
       this._hasMore = this._messages.length < this._totalCount;
       this._currentSyncToken = nextSyncToken;
       this._lastSyncedAt = lastSyncedAt;
-      this.reconcileSelectedMessage(this._messages);
+      // Appending a page only ever adds rows, so it cannot take the selected
+      // message away. One opened by its identity, from a link, is older than the
+      // loaded list and is not in it, and clearing it would close the reading pane.
+      this.reconcileSelectedMessage(this._messages, false);
       this._groupedMessages = buildGroupedMessages(
         this._messages,
         this.threading,
@@ -2400,13 +2492,7 @@ export class InboxService implements IInboxOperations {
       folder: this._currentFolder,
       offset,
       limit: safePageSize,
-      consolidated: this._isConsolidated,
-      accountIds: this._isConsolidated
-        ? this._currentConsolidatedAccountIds
-        : undefined,
-      folderMap: this._isConsolidated
-        ? this._currentConsolidatedFolderMap
-        : undefined,
+      ...combinedRequestOptions(this),
       grouping: this._currentGrouping,
       sort: this._currentSort,
     };
@@ -2433,13 +2519,7 @@ export class InboxService implements IInboxOperations {
       offset: this._currentOffsetStart,
       limit: this._currentLimit,
       forceRefresh: true,
-      consolidated: this._isConsolidated,
-      accountIds: this._isConsolidated
-        ? this._currentConsolidatedAccountIds
-        : undefined,
-      folderMap: this._isConsolidated
-        ? this._currentConsolidatedFolderMap
-        : undefined,
+      ...combinedRequestOptions(this),
       grouping: this._currentGrouping,
       sort: this._currentSort,
     });
@@ -2747,8 +2827,22 @@ export class InboxService implements IInboxOperations {
     return this._requestGeneration;
   }
 
-  applyDiff(delta: MessageSyncDelta, generation?: number): boolean {
+  applyDiff(
+    delta: MessageSyncDelta,
+    generation?: number,
+    requestStartedAt?: number,
+  ): boolean {
     if (!delta || delta.folder !== this._currentFolder) {
+      return false;
+    }
+
+    // The user changed mail here while this diff was in flight. It may predate
+    // that commit and would revert it until the next diff, so the caller reloads
+    // instead (the same guard the list path applies).
+    if (
+      requestStartedAt !== undefined &&
+      lastLocalActionAt() > requestStartedAt
+    ) {
       return false;
     }
 
@@ -2762,7 +2856,8 @@ export class InboxService implements IInboxOperations {
     // stale in-flight deltas from accounts the user just deselected from
     // being applied to the updated view.
     if (
-      this._isConsolidated &&
+      !__SINGLE_MAILBOX__ &&
+      getCombinedScope(this) !== null &&
       delta.consolidatedAccountIds &&
       this._currentAccountId
     ) {
@@ -2900,8 +2995,12 @@ export class InboxService implements IInboxOperations {
     // between full page loads); refresh the chips from the diff so the UI flips to
     // an error chip within one head-delta cycle instead of showing a stale
     // "syncing…" spinner until the next full reload.
-    if (this._isConsolidated && delta.consolidatedAccountReadiness) {
-      this._consolidatedAccountReadiness = delta.consolidatedAccountReadiness;
+    if (
+      !__SINGLE_MAILBOX__ &&
+      getCombinedScope(this) !== null &&
+      delta.consolidatedAccountReadiness
+    ) {
+      combinedReadiness.set(this, delta.consolidatedAccountReadiness);
     }
 
     this.cacheSnapshot();
@@ -2954,8 +3053,9 @@ export class InboxService implements IInboxOperations {
     this._totalCount = 0;
     this._currentFolder = "INBOX";
     this._currentAccountId = null;
-    this._isConsolidated = false;
-    this._currentConsolidatedAccountIds = [];
+    if (!__SINGLE_MAILBOX__) {
+      setCombinedScope(this, null);
+    }
     this._activeFilters = {};
     this._currentOffsetStart = 0;
     this._currentLimit = DEFAULT_LIMIT;
@@ -2998,8 +3098,9 @@ export class InboxService implements IInboxOperations {
     this._totalCount = 0;
     this._currentFolder = folder;
     this._currentAccountId = accountId;
-    this._isConsolidated = false;
-    this._currentConsolidatedAccountIds = [];
+    if (!__SINGLE_MAILBOX__) {
+      setCombinedScope(this, null);
+    }
     this._activeFilters = {};
     this._currentOffsetStart = 0;
     this._currentLimit = DEFAULT_LIMIT;

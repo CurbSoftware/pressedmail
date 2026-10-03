@@ -6,25 +6,16 @@
  * The pro `HeaderThemeMegaMenu` carries premium palettes, layouts, custom
  * themes, and pro display-preference rows (with lock/upgrade affordances). The
  * Free build intentionally ships only: appearance mode, typography, the two
- * free color themes (default + high-contrast), and speed-dial placement. This
- * component is self-contained and imports none of the pro lock/upgrade
+ * free color themes (default + high-contrast), and the speed-dial On/Off row.
+ * This component is self-contained and imports none of the pro lock/upgrade
  * machinery, keeping the Free edition boundary clean.
  */
 import { __ } from "@wordpress/i18n";
 import {
   Check,
-  CircleOff,
   LayoutTemplate,
   Monitor,
   Moon,
-  MoveDown,
-  MoveDownLeft,
-  MoveDownRight,
-  MoveLeft,
-  MoveRight,
-  MoveUp,
-  MoveUpLeft,
-  MoveUpRight,
   Palette,
   Rows3,
   Sun,
@@ -46,10 +37,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@kit/ui/plugin";
-import {
-  PressedPopoverContent,
-} from "@/components/ui/pressed-overlay";
-import { PressedTooltip } from "@/components/ui/pressed-tooltip";
+import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 import { ThemePaletteIcon } from "./HeaderIconSvgs";
 import { useTheme as useAppearanceTheme } from "@/components/theme-provider";
 import { useTheme as useColorTheme } from "@/components/themes/ThemeProvider";
@@ -105,51 +93,20 @@ const GROUPING_OPTIONS: Array<{
   },
 ];
 
-const SPEED_DIAL_POSITION_OPTIONS: Array<{
-  value: SpeedDialPosition;
+const SPEED_DIAL_ENABLED_OPTIONS: Array<{
+  value: boolean;
   label: string;
-  icon: typeof MoveUpLeft;
+  dataTest: string;
 }> = [
   {
-    value: "top-left",
-    label: __("Top left", "pressedmail"),
-    icon: MoveDownRight,
+    value: true,
+    label: __("On", "pressedmail"),
+    dataTest: "free-speed-dial-on",
   },
   {
-    value: "top-center",
-    label: __("Top center", "pressedmail"),
-    icon: MoveDown,
-  },
-  {
-    value: "top-right",
-    label: __("Top right", "pressedmail"),
-    icon: MoveDownLeft,
-  },
-  {
-    value: "middle-left",
-    label: __("Middle left", "pressedmail"),
-    icon: MoveRight,
-  },
-  { value: "off", label: __("Off", "pressedmail"), icon: CircleOff },
-  {
-    value: "middle-right",
-    label: __("Middle right", "pressedmail"),
-    icon: MoveLeft,
-  },
-  {
-    value: "bottom-left",
-    label: __("Bottom left", "pressedmail"),
-    icon: MoveUpRight,
-  },
-  {
-    value: "bottom-center",
-    label: __("Bottom center", "pressedmail"),
-    icon: MoveUp,
-  },
-  {
-    value: "bottom-right",
-    label: __("Bottom right", "pressedmail"),
-    icon: MoveUpLeft,
+    value: false,
+    label: __("Off", "pressedmail"),
+    dataTest: "free-speed-dial-off",
   },
 ];
 
@@ -246,9 +203,7 @@ export function FreeThemePopover() {
             <Select
               value={fontStack}
               onValueChange={(value) => setFontStack(value)}>
-              <SelectTrigger
-                className="text-xs"
-                data-test="free-font-family">
+              <SelectTrigger className="text-xs" data-test="free-font-family">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -318,41 +273,42 @@ export function FreeThemePopover() {
           </div>
         </div>
 
-        <div
-          className="grid grid-cols-2 items-start gap-3"
-          data-test="free-theme-controls-grid">
-          {/* Speed dial position */}
-          <div data-test="free-speed-dial-column">
-            <SectionLabel icon={Palette}>
-              {__("Speed Dial", "pressedmail")}
-            </SectionLabel>
-            <div
-              className="grid aspect-square grid-cols-3 grid-rows-3 gap-1.5 rounded-lg bg-muted p-1"
-              data-test="free-speed-dial-position">
-              {SPEED_DIAL_POSITION_OPTIONS.map(
-                ({ value, label, icon: Icon }) => {
-                  const selected = preferences.speed_dial_position === value;
-                  return (
-                    <PressedTooltip key={value} content={label} side="top">
-                      <Button
-                        type="button"
-                        variant={selected ? "default" : "outline"}
-                        size="icon"
-                        className="aspect-square h-auto w-full"
-                        aria-label={label}
-                        aria-pressed={selected}
-                        onClick={() =>
-                          void updatePreference("speed_dial_position", value)
-                        }>
-                        <Icon className="size-4" aria-hidden="true" />
-                      </Button>
-                    </PressedTooltip>
-                  );
-                },
-              )}
-            </div>
+        {/*
+          Speed dial on/off. The Pro popover carries the same row, and the two
+          popovers are the only control for the key, one per edition. Where the
+          launcher sits is set on the launcher itself: drag its grip, or focus
+          the grip and use the arrow keys.
+        */}
+        <div className="mb-3">
+          <SectionLabel icon={Palette}>
+            {__("Speed Dial", "pressedmail")}
+          </SectionLabel>
+          <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted p-1">
+            {SPEED_DIAL_ENABLED_OPTIONS.map(({ value, label, dataTest }) => {
+              const selected =
+                (preferences.speed_dial_enabled ?? true) === value;
+              return (
+                <Button
+                  key={label}
+                  type="button"
+                  variant={selected ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  aria-pressed={selected}
+                  data-test={dataTest}
+                  onClick={() =>
+                    void updatePreference("speed_dial_enabled", value)
+                  }>
+                  {label}
+                </Button>
+              );
+            })}
           </div>
+        </div>
 
+        <div
+          className="grid items-start gap-3"
+          data-test="free-theme-controls-grid">
           <div
             className="grid grid-rows-[auto_auto_auto_auto_auto] gap-2"
             data-test="free-theme-selection-column">

@@ -33,7 +33,6 @@ import { BaseSuggestionPlugin } from '@kit/plate/suggestion';
 import { BaseDatePlugin } from '@kit/plate/date';
 import { BaseIndentPlugin } from '@kit/plate/indent';
 import { BaseColumnItemPlugin, BaseColumnPlugin } from '@kit/plate/layout';
-import { BaseLinkPlugin } from '@kit/plate/link';
 import { BaseListPlugin } from '@kit/plate/list';
 import { BaseCaptionPlugin } from '@kit/plate/caption';
 import {
@@ -65,6 +64,7 @@ import {
   AttachmentCardElementStatic,
   SignatureElementStatic,
 } from './nodes/static';
+import { TemplateVariableStaticKit } from '@/components/composer/nodes/template-variable-kit.active';
 import { BlockListStatic } from './plate/block-list-static';
 import { CalloutElementStatic } from './plate/callout-node-static';
 import {
@@ -88,6 +88,7 @@ import {
 import { ExcalidrawElementStatic } from './plate/excalidraw-node-static';
 import { KbdLeafStatic } from './plate/kbd-node-static';
 import { LinkElementStatic } from './plate/link-node-static';
+import { ComposerLinkPlugin } from './plate/link-style';
 import { ImageElementStatic } from './plate/media-image-node-static';
 import {
   AudioElementStatic,
@@ -243,7 +244,7 @@ export const ComposerEditorPlugins = [
       },
     },
   })).withComponent(TableCellHeaderElementStatic),
-  BaseLinkPlugin.withComponent(LinkElementStatic),
+  ComposerLinkPlugin.withComponent(LinkElementStatic),
   // Marks
   BaseBoldPlugin,
   BaseItalicPlugin,
@@ -323,7 +324,12 @@ export const ComposerEditorPlugins = [
   // parsers.html.serializer path).
   SignatureBlockPlugin.withComponent(SignatureElementStatic),
   AttachmentCardPlugin.withComponent(AttachmentCardElementStatic),
-  AISuggestionPlugin.withComponent(AISuggestionElementStatic),
+  // AI suggestion marks are Pro (AI drafting); Free keeps their text only.
+  ...(__IS_FREE__
+    ? []
+    : [AISuggestionPlugin.withComponent(AISuggestionElementStatic)]),
+  // Merge-field chips serialize back to their token text (Pro; empty in Free).
+  ...TemplateVariableStaticKit,
   // Promote every <br>/\n soft break to its own block (mirrors the
   // interactive kit's SplitSoftBreaksPlugin) so static deserialize +
   // email serialization treat each line as an independent block.

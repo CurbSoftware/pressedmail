@@ -29,6 +29,7 @@ import { PlateElement } from '@kit/plate/react';
 
 import { __ } from '@wordpress/i18n';
 
+import { useBlocksSlashGroups } from '@/components/composer/plate/composer-blocks-kit.active';
 import {
   InlineCombobox,
   InlineComboboxContent,
@@ -79,8 +80,9 @@ const insertBlockNode = (editor: PlateEditor, node: object) => {
   editor.tf.focus();
 };
 
+
 // Built on call: a module-level __() runs before the locale catalog loads.
-const getGroups = (): SlashGroup[] => [
+const getGroups = (editor: PlateEditor): SlashGroup[] => [
   {
     group: __('Basic blocks', 'pressedmail'),
     items: [
@@ -292,6 +294,9 @@ export function SlashInputElement(
   props: PlateElementProps<TComboboxInputElement>,
 ) {
   const { editor, element } = props;
+  // Saved blocks (Pro): groups of their own, none in Free or where blocks are off.
+  const blockGroups = useBlocksSlashGroups();
+  const groups = [...getGroups(editor), ...blockGroups];
 
   return (
     <PlateElement {...props} as="span">
@@ -303,7 +308,7 @@ export function SlashInputElement(
             {__('No results', 'pressedmail')}
           </InlineComboboxEmpty>
 
-          {getGroups().map(({ group, items }) => (
+          {groups.map(({ group, items }) => (
             <InlineComboboxGroup key={group}>
               <InlineComboboxGroupLabel>{group}</InlineComboboxGroupLabel>
 

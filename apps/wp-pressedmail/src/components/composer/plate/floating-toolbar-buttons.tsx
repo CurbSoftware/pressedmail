@@ -33,13 +33,14 @@ export function FloatingToolbarButtons() {
   // The AI kit is only registered when PlateComposer gets aiEnabled (feature
   // flag && configured); gate on plugin presence so AIToolbarButton never
   // touches a missing AIChatPlugin.
-  const aiEnabled = Boolean(editor.plugins[KEYS.aiChat]);
+  // AI drafting is Pro: the Free build compiles no Ask AI button.
+  const aiEnabled = __ENABLE_AI_DRAFTING__ && Boolean(editor.plugins[KEYS.aiChat]);
 
   return (
     <>
       {!readOnly && (
         <>
-          {aiEnabled && (
+          {__ENABLE_AI_DRAFTING__ && aiEnabled && (
             <ToolbarGroup>
               <AIToolbarButton
                 tooltip={__('AI commands', 'pressedmail')}

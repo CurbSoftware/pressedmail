@@ -44,6 +44,7 @@ import {
   buildApiUrl,
 } from "@/context/Strings";
 import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
+import { markLocalAction, publishTabMessage } from "@/lib/tab-channel";
 import { isDestinationMutationTarget } from "@/lib/folder-destination";
 import type { MutationTarget } from "@/lib/folder-target";
 import {
@@ -196,19 +197,43 @@ export class MessageService implements IMessageOperations {
   }
 
   /**
-   * Wrap an operation with circuit breaker if available.
+   * Wrap an operation with circuit breaker if available. A successful mutation tells
+   * the other open tabs, so a follower tab shows the change without polling for it.
    */
   private async withBreaker<T>(
     accountId: string | number,
     operation: () => Promise<T>,
+    mutation = true,
   ): Promise<T> {
-    if (this.connectionState) {
-      return this.connectionState.withCircuitBreaker(
-        String(accountId),
-        operation,
-      );
+    // Marked on both sides: a folder list another tab requested while this change
+    // was in flight may predate the server's commit, so it is stale too.
+    if (mutation) markLocalAction();
+    let response: T;
+    try {
+      response = this.connectionState
+        ? await this.connectionState.withCircuitBreaker(
+            String(accountId),
+            operation,
+          )
+        : await operation();
+    } finally {
+      if (mutation) markLocalAction();
     }
-    return operation();
+    if (
+      mutation &&
+      response !== null &&
+      typeof response === "object" &&
+      !isError(response as unknown as ApiResponse)
+    ) {
+      const numericId = Number(accountId);
+      publishTabMessage({
+        type: "mail-changed",
+        accounts:
+          Number.isSafeInteger(numericId) && numericId > 0 ? [numericId] : "all",
+        action: true,
+      });
+    }
+    return response;
   }
 
   private buildMessageMutationPayload(
@@ -679,7 +704,7 @@ export class MessageService implements IMessageOperations {
         { read: true },
         ref.folder,
       );
-      return { success: true };
+      return { success: true, warning: mutationWarning(response) };
     } catch (error) {
       return {
         success: false,
@@ -715,7 +740,7 @@ export class MessageService implements IMessageOperations {
         { read: false },
         ref.folder,
       );
-      return { success: true };
+      return { success: true, warning: mutationWarning(response) };
     } catch (error) {
       return {
         success: false,
@@ -792,6 +817,7 @@ export class MessageService implements IMessageOperations {
           messageRawHeadersRouteApi,
           this.buildMessageMutationPayload(ref),
         ),
+        false,
       );
 
       if (isError(response)) {
@@ -1004,7 +1030,7 @@ export class MessageService implements IMessageOperations {
         }
       }
 
-      return { success: true };
+      return { success: true, warning: mutationWarning(response) };
     } catch (error) {
       return {
         success: false,

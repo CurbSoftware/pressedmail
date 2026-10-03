@@ -1,9 +1,14 @@
 export interface InboxActionVisibilityInput {
   isFreeBuild: boolean;
+  /** False for a teammate on a shared mailbox: these tools are owner-only. */
+  isMailboxOwner: boolean;
   snoozeBuildEnabled: boolean;
   snoozeEnabled: boolean;
   phishingBuildEnabled: boolean;
   phishingEnabled: boolean;
+  /** Omitted by callers that predate spam checks: spam stays hidden. */
+  spamBuildEnabled?: boolean;
+  spamEnabled?: boolean;
   aiSummarizeAvailable: boolean;
   autoTaggerBuildEnabled: boolean;
   aiAutoTaggerBuildEnabled: boolean;
@@ -13,26 +18,31 @@ export interface InboxActionVisibilityInput {
 export interface InboxActionVisibility {
   showSnooze: boolean;
   showPhishing: boolean;
+  showSpam: boolean;
   showSummarize: boolean;
   showAutoTag: boolean;
 }
 
 export function resolveInboxActionVisibility({
   isFreeBuild,
+  isMailboxOwner,
   snoozeBuildEnabled,
   snoozeEnabled,
   phishingBuildEnabled,
   phishingEnabled,
+  spamBuildEnabled = false,
+  spamEnabled = false,
   aiSummarizeAvailable,
   autoTaggerBuildEnabled,
   aiAutoTaggerBuildEnabled,
   autoTaggerToolAvailable,
 }: InboxActionVisibilityInput): InboxActionVisibility {
-  const proBuild = !isFreeBuild;
+  const proBuild = !isFreeBuild && isMailboxOwner; // Pro build, owner of the mailbox.
 
   return {
     showSnooze: proBuild && snoozeBuildEnabled && snoozeEnabled,
     showPhishing: proBuild && phishingBuildEnabled && phishingEnabled,
+    showSpam: proBuild && spamBuildEnabled && spamEnabled,
     showSummarize: proBuild && aiSummarizeAvailable,
     showAutoTag:
       proBuild &&
@@ -40,26 +50,4 @@ export function resolveInboxActionVisibility({
       aiAutoTaggerBuildEnabled &&
       autoTaggerToolAvailable,
   };
-}
-
-export interface ImportantActionInput {
-  isFreeBuild: boolean;
-  smartInboxEnabled: boolean;
-}
-
-/**
- * Whether the message "important" control should be offered at all.
- *
- * Importance is persisted by POST smart-inbox/important, which only
- * `includes/Routes/ProApi.php` registers and which is served by the Pro
- * SmartInboxService. Free has no equivalent route and never will: shipping one
- * would mean shipping the Smart Inbox implementation in the WordPress.org
- * build. So Free does not render the control, rather than render one that
- * always 404s.
- */
-export function isImportantActionAvailable({
-  isFreeBuild,
-  smartInboxEnabled,
-}: ImportantActionInput): boolean {
-  return !isFreeBuild && smartInboxEnabled;
 }

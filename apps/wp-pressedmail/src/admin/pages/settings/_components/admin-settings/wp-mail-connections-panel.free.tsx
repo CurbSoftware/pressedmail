@@ -14,6 +14,11 @@ import {
   type RegisterSettingsDraft,
 } from "@/components/settings-ui";
 import { ConnectionEditor } from "@/components/wp-mail/ConnectionEditor";
+import { SmtpHealthBadge } from "@/components/wp-mail/SmtpHealthBadge";
+import {
+  healthTimesLine,
+  smtpHealthCopy,
+} from "@/components/wp-mail/smtp-health-copy";
 import {
   deleteWpMailConnection,
   updateWpMailConnection,
@@ -26,6 +31,18 @@ export interface WpMailConnectionsPanelProps {
   onStateChange: (state: WpMailState) => void;
   registerDraft?: RegisterSettingsDraft;
   disabled?: boolean;
+  /**
+   * Asks the host to show this panel. The header's Add mail server action is
+   * registered from in here, so it stays in the header on either panel: without
+   * this, pressing it from the other one would open an editor nobody can see.
+   */
+  onRequestFocus?: () => void;
+  /**
+   * Asks the host to look at connection health again. A test of the saved
+   * server records its outcome on the server, and the host is the one that
+   * shows it.
+   */
+  onHealthChange?: () => void;
 }
 
 /** Complete one-server flow for the Free edition. */
@@ -34,6 +51,8 @@ export function WpMailConnectionsPanel({
   onStateChange,
   registerDraft,
   disabled = false,
+  onRequestFocus,
+  onHealthChange,
 }: WpMailConnectionsPanelProps) {
   const connection = state.connections[0] ?? null;
   const [adding, setAdding] = useState(false);
@@ -45,9 +64,10 @@ export function WpMailConnectionsPanel({
 
   const openCreate = useCallback(() => {
     if (!busy && !disabled) {
+      onRequestFocus?.();
       setAdding(true);
     }
-  }, [busy, disabled]);
+  }, [busy, disabled, onRequestFocus]);
   const addAction = useMemo(() => {
     if (connection || adding || editing) {
       return null;
@@ -152,9 +172,10 @@ export function WpMailConnectionsPanel({
               )
         }
         description={__(
-          "Save the SMTP settings, then send a test email before relying on this server.",
+          "Enter the SMTP settings, send a test email, then save the server.",
           "pressedmail",
         )}
+        dataTest="wp-mail-server-editor"
         actions={
           <Button
             type="button"
@@ -176,6 +197,7 @@ export function WpMailConnectionsPanel({
           onStateChange={finishEditor}
           registerDraft={registerDraft}
           disabled={disabled}
+          onTested={onHealthChange}
           idPrefix="wp-mail-connection"
         />
       </SettingsSectionCard>
@@ -219,13 +241,38 @@ export function WpMailConnectionsPanel({
           data-testid={`wp-mail-server-card-${connection.id}`}>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h4 className="text-sm font-semibold">{connection.label}</h4>
+              <div className="flex flex-wrap items-center gap-2">
+                <h4 className="text-sm font-semibold">{connection.label}</h4>
+                {connection.isUsable ? (
+                  <SmtpHealthBadge
+                    health={connection.health}
+                    data-test={`wp-mail-health-badge-${connection.id}`}
+                  />
+                ) : null}
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
                 {connection.host}:{connection.port}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {connection.fromEmail || connection.username}
               </p>
+              {connection.health ? (
+                <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  {connection.isUsable &&
+                  connection.health.state === "attention" ? (
+                    <p className="text-destructive">
+                      {smtpHealthCopy(
+                        connection.health.errorClass,
+                        connection.label,
+                        connection.health.detail,
+                      )}
+                    </p>
+                  ) : null}
+                  <p data-test={`wp-mail-health-times-${connection.id}`}>
+                    {healthTimesLine(connection.health)}
+                  </p>
+                </div>
+              ) : null}
             </div>
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

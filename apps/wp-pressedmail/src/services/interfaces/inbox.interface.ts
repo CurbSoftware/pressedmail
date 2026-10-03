@@ -130,6 +130,13 @@ export interface MessageFilters {
   accountEmails?: string[];
   /** Filter Drafts to messages tied to pending/failed scheduled sends */
   scheduledOnly?: boolean;
+  smartCategory?:
+    | "priority"
+    | "primary"
+    | "social"
+    | "promotions"
+    | "updates"
+    | "forums";
 }
 
 /**
@@ -286,6 +293,12 @@ export interface IInboxOperations {
    * @param delta - Incremental sync changes for the active folder
    * @param generation - Request generation captured before the sync call.
    *   If provided and older than the current generation, the delta is dropped.
+   * @param requestStartedAt - Date.now() taken before the sync call. If this tab
+   *   changed mail after it, the delta may predate that change and is dropped.
    */
-  applyDiff(delta: MessageSyncDelta, generation?: number): boolean;
+  applyDiff(
+    delta: MessageSyncDelta,
+    generation?: number,
+    requestStartedAt?: number,
+  ): boolean;
 }

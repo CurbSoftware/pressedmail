@@ -22,7 +22,8 @@ import type { EmailAccount } from "@/types";
 export interface BuildSweepScopeArgs {
   accounts: EmailAccount[];
   selectedAccount: string | null;
-  selectedConsolidatedAccountIds: unknown;
+  /** The combined view's mailboxes. Never passed in a single-mailbox build. */
+  selectedConsolidatedAccountIds?: unknown;
   selectedFolder: string | null | undefined;
   currentFolderRole: string | null | undefined;
   folders: ImapFolder[];
@@ -46,7 +47,6 @@ export function buildSweepScope(args: BuildSweepScopeArgs): SweepScope | null {
   const {
     accounts,
     selectedAccount,
-    selectedConsolidatedAccountIds,
     selectedFolder,
     currentFolderRole,
     folders,
@@ -56,12 +56,13 @@ export function buildSweepScope(args: BuildSweepScopeArgs): SweepScope | null {
   const folderPath = selectedFolder || "INBOX";
   const folderRole = currentFolderRole ?? undefined;
   const folderLabel = folderLabelForRole(folderRole, folderPath);
-  const isConsolidated = selectedAccount === CONSOLIDATED_ACCOUNT_SCOPE_PREFIX;
+  const isConsolidated =
+    !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_ACCOUNT_SCOPE_PREFIX;
 
   if (isConsolidated) {
     const accountIds = getEffectiveConsolidatedAccountIdsForLayout(
       accounts,
-      selectedConsolidatedAccountIds,
+      args.selectedConsolidatedAccountIds,
       undefined,
       layoutId,
     );

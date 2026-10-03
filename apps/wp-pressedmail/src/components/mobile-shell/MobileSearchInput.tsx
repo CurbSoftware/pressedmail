@@ -65,7 +65,9 @@ export function MobileSearchInput({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className={cn("pl-10", showClear && "pr-10")}
+        // Important: wp-admin's unlayered input[type=search] padding beat the
+        // layered utility and put the placeholder under the magnifier.
+        className={cn("pl-10!", showClear && "pr-10!")}
       />
       {showClear ? (
         <Button

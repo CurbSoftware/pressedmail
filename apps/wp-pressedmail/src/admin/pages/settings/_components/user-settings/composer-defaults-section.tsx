@@ -5,7 +5,6 @@ import {
   settingsInfoDocHrefs,
   settingsInfoTooltips,
 } from "@/components/settings-ui";
-import { useFeatureAvailable } from "@/context/features";
 import {
   PREFERENCE_ALLOWED_VALUES,
   type ComposerDefaultFont,
@@ -26,9 +25,10 @@ export const COMPOSER_DEFAULT_KEYS = [
   "composer_default_font",
   "composer_default_font_size",
   "composer_signature_placement",
-  "composer_ai_default_tone",
-  "undo_send_enabled",
-  "undo_send_delay_seconds",
+  // Undo send is Pro.
+  ...(__ENABLE_UNDO_SEND__
+    ? (["undo_send_enabled", "undo_send_delay_seconds"] as const)
+    : []),
 ] as const;
 
 export function ComposerDefaultsSection({
@@ -36,7 +36,6 @@ export function ComposerDefaultsSection({
 }: {
   registerDraft: RegisterSettingsDraft;
 }) {
-  const aiAvailable = useFeatureAvailable("ai_integration");
   const { draft, patchDraft } = usePreferenceSectionDraft(
     "composer-defaults",
     COMPOSER_DEFAULT_KEYS,
@@ -55,7 +54,14 @@ export function ComposerDefaultsSection({
             )
           : __("Starting format, font, and signature placement.", "pressedmail")
       }
-      tooltip={settingsInfoTooltips.composer}
+      tooltip={
+        __IS_FREE__
+          ? __(
+              "Defaults for the new-message editor: starting format, font, and signature placement.",
+              "pressedmail",
+            )
+          : settingsInfoTooltips.composer
+      }
       docHref={settingsInfoDocHrefs.composer}>
       <PreferenceSelectRow
         title={__("Default format", "pressedmail")}
@@ -124,30 +130,7 @@ export function ComposerDefaultsSection({
         }
         dataTest="pref-composer-signature-placement"
       />
-      {__IS_PRO__ && aiAvailable ? (
-        <PreferenceSelectRow
-          title={__("AI default tone", "pressedmail")}
-          value={draft.composer_ai_default_tone}
-          options={PREFERENCE_ALLOWED_VALUES.composer_ai_default_tone}
-          labels={{
-            professional: __("Professional", "pressedmail"),
-            casual: __("Casual", "pressedmail"),
-            friendly: __("Friendly", "pressedmail"),
-            formal: __("Formal", "pressedmail"),
-          }}
-          onValueChange={(value) =>
-            patchDraft({
-              composer_ai_default_tone: value as
-                | "professional"
-                | "casual"
-                | "friendly"
-                | "formal",
-            })
-          }
-          dataTest="pref-composer-ai-default-tone"
-        />
-      ) : null}
-      {__IS_PRO__ ? (
+      {__ENABLE_UNDO_SEND__ ? (
         <>
           <PreferenceSwitchRow
             title={__("Undo send", "pressedmail")}
@@ -160,7 +143,7 @@ export function ComposerDefaultsSection({
           <PreferenceSelectRow
             title={__("Undo send delay", "pressedmail")}
             value={String(draft.undo_send_delay_seconds)}
-            options={PREFERENCE_ALLOWED_VALUES.undo_send_delay_seconds}
+            options={PREFERENCE_ALLOWED_VALUES.undo_send_delay_seconds ?? []}
             labels={{
               "15": __("15 seconds", "pressedmail"),
               "30": __("30 seconds", "pressedmail"),

@@ -11,6 +11,7 @@ export interface SmtpTestSendPanelProps {
   onTest: () => void;
   /** Omitted where the surrounding surface owns saving (a settings save bar). */
   onSave?: () => void;
+  canSave?: boolean;
   errors?: SmtpTestPanelErrors;
   status?: SmtpStatusMessage | null;
   saving?: boolean;
@@ -31,6 +32,7 @@ export function SmtpTestSendPanel({
   onTestRecipientChange,
   onTest,
   onSave,
+  canSave = false,
   errors = {},
   status = null,
   saving = false,
@@ -44,6 +46,14 @@ export function SmtpTestSendPanel({
 
   return (
     <div className="space-y-3">
+      {onSave && (
+        <p className="text-xs text-muted-foreground">
+          {__(
+            "Enter the SMTP settings, send a test email, then save. If you change the settings, test them again before saving.",
+            "pressedmail",
+          )}
+        </p>
+      )}
       <div className="space-y-1">
         <Label htmlFor={id("test-recipient")} className="text-xs font-medium">
           {__("Test recipient email", "pressedmail")}
@@ -55,10 +65,11 @@ export function SmtpTestSendPanel({
           type="email"
           placeholder={__("recipient@example.com", "pressedmail")}
           value={testRecipient}
+          disabled={busy}
           onChange={(event) => onTestRecipientChange(event.target.value)}
           aria-invalid={Boolean(errors.testRecipient)}
           aria-describedby={errors.testRecipient ? recipientErrorId : undefined}
-          className={errors.testRecipient ? "border-destructive" : ""}
+          className={errors.testRecipient ? "pointer-coarse:min-h-11 border-destructive" : "pointer-coarse:min-h-11"}
         />
         {errors.testRecipient && (
           <p id={recipientErrorId} className="text-xs text-destructive">
@@ -73,7 +84,7 @@ export function SmtpTestSendPanel({
           data-test={id("test-button")}
           onClick={onTest}
           disabled={busy}
-          className="w-full sm:w-auto">
+          className="w-full pointer-coarse:min-h-11 sm:w-auto">
           {testing ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -88,8 +99,8 @@ export function SmtpTestSendPanel({
             type="button"
             data-test={id("save-button")}
             onClick={onSave}
-            disabled={busy}
-            className="w-full sm:w-auto">
+            disabled={busy || !canSave}
+            className="w-full pointer-coarse:min-h-11 sm:w-auto">
             {saving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

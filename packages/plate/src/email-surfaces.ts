@@ -3,6 +3,7 @@ export const PLATE_EMAIL_EDITOR_SURFACES = [
   'signature',
   'auto_reply',
   'content_block',
+  'template',
 ] as const;
 
 export type PlateEmailEditorSurface =
@@ -17,7 +18,11 @@ export type PlateEmailEditorFeature =
   | 'aiCommands'
   | 'signatures'
   | 'contentBlocks'
-  | 'preview';
+  | 'preview'
+  /** `{{contact.first_name}}`-style merge fields, edited as chips. */
+  | 'templateVariables'
+  /** Template-only blocks (button, unsubscribe link, posts). */
+  | 'templateBlocks';
 
 export type PlateEmailEditorFeatureFlags = Readonly<
   Record<PlateEmailEditorFeature, boolean>
@@ -41,7 +46,8 @@ export interface PlateEmailEditorSurfacePreset {
    *
    * `app-theme` follows the app's light or dark UI theme and draws its own
    * boundary. A message body is transient text on the app's own surface, so it
-   * is written on one.
+   * is written on one. A template is a message body waiting to be sent, so it
+   * edits on the same canvas and looks like the composer it will land in.
    *
    * `email-canvas` keeps the fixed light email palette and draws no boundary of
    * its own, because the surrounding card already draws one. A signature or an
@@ -63,44 +69,79 @@ const baseAuthoringFeatures: PlateEmailEditorFeatureFlags = {
   signatures: false,
   contentBlocks: true,
   preview: true,
+  templateVariables: false,
+  templateBlocks: false,
 };
 
+/**
+ * Every preset carries the shared `pm-plate-surface` class, which the canvas
+ * styles key on, plus its own class. Each preset is exported on its own so a
+ * build that mounts only some surfaces can leave the rest out.
+ */
+export const PLATE_EMAIL_SURFACE_PRESET = {
+  surface: 'email',
+  featureSet: 'email-compose',
+  className: 'pm-plate-surface pm-plate-email-surface',
+  defaultMinHeight: 200,
+  editingCanvas: 'app-theme',
+  features: {
+    ...baseAuthoringFeatures,
+    signatures: true,
+    templateVariables: true,
+    templateBlocks: true,
+  },
+} as const satisfies PlateEmailEditorSurfacePreset;
+
+export const PLATE_SIGNATURE_SURFACE_PRESET = {
+  surface: 'signature',
+  featureSet: 'identity-content',
+  className: 'pm-plate-surface pm-plate-signature-surface',
+  defaultMinHeight: 260,
+  editingCanvas: 'email-canvas',
+  features: baseAuthoringFeatures,
+} as const satisfies PlateEmailEditorSurfacePreset;
+
+export const PLATE_AUTO_REPLY_SURFACE_PRESET = {
+  surface: 'auto_reply',
+  featureSet: 'email-automation',
+  className: 'pm-plate-surface pm-plate-auto-reply-surface',
+  defaultMinHeight: 260,
+  editingCanvas: 'email-canvas',
+  features: baseAuthoringFeatures,
+} as const satisfies PlateEmailEditorSurfacePreset;
+
+export const PLATE_CONTENT_BLOCK_SURFACE_PRESET = {
+  surface: 'content_block',
+  featureSet: 'reusable-content',
+  className: 'pm-plate-surface pm-plate-content-block-surface',
+  defaultMinHeight: 260,
+  editingCanvas: 'app-theme',
+  features: {
+    ...baseAuthoringFeatures,
+    // A block may hold fields: it is written once and used in any context.
+    templateVariables: true,
+  },
+} as const satisfies PlateEmailEditorSurfacePreset;
+
+export const PLATE_TEMPLATE_SURFACE_PRESET = {
+  surface: 'template',
+  featureSet: 'reusable-content',
+  className: 'pm-plate-surface pm-plate-template-surface',
+  defaultMinHeight: 260,
+  editingCanvas: 'app-theme',
+  features: {
+    ...baseAuthoringFeatures,
+    templateVariables: true,
+    templateBlocks: true,
+  },
+} as const satisfies PlateEmailEditorSurfacePreset;
+
 export const PLATE_EMAIL_EDITOR_SURFACE_PRESETS = {
-  email: {
-    surface: 'email',
-    featureSet: 'email-compose',
-    className: 'pm-plate-email-surface',
-    defaultMinHeight: 200,
-    editingCanvas: 'app-theme',
-    features: {
-      ...baseAuthoringFeatures,
-      signatures: true,
-    },
-  },
-  signature: {
-    surface: 'signature',
-    featureSet: 'identity-content',
-    className: 'pm-plate-signature-surface',
-    defaultMinHeight: 260,
-    editingCanvas: 'email-canvas',
-    features: baseAuthoringFeatures,
-  },
-  auto_reply: {
-    surface: 'auto_reply',
-    featureSet: 'email-automation',
-    className: 'pm-plate-auto-reply-surface',
-    defaultMinHeight: 260,
-    editingCanvas: 'email-canvas',
-    features: baseAuthoringFeatures,
-  },
-  content_block: {
-    surface: 'content_block',
-    featureSet: 'reusable-content',
-    className: 'pm-plate-content-block-surface',
-    defaultMinHeight: 260,
-    editingCanvas: 'email-canvas',
-    features: baseAuthoringFeatures,
-  },
+  email: PLATE_EMAIL_SURFACE_PRESET,
+  signature: PLATE_SIGNATURE_SURFACE_PRESET,
+  auto_reply: PLATE_AUTO_REPLY_SURFACE_PRESET,
+  content_block: PLATE_CONTENT_BLOCK_SURFACE_PRESET,
+  template: PLATE_TEMPLATE_SURFACE_PRESET,
 } as const satisfies Record<
   PlateEmailEditorSurface,
   PlateEmailEditorSurfacePreset

@@ -1,3 +1,4 @@
+import { isEmailCacheEnabled } from "./principal-storage";
 /**
  * Mailbox read-source selection used by the live retrieval engine.
  *
@@ -21,5 +22,6 @@ export type CanonicalMailboxSource = "imap" | "db";
 export function getMailboxSourceRequestParams(): {
   mailbox_source?: CanonicalMailboxSource;
 } {
+  if (!isEmailCacheEnabled()) return { mailbox_source: "imap" };
   return USE_DB_MAILBOX ? { mailbox_source: "db" } : {};
 }

@@ -15,6 +15,8 @@ export interface FilterChipsRowProps {
   chips: FilterChip[];
   value: string;
   onSelect: (id: string) => void;
+  /** Names the toolbar. Two rows on one screen need two names. */
+  label?: string;
   className?: string;
 }
 
@@ -31,12 +33,13 @@ export function FilterChipsRow({
   chips,
   value,
   onSelect,
+  label,
   className,
 }: FilterChipsRowProps) {
   return (
     <div
       role="toolbar"
-      aria-label={__("Filters", "pressedmail")}
+      aria-label={label ?? __("Filters", "pressedmail")}
       className={cn(
         "flex w-full snap-x snap-mandatory items-center gap-2 overflow-x-auto px-3 py-2",
         "pm-momentum-scroll pm-no-tap-highlight",

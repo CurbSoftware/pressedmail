@@ -27,10 +27,11 @@ import {
   routeApiPrefix,
 } from "@/context/Strings";
 import { useAppContext } from "@/context/AppProvider";
+import { isSharedResource } from "@/components/sharing";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getAccountNumericId } from "@/lib/consolidated-account-scope";
 import { appMessage } from "@/context/toast";
-import { useUndoSend } from "@/context/undo-send";
+import { useComposeProInputs } from "@/hooks/compose/v2/compose-pro-inputs.active";
 import { useReadReceipt } from "@/components/inbox/compose/ComposerScheduleActions.active";
 import { useSignatures } from "@/context/signatures/SignaturesContext";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
@@ -46,12 +47,14 @@ import type {
   EmailAttachment,
   EmailContentType,
 } from "@/types";
-import { useMediaLibraryPicker } from "@/components/inbox/compose/media-library/MediaLibraryPickerProvider";
-import type { MediaPickerSelection } from "@/services/media-library.service";
-import type { Recipient } from "@/types/recipients";
+import { useMediaLibraryPicker } from "@/components/inbox/compose/useMediaLibraryPicker";
+import type { MediaPickerSelection } from "@/components/inbox/compose/useMediaLibraryPicker";
+import type { Recipient, RecipientField } from "@/types/recipients";
 import {
   dedupeRecipientGroupsByEmail,
   getContactListRecipientDescriptors,
+  getRecipientGroupContactLists,
+  getRecipientListFields,
   parseEmailString,
   recipientsFromComposeData,
   recipientsToString,
@@ -90,6 +93,8 @@ import { refreshAccountSync } from "@/services/sync-driver.service";
 import {
   acknowledgeNormalSend,
   sendNormalEmail,
+  retainScheduledListIntent,
+  acknowledgeScheduledListIntent,
   type NormalSendReceipt,
 } from "@/services/normal-send.service";
 import {
@@ -172,8 +177,8 @@ export interface UseComposeFormOptions {
    * the list) routes through the discard dialog / autosave flow.
    */
   gateNavigation?: boolean;
-  undoSendEnabled?: boolean;
-  undoSendDelaySeconds?: 15 | 30 | 60;
+  /** Options only an edition with those features reads. */
+  extras?: ComposeExtras;
   onClose?: () => void;
   onSendSuccess?: () => void;
   /**
@@ -183,6 +188,15 @@ export interface UseComposeFormOptions {
   onDraftSaved?: (draftFolder?: string) => void;
   /** Called after an existing server draft is successfully discarded. */
   onDraftDiscarded?: (draftFolder?: string) => void;
+}
+
+/**
+ * Composer options an edition adds. The Free build passes none and reads
+ * none, so their names never reach it.
+ */
+export interface ComposeExtras {
+  /** This composer offers undo send when the user turned it on. */
+  undoSend?: boolean;
   /**
    * Called whenever a scheduled-email row is created, updated, disarmed or
    * deleted, so the Scheduled list and store refresh without waiting for a
@@ -199,7 +213,12 @@ export interface ComposeConfirmation {
 }
 
 export interface UseComposeFormReturn {
-  readReceipt: ReturnType<typeof useReadReceipt> & {
+  listDelivery?: boolean;
+  setListDelivery?: (enabled: boolean) => void;
+  senderNeedsConfirmation: boolean;
+  confirmAccountSender: () => void;
+  /** Pro only: the Free build has no read receipts and omits this. */
+  readReceipt?: ReturnType<typeof useReadReceipt> & {
     available: boolean;
     requested: boolean;
   };
@@ -227,7 +246,8 @@ export interface UseComposeFormReturn {
   isSending: boolean;
   confirmation: ComposeConfirmation | null;
   resolveConfirmation: (confirmed: boolean) => void;
-  isScheduling: boolean;
+  /** Pro: a scheduled send is being saved. Absent in Free. */
+  isScheduling?: boolean;
   isSavingDraft: boolean;
   isDiscarding: boolean;
   pendingInlineImageUploads: number;
@@ -238,8 +258,14 @@ export interface UseComposeFormReturn {
   mode: ComposeMode;
   modeTitle: string;
   fromAccount: string;
-  isScheduledEdit: boolean;
+  /** Pro: this composer edits an armed scheduled send. Absent in Free. */
+  isScheduledEdit?: boolean;
   scheduledAt?: string;
+  /**
+   * Sending from a mailbox shared with this user: immediate send only.
+   * Absent in the Free build, which has no shared mailboxes.
+   */
+  isSharedMailbox?: boolean;
 
   // Computed
   canSend: boolean;
@@ -247,17 +273,15 @@ export interface UseComposeFormReturn {
   // Feature flags
   signaturesEnabled: boolean;
   /**
-   * Whether the inline AI authoring tools (toolbar AI dropdown + "More tools"
-   * AI menu items) are available, driven by the Pro `ai_drafting` feature flag,
-   * which the server gates on the AI Composer being admin-enabled AND configured.
-   * Despite the legacy name, this no longer controls a standalone panel (that
-   * card was removed); it gates the in-editor AI controls.
+   * Pro: whether the inline AI authoring tools (toolbar AI dropdown + "More
+   * tools" AI menu items) are available. Absent in Free.
    */
-  showAIPanel: boolean;
+  showAIPanel?: boolean;
   canUploadAttachments: boolean;
   canUseMediaLibraryAttachments: boolean;
   maxAttachmentSizeMb: number;
-  contactListsEnabled: boolean;
+  /** Pro: contact lists may be added as recipients. Absent in Free. */
+  contactListsEnabled?: boolean;
 
   // Data
   signatures: Signature[];
@@ -282,8 +306,9 @@ export interface UseComposeFormReturn {
   setShowQuotedText: (show: boolean) => void;
   setFromAccount: (account: string) => void;
   handleSend: () => Promise<void>;
-  handleSchedule: (scheduledAt: Date) => Promise<void>;
-  handleRemoveSchedule: () => Promise<void>;
+  /** Pro scheduled send. Absent in Free. */
+  handleSchedule?: (scheduledAt: Date) => Promise<void>;
+  handleRemoveSchedule?: () => Promise<void>;
   /** Resolves true when the draft reached the server. */
   handleSaveDraft: (opts?: { silent?: boolean }) => Promise<boolean>;
   handleDiscard: () => Promise<void>;
@@ -293,6 +318,8 @@ export interface UseComposeFormReturn {
   handleDiscardSaveAndClose: () => Promise<void>;
   handleDiscardCancel: () => void;
   handleSignatureSelect: (signatureId: number) => void;
+  /** The mailbox this draft sends from, by numeric id. */
+  sendingAccountId?: number | null;
   handleEditorReady: (editor: EmailEditorRef | null) => void;
   handleBlockInsert: (html: string) => void;
   handleAttachment: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -499,6 +526,7 @@ function appendAttachmentsToFormData(
 type SaveDraftResult = ComposerDraftSaveResult;
 
 interface SaveDraftOptions {
+  listDelivery?: boolean;
   silent?: boolean;
   subject?: string;
   body?: string;
@@ -506,6 +534,7 @@ interface SaveDraftOptions {
   cc?: string;
   bcc?: string;
   contactListIds?: number[];
+  recipientListFields?: Record<string, RecipientField>;
   contentType?: EmailContentType;
   inReplyTo?: string;
   references?: string;
@@ -523,16 +552,20 @@ interface DraftServerIdentity {
 }
 
 interface ActiveSendSnapshot {
+  listDelivery?: boolean;
   composeSessionVersion: number | null;
   accountId: number;
   to: string;
   cc: string;
   bcc: string;
-  contactListIds: number[];
+  /** Pro contact lists; absent from the Free build. */
+  contactListIds?: number[];
+  recipientListFields?: Record<string, RecipientField>;
   subject: string;
   body: string;
   contentType: EmailContentType;
-  readReceipt: { requested: boolean; revision: string };
+  /** Pro read receipts; absent from the Free build. */
+  readReceipt?: { requested: boolean; revision: string };
   inReplyTo: string;
   references: string;
   isImportant: boolean;
@@ -553,7 +586,7 @@ function normalizeDraftMessageId(value: unknown): string | null {
     : null;
 }
 
-function applyBodyBackgroundColor(
+export function applyBodyBackgroundColor(
   html: string,
   bodyBackgroundColor?: string,
 ): string {
@@ -585,17 +618,21 @@ export function useComposeForm({
   composerContext,
   autoSaveOnClose = false,
   gateNavigation = false,
-  undoSendEnabled = false,
-  undoSendDelaySeconds = 15,
+  extras,
   onClose,
   onSendSuccess,
   onDraftSaved,
   onDraftDiscarded,
-  onScheduledChanged,
 }: UseComposeFormOptions): UseComposeFormReturn {
+  const undoSend = __IS_FREE__ ? undefined : extras?.undoSend;
+  const onScheduledChanged = __IS_FREE__
+    ? undefined
+    : extras?.onScheduledChanged;
   const navigate = useNavigate();
   const { accounts, selectedAccount } = useAppContext();
-  const { showUndoSend } = useUndoSend();
+  // Undo send, the inline AI tools, contact lists and read receipts are Pro.
+  // Every read below repeats the define so the Free build keeps none of them.
+  const composePro = useComposeProInputs(undoSend);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Context data
@@ -603,20 +640,14 @@ export function useComposeForm({
 
   // Feature flags
   const signaturesEnabled = useFeatureAvailable("signatures");
-  // Inline AI tools availability (toolbar AI dropdown + More-tools AI items).
-  // `ai_drafting` is admin-gated on the server: it is only available when the
-  // AI Composer feature is toggled on AND a provider is configured, so the
-  // legacy global useAIAvailable() check is no longer needed here.
-  const aiFeatureEnabled = useFeatureAvailable("ai_drafting");
-  const showAIPanel = aiFeatureEnabled;
   const canUploadAttachments = useCanUploadAttachments();
   const canUseMediaLibraryAttachments = useCanUseMediaLibraryAttachments();
   const maxAttachmentSizeMb = useMaxAttachmentSizeMb();
-  const contactListsEnabled = useFeatureAvailable("contact_lists");
-  const trackingFeatureEnabled = useFeatureAvailable("email_tracking");
-  const trackingAvailable = __IS_PRO__ && trackingFeatureEnabled;
-  const contextScheduledAccountId =
-    composerContext?.composeData.scheduledAccountId;
+  const trackingAvailable =
+    __IS_PRO__ && composePro !== null && composePro.trackingFeatureEnabled;
+  const contextScheduledAccountId = __IS_FREE__
+    ? undefined
+    : composerContext?.composeData.scheduledAccountId;
   const rawContextDraftAccountId = composerContext?.composeData.draftAccountId;
   const contextDraftAccountId = Number.isInteger(
     Number(rawContextDraftAccountId),
@@ -662,10 +693,24 @@ export function useComposeForm({
 
   // UI state
   const [showCc, setShowCc] = useState(
-    Boolean(composerContext?.composeData.cc || prefillCc?.length),
+    Boolean(
+      composerContext?.composeData.cc ||
+      (__ENABLE_CONTACT_LISTS__ &&
+        composerContext?.composeData.contactLists?.some(
+          (list) => list.field === "cc",
+        )) ||
+      prefillCc?.length,
+    ),
   );
   const [showBcc, setShowBcc] = useState(
-    Boolean(composerContext?.composeData.bcc || prefillBcc?.length),
+    Boolean(
+      composerContext?.composeData.bcc ||
+      (__ENABLE_CONTACT_LISTS__ &&
+        composerContext?.composeData.contactLists?.some(
+          (list) => list.field === "bcc",
+        )) ||
+      prefillBcc?.length,
+    ),
   );
   const [showQuotedText, setShowQuotedText] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -740,6 +785,10 @@ export function useComposeForm({
     const account = resolveSendingAccount();
     return account ? getAccountNumericId(account) : null;
   }, [resolveSendingAccount]);
+  // Sending from a mailbox someone shared with this user: it goes out now,
+  // through the owner's transport, with none of the owner's per-mailbox tools
+  // (undo send, scheduling, read receipts, bound signatures).
+  const isSharedMailbox = isSharedResource(resolveSendingAccount());
 
   const { preferences: composerPreferences } = useUserPreferences();
 
@@ -861,7 +910,8 @@ export function useComposeForm({
     (composerContext!.composeData.to ||
       composerContext!.composeData.cc ||
       composerContext!.composeData.bcc ||
-      composerContext!.composeData.contactLists?.length ||
+      (__ENABLE_CONTACT_LISTS__ &&
+        composerContext!.composeData.contactLists?.length) ||
       composerContext!.composeData.subject ||
       composerContext!.composeData.body ||
       composerContext!.composeData.attachments?.length ||
@@ -870,7 +920,7 @@ export function useComposeForm({
       composerContext!.composeData.draftAccountId ||
       composerContext!.composeData.draftUidValidity ||
       composerContext!.composeData.draftMessageId ||
-      composerContext!.composeData.scheduledEmailId),
+      (__IS_PRO__ && composerContext!.composeData.scheduledEmailId)),
   );
   const useContextPrefill = isContextMode && !contextHasComposeData;
 
@@ -898,7 +948,7 @@ export function useComposeForm({
         previous.body ||
         previous.attachments?.length ||
         previous.draftUid ||
-        previous.scheduledEmailId,
+        (__IS_PRO__ && previous.scheduledEmailId),
       );
       if (sessionAlreadyHasData) {
         return previous;
@@ -908,7 +958,15 @@ export function useComposeForm({
         to: recipientsToString(prefillTo ?? []),
         cc: recipientsToString(prefillCc ?? []),
         bcc: recipientsToString(prefillBcc ?? []),
-        contactLists: getContactListRecipientDescriptors(prefillTo ?? []),
+        ...(__ENABLE_CONTACT_LISTS__
+          ? {
+              contactLists: getRecipientGroupContactLists({
+                to: prefillTo ?? [],
+                cc: prefillCc ?? [],
+                bcc: prefillBcc ?? [],
+              }),
+            }
+          : null),
         subject: prefillSubject ?? "",
         body: prefillBody ?? "",
       };
@@ -929,18 +987,36 @@ export function useComposeForm({
       ? (prefillTo ?? [])
       : recipientsFromComposeData(
           composerContext!.composeData.to || "",
-          composerContext!.composeData.contactLists,
+          __ENABLE_CONTACT_LISTS__
+            ? composerContext!.composeData.contactLists?.filter(
+                (list) => (list.field ?? "to") === "to",
+              )
+            : undefined,
         )
     : localTo;
   const ccRecipients = isContextMode
     ? useContextPrefill
       ? (prefillCc ?? [])
-      : parseEmailString(composerContext!.composeData.cc || "")
+      : recipientsFromComposeData(
+          composerContext!.composeData.cc || "",
+          __ENABLE_CONTACT_LISTS__
+            ? composerContext!.composeData.contactLists?.filter(
+                (list) => list.field === "cc",
+              )
+            : undefined,
+        )
     : localCc;
   const bccRecipients = isContextMode
     ? useContextPrefill
       ? (prefillBcc ?? [])
-      : parseEmailString(composerContext!.composeData.bcc || "")
+      : recipientsFromComposeData(
+          composerContext!.composeData.bcc || "",
+          __ENABLE_CONTACT_LISTS__
+            ? composerContext!.composeData.contactLists?.filter(
+                (list) => list.field === "bcc",
+              )
+            : undefined,
+        )
     : localBcc;
   const composeSessionVersion = getComposeSessionVersion();
   useEffect(() => {
@@ -979,6 +1055,12 @@ export function useComposeForm({
   const draftDocument = isContextMode
     ? composerContext!.composeData.draftDocument
     : localDraftDocument;
+  const listDelivery =
+    __ENABLE_CONTACT_LISTS__ &&
+    (isContextMode
+      ? composerContext!.composeData.listDelivery === true ||
+        draftDocument?.listDelivery === true
+      : draftDocument?.listDelivery === true);
   const draftDocumentRef = useRef(draftDocument);
   draftDocumentRef.current = draftDocument;
   const [draftDocumentStorageUnavailable, setDraftDocumentStorageUnavailable] =
@@ -1012,7 +1094,14 @@ export function useComposeForm({
   );
   const setDraftDocument = useCallback(
     (value: DraftDocument["value"], dialect: DraftDocument["dialect"]) => {
-      const document: DraftDocument = { version: 1, dialect, value };
+      const document: DraftDocument = {
+        version: 1,
+        dialect,
+        value,
+        ...(__ENABLE_CONTACT_LISTS__ && listDelivery
+          ? { listDelivery: true }
+          : {}),
+      };
       editorDialectRef.current = dialect;
       if (isContextMode) {
         composerContext!.setComposeData((prev) => ({
@@ -1023,19 +1112,19 @@ export function useComposeForm({
         setLocalDraftDocument(document);
       }
     },
-    [isContextMode, composerContext],
+    [isContextMode, composerContext, listDelivery],
   );
   const contentType: EmailContentType = isContextMode
     ? (composerContext!.composeData.contentType ??
       (composerContext!.composeData.body ||
       composerContext!.composeData.draftUid ||
-      composerContext!.composeData.scheduledEmailId
+      (__IS_PRO__ && composerContext!.composeData.scheduledEmailId)
         ? "html"
         : defaultContentType))
     : localContentType;
   const { signature: boundSignature, shouldInsertForMode } =
     useSignatureBinding({
-      accountId: getSendingAccountId(),
+      accountId: isSharedMailbox ? null : getSendingAccountId(),
       mode,
     });
   // The signature's own New messages / Replies / Forwards switches are the only
@@ -1043,14 +1132,35 @@ export function useComposeForm({
   // the account the mail is sent from decides which signature applies.
   const shouldInsertSignature = shouldInsertForMode;
 
-  const receiptValue = isContextMode
-    ? (composerContext!.composeData.readReceipt ?? {
-        requested: false,
-        revision: "",
-      })
-    : localReadReceipt;
+  // A reopened draft may retain an address from the retired alias feature.
+  // Never silently substitute the connected mailbox for that sender.
+  const originalSender = composerContext?.composeData.senderIdentity;
+  const senderNeedsConfirmation = Boolean(
+    originalSender &&
+    (originalSender.aliasId != null ||
+      (originalSender.email &&
+        originalSender.email.toLowerCase() !== fromAccount.toLowerCase())),
+  );
+  const confirmAccountSender = useCallback(() => {
+    composerContext?.setComposeData((previous) => ({
+      ...previous,
+      senderIdentity: undefined,
+    }));
+  }, [composerContext]);
+  const senderUnavailableMessage = __(
+    "This draft uses an unavailable sender. Choose the connected mailbox address before saving or sending.",
+    "pressedmail",
+  );
+  const receiptValue =
+    __ENABLE_EMAIL_TRACKING__ && isContextMode
+      ? (composerContext!.composeData.readReceipt ?? {
+          requested: false,
+          revision: "",
+        })
+      : localReadReceipt;
+  const receiptAvailable = trackingAvailable && !isSharedMailbox;
   const receiptRequested =
-    trackingAvailable &&
+    receiptAvailable &&
     contentType === "html" &&
     receiptValue.requested === true;
   const updateReadReceipt = useCallback(
@@ -1059,7 +1169,7 @@ export function useComposeForm({
       session: number | null,
     ) => {
       if (!ownsComposeSession(session)) return;
-      if (isContextMode)
+      if (__ENABLE_EMAIL_TRACKING__ && isContextMode)
         composerContext!.setComposeData((previous) => ({
           ...previous,
           readReceipt: next,
@@ -1069,7 +1179,7 @@ export function useComposeForm({
     [composerContext, isContextMode, ownsComposeSession],
   );
   const receiptActions = useReadReceipt({
-    available: trackingAvailable,
+    available: receiptAvailable,
     contentType,
     value: receiptValue,
     onChange: updateReadReceipt,
@@ -1099,9 +1209,15 @@ export function useComposeForm({
     to: recipientsToString(toRecipients),
     cc: recipientsToString(ccRecipients),
     bcc: recipientsToString(bccRecipients),
-    contactListIds: getContactListRecipientDescriptors(toRecipients).map(
-      (list) => list.id,
-    ),
+    ...(__ENABLE_CONTACT_LISTS__
+      ? {
+          recipientListFields: getRecipientListFields({
+            to: toRecipients,
+            cc: ccRecipients,
+            bcc: bccRecipients,
+          }),
+        }
+      : null),
     subject,
     authoredBody: bodyHasUserContent(body, mode, contentType),
     contentType,
@@ -1109,46 +1225,73 @@ export function useComposeForm({
     attachments: attachments.map(describeAttachmentForDraftSnapshot),
   });
 
-  // Setters that write to the correct store
+  // All address fields retain list identity in the same local compose store.
+  const setRecipients = useCallback(
+    (field: RecipientField, recipients: Recipient[]) => {
+      if (isContextMode) {
+        composerContext!.setComposeData((prev) => ({
+          ...prev,
+          [field]: recipientsToString(recipients),
+          ...(__ENABLE_CONTACT_LISTS__
+            ? {
+                contactLists: [
+                  ...(prev.contactLists ?? []).filter(
+                    (list) => (list.field ?? "to") !== field,
+                  ),
+                  ...getContactListRecipientDescriptors(recipients, field),
+                ],
+              }
+            : {}),
+          ...(field === "to" ? { is_reply: false } : {}),
+        }));
+      } else {
+        const setter =
+          field === "to"
+            ? setLocalTo
+            : field === "cc"
+              ? setLocalCc
+              : setLocalBcc;
+        setter(recipients);
+      }
+    },
+    [isContextMode, composerContext],
+  );
   const setToRecipients = useCallback(
-    (recipients: Recipient[]) => {
-      if (isContextMode) {
-        composerContext!.setComposeData((prev) => ({
-          ...prev,
-          to: recipientsToString(recipients),
-          contactLists: getContactListRecipientDescriptors(recipients),
-          is_reply: false,
-        }));
-      } else {
-        setLocalTo(recipients);
-      }
-    },
-    [isContextMode, composerContext],
+    (recipients: Recipient[]) => setRecipients("to", recipients),
+    [setRecipients],
   );
-
   const setCcRecipients = useCallback(
-    (recipients: Recipient[]) => {
-      if (isContextMode) {
-        composerContext!.setComposeData((prev) => ({
-          ...prev,
-          cc: recipientsToString(recipients),
-        }));
-      } else {
-        setLocalCc(recipients);
-      }
-    },
-    [isContextMode, composerContext],
+    (recipients: Recipient[]) => setRecipients("cc", recipients),
+    [setRecipients],
+  );
+  const setBccRecipients = useCallback(
+    (recipients: Recipient[]) => setRecipients("bcc", recipients),
+    [setRecipients],
   );
 
-  const setBccRecipients = useCallback(
-    (recipients: Recipient[]) => {
+  const setListDelivery = useCallback(
+    (enabled: boolean) => {
+      if (!__ENABLE_CONTACT_LISTS__) return;
       if (isContextMode) {
-        composerContext!.setComposeData((prev) => ({
-          ...prev,
-          bcc: recipientsToString(recipients),
+        composerContext!.setComposeData((previous) => ({
+          ...previous,
+          listDelivery: enabled,
+          draftDocument: previous.draftDocument
+            ? { ...previous.draftDocument, listDelivery: enabled }
+            : undefined,
+          ...(enabled ? {} : { contactLists: [] }),
         }));
       } else {
-        setLocalBcc(recipients);
+        setLocalDraftDocument((previous) =>
+          previous ? { ...previous, listDelivery: enabled } : undefined,
+        );
+        if (!enabled) {
+          const withoutLists = (recipients: Recipient[]) =>
+            recipients.filter((recipient) => recipient.type !== "list");
+          setLocalTo(withoutLists);
+          setLocalCc(withoutLists);
+          setLocalBcc(withoutLists);
+        }
       }
     },
     [isContextMode, composerContext],
@@ -1249,6 +1392,10 @@ export function useComposeForm({
     initialized: false,
   });
 
+  // A body that arrived with its own signature (a template that holds one).
+  const suppressAutoSignature =
+    __IS_PRO__ && !!composerContext?.composeData.suppressAutoSignature;
+
   useEffect(() => {
     if (operationGateRef.current) return;
     let automatic = automaticSignatureRef.current;
@@ -1264,10 +1411,13 @@ export function useComposeForm({
       automaticSignatureRef.current = automatic;
       leadingBlanksInsertedRef.current = false;
     }
-    // A restored draft and a deliberate format conversion retain their content.
+    // A restored draft, a body that already carries its signature and a
+    // deliberate format conversion retain their content.
     if (
       (!automatic.initialized &&
-        (hasAnyDraftIdentityMarker || isScheduledEdit)) ||
+        (hasAnyDraftIdentityMarker ||
+          isScheduledEdit ||
+          suppressAutoSignature)) ||
       automatic.contentType !== contentType
     )
       automatic.locked = true;
@@ -1481,7 +1631,7 @@ export function useComposeForm({
         to: "",
         cc: "",
         bcc: "",
-        contactLists: [],
+        ...(__ENABLE_CONTACT_LISTS__ ? { contactLists: [] } : null),
         subject: "",
         body: "",
         contentType: undefined,
@@ -1497,9 +1647,13 @@ export function useComposeForm({
         draftUidValidity: undefined,
         draftMessageId: undefined,
         draftAttachmentManifestComplete: undefined,
-        scheduledEmailId: undefined,
-        scheduledAccountId: undefined,
-        scheduledAt: undefined,
+        ...(__IS_PRO__
+          ? {
+              scheduledEmailId: undefined,
+              scheduledAccountId: undefined,
+              scheduledAt: undefined,
+            }
+          : {}),
       });
     } else {
       setLocalTo([]);
@@ -1592,9 +1746,17 @@ export function useComposeForm({
         to: recipientsToString(uniqueRecipientGroups.to),
         cc: recipientsToString(uniqueRecipientGroups.cc),
         bcc: recipientsToString(uniqueRecipientGroups.bcc),
-        contactListIds: getContactListRecipientDescriptors(
-          uniqueRecipientGroups.to,
-        ).map((list) => list.id),
+        ...(__ENABLE_CONTACT_LISTS__
+          ? {
+              contactListIds: getRecipientGroupContactLists(
+                uniqueRecipientGroups,
+              ).map((list) => list.id),
+              recipientListFields: getRecipientListFields(
+                uniqueRecipientGroups,
+              ),
+              listDelivery,
+            }
+          : null),
         subject: overrides?.subject ?? subject,
         body: resolveOutgoingBody(overrides?.body),
         draftDocument: contentType === "plain" ? null : draftDocument,
@@ -1612,6 +1774,7 @@ export function useComposeForm({
       uniqueRecipientGroups,
       resolveOutgoingBody,
       contentType,
+      listDelivery,
       draftDocument,
       inReplyTo,
       references,
@@ -1735,6 +1898,10 @@ export function useComposeForm({
       opts: SaveDraftOptions | undefined,
       composeSessionVersion: number | null,
     ): Promise<SaveDraftResult> => {
+      if (senderNeedsConfirmation) {
+        if (!opts?.silent) appMessage(senderUnavailableMessage, "error");
+        return { ok: false, draft: null };
+      }
       draftGoneRef.current = false;
       if (hasIncompleteDraftIdentity) {
         appMessage(
@@ -1792,33 +1959,51 @@ export function useComposeForm({
         "bcc",
         opts?.bcc ?? recipientsToString(uniqueRecipientGroups.bcc),
       );
-      formData.append(
-        "contact_list_ids",
-        JSON.stringify(
-          opts?.contactListIds ??
-            getContactListRecipientDescriptors(uniqueRecipientGroups.to).map(
-              (list) => list.id,
-            ),
-        ),
-      );
+      if (__ENABLE_CONTACT_LISTS__)
+        formData.append(
+          "contact_list_ids",
+          JSON.stringify(
+            opts?.contactListIds ??
+              getRecipientGroupContactLists(uniqueRecipientGroups).map(
+                (list) => list.id,
+              ),
+          ),
+        );
       formData.append("subject", opts?.subject ?? subject);
       formData.append("body", resolvedDraftBody);
       formData.append("content_type", opts?.contentType ?? contentType);
       formData.append("in_reply_to", opts?.inReplyTo ?? inReplyTo);
       formData.append("references", opts?.references ?? references);
       formData.append("account_id", String(accountId));
-      if ((opts?.contentType ?? contentType) !== "plain") {
-        const value =
-          editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value;
-        if (value)
-          formData.append(
-            "draft_document",
-            JSON.stringify({
-              version: 1,
-              dialect: editorDialectRef.current,
-              value,
-            }),
-          );
+      const recipientListFields = __ENABLE_CONTACT_LISTS__
+        ? (opts?.recipientListFields ??
+          getRecipientListFields(uniqueRecipientGroups))
+        : undefined;
+      const hasListRecipients =
+        Object.keys(recipientListFields ?? {}).length > 0;
+      const draftIsPlain = (opts?.contentType ?? contentType) === "plain";
+      const editorValue = draftIsPlain
+        ? undefined
+        : (editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value);
+      const value =
+        editorValue ??
+        (hasListRecipients || (opts?.listDelivery ?? listDelivery)
+          ? [{ type: "p", children: [{ text: "" }] }]
+          : undefined);
+      if (value) {
+        formData.append(
+          "draft_document",
+          JSON.stringify({
+            version: 1,
+            dialect: editorDialectRef.current,
+            value,
+            ...(hasListRecipients ? { recipientListFields } : {}),
+            ...(__ENABLE_CONTACT_LISTS__ && (opts?.listDelivery ?? listDelivery)
+              ? { listDelivery: true }
+              : {}),
+            ...(draftIsPlain || !editorValue ? { metadataOnly: true } : {}),
+          }),
+        );
       }
       const draftAttachmentManifestComplete =
         opts?.draftAttachmentManifestComplete ??
@@ -1949,7 +2134,10 @@ export function useComposeForm({
     [
       getSendingAccountId,
       resolveOutgoingBody,
+      senderNeedsConfirmation,
+      senderUnavailableMessage,
       contentType,
+      listDelivery,
       inReplyTo,
       references,
       getDraftSnapshot,
@@ -2149,11 +2337,37 @@ export function useComposeForm({
   );
 
   const handleSend = useCallback(async () => {
+    if (senderNeedsConfirmation) {
+      appMessage(senderUnavailableMessage, "error");
+      return;
+    }
     // Set once the server accepts the message. After that, a failure (the
     // close callback, the acknowledgement) must not claim it was not sent.
     let accepted = false;
     if (receiptActions.pending) return;
-    if (toRecipients.length === 0) {
+    if (
+      __ENABLE_CONTACT_LISTS__ &&
+      listDelivery &&
+      (getRecipientGroupContactLists(uniqueRecipientGroups).length !== 1 ||
+        [
+          ...uniqueRecipientGroups.to,
+          ...uniqueRecipientGroups.cc,
+          ...uniqueRecipientGroups.bcc,
+        ].some((recipient) => recipient.type !== "list"))
+    ) {
+      appMessage(
+        __(
+          "A full list email needs exactly one contact list and no individual To, Cc or Bcc recipients.",
+          "pressedmail",
+        ),
+        "error",
+      );
+      return;
+    }
+    if (
+      toRecipients.length + ccRecipients.length + bccRecipients.length ===
+      0
+    ) {
       appMessage(
         __("Please enter at least one recipient", "pressedmail"),
         "error",
@@ -2209,19 +2423,29 @@ export function useComposeForm({
       to: recipientsToString(uniqueRecipientGroups.to),
       cc: recipientsToString(uniqueRecipientGroups.cc),
       bcc: recipientsToString(uniqueRecipientGroups.bcc),
-      contactListIds: getContactListRecipientDescriptors(
-        uniqueRecipientGroups.to,
-      ).map((list) => list.id),
+      ...(__ENABLE_CONTACT_LISTS__
+        ? {
+            contactListIds: getRecipientGroupContactLists(
+              uniqueRecipientGroups,
+            ).map((list) => list.id),
+            recipientListFields: getRecipientListFields(uniqueRecipientGroups),
+            listDelivery,
+          }
+        : {}),
       subject: effectiveSubject,
       body:
         contentType === "plain"
           ? resolvedBody
           : prepareEmailHtmlForSend(resolvedBody, { bodyBackgroundColor }),
       contentType,
-      readReceipt: {
-        requested: receiptRequested,
-        revision: receiptRequested ? receiptValue.revision : "",
-      },
+      ...(__ENABLE_EMAIL_TRACKING__
+        ? {
+            readReceipt: {
+              requested: receiptRequested,
+              revision: receiptRequested ? receiptValue.revision : "",
+            },
+          }
+        : {}),
       inReplyTo,
       references,
       isImportant,
@@ -2263,12 +2487,48 @@ export function useComposeForm({
         return;
       }
 
-      const activeSendSnapshot = activeSendSnapshotRef.current;
+      let activeSendSnapshot = activeSendSnapshotRef.current;
       if (
         !activeSendSnapshot ||
         activeSendSnapshot.composeSessionVersion !== composeSessionVersion
       ) {
         return;
+      }
+
+      // Undo needs a recoverable draft, including retained attachment identities.
+      if (
+        __IS_PRO__ &&
+        activeSendSnapshot.listDelivery &&
+        composePro?.undoSendEnabled
+      ) {
+        const saved = await saveDraftToServer(
+          {
+            silent: true,
+            subject: activeSendSnapshot.subject,
+            body: activeSendSnapshot.body,
+            to: activeSendSnapshot.to,
+            cc: activeSendSnapshot.cc,
+            bcc: activeSendSnapshot.bcc,
+            contactListIds: activeSendSnapshot.contactListIds,
+            recipientListFields: activeSendSnapshot.recipientListFields,
+            listDelivery: true,
+            contentType: activeSendSnapshot.contentType,
+            inReplyTo: activeSendSnapshot.inReplyTo,
+            references: activeSendSnapshot.references,
+            accountId: activeSendSnapshot.accountId,
+            attachments: activeSendSnapshot.attachments,
+            draftAttachmentManifestComplete:
+              activeSendSnapshot.draftAttachmentManifestComplete,
+          },
+          true,
+        );
+        if (
+          !saved.ok ||
+          !saved.draft ||
+          !ownsComposeSession(composeSessionVersion)
+        )
+          return;
+        activeSendSnapshot = activeSendSnapshotRef.current!;
       }
 
       const priorDraft = activeSendSnapshot.priorDraft;
@@ -2298,22 +2558,24 @@ export function useComposeForm({
       formData.append("to", activeSendSnapshot.to);
       formData.append("cc", activeSendSnapshot.cc);
       formData.append("bcc", activeSendSnapshot.bcc);
-      formData.append(
-        "contact_list_ids",
-        JSON.stringify(activeSendSnapshot.contactListIds),
-      );
+      if (__ENABLE_CONTACT_LISTS__)
+        formData.append(
+          "contact_list_ids",
+          JSON.stringify(activeSendSnapshot.contactListIds ?? []),
+        );
+      if (__ENABLE_CONTACT_LISTS__ && activeSendSnapshot.listDelivery)
+        formData.append("list_delivery", "1");
       formData.append("subject", activeSendSnapshot.subject);
       formData.append("body", activeSendSnapshot.body);
       formData.append("content_type", activeSendSnapshot.contentType);
-      formData.append(
-        "tracking_requested",
-        String(activeSendSnapshot.readReceipt.requested),
-      );
-      if (activeSendSnapshot.readReceipt.requested)
-        formData.append(
-          "tracking_consent_revision",
-          activeSendSnapshot.readReceipt.revision,
-        );
+      const sendReceipt = __ENABLE_EMAIL_TRACKING__
+        ? activeSendSnapshot.readReceipt
+        : undefined;
+      if (sendReceipt) {
+        formData.append("tracking_requested", String(sendReceipt.requested));
+        if (sendReceipt.requested)
+          formData.append("tracking_consent_revision", sendReceipt.revision);
+      }
       formData.append("in_reply_to", activeSendSnapshot.inReplyTo);
       formData.append("references", activeSendSnapshot.references);
       formData.append("account_id", String(activeSendSnapshot.accountId));
@@ -2365,7 +2627,19 @@ export function useComposeForm({
         formData.append("is_reply", "true");
       }
 
-      if (__IS_PRO__ && undoSendEnabled) {
+      const sendsFromSharedMailbox = isSharedResource(
+        accounts.find(
+          (account) =>
+            getAccountNumericId(account) === activeSendSnapshot.accountId,
+        ),
+      );
+      if (
+        __IS_PRO__ &&
+        composePro !== null &&
+        composePro.undoSendEnabled &&
+        !activeSendSnapshot.listDelivery &&
+        !sendsFromSharedMailbox
+      ) {
         if (currentAttachments.length > 0) {
           appMessage(
             __(
@@ -2386,6 +2660,7 @@ export function useComposeForm({
             cc: activeSendSnapshot.cc,
             bcc: activeSendSnapshot.bcc,
             contactListIds: activeSendSnapshot.contactListIds,
+            recipientListFields: activeSendSnapshot.recipientListFields,
             contentType: activeSendSnapshot.contentType,
             inReplyTo: activeSendSnapshot.inReplyTo,
             references: activeSendSnapshot.references,
@@ -2433,14 +2708,14 @@ export function useComposeForm({
         // failing callback must not say it was not sent.
         accepted = true;
         const pendingId = Number(response.data?.id);
-        showUndoSend({
+        composePro.showUndoSend({
           id: Number.isFinite(pendingId) ? pendingId : 0,
           subject: activeSendSnapshot.subject,
           sendAt: response.data?.send_at,
           delaySeconds:
             response.data?.delay_seconds ||
             response.data?.remaining_seconds ||
-            undoSendDelaySeconds,
+            composePro.undoSendDelaySeconds,
         });
 
         if (ownsComposeSession(composeSessionVersion)) {
@@ -2497,7 +2772,7 @@ export function useComposeForm({
       }
       if (!ownsComposeSession(composeSessionVersion)) return;
 
-      if (response.outcome !== "accepted") {
+      if (response.outcome !== "accepted" && response.outcome !== "queued") {
         appMessage(
           response?.message ||
             __(
@@ -2510,11 +2785,27 @@ export function useComposeForm({
       }
 
       accepted = true;
+      if (__ENABLE_CONTACT_LISTS__ && response.outcome === "queued") {
+        if (response.pending_email_id && composePro)
+          composePro.showUndoSend({
+            id: response.pending_email_id,
+            subject: activeSendSnapshot.subject,
+            sendAt: response.send_at,
+            delaySeconds:
+              response.remaining_seconds ??
+              response.delay_seconds ??
+              composePro.undoSendDelaySeconds,
+          });
+      }
       appMessage(
         response.warning ||
           response.message ||
           __("Message sent successfully!", "pressedmail"),
-        response.warning ? "warning" : "success",
+        response.outcome === "queued"
+          ? "info"
+          : response.warning
+            ? "warning"
+            : "success",
       );
 
       // Invalidate all message caches for this account so the Sent folder
@@ -2537,6 +2828,15 @@ export function useComposeForm({
           onClose();
           await acknowledgeNormalSend(response.attempt_key);
         }
+        if (__ENABLE_CONTACT_LISTS__ && response.outcome === "queued")
+          window.dispatchEvent(
+            new CustomEvent("pressedmail-list-delivery-queued", {
+              detail: {
+                account_id: activeSendSnapshot.accountId,
+                delivery_id: response.delivery_id,
+              },
+            }),
+          );
       }
     } catch (error) {
       // sendNormalEmail reports its own failures, so anything caught here
@@ -2577,7 +2877,10 @@ export function useComposeForm({
     contentType,
     receiptActions.pending,
     receiptRequested,
+    listDelivery,
     receiptValue.revision,
+    senderNeedsConfirmation,
+    senderUnavailableMessage,
     inReplyTo,
     references,
     isImportant,
@@ -2588,12 +2891,11 @@ export function useComposeForm({
     quotedTextInput,
     showQuotedText,
     resolveSendingAccount,
+    accounts,
     maxAttachmentSizeMb,
     editorRef,
-    undoSendEnabled,
-    undoSendDelaySeconds,
+    composePro,
     saveDraftToServer,
-    showUndoSend,
     clearForm,
     onClose,
     onSendSuccess,
@@ -2618,6 +2920,12 @@ export function useComposeForm({
         allowDuringOperation?: boolean;
       } = {},
     ): Promise<boolean> => {
+      if (senderNeedsConfirmation) {
+        if (!submitOptions.silent)
+          appMessage(senderUnavailableMessage, "error");
+        return false;
+      }
+
       if (__IS_FREE__ || receiptActions.pending) return false;
       const silent = submitOptions.silent === true;
       const allowDuringOperation = submitOptions.allowDuringOperation === true;
@@ -2629,6 +2937,25 @@ export function useComposeForm({
       if (!hasRecipient) {
         appMessage(
           __("Please enter at least one recipient", "pressedmail"),
+          "error",
+        );
+        return false;
+      }
+      if (
+        __ENABLE_CONTACT_LISTS__ &&
+        listDelivery &&
+        (getRecipientGroupContactLists(uniqueRecipientGroups).length !== 1 ||
+          [
+            ...uniqueRecipientGroups.to,
+            ...uniqueRecipientGroups.cc,
+            ...uniqueRecipientGroups.bcc,
+          ].some((recipient) => recipient.type !== "list"))
+      ) {
+        appMessage(
+          __(
+            "A full list email needs exactly one contact list and no individual To, Cc or Bcc recipients.",
+            "pressedmail",
+          ),
           "error",
         );
         return false;
@@ -2791,65 +3118,106 @@ export function useComposeForm({
           return false;
         const scheduledAttachments =
           serializeScheduledAttachments(scheduledSources);
-        const scheduledDocumentValue = contentType === "html"
-          ? (editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value)
+        const scheduledListFields = __ENABLE_CONTACT_LISTS__
+          ? getRecipientListFields(uniqueRecipientGroups)
           : undefined;
+        const hasScheduledLists =
+          Object.keys(scheduledListFields ?? {}).length > 0;
+        const scheduledEditorValue =
+          contentType === "html"
+            ? (editorRef.current?.getValue?.() ??
+              draftDocumentRef.current?.value)
+            : undefined;
+        const scheduledDocumentValue =
+          scheduledEditorValue ??
+          (hasScheduledLists || listDelivery
+            ? [{ type: "p", children: [{ text: "" }] }]
+            : undefined);
         const apiUrl = window.pressedmailPlugin?.apiUrl || "";
 
         const endpoint = isScheduledEdit
           ? `${apiUrl}${getRuntimeRestNamespace()}/scheduled-emails/update/${scheduledEmailId}`
           : `${apiUrl}${getRuntimeRestNamespace()}/scheduled-emails/schedule`;
+        const authoredRequest = {
+          account_id: sendingAccountId,
+          ...(__ENABLE_CONTACT_LISTS__ && listDelivery
+            ? { list_delivery: "1" }
+            : {}),
+          // Explicitly clear any retired sender selection after the UI confirmation.
+          sender_alias_id: null,
+          sender_alias_email: null,
+          to_addresses: recipientsToString(uniqueRecipientGroups.to),
+          cc_addresses:
+            recipientsToString(uniqueRecipientGroups.cc) || undefined,
+          bcc_addresses:
+            recipientsToString(uniqueRecipientGroups.bcc) || undefined,
+          contact_list_ids: getRecipientGroupContactLists(
+            uniqueRecipientGroups,
+          ).map((list) => list.id),
+          subject: effectiveSubject,
+          body: scheduledBody,
+          ...(contentType === "html" && bodyBackgroundColor
+            ? { body_background_color: bodyBackgroundColor }
+            : {}),
+          content_type: contentType,
+          ...(scheduledDocumentValue
+            ? {
+                draft_document: JSON.stringify({
+                  version: 1,
+                  dialect: editorDialectRef.current,
+                  value: scheduledDocumentValue,
+                  ...(hasScheduledLists
+                    ? { recipientListFields: scheduledListFields }
+                    : {}),
+                  ...(__ENABLE_CONTACT_LISTS__ && listDelivery
+                    ? { listDelivery: true }
+                    : {}),
+                  ...(contentType === "plain" || !scheduledEditorValue
+                    ? { metadataOnly: true }
+                    : {}),
+                }),
+              }
+            : {}),
+          tracking_requested: receiptRequested,
+          tracking_consent_revision: receiptRequested
+            ? receiptValue.revision
+            : undefined,
+          in_reply_to: inReplyTo,
+          references,
+          attachments: scheduledAttachments,
+          scheduled_at:
+            typeof scheduledAt === "string"
+              ? scheduledAt
+              : scheduledAt.toISOString(),
+          importance: isImportant ? "high" : undefined,
+          ...(priorDraft
+            ? {
+                prior_draft_uid: priorDraft.uid,
+                prior_draft_folder: priorDraft.folder,
+                prior_draft_account_id: priorDraft.accountId,
+                prior_draft_uidvalidity: priorDraft.uidValidity,
+                prior_draft_message_id: priorDraft.messageId,
+              }
+            : {}),
+        };
+        const scheduledAttempt =
+          __ENABLE_CONTACT_LISTS__ && listDelivery
+            ? await retainScheduledListIntent(
+                sendingAccountId,
+                JSON.stringify(authoredRequest),
+              )
+            : undefined;
+        if (
+          !isRequestPrincipalCurrent(principal) ||
+          !ownsComposeSession(composeSessionVersion)
+        )
+          return false;
         const response = await apiFetch(endpoint, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            account_id: sendingAccountId,
-            to_addresses: recipientsToString(uniqueRecipientGroups.to),
-            cc_addresses:
-              recipientsToString(uniqueRecipientGroups.cc) || undefined,
-            bcc_addresses:
-              recipientsToString(uniqueRecipientGroups.bcc) || undefined,
-            contact_list_ids: getContactListRecipientDescriptors(
-              uniqueRecipientGroups.to,
-            ).map((list) => list.id),
-            subject: effectiveSubject,
-            body: scheduledBody,
-            ...(contentType === "html" && bodyBackgroundColor
-              ? { body_background_color: bodyBackgroundColor }
-              : {}),
-            content_type: contentType,
-            ...(scheduledDocumentValue
-              ? {
-                  draft_document: JSON.stringify({
-                    version: 1,
-                    dialect: editorDialectRef.current,
-                    value: scheduledDocumentValue,
-                  }),
-                }
-              : {}),
-            tracking_requested: receiptRequested,
-            tracking_consent_revision: receiptRequested
-              ? receiptValue.revision
-              : undefined,
-            in_reply_to: inReplyTo,
-            references,
-            attachments: scheduledAttachments,
-            scheduled_at:
-              typeof scheduledAt === "string"
-                ? scheduledAt
-                : scheduledAt.toISOString(),
-            importance: isImportant ? "high" : undefined,
-            ...(priorDraft
-              ? {
-                  prior_draft_uid: priorDraft.uid,
-                  prior_draft_folder: priorDraft.folder,
-                  prior_draft_account_id: priorDraft.accountId,
-                  prior_draft_uidvalidity: priorDraft.uidValidity,
-                  prior_draft_message_id: priorDraft.messageId,
-                }
-              : {}),
+            ...authoredRequest,
+            ...(scheduledAttempt ? { attempt_key: scheduledAttempt } : {}),
           }),
         });
 
@@ -2874,9 +3242,15 @@ export function useComposeForm({
           return false;
         }
 
-        if (scheduledDocumentValue && result.data?.draft_document_stored === false) {
+        if (
+          scheduledDocumentValue &&
+          result.data?.draft_document_stored === false
+        ) {
           appMessage(
-            __("Rich Text blocks may change when this scheduled draft reopens because site document storage is off.", "pressedmail"),
+            __(
+              "Rich Text blocks may change when this scheduled draft reopens because site document storage is off.",
+              "pressedmail",
+            ),
             "warning",
           );
         }
@@ -2901,6 +3275,8 @@ export function useComposeForm({
         }
         onDraftSaved?.(priorDraft?.folder);
         onScheduledChanged?.();
+        if (scheduledAttempt)
+          await acknowledgeScheduledListIntent(scheduledAttempt);
         return true;
       } catch (error) {
         if (
@@ -2935,9 +3311,12 @@ export function useComposeForm({
       body,
       bodyBackgroundColor,
       contentType,
+      listDelivery,
       receiptActions.pending,
       receiptRequested,
       receiptValue.revision,
+      senderNeedsConfirmation,
+      senderUnavailableMessage,
       inReplyTo,
       references,
       attachments,
@@ -3228,6 +3607,14 @@ export function useComposeForm({
     }
   }, [composerContext, draftOpened, getDraftSnapshot]);
   useEffect(() => () => draftBaselineStopRef.current?.(), []);
+  // One-shot like draftOpened: the signature effect above has read it by now.
+  useEffect(() => {
+    if (suppressAutoSignature) {
+      composerContext!.setComposeData(
+        ({ suppressAutoSignature: _consumed, ...rest }) => rest,
+      );
+    }
+  }, [composerContext, suppressAutoSignature]);
 
   const hasComposedDraftContent = useCallback(() => {
     const isGeneratedMessage =
@@ -3241,11 +3628,14 @@ export function useComposeForm({
         recipientsToString(toRecipients) !== initial.to ||
         recipientsToString(ccRecipients) !== initial.cc ||
         recipientsToString(bccRecipients) !== initial.bcc ||
-        JSON.stringify(
-          getContactListRecipientDescriptors(toRecipients).map(
-            (list) => list.id,
-          ),
-        ) !== JSON.stringify(initial.contactListIds) ||
+        (__ENABLE_CONTACT_LISTS__ &&
+          JSON.stringify(
+            getRecipientListFields({
+              to: toRecipients,
+              cc: ccRecipients,
+              bcc: bccRecipients,
+            }),
+          ) !== JSON.stringify(initial.recipientListFields)) ||
         subject !== initial.subject ||
         bodyHasUserContent(body, mode, contentType) !== initial.authoredBody ||
         contentType !== initial.contentType ||
@@ -3827,6 +4217,29 @@ export function useComposeForm({
     ],
   );
 
+  // setup applies at delivery. A saved draft lives in its mailbox's Drafts
+  // folder and a reply answers from the mailbox it was bound to, so neither
+  // moves. Says whether the draft now sends from that mailbox.
+  const setFromAccountId = useCallback(
+    (accountId: number): boolean => {
+      if (getSendingAccountId() === accountId) return true;
+      if (typeof contextBoundAccountId === "number" || inReplyTo) return false;
+      const account = accounts.find(
+        (candidate) => getAccountNumericId(candidate) === accountId,
+      );
+      if (!account?.email) return false;
+      setFromAccount(account.email);
+      return true;
+    },
+    [
+      accounts,
+      contextBoundAccountId,
+      getSendingAccountId,
+      inReplyTo,
+      setFromAccount,
+    ],
+  );
+
   const handleBlockInsert = useCallback(
     (html: string) => {
       if (editorRef.current) {
@@ -3973,16 +4386,32 @@ export function useComposeForm({
 
   // A subject is optional. The send path substitutes "[No Subject]" when it is
   // blank, so only a recipient is required to enable sending.
-  const canSend = toRecipients.length > 0;
+  const canSend =
+    toRecipients.length + ccRecipients.length + bccRecipients.length > 0 &&
+    !senderNeedsConfirmation &&
+    (!listDelivery ||
+      (getRecipientGroupContactLists(uniqueRecipientGroups).length === 1 &&
+        [
+          ...uniqueRecipientGroups.to,
+          ...uniqueRecipientGroups.cc,
+          ...uniqueRecipientGroups.bcc,
+        ].every((recipient) => recipient.type === "list")));
   const modeTitle = getModeTitle(mode);
 
   return {
-    readReceipt: {
-      ...receiptActions,
-      available: trackingAvailable,
-      requested: receiptRequested,
-    },
+    senderNeedsConfirmation,
+    confirmAccountSender,
+    ...(__ENABLE_EMAIL_TRACKING__
+      ? {
+          readReceipt: {
+            ...receiptActions,
+            available: receiptAvailable,
+            requested: receiptRequested,
+          },
+        }
+      : {}),
     toRecipients,
+    ...(__ENABLE_CONTACT_LISTS__ ? { listDelivery, setListDelivery } : {}),
     ccRecipients,
     bccRecipients,
     subject,
@@ -4002,7 +4431,6 @@ export function useComposeForm({
     confirmation,
     resolveConfirmation,
     isImportant,
-    isScheduling,
     isSavingDraft,
     isDiscarding,
     pendingInlineImageUploads,
@@ -4013,15 +4441,12 @@ export function useComposeForm({
     mode,
     modeTitle,
     fromAccount,
-    isScheduledEdit,
-    scheduledAt,
+    ...(__IS_FREE__ ? null : { isSharedMailbox }),
     canSend,
     signaturesEnabled,
-    showAIPanel,
     canUploadAttachments,
     canUseMediaLibraryAttachments,
     maxAttachmentSizeMb,
-    contactListsEnabled,
     signatures,
     setToRecipients,
     setCcRecipients,
@@ -4038,8 +4463,6 @@ export function useComposeForm({
     setFromAccount,
     // Send on an armed schedule means "send it now", not "queue a second copy".
     handleSend: isScheduledEdit ? handleScheduledSendNow : handleSend,
-    handleSchedule,
-    handleRemoveSchedule,
     handleSaveDraft,
     handleDiscard,
     handleDiscardConfirm,
@@ -4047,6 +4470,7 @@ export function useComposeForm({
     handleDiscardSaveAndClose,
     handleDiscardCancel,
     handleSignatureSelect,
+    sendingAccountId: getSendingAccountId(),
     handleEditorReady,
     handleBlockInsert,
     handleAttachment,
@@ -4058,5 +4482,17 @@ export function useComposeForm({
     endInlineImageUpload,
     fileInputRef,
     getComposeSessionVersion,
+    // Scheduled send, inline AI and contact lists are Pro; Free returns none.
+    ...(__IS_FREE__
+      ? null
+      : {
+          isScheduling,
+          isScheduledEdit,
+          scheduledAt,
+          showAIPanel: composePro?.showAIPanel ?? false,
+          contactListsEnabled: composePro?.contactListsEnabled ?? false,
+          handleSchedule,
+          handleRemoveSchedule,
+        }),
   };
 }

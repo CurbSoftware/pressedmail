@@ -51,11 +51,14 @@ export const router = createHashRouter(
               ),
             },
             {
+              // Not mobile-only: on desktop ComposeRoute opens the pane
+              // composer, which is what mailto links and the share target
+              // land on. Guarding it redirected them to an empty inbox.
               path: "compose",
-              lazy: mobileOnlyLazy(
-                () => import("./pages/mobile/MobileComposeScreen"),
-                "/inbox",
-              ),
+              lazy: () =>
+                import("./pages/ComposeRoute").then((m) => ({
+                  Component: m.default,
+                })),
             },
             {
               path: "search",

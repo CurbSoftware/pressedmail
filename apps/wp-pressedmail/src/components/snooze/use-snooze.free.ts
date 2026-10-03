@@ -1,31 +1,14 @@
 /**
- * Free-edition snooze hook: inert.
+ * Free-edition snooze hook: nothing.
  *
- * The Free interface does not include snooze controls, but shared inbox code
- * still imports this hook.
+ * Snooze is Pro. Shared inbox code still destructures this hook, but every
+ * read of its members sits behind a Pro define, so Free returns an empty value
+ * rather than a stand-in for the Pro API.
  */
-import { __ } from "@wordpress/i18n";
 import type { UseSnoozeReturn } from "@/types/snooze";
 
-const failure = async () => ({
-  success: false,
-  error: __("Snooze is unavailable.", "pressedmail"),
-});
+const NO_SNOOZE = {} as UseSnoozeReturn;
 
 export function useSnooze(): UseSnoozeReturn {
-  return {
-    snoozedEmails: [],
-    isLoading: false,
-    error: null,
-    presets: [],
-    capabilities: null,
-    snoozeEmail: failure,
-    unsnoozeEmail: failure,
-    updateSnooze: failure,
-    deleteSnooze: failure,
-    fetchSnoozedEmails: async () => undefined,
-    fetchPresets: async () => undefined,
-    fetchCapabilities: async () => undefined,
-    isMessageSnoozed: async () => false as const,
-  } as UseSnoozeReturn;
+  return NO_SNOOZE;
 }

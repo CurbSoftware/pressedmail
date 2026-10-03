@@ -104,7 +104,6 @@ const FreeBulkActionBar = ({
   );
 };
 
-const Placeholder = () => null;
 const MessageView = () => <div>Message View</div>;
 const AdvancedSearch = () => <div>Advanced Search</div>;
 const AccountSelector = () => <div>Account Selector</div>;
@@ -129,27 +128,5 @@ export const defaultFreeLayoutParts: LayoutRegistryEntry = {
     AccountSelector,
     SettingsLink,
     VerticalIconMenu: GlobalNavBar,
-  },
-  contacts: {
-    Layout: Placeholder,
-    Manager: Placeholder,
-    Lists: Placeholder,
-    ContactCard: Placeholder,
-    ContactDetail: Placeholder,
-    ContactForm: Placeholder,
-    ContactNav: Placeholder,
-    SearchBar: Placeholder,
-    GroupManagement: Placeholder,
-  },
-  calendar: {
-    Layout: Placeholder,
-    Events: Placeholder,
-    MonthView: Placeholder,
-    WeekView: Placeholder,
-    DayView: Placeholder,
-    MiniCalendar: Placeholder,
-    EventCard: Placeholder,
-    EventForm: Placeholder,
-    EventDetail: Placeholder,
   },
 };

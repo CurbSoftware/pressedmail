@@ -1,6 +1,8 @@
+import type { ElementType } from "react";
 import { __ } from "@wordpress/i18n";
 import {
   Activity,
+  Bell,
   CircleHelp,
   Folder,
   Key,
@@ -12,20 +14,21 @@ import {
   Stethoscope,
   Tags,
   UserCircle2,
-  type LucideIcon,
 } from "lucide-react";
 
 export interface MoreMenuRow {
   id: string;
   label: string;
   description?: string;
-  icon: LucideIcon;
+  icon: ElementType<{ className?: string }>;
   /** Route to navigate to. Mutually exclusive with `action`. */
   to?: string;
   /** Named imperative action the host resolves (e.g. toggling a panel). */
-  action?: "activity";
+  action?: "activity" | "notifications";
   /** Optional trailing count badge (e.g. active background tasks). */
   badge?: number;
+  /** What to do when the row is chosen, for a row an edition adds itself. Wins over `to` and `action`. */
+  onSelect?: () => void;
 }
 
 export interface MoreMenuSection {
@@ -36,17 +39,31 @@ export interface MoreMenuSection {
 
 export interface MoreMenuOptions {
   canManageSettings: boolean;
-  canManagePro: boolean;
+  /** Pro settings entry. Absent in Free. */
+  canManagePro?: boolean;
   activeTaskCount?: number;
+  /** Sections an edition adds after Mail: each one ready to show. Empty or absent in Free. */
+  extraSections?: MoreMenuSection[];
+  /** Unread notifications, shown as the badge on the Notifications row. */
+  notificationCount?: number;
 }
 
 /** Route and capability metadata for the single More screen. */
-export function buildMoreMenuSections({
-  canManageSettings,
-  canManagePro,
-  activeTaskCount = 0,
-}: MoreMenuOptions): MoreMenuSection[] {
+export function buildMoreMenuSections(
+  options: MoreMenuOptions,
+): MoreMenuSection[] {
+  const { canManageSettings, activeTaskCount = 0, notificationCount = 0 } = options;
   const mailRows: MoreMenuRow[] = [
+    {
+      // The phone's header has no bell on every screen, and this row is the way
+      // to the feed from the ones without.
+      id: "notifications",
+      label: __("Notifications", "pressedmail"),
+      description: __("New mail, reminders and warnings.", "pressedmail"),
+      icon: Bell,
+      action: "notifications",
+      badge: notificationCount,
+    },
     {
       id: "activity",
       label: __("Activity", "pressedmail"),
@@ -80,6 +97,7 @@ export function buildMoreMenuSections({
     },
   ];
 
+
   const settingsRows: MoreMenuRow[] = [
     {
       id: "settings",
@@ -110,7 +128,7 @@ export function buildMoreMenuSections({
   // the Free script and the edition-purity gate rejected the Free bundle for
   // carrying a Pro marker. With the variant check the branch is dead code in
   // Free and those ids never reach the bundle.
-  if (canManagePro && __IS_PRO__) {
+  if (__IS_PRO__ && options.canManagePro) {
     settingsRows.push({
       id: "ai-tools",
       label: __("AI Tools", "pressedmail"),
@@ -158,6 +176,7 @@ export function buildMoreMenuSections({
 
   return [
     { id: "app", label: __("Mail", "pressedmail"), rows: mailRows },
+    ...(options.extraSections ?? []),
     {
       id: "settings",
       label: __("Settings", "pressedmail"),

@@ -39,6 +39,7 @@ import {
 } from "./signature-document";
 import { ComposerAIKit } from "@/components/composer/plate/ai-kit.active";
 import { ComposerCopilotKit } from "@/components/composer/plate/copilot-kit.active";
+import { TemplateVariableKit } from "@/components/composer/nodes/template-variable-kit.active";
 import {
   serializePlateValueToHtml,
   serializePlateValueToPlainText,
@@ -66,8 +67,10 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       ariaLabel,
       placeholder = PLATE_EMAIL_EDITOR_DEFAULT_PLACEHOLDER,
       disabled = false,
+      contentHidden = false,
       autoFocus = false,
       aiEnabled = false,
+      variablesEnabled = false,
       minHeight,
       onChange,
       onValueChange,
@@ -92,12 +95,15 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
     const plugins = useMemo(
       () =>
         createPlateEmailEditorPluginKit({
-          basePlugins: buildComposerReactPlugins(dialect),
+          basePlugins: [
+            ...buildComposerReactPlugins(dialect),
+            ...(variablesEnabled ? TemplateVariableKit : []),
+          ],
           aiEnabled,
           aiPlugins: ComposerAIKit,
           copilotPlugins: ComposerCopilotKit,
         }),
-      [aiEnabled, dialect],
+      [aiEnabled, dialect, variablesEnabled],
     );
 
     // A dialect change rebuilds the editor from a different plugin set, which
@@ -119,7 +125,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
           | null
           | undefined,
       }),
-      [aiEnabled, dialect],
+      [aiEnabled, dialect, variablesEnabled],
     );
 
     useEffect(() => {
@@ -198,7 +204,9 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       if (editor && inertDeserializer && !initialValue) {
         editorController.hydrateInitialHtml(initialHtml, {
           deserializer: inertDeserializer,
-          setValue: setDocumentValue,
+          // Loading the saved body establishes a baseline, not an authored
+          // edit that the first insertion or keystroke may undo with it.
+          setValue: (value) => editor.tf.withoutSaving(() => setDocumentValue(value)),
         });
       }
     }, []);
@@ -224,12 +232,39 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       // The signature command is app-side: it edits the document model, which
       // the shared ref only reaches through HTML.
       const signatureCommand: ComposerSignatureCommand = {
+        undo: () => editor.undo(),
+        redo: () => editor.redo(),
+        captureDropSelection: (event) => {
+          const range = editor.api.findEventRange(event);
+          if (!range) return false;
+          editor.tf.select(range);
+          editorRef.captureSelection();
+          return true;
+        },
         insertSignatureBlock: (signature, placement) =>
           insertSignatureBlockInDocument(editor, signature, placement),
         removeSignatureBlock: () => removeSignatureBlockInDocument(editor),
       };
+      const captureSelection = editorRef.captureSelection;
+      let previewSelection = editor.selection;
+      const previewCommands = {
+        captureSelection: () => {
+          captureSelection();
+          const range = editor.selection;
+          previewSelection = range
+            ? {
+                anchor: { ...range.anchor, path: [...range.anchor.path] },
+                focus: { ...range.focus, path: [...range.focus.path] },
+              }
+            : null;
+        },
+        restoreFocus: () => {
+          if (previewSelection) editor.tf.select(previewSelection);
+          editor.tf.focus();
+        },
+      };
       return publishPlateEmailEditorRef({
-        editorRef: Object.assign(editorRef, signatureCommand),
+        editorRef: Object.assign(editorRef, signatureCommand, previewCommands),
         onReady: onReadyRef.current,
         forwardedRef: ref,
       });
@@ -266,7 +301,8 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
             </div>
           ) : null}
           <PlateContainer
-            className="pm-composer-editor"
+            className={cn("pm-composer-editor", contentHidden && "hidden")}
+            hidden={contentHidden}
             style={contentStyle}
             onClick={handleContainerClick}>
             <div
@@ -274,7 +310,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
               className="pm-composer-editor-content">
               <PlateContent
                 onBlur={onBlur}
-                readOnly={disabled}
+                readOnly={disabled || contentHidden}
                 autoFocus={autoFocus}
                 aria-label={ariaLabel}
                 placeholder={placeholder}

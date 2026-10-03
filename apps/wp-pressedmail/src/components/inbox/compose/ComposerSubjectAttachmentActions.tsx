@@ -1,5 +1,6 @@
 import { useRef, type ChangeEvent } from "react";
 import { __ } from "@wordpress/i18n";
+import { Camera } from "lucide-react";
 
 import type { UseComposeFormReturn } from "@/hooks/compose/v2/useComposeForm";
 import { Button, ButtonGroup } from "@kit/ui/plugin";
@@ -41,18 +42,20 @@ export function ComposerSubjectAttachmentActions({
     getComposeSessionVersion,
     isImportant,
     isDiscarding,
-    isScheduling,
     isSending,
     setIsImportant,
   } = form;
   const attachmentPickerSessionRef = useRef<number | null | undefined>(
     undefined,
   );
-  const isDeliveryPending = isSending || isScheduling || isDiscarding;
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  // Scheduled send is Pro.
+  const isDeliveryPending =
+    isSending || (!__IS_FREE__ && form.isScheduling) || isDiscarding;
 
-  const handleAttachClick = () => {
+  const openPicker = (input: HTMLInputElement | null) => {
     attachmentPickerSessionRef.current = getComposeSessionVersion();
-    fileInputRef.current?.click();
+    input?.click();
   };
 
   const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -110,7 +113,7 @@ export function ComposerSubjectAttachmentActions({
               variant="ghost"
               size="icon"
               className="pointer-coarse:min-h-11 pointer-coarse:min-w-11"
-              onClick={handleAttachClick}
+              onClick={() => openPicker(fileInputRef.current)}
               disabled={isDeliveryPending}
               aria-label={__("Attach files", "pressedmail")}
               data-test="attachment-button">
@@ -137,6 +140,30 @@ export function ComposerSubjectAttachmentActions({
             disabled={isDeliveryPending}
             className="hidden"
             accept="*/*"
+          />
+          {/* Touch devices only: a photo taken now, attached like any file. */}
+          <PressedTooltip content={__("Take photo", "pressedmail")} side="bottom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="pointer-fine:hidden pointer-coarse:min-h-11 pointer-coarse:min-w-11"
+              onClick={() => openPicker(cameraInputRef.current)}
+              disabled={isDeliveryPending}
+              aria-label={__("Take photo", "pressedmail")}
+              data-test="camera-attachment-button">
+              <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </PressedTooltip>
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleAttachmentChange}
+            disabled={isDeliveryPending}
+            className="hidden"
+            data-test="camera-attachment-input"
           />
         </>
       )}

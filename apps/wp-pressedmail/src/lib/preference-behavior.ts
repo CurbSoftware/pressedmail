@@ -1,5 +1,5 @@
 import type { EmailListSortState } from "@/lib/email-list-sort";
-import type { PlateEmailEditorDialect } from "@kit/plate/email-surfaces";
+import type { PlateEmailEditorDialect } from "@/lib/email-surfaces";
 import { utcIsoToZonedInput } from "@/components/calendar/calendar-timezone";
 import { getRuntimeSiteTimezone } from "@/lib/runtime-config";
 import { getMessageIdentityKey } from "@/lib/message-identity";
@@ -260,7 +260,7 @@ export function nextVisibleMessageAfterRemoval<
     id?: string | number;
     uid?: string | number;
     accountId?: string | number | null;
-    consolidatedUid?: string | number;
+    identityKey?: string | number;
     folder?: string;
     uidValidity?: string | number;
     uid_validity?: string | number;

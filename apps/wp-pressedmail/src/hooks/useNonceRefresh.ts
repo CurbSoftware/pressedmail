@@ -1,6 +1,13 @@
 import { useEffect } from "react";
 
 import { applyHeartbeatNonce } from "@/lib/nonce";
+import {
+  isFollowingLeader,
+  isTabLeader,
+  publishTabMessage,
+  subscribeLeadership,
+  subscribeTabMessages,
+} from "@/lib/tab-channel";
 
 /**
  * Proactively keep the SPA's WordPress REST nonce fresh on a long-open tab.
@@ -26,6 +33,23 @@ interface MinimalJQueryDocument {
 
 type JQueryLike = (target: Document) => MinimalJQueryDocument;
 
+interface HeartbeatApi {
+  interval: (speed?: number) => number;
+}
+
+/** WordPress Heartbeat's default admin interval, in seconds. */
+const HEARTBEAT_DEFAULT_S = 60;
+/** A follower tab gets its nonce from the leader, so its own heartbeat can slow down. */
+const HEARTBEAT_FOLLOWER_S = 120;
+
+function getHeartbeat(): HeartbeatApi | null {
+  const heartbeat = (window as unknown as { wp?: { heartbeat?: HeartbeatApi } })
+    .wp?.heartbeat;
+  return heartbeat && typeof heartbeat.interval === "function"
+    ? heartbeat
+    : null;
+}
+
 export function useNonceRefresh(): void {
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -39,12 +63,64 @@ export function useNonceRefresh(): void {
 
     const onTick: HeartbeatTickHandler = (_event, data) => {
       applyHeartbeatNonce(data);
+      // Pass the nonce to follower tabs. Each one re-checks the principal evidence
+      // against its own before installing it.
+      const payload = data as
+        | { pressedmail_rest_nonce?: unknown; pressedmail_principal?: unknown }
+        | null
+        | undefined;
+      const principal = payload?.pressedmail_principal as
+        | { site?: unknown; userId?: unknown }
+        | undefined;
+      if (
+        isTabLeader() &&
+        typeof payload?.pressedmail_rest_nonce === "string" &&
+        typeof principal?.site === "string" &&
+        typeof principal.userId === "number"
+      ) {
+        publishTabMessage({
+          type: "nonce",
+          nonce: payload.pressedmail_rest_nonce.trim(),
+          principal: { site: principal.site, userId: principal.userId },
+        });
+      }
     };
     const $document = jq(document);
     $document.on("heartbeat-tick.pressedmail-nonce", onTick);
 
+    // Slow this tab's heartbeat while it follows a leader; restore it when it leads.
+    // The interval in force before slowing (a site may filter it), restored afterwards.
+    let restoreTo: number | null = null;
+    const syncHeartbeatSpeed = () => {
+      const heartbeat = getHeartbeat();
+      if (!heartbeat) return;
+      const follow = !isTabLeader() && isFollowingLeader();
+      if (follow && restoreTo === null) {
+        const current = Number(heartbeat.interval());
+        restoreTo = current > 0 ? current : HEARTBEAT_DEFAULT_S;
+        heartbeat.interval(HEARTBEAT_FOLLOWER_S);
+      } else if (!follow && restoreTo !== null) {
+        heartbeat.interval(restoreTo);
+        restoreTo = null;
+      }
+    };
+    const unsubscribeLeadership = subscribeLeadership(syncHeartbeatSpeed);
+    const unsubscribeMessages = subscribeTabMessages((message) => {
+      if (message.type === "nonce" && !isTabLeader()) {
+        applyHeartbeatNonce({
+          pressedmail_rest_nonce: message.nonce,
+          pressedmail_principal: message.principal,
+        });
+      }
+      syncHeartbeatSpeed();
+    });
+    syncHeartbeatSpeed();
+
     return () => {
       $document.off("heartbeat-tick.pressedmail-nonce", onTick);
+      unsubscribeLeadership();
+      unsubscribeMessages();
+      if (restoreTo !== null) getHeartbeat()?.interval(restoreTo);
     };
   }, []);
 }

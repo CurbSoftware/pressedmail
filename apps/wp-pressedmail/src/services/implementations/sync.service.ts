@@ -1,3 +1,4 @@
+import { isEmailCacheEnabled } from "@/lib/principal-storage";
 import {
   getPrincipalStorageItem,
   removePrincipalStorageItem,
@@ -96,7 +97,7 @@ function normalizeUpdatedItem(item: Record<string, unknown>) {
               ![
                 "localId",
                 "local_id",
-                "consolidatedUid",
+                "identityKey",
                 "uid",
                 "id",
                 "messageId",
@@ -139,10 +140,14 @@ function normalizeDelta(
     ),
     // Combined diffs carry per-account readiness (undefined for single-account),
     // so applyDiff can refresh the readiness chips between full page loads.
-    consolidatedAccountReadiness:
-      payload.accounts !== undefined
-        ? parseConsolidatedAccountReadiness(payload.accounts)
-        : undefined,
+    ...(__SINGLE_MAILBOX__
+      ? null
+      : {
+          consolidatedAccountReadiness:
+            payload.accounts !== undefined
+              ? parseConsolidatedAccountReadiness(payload.accounts)
+              : undefined,
+        }),
   };
 }
 
@@ -198,8 +203,13 @@ function mergeDelta(
     folder: next.folder,
     syncToken: next.syncToken,
     // Readiness comes from the LATEST page that reported it.
-    consolidatedAccountReadiness:
-      next.consolidatedAccountReadiness ?? base.consolidatedAccountReadiness,
+    ...(__SINGLE_MAILBOX__
+      ? null
+      : {
+          consolidatedAccountReadiness:
+            next.consolidatedAccountReadiness ??
+            base.consolidatedAccountReadiness,
+        }),
   };
 }
 
@@ -296,6 +306,8 @@ export class SyncService implements ISyncService {
     syncToken: string,
     options?: SyncOptions & { consolidated?: boolean },
   ): Promise<SyncResult> {
+    if (!isEmailCacheEnabled())
+      return this.fullSync(accountId, { ...options, folder });
     // Coalesce concurrent syncs of the same (account, folder) so overlapping
     // triggers share ONE underlying request. Different scopes lock on distinct
     // keys and run in parallel.
@@ -356,19 +368,22 @@ export class SyncService implements ISyncService {
         iteration < MAX_HASMORE_ITERATIONS;
         iteration += 1
       ) {
-        const apiUrl = options?.consolidated
-          ? buildApiUrl(messagesConsolidatedDiffRouteApi, {
-              folder,
-              sync_token: currentToken,
-              account_ids: serializeConsolidatedAccountIds(options.accountIds),
-              folder_map: serializeConsolidatedFolderMap(options.folderMap),
-              ...getMailboxSourceRequestParams(),
-            })
-          : buildApiUrl(`${messagesDiffRouteApi}${accountId}`, {
-              folder,
-              sync_token: currentToken,
-              ...getMailboxSourceRequestParams(),
-            });
+        const apiUrl =
+          !__SINGLE_MAILBOX__ && options?.consolidated
+            ? buildApiUrl(messagesConsolidatedDiffRouteApi, {
+                folder,
+                sync_token: currentToken,
+                account_ids: serializeConsolidatedAccountIds(
+                  options.accountIds,
+                ),
+                folder_map: serializeConsolidatedFolderMap(options.folderMap),
+                ...getMailboxSourceRequestParams(),
+              })
+            : buildApiUrl(`${messagesDiffRouteApi}${accountId}`, {
+                folder,
+                sync_token: currentToken,
+                ...getMailboxSourceRequestParams(),
+              });
 
         const response = await apiFetch(
           apiUrl,

@@ -1,3 +1,4 @@
+import { EMAIL_CACHE_POLICY_EVENT } from "@/lib/principal-storage";
 import {
   getPrincipalStorageItem,
   setPrincipalStorageItem,
@@ -44,6 +45,7 @@ import type {
   LoadMessagesResult,
   OperationResult,
   BatchOperationResult,
+  BatchRemovalOptions,
   MessageFilters,
   ImapFolder,
   FolderListResult,
@@ -66,13 +68,18 @@ import {
   getPrefetchService,
   getConnectionStateService,
 } from "@/services/implementations";
+import { applyDeferredRemoval } from "@/context/bulk-action/bulk-action-status-store";
 import { refreshAccountSync } from "@/services/sync-driver.service";
+import { loadCombinedFolders } from "@/services/implementations/folder.service";
+import { getCombinedReadiness } from "@/services/implementations/inbox.service";
+import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useAppContext } from "./AppProvider";
 import { appMessage } from "./toast";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getSelectedFolder } from "@/lib/folder-persistence";
 import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
 import { markAsReadDelayMs } from "@/lib/preference-behavior";
+import { sharedMailboxRoleOf } from "@/components/sharing";
 import {
   buildConsolidatedAccountScopeKey,
   getAccountNumericId,
@@ -391,8 +398,11 @@ export interface InboxContextValue {
   hasMore: boolean;
   /** Total message count */
   totalCount: number;
-  /** Per-account readiness for the combined inbox (empty for single-mailbox). */
-  consolidatedAccountReadiness: ConsolidatedAccountReadiness[];
+  /**
+   * Per-account readiness for the combined inbox. Absent in a single-mailbox
+   * build.
+   */
+  consolidatedAccountReadiness?: ConsolidatedAccountReadiness[];
   /** Whether a message detail is loading */
   isMessageDetailLoading: boolean;
   /**
@@ -422,7 +432,7 @@ export interface InboxContextValue {
   /** Load an exact page for the current account/folder context */
   loadPage: (page: number, pageSize?: number) => Promise<LoadMessagesResult>;
   /** Refresh messages from server; `sync: false` rereads the mirror without an IMAP sync first */
-  refreshMessages: (options?: { sync?: boolean }) => Promise<void>;
+  refreshMessages: (options?: { sync?: boolean; syncAllAccounts?: boolean }) => Promise<void>;
   /** Drop cached pages for a folder so its next open refetches fresh */
   invalidateFolderMessages: (folder: string) => void;
   /** Select a message for viewing */
@@ -478,21 +488,25 @@ export interface InboxContextValue {
   batchDelete: (
     messageIds: (string | number)[],
     permanent?: boolean,
+    options?: BatchRemovalOptions,
   ) => Promise<BatchOperationResult>;
   /** Batch delete provided message objects */
   batchDeleteMessages: (
     messages: EmailMessage[],
     permanent?: boolean,
+    options?: BatchRemovalOptions,
   ) => Promise<BatchOperationResult>;
   /** Batch move */
   batchMove: (
     messageIds: (string | number)[],
     targetFolder: MutationTarget,
+    options?: BatchRemovalOptions,
   ) => Promise<BatchOperationResult>;
   /** Batch move provided message objects */
   batchMoveMessages: (
     messages: EmailMessage[],
     targetFolder: MutationTarget,
+    options?: BatchRemovalOptions,
   ) => Promise<BatchOperationResult>;
   /** Empty the current Trash folder */
   emptyTrash: (folder?: string) => Promise<BatchOperationResult>;
@@ -511,8 +525,11 @@ export interface InboxContextValue {
     accountId: string | number,
     forceRefresh?: boolean,
   ) => Promise<FolderListResult>;
-  /** Load and merge folders for selected accounts in consolidated mode */
-  loadConsolidatedFolders: (
+  /**
+   * Load and merge folders for selected accounts in consolidated mode. Absent
+   * in a single-mailbox build.
+   */
+  loadConsolidatedFolders?: (
     accountIds: number[],
     forceRefresh?: boolean,
   ) => Promise<FolderListResult>;
@@ -603,7 +620,6 @@ const defaultContextValue: InboxContextValue = {
   isLoadingMore: false,
   hasMore: false,
   totalCount: 0,
-  consolidatedAccountReadiness: [],
   isMessageDetailLoading: false,
   detailBodyPending: false,
   detailBodyError: false,
@@ -690,9 +706,6 @@ const defaultContextValue: InboxContextValue = {
   selectedFolder: "INBOX",
   isFoldersLoading: false,
   loadFolders: async () => {
-    throw new Error("InboxContext not initialized");
-  },
-  loadConsolidatedFolders: async () => {
     throw new Error("InboxContext not initialized");
   },
   refreshCurrentFolders: async () => {
@@ -884,7 +897,12 @@ export function InboxProvider({
   useEffect(() => {
     const accountIdStr =
       selectedAccountId != null ? String(selectedAccountId) : null;
-    if (!accountIdStr || accountIdStr === "consolidated") return;
+    if (
+      !accountIdStr ||
+      (!__SINGLE_MAILBOX__ && accountIdStr === "consolidated")
+    ) {
+      return;
+    }
 
     const folders = folderService.folders;
     if (!Array.isArray(folders) || folders.length === 0) return;
@@ -906,16 +924,17 @@ export function InboxProvider({
     setUser,
     setNumberOfMessages,
     setSelectedMessage,
-    selectedConsolidatedAccountIds,
     defaultAccountId,
   } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
   const { currentLayout } = useLayout();
 
   const accountsRef = useRef(accounts);
   accountsRef.current = accounts;
   const initializedAccountRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
-  const isConsolidatedMode = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+  const isConsolidatedMode =
+    !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE;
   const effectiveConsolidatedAccountIds = useMemo(
     () =>
       isConsolidatedMode
@@ -935,7 +954,10 @@ export function InboxProvider({
     ],
   );
   const consolidatedScopeKey = useMemo(
-    () => buildConsolidatedAccountScopeKey(effectiveConsolidatedAccountIds),
+    () =>
+      __SINGLE_MAILBOX__
+        ? ""
+        : buildConsolidatedAccountScopeKey(effectiveConsolidatedAccountIds),
     [effectiveConsolidatedAccountIds],
   );
 
@@ -947,16 +969,15 @@ export function InboxProvider({
   const folderCountRefreshTimerRef = useRef<ReturnType<
     typeof setTimeout
   > | null>(null);
-  const folderCountScopeRef = useRef({
+  // [combined view on, its mailboxes, the single account]
+  const folderCountScopeRef = useRef<
+    [boolean, number[], string | number | null]
+  >([isConsolidatedMode, effectiveConsolidatedAccountIds, selectedAccountId]);
+  folderCountScopeRef.current = [
     isConsolidatedMode,
     effectiveConsolidatedAccountIds,
     selectedAccountId,
-  });
-  folderCountScopeRef.current = {
-    isConsolidatedMode,
-    effectiveConsolidatedAccountIds,
-    selectedAccountId,
-  };
+  ];
   const scheduleFolderCountRefresh = useCallback(() => {
     if (folderCountRefreshTimerRef.current) {
       clearTimeout(folderCountRefreshTimerRef.current);
@@ -964,17 +985,11 @@ export function InboxProvider({
     folderCountRefreshTimerRef.current = setTimeout(() => {
       folderCountRefreshTimerRef.current = null;
       if (!mountedRef.current) return;
-      const {
-        isConsolidatedMode,
-        effectiveConsolidatedAccountIds,
-        selectedAccountId,
-      } = folderCountScopeRef.current;
-      if (isConsolidatedMode) {
-        if (effectiveConsolidatedAccountIds.length > 0) {
-          void folderService.loadConsolidatedFolders(
-            effectiveConsolidatedAccountIds,
-            true,
-          );
+      const [combinedView, combinedAccountIds, selectedAccountId] =
+        folderCountScopeRef.current;
+      if (!__SINGLE_MAILBOX__ && combinedView) {
+        if (combinedAccountIds.length > 0) {
+          void loadCombinedFolders(folderService, combinedAccountIds, true);
         }
       } else if (selectedAccountId) {
         void folderService.loadFolders(selectedAccountId, true);
@@ -1044,6 +1059,26 @@ export function InboxProvider({
     syncService,
   ]);
 
+  useEffect(() => {
+    const resetEmailState = () => {
+      initializedAccountRef.current = null;
+      if (mailboxServiceScopeKey)
+        inboxService.switchContext(mailboxServiceScopeKey, "INBOX");
+      folderService.reset();
+      syncService.softReset();
+      prefetchService.cancelBackground();
+    };
+    window.addEventListener(EMAIL_CACHE_POLICY_EVENT, resetEmailState);
+    return () =>
+      window.removeEventListener(EMAIL_CACHE_POLICY_EVENT, resetEmailState);
+  }, [
+    mailboxServiceScopeKey,
+    inboxService,
+    folderService,
+    syncService,
+    prefetchService,
+  ]);
+
   // Sync InboxContext selectedMessage → AppProvider for global access
   useEffect(() => {
     const paneFolder =
@@ -1081,7 +1116,8 @@ export function InboxProvider({
     if (initializedAccountRef.current === mailboxScopeKey) return;
 
     const abortController = new AbortController();
-    const isConsolidated = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+    const isConsolidated =
+      !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE;
 
     const account = isConsolidated
       ? primaryConsolidatedAccount
@@ -1124,8 +1160,9 @@ export function InboxProvider({
     }
 
     const initialize = async () => {
-      if (isConsolidated) {
-        const folderResult = await folderService.loadConsolidatedFolders(
+      if (!__SINGLE_MAILBOX__ && isConsolidated) {
+        const folderResult = await loadCombinedFolders(
+          folderService,
           effectiveConsolidatedAccountIds,
           false,
         );
@@ -1206,7 +1243,7 @@ export function InboxProvider({
       }
 
       const enrichedOptions =
-        options.consolidated && !options.folderMap
+        !__SINGLE_MAILBOX__ && options.consolidated && !options.folderMap
           ? {
               ...options,
               sort:
@@ -1273,21 +1310,29 @@ export function InboxProvider({
         folderService.selectedFolder ??
         inboxService.currentFolder ??
         "INBOX";
-      const consolidated = options.consolidated ?? isConsolidatedMode;
+      const consolidated =
+        !__SINGLE_MAILBOX__ && (options.consolidated ?? isConsolidatedMode);
 
       return inboxService.loadMessagesSnapshot({
         ...options,
         accountId,
         folder,
-        consolidated,
-        accountIds:
-          options.accountIds ??
-          (consolidated ? effectiveConsolidatedAccountIds : undefined),
-        folderMap:
-          options.folderMap ??
-          (consolidated
-            ? getConsolidatedFolderMapForPath(folderService.folders, folder)
-            : undefined),
+        ...(__SINGLE_MAILBOX__
+          ? null
+          : {
+              consolidated,
+              accountIds:
+                options.accountIds ??
+                (consolidated ? effectiveConsolidatedAccountIds : undefined),
+              folderMap:
+                options.folderMap ??
+                (consolidated
+                  ? getConsolidatedFolderMapForPath(
+                      folderService.folders,
+                      folder,
+                    )
+                  : undefined),
+            }),
         grouping: options.grouping ?? inboxService.currentGrouping,
         sort:
           options.sort ?? getUserPreferencesSnapshot().email_list_default_sort,
@@ -1337,10 +1382,14 @@ export function InboxProvider({
         folder: folderService.selectedFolder,
         offset: (safePage - 1) * safePageSize,
         limit: safePageSize,
-        consolidated: isConsolidatedMode,
-        accountIds: isConsolidatedMode
-          ? effectiveConsolidatedAccountIds
-          : undefined,
+        ...(__SINGLE_MAILBOX__
+          ? null
+          : {
+              consolidated: isConsolidatedMode,
+              accountIds: isConsolidatedMode
+                ? effectiveConsolidatedAccountIds
+                : undefined,
+            }),
         grouping: inboxService.currentGrouping,
       });
     },
@@ -1356,7 +1405,10 @@ export function InboxProvider({
   );
 
   const refreshMessages = useCallback(
-    async ({ sync = true }: { sync?: boolean } = {}): Promise<void> => {
+    async ({
+      sync = true,
+      syncAllAccounts = false,
+    }: { sync?: boolean; syncAllAccounts?: boolean } = {}): Promise<void> => {
       const currentAccountId = isConsolidatedMode
         ? consolidatedScopeKey
         : (selectedAccountId ?? inboxService.getCurrentAccountId());
@@ -1370,10 +1422,33 @@ export function InboxProvider({
       // job that starves when wp-cron loopback is blocked), so nothing actually
       // synced from IMAP and no sync task was recorded. Best-effort; the reload
       // below still runs if this fails.
+      //
+      // Only the explicit Refresh buttons ask for every connected account after
+      // the selected one ("sync everything, starting with this one"). The many
+      // automatic post-mutation refreshes keep the visible account only, or
+      // every read would perpetually re-prioritize the whole sync queue.
+      const primaryRefreshId = Number(
+        selectedAccountId ?? inboxService.getCurrentAccountId(),
+      );
+      const otherAccountIds: number[] =
+        syncAllAccounts && !isConsolidatedMode
+          ? accounts
+              .map((account) => getAccountNumericId(account))
+              .filter(
+                (id): id is number =>
+                  id !== null &&
+                  Number.isFinite(id) &&
+                  id > 0 &&
+                  id !== primaryRefreshId &&
+                  !effectiveConsolidatedAccountIds.includes(id),
+              )
+          : [];
       const refreshAccountIds = isConsolidatedMode
         ? effectiveConsolidatedAccountIds
-        : [Number(selectedAccountId ?? inboxService.getCurrentAccountId())];
-      if (sync) {
+        : [primaryRefreshId, ...otherAccountIds].filter(
+            (id): id is number => Number.isFinite(id) && id > 0,
+          );
+      if (sync && refreshAccountIds.length > 0) {
         await refreshAccountSync(refreshAccountIds);
       }
 
@@ -1400,14 +1475,19 @@ export function InboxProvider({
         offset,
         limit,
         forceRefresh: true,
-        consolidated: isConsolidatedMode,
-        accountIds: isConsolidatedMode
-          ? effectiveConsolidatedAccountIds
-          : undefined,
+        ...(__SINGLE_MAILBOX__
+          ? null
+          : {
+              consolidated: isConsolidatedMode,
+              accountIds: isConsolidatedMode
+                ? effectiveConsolidatedAccountIds
+                : undefined,
+            }),
         grouping: inboxService.currentGrouping,
       });
     },
     [
+      accounts,
       consolidatedScopeKey,
       effectiveConsolidatedAccountIds,
       folderService.selectedFolder,
@@ -1555,7 +1635,7 @@ export function InboxProvider({
             "uidValidity",
             "uid_validity",
             "msg_no",
-            "consolidatedUid",
+            "identityKey",
             "accountId",
             "accountEmail",
             "accountProvider",
@@ -1676,6 +1756,12 @@ export function InboxProvider({
         selected?.body;
       if (!hasBody) await runDetailFetch(req, true);
       if (!isCurrentDetail(req) || message.read) return;
+      // A Viewer of a shared mailbox reads without changing anything, and
+      // read state on a shared mailbox is one flag the whole team sees.
+      const account = accountsRef.current.find(
+        (candidate) => String(candidate.id) === String(ref.accountId),
+      );
+      if (!sharedMailboxRoleOf(account).canWrite) return;
       const prefs = getUserPreferencesSnapshot();
       const delayMs = markAsReadDelayMs(
         prefs.mark_as_read_behavior,
@@ -1706,6 +1792,7 @@ export function InboxProvider({
           return;
         }
         inboxService.updateMessage(identity, { read: true });
+        if (result.warning) appMessage(result.warning, "warning");
         scheduleFolderCountRefresh();
       };
       if (delayMs === 0) await markRead();
@@ -1894,8 +1981,8 @@ export function InboxProvider({
       const currentMsg = findOperationMessage(messageRef.localId);
       if (!currentMsg) return reportIdentityConflict();
       const isCurrent = captureFlagMutation(`important:${messageRef.localId}`);
-      // Optimistic toggle + revert on failure, persisted via the smart-inbox
-      // priority API (importance has no IMAP flag).
+      // Optimistic toggle + revert on failure, persisted via POST
+      // messages/important (importance has no IMAP flag).
       const result = await performToggleImportant({
         getImportant: () => Boolean(currentMsg.important),
         setImportant: (important) => {
@@ -2076,6 +2163,7 @@ export function InboxProvider({
       }
       let totalSuccess = 0;
       let firstError: string | undefined = undefined;
+      let firstWarning: string | undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
@@ -2089,6 +2177,7 @@ export function InboxProvider({
           },
         );
         const result = validateBatchResult(group.refs, response);
+        firstWarning ??= result.warning;
         if (result.requiresRefresh) {
           await reportIdentityConflict(result.error);
           return {
@@ -2139,6 +2228,7 @@ export function InboxProvider({
         failedIds: allFailed,
         totalCount: messageIds.length,
         error: allFailed.length === 0 ? undefined : firstError,
+        warning: firstWarning,
       };
     },
     [
@@ -2187,6 +2277,7 @@ export function InboxProvider({
       }
       let totalSuccess = 0;
       let firstError: string | undefined = undefined;
+      let firstWarning: string | undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
@@ -2200,6 +2291,7 @@ export function InboxProvider({
           },
         );
         const result = validateBatchResult(group.refs, response);
+        firstWarning ??= result.warning;
         if (result.requiresRefresh) {
           await reportIdentityConflict(result.error);
           return {
@@ -2246,6 +2338,7 @@ export function InboxProvider({
         failedIds: allFailed,
         totalCount: messageIds.length,
         error: allFailed.length === 0 ? undefined : firstError,
+        warning: firstWarning,
       };
     },
     [
@@ -2280,7 +2373,9 @@ export function InboxProvider({
       sourceMessages: EmailMessage[],
       messageIds: (string | number)[],
       permanent = false,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> => {
+      const deferRemoval = options?.deferRemoval === true;
       const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
       if (unmatchedIds.length > 0) {
         await reportIdentityConflict();
@@ -2298,62 +2393,78 @@ export function InboxProvider({
       let firstWarning: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const removedLocalIds = new Set<string>();
-      for (const [groupIndex, group] of groups.entries()) {
-        const apiIds = group.refs.map((ref) => ref.apiId);
-        const response = await messageService.batchDelete(
-          group.accountId,
-          apiIds,
-          permanent,
-          {
-            folder: group.folder,
-            uidValidity: group.uidValidity,
-            identifierMode: group.identifierMode,
-          },
-        );
-        const result = validateBatchResult(group.refs, response);
-        if (result.requiresRefresh) {
-          await reportIdentityConflict(result.error);
-          return {
-            success: false,
-            requiresRefresh: true,
-            error: result.error ?? IDENTITY_ERROR,
-            successCount: totalSuccess,
-            failedIds: [
-              ...allFailed,
-              ...groups
-                .slice(groupIndex)
-                .flatMap((remaining) =>
-                  remaining.refs.map((ref) => ref.localId),
-                ),
-            ],
-            totalCount: messageIds.length,
-          };
-        }
-        totalSuccess += result.successCount;
-        firstWarning ??= result.warning;
-        if (!result.success && !firstError) {
-          firstError = result.error;
-        }
-        const failedLocalIds = getFailedLocalIds(group.refs, result.failedIds);
-        allFailed.push(...failedLocalIds);
-        if (result.success) {
-          cache.invalidateMessages({
-            accountId: String(group.accountId),
-            folder: group.folder,
-          });
-        }
-        for (const ref of group.refs) {
-          if (!failedLocalIds.includes(ref.localId)) {
-            inboxService.removeMessage(ref.localId);
-            removedLocalIds.add(String(ref.localId));
+      try {
+        for (const [groupIndex, group] of groups.entries()) {
+          const apiIds = group.refs.map((ref) => ref.apiId);
+          const response = await messageService.batchDelete(
+            group.accountId,
+            apiIds,
+            permanent,
+            {
+              folder: group.folder,
+              uidValidity: group.uidValidity,
+              identifierMode: group.identifierMode,
+            },
+          );
+          const result = validateBatchResult(group.refs, response);
+          if (result.requiresRefresh) {
+            await reportIdentityConflict(result.error);
+            return {
+              success: false,
+              requiresRefresh: true,
+              error: result.error ?? IDENTITY_ERROR,
+              successCount: totalSuccess,
+              failedIds: [
+                ...allFailed,
+                ...groups
+                  .slice(groupIndex)
+                  .flatMap((remaining) =>
+                    remaining.refs.map((ref) => ref.localId),
+                  ),
+              ],
+              totalCount: messageIds.length,
+              ...(deferRemoval && removedLocalIds.size > 0
+                ? { removableLocalIds: [...removedLocalIds] }
+                : {}),
+            };
+          }
+          totalSuccess += result.successCount;
+          firstWarning ??= result.warning;
+          if (!result.success && !firstError) {
+            firstError = result.error;
+          }
+          const failedLocalIds = getFailedLocalIds(group.refs, result.failedIds);
+          allFailed.push(...failedLocalIds);
+          if (result.success) {
+            cache.invalidateMessages({
+              accountId: String(group.accountId),
+              folder: group.folder,
+            });
+          }
+          for (const ref of group.refs) {
+            if (!failedLocalIds.includes(ref.localId)) {
+              if (!deferRemoval) {
+                inboxService.removeMessage(ref.localId);
+              }
+              removedLocalIds.add(String(ref.localId));
+            }
           }
         }
+      } catch (error) {
+        // Chunks before the throw really moved server-side; honor the
+        // deferred removals collected so far before propagating.
+        if (deferRemoval && removedLocalIds.size > 0) {
+          applyDeferredRemoval([...removedLocalIds]);
+        }
+        throw error;
       }
-      const selectedMessageKey = inboxService.selectedMessage
-        ? getMessageIdentityKey(inboxService.selectedMessage)
-        : null;
-      if (selectedMessageKey && removedLocalIds.has(selectedMessageKey)) {
-        inboxService.clearSelection();
+      if (!deferRemoval) {
+        const selectedMessageKey = inboxService.selectedMessage
+          ? getMessageIdentityKey(inboxService.selectedMessage)
+          : null;
+        if (selectedMessageKey && removedLocalIds.has(selectedMessageKey)) {
+          inboxService.clearSelection();
+        }
       }
       return {
         success: allFailed.length === 0,
@@ -2362,6 +2473,9 @@ export function InboxProvider({
         totalCount: messageIds.length,
         error: allFailed.length === 0 ? undefined : firstError,
         warning: firstWarning,
+        ...(deferRemoval && removedLocalIds.size > 0
+          ? { removableLocalIds: [...removedLocalIds] }
+          : {}),
       };
     },
     [
@@ -2379,8 +2493,14 @@ export function InboxProvider({
     async (
       messageIds: (string | number)[],
       permanent = false,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> =>
-      batchDeleteInMessages(inboxService.messages, messageIds, permanent),
+      batchDeleteInMessages(
+        inboxService.messages,
+        messageIds,
+        permanent,
+        options,
+      ),
     [batchDeleteInMessages, inboxService],
   );
 
@@ -2388,11 +2508,13 @@ export function InboxProvider({
     async (
       sourceMessages: EmailMessage[],
       permanent = false,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> =>
       batchDeleteInMessages(
         sourceMessages,
         getMessageIdsFromMessages(sourceMessages),
         permanent,
+        options,
       ),
     [batchDeleteInMessages],
   );
@@ -2402,7 +2524,9 @@ export function InboxProvider({
       sourceMessages: EmailMessage[],
       messageIds: (string | number)[],
       targetFolder: MutationTarget,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> => {
+      const deferRemoval = options?.deferRemoval === true;
       const getFolderByPath = (path: string) =>
         folderService.getFolderByPath(path);
       const { groups, unmatchedIds } = groupByMailboxContext(messageIds);
@@ -2424,85 +2548,104 @@ export function InboxProvider({
       const allFailed: (string | number)[] = [...unmatchedIds];
       const accountErrors: { accountId: string | number; error: string }[] = [];
       const createdFolders: { path: string; folderId?: number | null }[] = [];
-      for (const [groupIndex, group] of groups.entries()) {
-        // Resolve the requested target for THIS account: merged folders remap
-        // to the account's own path; missing counterparts fall back to a role
-        // token or a per-account destination the server creates.
-        const resolved = resolveMutationTargetForAccount(
-          targetFolder,
-          group.accountId,
-          getFolderByPath,
-        );
-        if (!resolved.ok) {
-          allFailed.push(...group.refs.map((ref) => ref.localId));
-          firstError ??= resolved.error;
-          accountErrors.push({
-            accountId: group.accountId,
-            error: resolved.error,
-          });
-          continue;
-        }
-        const apiIds = group.refs.map((ref) => ref.apiId);
-        const response = await messageService.batchMove(
-          group.accountId,
-          apiIds,
-          resolved.target,
-          {
-            folder: group.folder,
-            uidValidity: group.uidValidity,
-            identifierMode: group.identifierMode,
-          },
-        );
-        const result = validateBatchResult(group.refs, response);
-        if (result.requiresRefresh) {
-          await reportIdentityConflict(result.error);
-          return {
-            success: false,
-            requiresRefresh: true,
-            error: result.error ?? IDENTITY_ERROR,
-            successCount: totalSuccess,
-            failedIds: [
-              ...allFailed,
-              ...groups
-                .slice(groupIndex)
-                .flatMap((remaining) =>
-                  remaining.refs.map((ref) => ref.localId),
-                ),
-            ],
-            totalCount: messageIds.length,
-          };
-        }
-        totalSuccess += result.successCount;
-        firstWarning ??= result.warning;
-        if (!result.success) {
-          firstError ??= result.error;
-          if (result.error) {
+      const removedLocalIds = new Set<string>();
+      try {
+        for (const [groupIndex, group] of groups.entries()) {
+          // Resolve the requested target for THIS account: merged folders remap
+          // to the account's own path; missing counterparts fall back to a role
+          // token or a per-account destination the server creates.
+          const resolved = resolveMutationTargetForAccount(
+            targetFolder,
+            group.accountId,
+            getFolderByPath,
+          );
+          if (!resolved.ok) {
+            allFailed.push(...group.refs.map((ref) => ref.localId));
+            firstError ??= resolved.error;
             accountErrors.push({
               accountId: group.accountId,
-              error: result.error,
+              error: resolved.error,
+            });
+            continue;
+          }
+          const apiIds = group.refs.map((ref) => ref.apiId);
+          const response = await messageService.batchMove(
+            group.accountId,
+            apiIds,
+            resolved.target,
+            {
+              folder: group.folder,
+              uidValidity: group.uidValidity,
+              identifierMode: group.identifierMode,
+            },
+          );
+          const result = validateBatchResult(group.refs, response);
+          if (result.requiresRefresh) {
+            await reportIdentityConflict(result.error);
+            return {
+              success: false,
+              requiresRefresh: true,
+              error: result.error ?? IDENTITY_ERROR,
+              successCount: totalSuccess,
+              failedIds: [
+                ...allFailed,
+                ...groups
+                  .slice(groupIndex)
+                  .flatMap((remaining) =>
+                    remaining.refs.map((ref) => ref.localId),
+                  ),
+              ],
+              totalCount: messageIds.length,
+              ...(deferRemoval && removedLocalIds.size > 0
+                ? { removableLocalIds: [...removedLocalIds] }
+                : {}),
+            };
+          }
+          totalSuccess += result.successCount;
+          firstWarning ??= result.warning;
+          if (!result.success) {
+            firstError ??= result.error;
+            if (result.error) {
+              accountErrors.push({
+                accountId: group.accountId,
+                error: result.error,
+              });
+            }
+          }
+          if (result.createdFolders?.length) {
+            createdFolders.push(...result.createdFolders);
+          }
+          const failedLocalIds = getFailedLocalIds(
+            group.refs,
+            result.failedIds,
+          );
+          allFailed.push(...failedLocalIds);
+          if (result.success) {
+            cache.invalidateMessages({
+              accountId: String(group.accountId),
+              folder: group.folder,
+            });
+            cache.invalidateMessages({
+              accountId: String(group.accountId),
+              folder: resolved.path,
             });
           }
-        }
-        if (result.createdFolders?.length) {
-          createdFolders.push(...result.createdFolders);
-        }
-        const failedLocalIds = getFailedLocalIds(group.refs, result.failedIds);
-        allFailed.push(...failedLocalIds);
-        if (result.success) {
-          cache.invalidateMessages({
-            accountId: String(group.accountId),
-            folder: group.folder,
-          });
-          cache.invalidateMessages({
-            accountId: String(group.accountId),
-            folder: resolved.path,
-          });
-        }
-        for (const ref of group.refs) {
-          if (!failedLocalIds.includes(ref.localId)) {
-            inboxService.removeMessage(ref.localId);
+          for (const ref of group.refs) {
+            if (!failedLocalIds.includes(ref.localId)) {
+              if (!deferRemoval) {
+                inboxService.removeMessage(ref.localId);
+              }
+              removedLocalIds.add(String(ref.localId));
+            }
           }
         }
+      } catch (error) {
+        // Chunks before the throw really moved server-side; honor the
+        // deferred removals collected so far before propagating.
+        if (deferRemoval && removedLocalIds.size > 0) {
+          applyDeferredRemoval([...removedLocalIds]);
+        }
+        throw error;
       }
       return {
         success: allFailed.length === 0,
@@ -2513,6 +2656,9 @@ export function InboxProvider({
         warning: firstWarning,
         ...(accountErrors.length > 0 ? { accountErrors } : {}),
         ...(createdFolders.length > 0 ? { createdFolders } : {}),
+        ...(deferRemoval && removedLocalIds.size > 0
+          ? { removableLocalIds: [...removedLocalIds] }
+          : {}),
       };
     },
     [
@@ -2530,8 +2676,14 @@ export function InboxProvider({
     async (
       messageIds: (string | number)[],
       targetFolder: MutationTarget,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> =>
-      batchMoveInMessages(inboxService.messages, messageIds, targetFolder),
+      batchMoveInMessages(
+        inboxService.messages,
+        messageIds,
+        targetFolder,
+        options,
+      ),
     [batchMoveInMessages, inboxService],
   );
 
@@ -2539,11 +2691,13 @@ export function InboxProvider({
     async (
       sourceMessages: EmailMessage[],
       targetFolder: MutationTarget,
+      options?: BatchRemovalOptions,
     ): Promise<BatchOperationResult> =>
       batchMoveInMessages(
         sourceMessages,
         getMessageIdsFromMessages(sourceMessages),
         targetFolder,
+        options,
       ),
     [batchMoveInMessages],
   );
@@ -2564,7 +2718,11 @@ export function InboxProvider({
       accountIds: number[],
       forceRefresh = false,
     ): Promise<FolderListResult> => {
-      const result = await folderService.loadConsolidatedFolders(
+      if (__SINGLE_MAILBOX__) {
+        return { success: false, folders: [] };
+      }
+      const result = await loadCombinedFolders(
+        folderService,
         accountIds,
         forceRefresh,
       );
@@ -2819,7 +2977,9 @@ export function InboxProvider({
       isLoadingMore: inboxService.isLoadingMore,
       hasMore: inboxService.hasMore,
       totalCount: inboxService.totalCount,
-      consolidatedAccountReadiness: inboxService.consolidatedAccountReadiness,
+      ...(__SINGLE_MAILBOX__
+        ? null
+        : { consolidatedAccountReadiness: getCombinedReadiness(inboxService) }),
       isMessageDetailLoading: isDetailFetching,
       detailBodyPending,
       detailBodyError,
@@ -2859,7 +3019,7 @@ export function InboxProvider({
       selectedFolder: folderService.selectedFolder,
       isFoldersLoading: folderService.isLoading,
       loadFolders,
-      loadConsolidatedFolders,
+      ...(__SINGLE_MAILBOX__ ? null : { loadConsolidatedFolders }),
       refreshCurrentFolders,
       selectFolder,
       getInboxFolder,
@@ -3082,7 +3242,6 @@ export function useFolderOperations() {
     selectedFolder,
     isFoldersLoading,
     loadFolders,
-    loadConsolidatedFolders,
     selectFolder,
     getInboxFolder,
     getTrashFolder,
@@ -3090,6 +3249,7 @@ export function useFolderOperations() {
     createFolder,
     renameFolder,
     deleteFolder,
+    ...inbox
   } = useInbox();
 
   return {
@@ -3098,7 +3258,9 @@ export function useFolderOperations() {
     selectedFolder,
     isFoldersLoading,
     loadFolders,
-    loadConsolidatedFolders,
+    ...(__SINGLE_MAILBOX__
+      ? null
+      : { loadConsolidatedFolders: inbox.loadConsolidatedFolders }),
     selectFolder,
     getInboxFolder,
     getTrashFolder,

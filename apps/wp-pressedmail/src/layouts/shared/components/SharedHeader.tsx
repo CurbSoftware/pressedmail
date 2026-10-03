@@ -8,7 +8,7 @@
  * right-side control clusters:
  *
  *   [AccountSelector] [Search] [beforeControlsSlot?] |
- *   nav (Inbox [+Contacts+Calendar Pro]) |
+ *   nav (Inbox [+Contacts+Calendar+Templates Pro]) |
  *   utility (Notifications, Activity Log, Settings, Themes) |
  *   display (Expand Sidebar, Immersive, Fullscreen)
  *
@@ -28,6 +28,7 @@ import {
 import { HeaderActivityButton } from "@/components/application-layout/HeaderActivityButton";
 import { HeaderSettingsButton } from "@/components/application-layout/HeaderSettingsButton";
 import { HeaderNotificationsButton } from "@/components/application-layout/HeaderNotificationsButton";
+import { HeaderTemplatesMenu } from "@/components/application-layout/HeaderTemplatesMenu";
 import { HeaderSearchInput } from "@/components/search";
 import { NavigationItems } from "@/layouts/shared/components/NavigationItems";
 import { useAccountNotifications } from "@/layouts/shared/hooks/useAccountNotifications";
@@ -93,7 +94,7 @@ export function SharedHeader({
           </>
         )}
 
-        {/* Cluster 1: navigation: Inbox (Pro adds Contacts, Calendar). */}
+        {/* Cluster 1: navigation: Inbox (Pro adds Contacts, Calendar, the Templates menu). */}
         <div
           data-test="header-navigation-cluster"
           data-testid="header-navigation-cluster"
@@ -107,6 +108,8 @@ export function SharedHeader({
             showSettings={false}
             className="flex shrink-0"
           />
+          {/* Pro only: Free resolves this to a component that renders nothing. */}
+          <HeaderTemplatesMenu tooltipSide="bottom" />
         </div>
 
         <Separator />

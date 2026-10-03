@@ -82,8 +82,8 @@ const SETTLE_PENDING_PHASES = new Set<SyncPhase>([
 ]);
 const ERROR_PHASES = new Set<SyncPhase>(["degraded"]);
 const LOCAL_WORKFLOW_TYPES = new Set<SystemFolderType>([
-  "scheduled",
-  "snoozed",
+  // Scheduled and Snoozed are Pro views.
+  ...(__IS_FREE__ ? [] : (["scheduled", "snoozed"] as SystemFolderType[])),
   "important",
   "starred",
   "flagged",

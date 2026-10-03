@@ -25,9 +25,13 @@ export const DEFAULT_COMPOSE_DATA: ComposeData & { is_reply?: boolean } = {
   inReplyTo: undefined,
   references: undefined,
   draftAttachmentManifestComplete: undefined,
-  scheduledEmailId: undefined,
-  scheduledAccountId: undefined,
-  scheduledAt: undefined,
+  ...(__IS_PRO__
+    ? {
+        scheduledEmailId: undefined,
+        scheduledAccountId: undefined,
+        scheduledAt: undefined,
+      }
+    : {}),
   is_reply: false,
 };
 
@@ -411,3 +415,5 @@ export function useComposer() {
   }
   return context;
 }
+
+export function useOptionalComposer() { return useContext(ComposerContext); }

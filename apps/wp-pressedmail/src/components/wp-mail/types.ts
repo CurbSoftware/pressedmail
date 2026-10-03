@@ -9,6 +9,23 @@
 export type SmtpSecurity = "none" | "ssl" | "tls";
 
 /**
+ * How the server authenticates the login.
+ *
+ * "" is Automatic: PHPMailer negotiates against the server's advertised AUTH
+ * list, which is what almost every host expects. The rest are set explicitly
+ * for the hosts that need it.
+ */
+export type SmtpAuthType = "" | "login" | "plain" | "cram-md5";
+
+/** Login-method options, in the order the form offers them. */
+export const SMTP_AUTH_TYPES: SmtpAuthType[] = [
+  "",
+  "login",
+  "plain",
+  "cram-md5",
+];
+
+/**
  * One editable SMTP connection.
  *
  * The optional fields are the multi-connection extensions. A surface that does
@@ -21,6 +38,8 @@ export interface SmtpConnectionValue {
   port: number;
   security: SmtpSecurity;
   auth: boolean;
+  /** Login method. Empty means Automatic. */
+  authType: SmtpAuthType;
   username: string;
   /** Empty keeps the stored password. It is never echoed back to the client. */
   password: string;
@@ -30,7 +49,11 @@ export interface SmtpConnectionValue {
   label?: string;
   /** Override the From even when a plugin set one explicitly. */
   forceFrom?: boolean;
-  /** From addresses routed to this connection. Pro only. */
+  /**
+   * The connection's other senders, beside `fromEmail`. Each one is a selectable
+   * sender for a template or a system email, and still routes that From address
+   * through this connection. Pro only.
+   */
   fromAddresses?: string[];
 }
 
@@ -44,25 +67,61 @@ export interface SmtpConnectionValue {
 export interface SmtpConnectionCapabilities {
   /** Maximum connections. 0 means unlimited. */
   maxConnections: number;
-  /** Route by From address across several connections. */
+  /** Several connections, a selectable sender on each. */
   routing: boolean;
-  /** Retry a failed send through a nominated connection. */
-  fallback: boolean;
   /** Offer the per-connection force-From override. */
   forceFrom: boolean;
 }
 
 export const SINGLE_CONNECTION_CAPABILITIES = {
   routing: false,
-  fallback: false,
   forceFrom: false,
 } as SmtpConnectionCapabilities;
+
+/** The four answers `POST /wp-mail/senders/probe` can return. */
+export type SmtpSenderProbeResult =
+  | "accepted"
+  | "rejected"
+  | "inconclusive"
+  | "unreachable";
+
+/**
+ * What the server made of one sender address.
+ *
+ * `accepted` means the server accepted it as the sender for this login, which
+ * is not a promise of delivery: a provider can still refuse the address once
+ * the message is delivered.
+ */
+export interface SmtpSenderProbe {
+  result: SmtpSenderProbeResult;
+  /** The SMTP reply code, or 0 when the server said nothing usable. */
+  code: number;
+  /** The server's own reply, already sanitized and truncated. */
+  detail: string;
+  /**
+   * The server's own sentence about this verdict, already sanitized.
+   *
+   * Read where the client cannot know what happened: an `unreachable` verdict
+   * covers both a server that was never reached and one that answered about
+   * the session (530, 538, 503, 554), and only the server can say which. The
+   * other three verdicts have copy here that says more than the server's
+   * generic line does.
+   */
+  message: string;
+}
+
+/** One address's test: in flight, done, or refused before it was sent. */
+export type SmtpSenderTest =
+  | { state: "testing" }
+  | { state: "done"; probe: SmtpSenderProbe }
+  | { state: "error"; message: string };
 
 export interface SmtpConnectionFormErrors {
   label?: string;
   host?: string;
   port?: string;
   security?: string;
+  authType?: string;
   username?: string;
   password?: string;
   fromEmail?: string;

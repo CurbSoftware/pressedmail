@@ -355,6 +355,7 @@ function Tags({
 
   return (
     <EmailTagBadges
+      inEmailList
       tags={tags}
       maxVisible={3}
       expandable
@@ -524,6 +525,7 @@ function handleKeySelect(
   }
 }
 
+/** The table row's height. A table row grows with its cells, so this is a floor. */
 function getDensityClass(density?: EmailRowDensity) {
   switch (density) {
     case "dense":
@@ -535,6 +537,79 @@ function getDensityClass(density?: EmailRowDensity) {
     case "comfortable":
     default:
       return "min-h-14";
+  }
+}
+
+/**
+ * The flat rows (default and PressedOut) are a stack of lines, so a fixed
+ * height cannot set their density: `h-12` sliced the sender and the preview in
+ * half, and `min-h-14` and `min-h-16` sat below the content, so loose,
+ * comfortable and compact drew the same row. Each density changes the content
+ * instead:
+ *
+ * - loose: the full stack with room round it.
+ * - comfortable: the full stack.
+ * - compact: the full stack with its padding and gaps taken in.
+ * - dense: the preview and the sender's address drop out, which leaves the two
+ *   lines `h-12` was always meant to hold. Once the list is wide enough to
+ *   carry it (a container query on the row, so a narrow pane keeps two lines
+ *   and never squeezes the subject out) it becomes one line: sender, subject,
+ *   the preview after them, and the date with the status marks beside it
+ *   instead of under it, so a marked row is no taller than an unmarked one.
+ */
+function getFlatDensity(density?: EmailRowDensity) {
+  switch (density) {
+    case "dense":
+      // Written out in full: Tailwind finds a class by reading the whole string
+      // in the source, so a variant built from a constant would never compile.
+      return {
+        row: "@container/row min-h-10 items-center py-1",
+        checkbox: "items-center pt-0",
+        body: "flex-col justify-center gap-0 @[34rem]/row:flex-row @[34rem]/row:items-center @[34rem]/row:gap-3",
+        sender: "@[34rem]/row:w-44 @[34rem]/row:shrink-0",
+        subject: "",
+        preview: "hidden @[34rem]/row:flex @[34rem]/row:flex-1",
+        details: "hidden",
+        rail: "flex-col items-end gap-1 @[34rem]/row:flex-row-reverse @[34rem]/row:items-center @[34rem]/row:gap-2",
+        date: "@[34rem]/row:min-w-[4.5rem]",
+      };
+    case "compact":
+      return {
+        row: "min-h-[52px] py-1",
+        checkbox: "",
+        body: "flex-col justify-center gap-0",
+        sender: "",
+        subject: "",
+        preview: "",
+        details: "",
+        rail: "flex-col items-end gap-1",
+        date: "",
+      };
+    case "loose":
+      return {
+        row: "min-h-16 py-3.5",
+        checkbox: "",
+        body: "flex-col justify-center gap-1",
+        sender: "",
+        subject: "",
+        preview: "",
+        details: "",
+        rail: "flex-col items-end gap-1",
+        date: "",
+      };
+    case "comfortable":
+    default:
+      return {
+        row: "min-h-14",
+        checkbox: "",
+        body: "flex-col justify-center gap-0.5",
+        sender: "",
+        subject: "",
+        preview: "",
+        details: "",
+        rail: "flex-col items-end gap-1",
+        date: "",
+      };
   }
 }
 
@@ -573,8 +648,10 @@ export function EmailRow({
   onMouseEnter,
   onMouseLeave,
 }: EmailRowProps) {
-  const showPressedGDetails =
-    variant === "pressedg-table" && Boolean(showSenderEmail);
+  // PressedG and PressedOut rows belong to Pro layouts; Free compiles only
+  // the default row.
+  const isPressedGTable = !__IS_FREE__ && variant === "pressedg-table";
+  const showPressedGDetails = isPressedGTable && Boolean(showSenderEmail);
   const row = buildEmailRowViewModel(message, {
     showAccountBadge,
     showSenderEmail,
@@ -591,7 +668,7 @@ export function EmailRow({
   const handleProps = pointerOnlyDragProps(dragHandleProps);
   const rowTabIndex = tabIndex ?? 0;
 
-  if (variant === "pressedg-table") {
+  if (isPressedGTable) {
     return (
       <TableRow
         ref={rowRef as React.Ref<HTMLTableRowElement>}
@@ -763,13 +840,14 @@ export function EmailRow({
               data-testid="email-row-date"
               className={cn(
                 "inline-flex items-center justify-end gap-1 font-medium",
-                row.isScheduled
+                !__IS_FREE__ && row.isScheduled
                   ? row.scheduledStatus === "failed"
                     ? "text-destructive"
                     : "text-primary"
                   : "text-muted-foreground",
               )}>
-              {row.isScheduled && (
+              {/* Scheduled sends are Pro; Free rows never carry the flag. */}
+              {!__IS_FREE__ && row.isScheduled && (
                 <ScheduledFolderIcon
                   className="h-3 w-3 shrink-0"
                   aria-label={__("Scheduled", "pressedmail")}
@@ -783,7 +861,8 @@ export function EmailRow({
     );
   }
 
-  const isPressedOut = variant === "pressedout-classic";
+  const isPressedOut = !__IS_FREE__ && variant === "pressedout-classic";
+  const flat = getFlatDensity(density ?? "comfortable");
 
   return (
     <div
@@ -818,7 +897,7 @@ export function EmailRow({
       aria-label={rowLabel}
       className={cn(
         "group grid w-full cursor-pointer grid-cols-[28px_minmax(0,1fr)_auto] gap-2 border-b border-border/60 border-l-2 border-l-transparent px-3 py-2 text-left text-sm outline-none transition-colors hover:bg-muted/50",
-        getDensityClass(density ?? "comfortable"),
+        flat.row,
         selected && "bg-primary/5 hover:bg-primary/5 border-l-primary",
         threadGrouped &&
           (isPressedOut
@@ -839,15 +918,15 @@ export function EmailRow({
         role="gridcell"
         data-test="message-left-checkbox"
         data-testid="message-left-checkbox"
-        className="flex items-start justify-center pt-0.5"
+        className={cn("flex items-start justify-center pt-0.5", flat.checkbox)}
         onClick={stopPropagation}>
         {selectionSlot}
       </div>
 
       <div
         role="gridcell"
-        className="flex min-w-0 flex-col justify-center gap-0.5 overflow-hidden">
-        <div className="flex min-w-0 items-center gap-2">
+        className={cn("flex min-w-0 overflow-hidden", flat.body)}>
+        <div className={cn("flex min-w-0 items-center gap-2", flat.sender)}>
           <div className="flex min-w-0 items-center gap-1.5">
             <RowFlags
               message={message}
@@ -870,7 +949,7 @@ export function EmailRow({
           </div>
         </div>
 
-        <div className="flex min-w-0 items-center gap-2">
+        <div className={cn("flex min-w-0 items-center gap-2", flat.subject)}>
           <span
             data-test="email-row-subject"
             data-testid="email-row-subject"
@@ -895,7 +974,11 @@ export function EmailRow({
         </div>
 
         {showPreview && (
-          <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+          <div
+            className={cn(
+              "flex min-w-0 items-center gap-2 text-xs text-muted-foreground",
+              flat.preview,
+            )}>
             <span
               data-test="email-row-preview"
               data-testid="email-row-preview"
@@ -909,7 +992,7 @@ export function EmailRow({
           <div
             data-test="message-details-row"
             data-testid="message-details-row"
-            className="min-w-0 truncate text-xs text-muted-foreground">
+            className={cn("min-w-0 truncate text-xs text-muted-foreground", flat.details)}>
             <span
               data-test="email-row-sender-email"
               data-testid="email-row-sender-email">
@@ -926,19 +1009,20 @@ export function EmailRow({
         // The date leads this column so it sits on the sender's line, the way
         // every mail client puts it. It used to be pushed to a third line by an
         // always-present indicator slot above it.
-        className="flex min-w-[4.75rem] flex-col items-end gap-1">
+        className={cn("flex min-w-[4.75rem]", flat.rail)}>
         <span
           data-test="email-row-date"
           data-testid="email-row-date"
           className={cn(
             "inline-flex shrink-0 items-center justify-end gap-1 whitespace-nowrap text-right text-xs font-medium",
-            row.isScheduled
+            flat.date,
+            !__IS_FREE__ && row.isScheduled
               ? row.scheduledStatus === "failed"
                 ? "text-destructive"
                 : "text-primary"
               : "text-muted-foreground",
           )}>
-          {row.isScheduled && (
+          {!__IS_FREE__ && row.isScheduled && (
             <ScheduledFolderIcon
               className="h-3 w-3 shrink-0"
               aria-label={__("Scheduled", "pressedmail")}

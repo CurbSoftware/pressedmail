@@ -23,6 +23,7 @@ export type {
   GetMessageOptions,
   OperationResult,
   BatchOperationResult,
+  BatchRemovalOptions,
   MessageFlag,
   MessageIdentifierMode,
   MessageMutationOptions,

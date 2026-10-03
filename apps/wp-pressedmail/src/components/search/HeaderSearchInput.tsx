@@ -30,6 +30,11 @@ import {
   type SearchSuggestion,
 } from "@/types/search";
 import { getSearchService } from "@/services/implementations/search.service";
+import {
+  getLocalEventDay,
+  parseUtcDate,
+} from "@/components/calendar/calendar-timezone";
+import type { LocalCalendarEvent } from "@/types/calendar";
 import { DateTimeSelector } from "@/components/ui/date-time-selector";
 import {
   PressedOverlayBody,
@@ -74,7 +79,10 @@ interface DraftCalendarFilters {
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
-const DEFAULT_HEADER_SEARCH_TARGETS = ["email", "contacts", "events"] as const;
+// Contacts and calendar events are Pro search scopes.
+const DEFAULT_HEADER_SEARCH_TARGETS = __IS_FREE__
+  ? (["email"] as const)
+  : (["email", "contacts", "events"] as const);
 
 const EMPTY_DRAFT_FILTERS: DraftFilters = {
   from: "",
@@ -309,8 +317,12 @@ function mergeOperatorFilters(
 function getPlaceholders(): Record<HeaderSearchScope, string> {
   return {
     emails: __("Search mail...", "pressedmail"),
-    contacts: __("Search contacts...", "pressedmail"),
-    calendar: __("Search calendar...", "pressedmail"),
+    contacts: __ENABLE_CONTACTS__
+      ? __("Search contacts...", "pressedmail")
+      : "",
+    calendar: __ENABLE_CALENDAR__
+      ? __("Search calendar...", "pressedmail")
+      : "",
   };
 }
 
@@ -321,10 +333,16 @@ function getAvailableSearchScopeOptions(
 
   return SEARCH_SCOPE_OPTIONS.filter((option) => {
     if (option.value === "emails") return true;
-    if (option.value === "contacts") {
-      return __ENABLE_CONTACTS__ && availableTargets.has("contacts");
+    // Contacts and calendar are Pro scopes; the define comes first so Free
+    // keeps neither name.
+    if (__ENABLE_CONTACTS__ && option.value === "contacts") {
+      return availableTargets.has("contacts");
     }
-    return __ENABLE_CALENDAR__ && availableTargets.has("events");
+    return (
+      __ENABLE_CALENDAR__ &&
+      option.value !== "contacts" &&
+      availableTargets.has("events")
+    );
   });
 }
 
@@ -389,10 +407,17 @@ function extractCalendarId(suggestion: SearchSuggestion): number | null {
 
 function extractEventDate(suggestion: SearchSuggestion): string | null {
   const event = (suggestion.event ?? suggestion.data) as
-    | { start_datetime?: string; start_date?: string }
+    | (Partial<LocalCalendarEvent> & { start_date?: string })
     | undefined;
   const raw = event?.start_datetime ?? event?.start_date;
   if (!raw) return null;
+
+  // The link names the event's own day. An evening event in a far zone starts
+  // on the next day in UTC, and the calendar looks for it on the day it was
+  // planned for.
+  if (event?.start_datetime && !Number.isNaN(parseUtcDate(raw).getTime())) {
+    return getLocalEventDay(event as LocalCalendarEvent);
+  }
 
   const dateMatch = raw.match(/^\d{4}-\d{2}-\d{2}/);
   if (dateMatch?.[0]) return dateMatch[0];
@@ -405,10 +430,31 @@ function extractEventDate(suggestion: SearchSuggestion): string | null {
 function suggestionPath(suggestion: SearchSuggestion): string | null {
   const id = extractId(suggestion);
   if (id === undefined || id === null) return null;
+  // The contacts and calendar scopes exist only where those features are
+  // built, so the Free edition has no route to offer and names none.
+  if (__ENABLE_CONTACTS__ && suggestion.type === "contact") {
+    const contactId = extractContactId(suggestion);
+    return contactId === null ? null : `/contacts?openContactId=${contactId}`;
+  }
+  if (__ENABLE_CALENDAR__ && suggestion.type === "calendar") {
+    const eventId = extractCalendarId(suggestion);
+    if (eventId === null) return null;
+    const params = new URLSearchParams({ openEventId: String(eventId) });
+    const eventDate = extractEventDate(suggestion);
+    if (eventDate) {
+      params.set("date", eventDate);
+    }
+    return `/calendar?${params.toString()}`;
+  }
   switch (suggestion.type) {
     case "email": {
       const message = (suggestion.message ?? suggestion.data) as
-        | { accountId?: number; folder?: string }
+        | {
+            accountId?: number;
+            folder?: string;
+            uidValidity?: number | string | null;
+            uid_validity?: number | string | null;
+          }
         | undefined;
       const params = new URLSearchParams({ openMessageId: String(id) });
       if (message?.accountId) {
@@ -417,31 +463,13 @@ function suggestionPath(suggestion: SearchSuggestion): string | null {
       if (message?.folder) {
         params.set("folder", message.folder);
       }
+      // A hit is often older than the loaded list. The generation is what lets
+      // the inbox read it by its full identity instead of finding it in the list.
+      const uidValidity = message?.uidValidity ?? message?.uid_validity;
+      if (uidValidity) {
+        params.set("uidValidity", String(uidValidity));
+      }
       return `/inbox?${params.toString()}`;
-    }
-    case "contact": {
-      // The contacts scope exists only where the contacts feature is built, so
-      // the Free edition has no route to offer and names none.
-      if (__ENABLE_CONTACTS__) {
-        const contactId = extractContactId(suggestion);
-        return contactId === null
-          ? null
-          : `/contacts?openContactId=${contactId}`;
-      }
-      return null;
-    }
-    case "calendar": {
-      if (__ENABLE_CALENDAR__) {
-        const eventId = extractCalendarId(suggestion);
-        if (eventId === null) return null;
-        const params = new URLSearchParams({ openEventId: String(eventId) });
-        const eventDate = extractEventDate(suggestion);
-        if (eventDate) {
-          params.set("date", eventDate);
-        }
-        return `/calendar?${params.toString()}`;
-      }
-      return null;
     }
     default:
       return null;
@@ -503,26 +531,31 @@ export function HeaderSearchInput({
   React.useEffect(() => {
     if (filterOpen) {
       setDraftFilters(filtersToDraft(searchOps.advancedFilters));
-      setContactDraft({
-        name: contactFilters.name ?? "",
-        email: contactFilters.email ?? "",
-        company: contactFilters.company ?? "",
-        hasPhone: contactFilters.hasPhone === true,
-      });
-      setCalendarDraft({
-        dateStart: toDateInputValue(calendarFilters.dateRange?.start),
-        dateEnd: toDateInputValue(calendarFilters.dateRange?.end),
-        allDay: calendarFilters.allDay === true,
-      });
+      if (__ENABLE_CONTACTS__) {
+        setContactDraft({
+          name: contactFilters.name ?? "",
+          email: contactFilters.email ?? "",
+          company: contactFilters.company ?? "",
+          hasPhone: contactFilters.hasPhone === true,
+        });
+      }
+      if (__ENABLE_CALENDAR__) {
+        setCalendarDraft({
+          dateStart: toDateInputValue(calendarFilters.dateRange?.start),
+          dateEnd: toDateInputValue(calendarFilters.dateRange?.end),
+          allDay: calendarFilters.allDay === true,
+        });
+      }
     }
   }, [filterOpen, searchOps.advancedFilters, contactFilters, calendarFilters]);
 
   const activeFilterLabels = React.useMemo(() => {
     if (effectiveScope === "emails")
       return getActiveFilterLabels(searchOps.advancedFilters);
-    if (effectiveScope === "contacts")
+    if (__ENABLE_CONTACTS__ && effectiveScope === "contacts")
       return getContactFilterLabels(contactFilters);
-    return getCalendarFilterLabels(calendarFilters);
+    if (__ENABLE_CALENDAR__) return getCalendarFilterLabels(calendarFilters);
+    return [];
   }, [
     effectiveScope,
     searchOps.advancedFilters,
@@ -576,12 +609,13 @@ export function HeaderSearchInput({
     if (effectiveScope === "emails") {
       return remoteSuggestions.filter((s) => s.type === "email").slice(0, 6);
     }
-    if (effectiveScope === "contacts") {
+    if (__ENABLE_CONTACTS__ && effectiveScope === "contacts") {
       return remoteSuggestions
         .filter((s) => s.type === "contact")
         .filter((s) => matchesContactFilters(s, contactFilters))
         .slice(0, 6);
     }
+    if (!__ENABLE_CALENDAR__) return [];
     return remoteSuggestions
       .filter((s) => s.type === "calendar")
       .filter((s) => matchesCalendarFilters(s, calendarFilters))
@@ -601,9 +635,9 @@ export function HeaderSearchInput({
     setRemoteSuggestions([]);
     if (effectiveScope === "emails") {
       searchOps.clearSearch();
-    } else if (effectiveScope === "contacts") {
+    } else if (__ENABLE_CONTACTS__ && effectiveScope === "contacts") {
       setContactFilters(DEFAULT_CONTACT_FILTERS);
-    } else {
+    } else if (__ENABLE_CALENDAR__) {
       setCalendarFilters(DEFAULT_CALENDAR_FILTERS);
     }
   };
@@ -623,9 +657,9 @@ export function HeaderSearchInput({
         stripSearchOperators(value),
         mergeOperatorFilters(value, nextFilters),
       );
-    } else if (effectiveScope === "contacts") {
+    } else if (__ENABLE_CONTACTS__ && effectiveScope === "contacts") {
       setContactFilters(contactDraftToFilters(contactDraft));
-    } else {
+    } else if (__ENABLE_CALENDAR__) {
       setCalendarFilters(calendarDraftToFilters(calendarDraft));
     }
     setFilterOpen(false);
@@ -639,10 +673,10 @@ export function HeaderSearchInput({
         stripSearchOperators(value),
         DEFAULT_SEARCH_FILTERS,
       );
-    } else if (effectiveScope === "contacts") {
+    } else if (__ENABLE_CONTACTS__ && effectiveScope === "contacts") {
       setContactDraft(EMPTY_CONTACT_DRAFT);
       setContactFilters(DEFAULT_CONTACT_FILTERS);
-    } else {
+    } else if (__ENABLE_CALENDAR__) {
       setCalendarDraft(EMPTY_CALENDAR_DRAFT);
       setCalendarFilters(DEFAULT_CALENDAR_FILTERS);
     }
@@ -765,18 +799,18 @@ export function HeaderSearchInput({
           <PressedPopoverContent size="paletteForm" align="end" sideOffset={8}>
             <PressedPopoverHeader title={__("Search filters", "pressedmail")} />
             <PressedOverlayBody className="space-y-4">
-              {effectiveScope === "emails" ? (
-                <MailFiltersForm draft={draftFilters} update={updateDraft} />
-              ) : effectiveScope === "contacts" ? (
+              {__ENABLE_CONTACTS__ && effectiveScope === "contacts" ? (
                 <ContactFiltersForm
                   draft={contactDraft}
                   update={updateContactDraft}
                 />
-              ) : (
+              ) : __ENABLE_CALENDAR__ && effectiveScope === "calendar" ? (
                 <CalendarFiltersForm
                   draft={calendarDraft}
                   update={updateCalendarDraft}
                 />
+              ) : (
+                <MailFiltersForm draft={draftFilters} update={updateDraft} />
               )}
             </PressedOverlayBody>
             <PressedOverlayFooter>

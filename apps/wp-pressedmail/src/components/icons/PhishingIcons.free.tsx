@@ -8,14 +8,17 @@ import { forwardRef } from "react";
 
 type PhishingIconProps = React.SVGProps<SVGSVGElement>;
 
+export type PhishingIconMark = "none" | "check" | "warn" | "cross";
+
 export const PhishingRodIcon = forwardRef<SVGSVGElement, PhishingIconProps>(
   function PhishingRodIcon() {
     return null;
   },
 );
 
-export const PhishingFishIcon = forwardRef<SVGSVGElement, PhishingIconProps>(
-  function PhishingFishIcon() {
-    return null;
-  },
-);
+export const PhishingFishIcon = forwardRef<
+  SVGSVGElement,
+  PhishingIconProps & { mark?: PhishingIconMark }
+>(function PhishingFishIcon() {
+  return null;
+});

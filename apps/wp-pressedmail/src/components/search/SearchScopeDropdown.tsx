@@ -21,10 +21,16 @@ export interface SearchScopeOption {
   icon: React.ComponentType<{ className?: string }>;
 }
 
+// Contacts and Calendar are Pro scopes. The defines drop them from the Free
+// build instead of hiding them at runtime.
 export const SEARCH_SCOPE_OPTIONS: SearchScopeOption[] = [
   { value: "emails", label: "Mail", icon: Mail },
-  { value: "contacts", label: "Contacts", icon: Users },
-  { value: "calendar", label: "Calendar", icon: Calendar },
+  ...(__ENABLE_CONTACTS__
+    ? [{ value: "contacts", label: "Contacts", icon: Users } as const]
+    : []),
+  ...(__ENABLE_CALENDAR__
+    ? [{ value: "calendar", label: "Calendar", icon: Calendar } as const]
+    : []),
 ];
 
 interface SearchScopeDropdownProps {

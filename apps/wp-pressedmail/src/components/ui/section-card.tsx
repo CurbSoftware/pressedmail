@@ -27,6 +27,7 @@ const TONE_CLASS: Record<SectionCardTone, string> = {
 };
 
 export interface SectionCardProps {
+  id?: string;
   children: ReactNode;
   tone?: SectionCardTone;
   /** Rendered as the heading row; pair with `actions` for a right-hand control. */

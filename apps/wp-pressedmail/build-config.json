@@ -7,6 +7,7 @@
       "slug": "pressedmail",
       "description": "A modern email client in your WordPress admin dashboard",
       "outputFile": "pressedmail-free.zip",
+      "previewConstants": {},
       "featureFlags": {
         "isPro": false,
         "entitlements": {
@@ -64,14 +65,6 @@
           },
           "snooze": false,
           "undo_send": false,
-          "snippets": {
-            "enabled": false,
-            "limit": 0
-          },
-          "sender_aliases": {
-            "enabled": false,
-            "limit": 0
-          },
           "email_tracking": false,
           "auto_followups": false,
           "auto_replies": false,

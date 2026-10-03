@@ -33,6 +33,7 @@ declare module "lodash" {
 // SVG types are declared in src/vite-env.d.ts
 
 interface PressedMailPluginGlobal {
+  emailCacheEnabled?: boolean;
   apiUrl?: string;
   adminAjaxUrl?: string;
   restNamespace?: string;
@@ -43,6 +44,17 @@ interface PressedMailPluginGlobal {
   siteTimezone?: string;
   isAdmin?: boolean;
   canManageSettings?: boolean;
+  /**
+   * Administrator capability, which the WordPress-email surfaces need: their
+   * REST routes are guarded by `manage_options` alone, so the delegated
+   * settings grant that opens the rest of the settings UI is not enough.
+   */
+  canManageWpMail?: boolean;
+  /**
+   * Administrator capability, which the Roles and Users tabs of Access Control
+   * need: their REST routes are guarded by `manage_options` alone.
+   */
+  canManageAccess?: boolean;
   canAccessPressedMail?: boolean;
   /**
    * True when this browser signed a user out and still holds that session's
@@ -52,6 +64,8 @@ interface PressedMailPluginGlobal {
   purgeBrowserStorage?: boolean;
   isPro?: boolean | string;
   isLicensed?: boolean;
+  /** Pro: a plugin fills `pressedmail_unsubscribe_url` at send time. */
+  unsubscribeProvider?: boolean | string;
   /** Server-resolved custom_themes entitlement for the theme provider. */
   customThemesEnabled?: boolean | string;
   /**
@@ -159,7 +173,13 @@ interface PressedMailPluginGlobal {
      * an older server payload), so the panel must render without it.
      */
     syncSchedule?: {
-      mode?: "scheduled" | "manual";
+      mode?: "scheduled" | "manual" | "visits";
+      timedWake?: {
+        enabled: boolean;
+        public: boolean;
+        reason: string;
+        lastWake: number;
+      } | null;
       intervalMinutes?: number;
       nextRun?: number;
       lastRun?: number;

@@ -1,6 +1,12 @@
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
-import { useCallback, useMemo, useState, useEffect } from "react";
+import {
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 import { Info } from "lucide-react";
 import {
   Alert,
@@ -26,7 +32,13 @@ import {
   notifyAutosaveSuccess,
   type AutosaveStatus,
 } from "@/hooks/useAutosaveSetting";
-import { AccessRolesCard, type AccessControlDraftHandle } from "./access-tab";
+import {
+  ACCESS_VIEW_PARAMS,
+  AccessControlTabs,
+  accessSavedMessage,
+} from "./access-control-tabs";
+import type { AccessControlDraftHandle } from "./access-tab";
+import { useRetryFocus } from "./use-retry-focus";
 import {
   getRuntimeRestNamespace,
   getRuntimeRestRoot,
@@ -41,6 +53,11 @@ interface AdminSecuritySettings {
   php_max_upload_mb: number;
   purge_data_on_uninstall: boolean;
   sync_interval_minutes: number;
+  timed_wake_enabled: boolean;
+  // Pro: who may reach the Templates page. Pro's own settings filters add
+  // them to the payload; Free never sends them, so the defaults stand.
+  allow_templates_admin: boolean;
+  allow_templates_user: boolean;
 }
 
 const DEFAULT_SETTINGS: AdminSecuritySettings = {
@@ -52,6 +69,9 @@ const DEFAULT_SETTINGS: AdminSecuritySettings = {
   php_max_upload_mb: 128,
   purge_data_on_uninstall: false,
   sync_interval_minutes: 5,
+  timed_wake_enabled: true,
+  allow_templates_admin: true,
+  allow_templates_user: true,
 };
 
 const getApiUrl = (): string => {
@@ -72,7 +92,14 @@ export function SecurityAccessTab({
   const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  // The alert stays up while Retry asks again, and the cursor goes to the page
+  // once it is back, so a keyboard user is not dropped at the top of wp-admin.
+  const results = useRetryFocus<HTMLDivElement>(isLoading, loadFailed);
   const [saveStatus, setSaveStatus] = useState<AutosaveStatus>("idle");
+  // Read-only, from the settings payload: every settings manager gets it, not
+  // only administrators (who alone receive the diagnostics global).
+  const [wakeReachability, setWakeReachability] =
+    useState<TimedWakeReachability>();
 
   // JUSTIFICATION: useEffect needed to fetch plugin settings after features context resolves
   useEffect(() => {
@@ -82,7 +109,6 @@ export function SecurityAccessTab({
       }
 
       setIsLoading(true);
-      setLoadFailed(false);
 
       try {
         const response = await apiFetch(
@@ -117,9 +143,21 @@ export function SecurityAccessTab({
             sync_interval_minutes:
               data.settings.sync_interval_minutes ??
               DEFAULT_SETTINGS.sync_interval_minutes,
+            timed_wake_enabled:
+              data.settings.timed_wake_enabled ??
+              DEFAULT_SETTINGS.timed_wake_enabled,
+            allow_templates_admin:
+              data.settings.allow_templates_admin ??
+              DEFAULT_SETTINGS.allow_templates_admin,
+            allow_templates_user:
+              data.settings.allow_templates_user ??
+              DEFAULT_SETTINGS.allow_templates_user,
           };
           setSettings(nextSettings);
           setSavedSettings(nextSettings);
+          setWakeReachability(data.settings.timed_wake_reachability);
+          // Cleared only now, so the alert holding a pressed Retry stays up while it retries.
+          setLoadFailed(false);
         } else {
           throw new Error(
             typeof data?.message === "string"
@@ -191,14 +229,29 @@ export function SecurityAccessTab({
     return changes;
   }, [settings, savedSettings]);
   const coreDirty = Object.keys(changedSettings).length > 0;
+  // One fixed order, roles before people, whichever tab was edited last. A draft
+  // re-registers each time it changes, which moves its key to the end of the
+  // object, so the object's own order would make Save's partial result depend on
+  // edit order. Roles go first because they are the wider change.
   const externalDraftList = useMemo(
-    () => Object.values(externalDrafts),
+    () =>
+      Object.entries(externalDrafts)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, draft]) => draft),
     [externalDrafts],
   );
   const externalDirty = externalDraftList.some((draft) => draft.dirty);
   const externalSaving = externalDraftList.some((draft) => draft.saving);
   const dirty = coreDirty || externalDirty;
   const isSaving = saveStatus === "saving" || externalSaving;
+  // Every staged change on the page, in every tab, so the Save bar says how
+  // much a click on Save is about to apply.
+  const stagedCount =
+    Object.keys(changedSettings).length +
+    externalDraftList.reduce(
+      (sum, draft) => sum + (draft.dirty ? Math.max(1, draft.count ?? 1) : 0),
+      0,
+    );
 
   const saveCoreSettings = useCallback(async (): Promise<boolean> => {
     if (!coreDirty) {
@@ -229,7 +282,7 @@ export function SecurityAccessTab({
         setSettings(canonicalSettings);
         setSavedSettings(canonicalSettings);
         setSaveStatus("saved");
-        notifyAutosaveSuccess("admin-settings");
+        // The toast is saveChanges's to show, once, when every part has saved.
         return true;
       }
 
@@ -258,12 +311,37 @@ export function SecurityAccessTab({
       return true;
     }
 
+    // Anything a draft wants confirmed is asked before the first write, so
+    // "keep editing" leaves the whole page as it was and nothing half saved.
+    const childDrafts = externalDraftList.filter((draft) => draft.dirty);
+    for (const draft of childDrafts) {
+      if (draft.beforeSave && !(await draft.beforeSave())) {
+        return false;
+      }
+    }
+    // A save that only changed roles and people says how many of each, as
+    // their tabs count them. Anything saved alongside it (the General settings)
+    // is not about access, so that keeps the plain wording. Folded away with the
+    // tabs in the one-seat build, which has neither.
+    const peopleDraft = externalDrafts["access-users"];
+    const rolesDraft = externalDrafts["access-roles"];
+    const staged = (draft: AccessControlDraftHandle | undefined) =>
+      draft && childDrafts.includes(draft) ? Math.max(1, draft.count ?? 1) : 0;
+    const savedMessage =
+      !__SINGLE_SEAT__ &&
+      !coreDirty &&
+      childDrafts.every((draft) => draft === peopleDraft || draft === rolesDraft)
+        ? accessSavedMessage({
+            people: staged(peopleDraft),
+            roles: staged(rolesDraft),
+          })
+        : undefined;
+
     const coreSaved = await saveCoreSettings();
     if (!coreSaved) {
       return false;
     }
 
-    const childDrafts = externalDraftList.filter((draft) => draft.dirty);
     for (const draft of childDrafts) {
       const saved = await draft.save();
       if (!saved) {
@@ -275,13 +353,40 @@ export function SecurityAccessTab({
       setSaveStatus("idle");
     }
 
+    // Once, and only when all of it saved: a save that one part refused says so
+    // in that part's own words, not "saved" from the parts that got through.
+    notifyAutosaveSuccess("admin-settings", savedMessage);
+
     return true;
-  }, [coreDirty, dirty, externalDraftList, isSaving, saveCoreSettings]);
+  }, [
+    coreDirty,
+    dirty,
+    externalDraftList,
+    externalDrafts,
+    isSaving,
+    saveCoreSettings,
+  ]);
 
   const headerActions = useMemo(
     () =>
       dirty ? (
         <div className="flex items-center gap-2">
+          {/* Not a live region: it appears along with the buttons, which is too
+              late for one to announce it. The panels that stage changes keep
+              a region in the page for that. */}
+          <span
+            className="text-xs text-muted-foreground"
+            data-test="admin-security-access-staged">
+            {sprintf(
+              _n(
+                "%d unsaved change",
+                "%d unsaved changes",
+                stagedCount,
+                "pressedmail",
+              ),
+              stagedCount,
+            )}
+          </span>
           <Button
             type="button"
             variant="outline"
@@ -301,21 +406,33 @@ export function SecurityAccessTab({
           </Button>
         </div>
       ) : null,
-    [cancelChanges, dirty, isSaving, saveChanges],
+    [cancelChanges, dirty, isSaving, saveChanges, stagedCount],
   );
 
   useSettingsHeaderAction("admin-security-access:save", headerActions, 0);
 
   // Without this, switching tabs or closing the browser dropped staged edits,
-  // including an armed "delete plugin data on uninstall", without a word.
-  useSettingsNavigationGuard({ dirty, saving: isSaving, onSave: saveChanges });
+  // including an armed "delete plugin data on uninstall", without a word. The
+  // Access Control tabs keep their drafts mounted, so moving between them is
+  // no exit, and only this page says so: a page whose view parameter drops a
+  // draft stays guarded. The condition is the one below, spelled out the same
+  // way so the one-seat build folds it away with the tabs.
+  useSettingsNavigationGuard({
+    dirty,
+    saving: isSaving,
+    onSave: saveChanges,
+    viewParams:
+      !__SINGLE_SEAT__ && window.pressedmailPlugin?.canManageAccess
+        ? ACCESS_VIEW_PARAMS
+        : undefined,
+  });
 
   const effectiveAttachmentSize = Math.min(
     settings.max_attachment_size_mb,
     settings.php_max_upload_mb,
   );
 
-  if (isLoading) {
+  if (isLoading && !loadFailed) {
     return (
       <SettingsSkeleton
         label={__("Loading access control settings", "pressedmail")}
@@ -347,18 +464,40 @@ export function SecurityAccessTab({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setReloadToken((token) => token + 1)}
+            // Aria-disabled, not disabled, so the button that has the cursor keeps it.
+            aria-disabled={isLoading || undefined}
+            onClick={() => {
+              if (!isLoading) {
+                results.retry(() => setReloadToken((token) => token + 1));
+              }
+            }}
+            className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
             data-test="admin-security-access-retry"
             data-testid="admin-security-access-retry">
-            {__("Retry", "pressedmail")}
+            {isLoading
+              ? __("Retrying...", "pressedmail")
+              : __("Retry", "pressedmail")}
           </Button>
         </AlertDescription>
       </Alert>
     );
   }
 
+  // What the page shows once it has loaded, in one element that can take the
+  // cursor when a Retry works, whichever section this is.
+  const inResults = (children: ReactNode) => (
+    <div
+      ref={results.target}
+      tabIndex={-1}
+      className="outline-none"
+      data-test="admin-security-access-page"
+      data-testid="admin-security-access-page">
+      {children}
+    </div>
+  );
+
   if (section === "sync") {
-    return (
+    return inResults(
       <SettingsSectionCard
         title={__("Background sync", "pressedmail")}
         description={__(
@@ -367,10 +506,17 @@ export function SecurityAccessTab({
         )}>
         <SettingsRow
           title={__("Email sync frequency", "pressedmail")}
-          description={__(
-            "How often PressedMail checks connected mailboxes for new mail in the background. Set to 0 to disable automatic background sync. Manual refresh works any time.",
-            "pressedmail",
-          )}
+          description={
+            __IS_PRO__
+              ? __(
+                  "How often PressedMail checks connected mailboxes for new mail in the background. Set to 0 to disable automatic background sync. Manual refresh works any time.",
+                  "pressedmail",
+                )
+              : __(
+                  "How often PressedMail checks for new mail while it is open or when someone visits WordPress admin. Set to 0 to check only when you refresh.",
+                  "pressedmail",
+                )
+          }
           control={
             <div className="flex flex-col items-end gap-1">
               <div className="flex items-center gap-2">
@@ -409,11 +555,18 @@ export function SecurityAccessTab({
             </div>
           }
         />
-      </SettingsSectionCard>
+        {__IS_PRO__ ? (
+          <TimedWakeRow
+            checked={settings.timed_wake_enabled}
+            reachability={wakeReachability}
+            onChange={(checked) => updateSetting("timed_wake_enabled", checked)}
+          />
+        ) : null}
+      </SettingsSectionCard>,
     );
   }
   if (section === "data") {
-    return (
+    return inResults(
       <div>
         {" "}
         <DangerZoneCard
@@ -422,17 +575,19 @@ export function SecurityAccessTab({
             updateSetting("purge_data_on_uninstall", enabled)
           }
         />
-      </div>
+      </div>,
     );
   }
 
-  return (
+  const general = (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
         <SettingsSectionCard
           title={
             <span className="inline-flex items-center gap-2">
-              {__("File Attachments", "pressedmail")}
+              <span role="heading" aria-level={2}>
+                {__("File Attachments", "pressedmail")}
+              </span>
               <SettingsSaveState status={saveStatus} />
             </span>
           }
@@ -652,7 +807,11 @@ export function SecurityAccessTab({
         </SettingsSectionCard>
 
         <SettingsSectionCard
-          title={__("Email Display", "pressedmail")}
+          title={
+            <span role="heading" aria-level={2}>
+              {__("Email Display", "pressedmail")}
+            </span>
+          }
           description={__(
             "Control whether remote content can be revealed inside received emails.",
             "pressedmail",
@@ -699,15 +858,88 @@ export function SecurityAccessTab({
             </Alert>
           )}
         </SettingsSectionCard>
-
-        {/* Choosing which roles may open PressedMail only means something when
-            more than one person can. A one-seat build answers that by
-            ownership, so there is nothing here to configure and the card is
-            dropped from the bundle rather than shown empty or disabled. */}
-        {__SINGLE_SEAT__ ? null : (
-          <AccessRolesCard registerDraft={registerExternalDraft} />
-        )}
       </div>
     </div>
+  );
+
+  // Choosing who may open PressedMail, by role or by person, only means
+  // something when more than one person can. A one-seat build answers that by
+  // ownership, so the Roles and Users tabs are dropped from the bundle rather
+  // than shown empty or disabled: the define folds this branch away. They are
+  // also administrator-only, because their routes are guarded by manage_options
+  // and a delegated settings manager would only ever see them fail.
+  if (!__SINGLE_SEAT__ && window.pressedmailPlugin?.canManageAccess) {
+    return inResults(
+      <AccessControlTabs
+        general={general}
+        drafts={externalDrafts}
+        registerDraft={registerExternalDraft}
+        coreFailed={saveStatus === "error"}
+      />,
+    );
+  }
+
+  return inResults(general);
+}
+
+/**
+ * Why a wake is off, from TimedWake::reachability()'s reason. 'environment' is
+ * decided by WP_ENVIRONMENT_TYPE alone, so the site may well be public.
+ */
+export function timedWakeBlockedReason(reason: string | undefined): string {
+  if (reason === "environment") {
+    return __(
+      "This site is marked as a local or development site (WP_ENVIRONMENT_TYPE), so it can't be woken. Set it to staging or production to turn this on. Timed features run while PressedMail is open.",
+      "pressedmail",
+    );
+  }
+  return __(
+    "This site isn't reachable from the internet, so it can't be woken. Timed features run while PressedMail is open.",
+    "pressedmail",
+  );
+}
+
+/**
+ * Pro: let the CurbSoftware licence server wake this site so scheduled sends,
+ * snoozes, timed rules and background sync run without a server cron. A site the
+ * internet cannot reach (local, private network, development) cannot be woken.
+ */
+interface TimedWakeReachability {
+  public: boolean;
+  reason: string;
+}
+
+function TimedWakeRow({
+  checked,
+  reachability: wake,
+  onChange,
+}: {
+  checked: boolean;
+  reachability?: TimedWakeReachability;
+  onChange: (checked: boolean) => void;
+}) {
+  const unreachable = wake ? !wake.public : false;
+  return (
+    <SettingsRow
+      inline
+      title={__("Timed functionalities enabled", "pressedmail")}
+      description={
+        unreachable
+          ? timedWakeBlockedReason(wake?.reason)
+          : __(
+              "The CurbSoftware licence server checks in every few minutes so scheduled sends, snoozes, timed rules and background sync run even when nobody visits the site. It skips the check when visits are already keeping things running.",
+              "pressedmail",
+            )
+      }
+      control={
+        <Switch
+          data-test="timed-wake-enabled"
+          aria-label={__("Timed functionalities enabled", "pressedmail")}
+          checked={checked && !unreachable}
+          disabled={unreachable}
+          onCheckedChange={onChange}
+        />
+      }
+    />
   );
 }

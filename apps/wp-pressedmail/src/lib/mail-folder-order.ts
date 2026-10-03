@@ -10,7 +10,8 @@ export const MAIL_WORKFLOW_SYSTEM_FOLDER_ORDER: Partial<
   spam: 70,
   junk: 70,
   trash: 80,
-  snoozed: 100,
+  // A local folder only an edition with it keeps.
+  ...(__IS_FREE__ ? null : { snoozed: 100 }),
   outbox: 110,
   templates: 120,
 };

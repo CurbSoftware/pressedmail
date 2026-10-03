@@ -12,6 +12,7 @@ import type {
 import {
   createWpMailConnection,
   deleteWpMailConnection,
+  probeWpMailSender,
   testWpMailConnection,
   updateWpMailConnection,
   type WpMailConnectionInput,
@@ -19,7 +20,10 @@ import {
   type WpMailState,
 } from "@/lib/wp-mail-api";
 
-import { SmtpConnectionForm } from "./SmtpConnectionForm";
+import {
+  SmtpConnectionForm,
+  type SmtpSenderTesting,
+} from "./SmtpConnectionForm";
 import { SmtpTestSendPanel } from "./SmtpTestSendPanel";
 import { buildWpMailTestStatus } from "./test-status";
 import {
@@ -27,6 +31,7 @@ import {
   type SmtpConnectionCapabilities,
   type SmtpConnectionFormErrors,
   type SmtpConnectionValue,
+  type SmtpSenderTest,
   type SmtpStatusMessage,
   type SmtpTestPanelErrors,
 } from "./types";
@@ -48,6 +53,12 @@ export interface ConnectionEditorProps {
   draftKey?: string;
   /** Another whole-option mutation is already running in the settings tab. */
   disabled?: boolean;
+  /**
+   * Called after a test of a saved connection, pass or fail. The server records
+   * the outcome against the connection, so the surface showing its health
+   * should look again. Nothing about the form changes when it does.
+   */
+  onTested?: () => void;
 }
 
 const EMPTY_CONNECTION: SmtpConnectionValue = {
@@ -56,6 +67,7 @@ const EMPTY_CONNECTION: SmtpConnectionValue = {
   port: 587,
   security: "tls",
   auth: true,
+  authType: "",
   username: "",
   password: "",
   fromEmail: "",
@@ -76,6 +88,7 @@ function toValue(connection: WpMailConnectionView | null): SmtpConnectionValue {
     port: connection.port,
     security: connection.security,
     auth: connection.auth,
+    authType: connection.authType,
     username: connection.username,
     // Never seeded from the server: the stored password is not sent to the
     // client, and an empty value means "keep it".
@@ -96,12 +109,16 @@ function toInput(value: SmtpConnectionValue): WpMailConnectionInput {
     port: value.port,
     security: value.security,
     auth: value.auth,
+    authType: value.authType,
     password: value.password,
     username: value.username,
     fromEmail: value.fromEmail,
     fromName: value.fromName,
     forceFrom: value.forceFrom ?? false,
-    fromAddresses: value.fromAddresses ?? [],
+    // An emptied sender row is a removal, not an address.
+    fromAddresses: (value.fromAddresses ?? []).filter(
+      (address) => address.trim() !== "",
+    ),
   };
 }
 
@@ -122,6 +139,7 @@ export function ConnectionEditor({
   registerDraft,
   draftKey,
   disabled = false,
+  onTested,
 }: ConnectionEditorProps) {
   const [value, setValue] = useState<SmtpConnectionValue>(() =>
     toValue(connection),
@@ -131,18 +149,32 @@ export function ConnectionEditor({
   const [status, setStatus] = useState<SmtpStatusMessage | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testedValue, setTestedValue] = useState<SmtpConnectionValue | null>(
+    null,
+  );
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [testRecipient, setTestRecipient] = useState("");
+  const [senderTests, setSenderTests] = useState<
+    Record<string, SmtpSenderTest>
+  >({});
+  const [probingSender, setProbingSender] = useState("");
   const saveInFlight = useRef(false);
 
   const connectionId = connection?.id ?? "";
 
-  // Re-seed when the server hands back a different record for this slot.
+  // Re-seed when the server hands back a different record for this slot. Keyed
+  // on what the form shows, not on the record's identity: a refresh that only
+  // brings new health for the same settings must not throw away a half-typed
+  // edit.
+  const seed = useMemo(() => JSON.stringify(toValue(connection)), [connection]);
   useEffect(() => {
-    setValue(toValue(connection));
+    setValue(JSON.parse(seed) as SmtpConnectionValue);
     setFieldErrors({});
-  }, [connection]);
+    setTestedValue(null);
+    // Sender tests belong to the record they ran against.
+    setSenderTests({});
+  }, [seed, connectionId]);
 
   const applyErrors = (errors?: Record<string, string>) => {
     const next: SmtpConnectionFormErrors = {};
@@ -151,6 +183,7 @@ export function ConnectionEditor({
       if (errors.host) next.host = errors.host;
       if (errors.port) next.port = errors.port;
       if (errors.security) next.security = errors.security;
+      if (errors.auth_type) next.authType = errors.auth_type;
       if (errors.username) next.username = errors.username;
       if (errors.password) next.password = errors.password;
       if (errors.from_email) next.fromEmail = errors.from_email;
@@ -160,7 +193,17 @@ export function ConnectionEditor({
   };
 
   const handleSave = useCallback(async (): Promise<boolean> => {
-    if (disabled || saveInFlight.current) {
+    if (disabled || saveInFlight.current || testing || deleting) {
+      return false;
+    }
+    if (testedValue !== value) {
+      setStatus({
+        kind: "error",
+        message: __(
+          "Send a successful test email before saving these settings.",
+          "pressedmail",
+        ),
+      });
       return false;
     }
 
@@ -192,6 +235,7 @@ export function ConnectionEditor({
       // The password is never echoed back, so clear the field rather than
       // leaving the just-typed secret sitting in the DOM.
       setValue((previous) => ({ ...previous, password: "" }));
+      setTestedValue(null);
       setStatus({
         kind: "success",
         message: __("Connection saved.", "pressedmail"),
@@ -210,7 +254,15 @@ export function ConnectionEditor({
       saveInFlight.current = false;
       setSaving(false);
     }
-  }, [connectionId, disabled, onStateChange, value]);
+  }, [
+    connectionId,
+    disabled,
+    onStateChange,
+    value,
+    testedValue,
+    testing,
+    deleting,
+  ]);
 
   // A connection is unsaved when it differs from the record the server handed
   // back. `toValue` always resets the password to empty, so a freshly typed
@@ -219,7 +271,9 @@ export function ConnectionEditor({
 
   const cancelEdits = useCallback(() => {
     setValue(toValue(connection));
+    setTestedValue(null);
     setFieldErrors({});
+    setStatus(null);
   }, [connection]);
 
   // The handle is deliberately keyed on dirty/saving only. Reading the current
@@ -247,8 +301,53 @@ export function ConnectionEditor({
     return () => registerDraft?.(registrationKey, null);
   }, [draftHandle, registerDraft, registrationKey]);
 
+  /**
+   * Try one sender address on the SAVED connection.
+   *
+   * The probe logs in with the connection's own stored credentials, so it never
+   * runs against unsaved input: the buttons are off until the form is clean,
+   * and the address has to be one the server already shows.
+   */
+  const handleTestSender = async (address: string) => {
+    const key = address.trim().toLowerCase();
+    if (!connectionId || dirty || probingSender || !key) {
+      return;
+    }
+
+    setProbingSender(key);
+    setSenderTests((current) => ({ ...current, [key]: { state: "testing" } }));
+    try {
+      const result = await probeWpMailSender(connectionId, address.trim());
+      setSenderTests((current) => ({
+        ...current,
+        [key]:
+          result.ok && result.probe
+            ? { state: "done", probe: result.probe }
+            : {
+                state: "error",
+                message:
+                  result.message ??
+                  __("This address could not be tested.", "pressedmail"),
+              },
+      }));
+    } catch (error) {
+      setSenderTests((current) => ({
+        ...current,
+        [key]: {
+          state: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : __("This address could not be tested.", "pressedmail"),
+        },
+      }));
+    } finally {
+      setProbingSender("");
+    }
+  };
+
   const handleTest = async () => {
-    if (disabled) {
+    if (disabled || testing || saving || deleting || saveInFlight.current) {
       return;
     }
 
@@ -264,6 +363,8 @@ export function ConnectionEditor({
     }
 
     setTestErrors({});
+    applyErrors(undefined);
+    setTestedValue(null);
     setTesting(true);
     setStatus(null);
 
@@ -273,7 +374,13 @@ export function ConnectionEditor({
         recipient,
         connectionId,
       );
+      applyErrors(result.errors);
+      setTestErrors({ testRecipient: result.errors?.recipient_email });
+      setTestedValue(result.ok ? value : null);
       setStatus(buildWpMailTestStatus(result, runtimeEnabled && value.enabled));
+      if (connectionId) {
+        onTested?.();
+      }
     } catch (error) {
       setStatus({
         kind: "error",
@@ -323,6 +430,20 @@ export function ConnectionEditor({
 
   const connectionName = connection?.label || __("connection", "pressedmail");
 
+  // Individual sender probes use the saved record; the email test checks a draft.
+  const senderTesting: SmtpSenderTesting = {
+    test: (address) => void handleTestSender(address),
+    results: senderTests,
+    pending: probingSender,
+    disabledReason:
+      connectionId && !dirty
+        ? ""
+        : __(
+            "Send a test email and save this server before checking individual sender addresses.",
+            "pressedmail",
+          ),
+  };
+
   return (
     <div
       className="space-y-4"
@@ -330,12 +451,18 @@ export function ConnectionEditor({
       data-testid={`${idPrefix}-editor`}>
       <SmtpConnectionForm
         value={value}
-        onChange={setValue}
+        onChange={(next) => {
+          setValue(next);
+          setTestedValue(null);
+          setFieldErrors({});
+          setStatus(null);
+        }}
         errors={fieldErrors}
         hasPassword={connection?.hasPassword ?? false}
         capabilities={capabilities}
         idPrefix={idPrefix}
-        disabled={disabled || saving || deleting}
+        disabled={disabled || saving || testing || deleting}
+        senderTesting={senderTesting}
       />
 
       <SmtpTestSendPanel
@@ -348,6 +475,7 @@ export function ConnectionEditor({
         saving={saving}
         testing={testing}
         disabled={disabled || deleting}
+        canSave={testedValue === value}
         idPrefix={idPrefix}
       />
 

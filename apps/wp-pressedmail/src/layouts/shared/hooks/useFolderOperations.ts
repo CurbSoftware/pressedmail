@@ -48,7 +48,10 @@ export type { ImapFolder };
  */
 export type EmailProvider = "gmail" | "outlook" | "generic";
 
-const VIRTUAL_FOLDERS = new Set(["starred", "important", "scheduled"]);
+// Scheduled is a Pro view over Drafts; Free has only the flag views.
+const VIRTUAL_FOLDERS = new Set(
+  __IS_FREE__ ? ["starred", "important"] : ["starred", "important", "scheduled"],
+);
 const LIVE_SYNC_SYSTEM_FOLDERS = new Set<SystemFolderType>([
   "spam",
   "junk",
@@ -171,13 +174,37 @@ export interface UseFolderOperationsReturn {
 interface ResolvedAccountContext {
   accountId: string | number;
   accountIds?: number[];
-  consolidated: boolean;
+  /** Several mailboxes read as one. Never set in a single-mailbox build. */
+  consolidated?: boolean;
+}
+
+/** Whether a resolved context reads several mailboxes as one. */
+function isCombinedAccount(account: ResolvedAccountContext): boolean {
+  return !__SINGLE_MAILBOX__ && account.consolidated === true;
+}
+
+/** Load options that repeat a combined context. None in a single-mailbox build. */
+function combinedLoadOptions(account: ResolvedAccountContext): {
+  consolidated?: boolean;
+  accountIds?: number[];
+} {
+  if (__SINGLE_MAILBOX__) return {};
+  return {
+    consolidated: account.consolidated === true,
+    accountIds: account.consolidated === true ? account.accountIds : undefined,
+  };
 }
 
 /**
  * System folder detection patterns, keyed by SystemFolderType.
  */
-const SYSTEM_FOLDERS: Record<SystemFolderType, string[]> = {
+// Scheduled and Snoozed are Pro system folders. Free treats a folder with
+// either name as an ordinary folder.
+const SYSTEM_FOLDERS: Record<
+  Exclude<SystemFolderType, "scheduled" | "snoozed">,
+  string[]
+> &
+  Partial<Record<"scheduled" | "snoozed", string[]>> = {
   inbox: ["INBOX", "Inbox"],
   sent: ["Sent", "SENT", "Sent Items", "Sent Mail", "[Gmail]/Sent Mail"],
   drafts: ["Drafts", "DRAFTS", "[Gmail]/Drafts"],
@@ -189,8 +216,7 @@ const SYSTEM_FOLDERS: Record<SystemFolderType, string[]> = {
   starred: ["Starred", "[Gmail]/Starred"],
   important: ["Important", "[Gmail]/Important"],
   outbox: ["Outbox"],
-  scheduled: ["Scheduled"],
-  snoozed: ["Snoozed"],
+  ...(__IS_FREE__ ? {} : { scheduled: ["Scheduled"], snoozed: ["Snoozed"] }),
   templates: ["Templates"],
 };
 
@@ -228,8 +254,7 @@ function normalizeSystemFolderType(
       "starred",
       "important",
       "outbox",
-      "scheduled",
-      "snoozed",
+      ...(__IS_FREE__ ? [] : ["scheduled", "snoozed"]),
       "templates",
     ].includes(normalized)
   ) {
@@ -284,7 +309,11 @@ function getFolderIcon(path: string): string {
   if (systemType === "archive") return "archive";
   if (systemType === "spam" || systemType === "junk") return "junk";
   if (systemType === "starred" || systemType === "important") return "star";
-  if (systemType === "snoozed" || systemType === "scheduled") return "clock";
+  if (
+    !__IS_FREE__ &&
+    (systemType === "snoozed" || systemType === "scheduled")
+  )
+    return "clock";
   if (systemType === "outbox") return "send";
   return "folder";
 }
@@ -301,12 +330,16 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   const { accounts, selectedAccount, setSelectedAccount, numberOfMessages } =
     useAppContext();
   const { scope } = useMailboxScope();
-  const isConsolidatedMode = scope.type === "combined_inbox";
+  const isConsolidatedMode =
+    !__SINGLE_MAILBOX__ && scope.type === "combined_inbox";
   const effectiveConsolidatedAccountIds = isConsolidatedMode
     ? scope.accountIds
     : [];
   const consolidatedScopeKey = useMemo(
-    () => buildConsolidatedAccountScopeKey(effectiveConsolidatedAccountIds),
+    () =>
+      __SINGLE_MAILBOX__
+        ? ""
+        : buildConsolidatedAccountScopeKey(effectiveConsolidatedAccountIds),
     [effectiveConsolidatedAccountIds],
   );
   const selectedFolderPersistenceKey = isConsolidatedMode
@@ -343,7 +376,10 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   const resolveAccountContext =
     useCallback((): ResolvedAccountContext | null => {
       if (!selectedAccount) return null;
-      if (selectedAccount === CONSOLIDATED_INBOX_VALUE) {
+      if (
+        !__SINGLE_MAILBOX__ &&
+        selectedAccount === CONSOLIDATED_INBOX_VALUE
+      ) {
         if (effectiveConsolidatedAccountIds.length === 0) {
           return null;
         }
@@ -361,7 +397,6 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       const numericId = Number(account.id ?? 1);
       return {
         accountId: Number.isFinite(numericId) ? numericId : 1,
-        consolidated: false,
       };
     }, [
       selectedAccount,
@@ -374,7 +409,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
     const account = resolveAccountContext();
     if (
       !account ||
-      account.consolidated ||
+      isCombinedAccount(account) ||
       typeof account.accountId !== "number"
     ) {
       return null;
@@ -487,7 +522,9 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       important: serviceFolderOps.virtualFolderCounts.important,
       starred: serviceFolderOps.virtualFolderCounts.starred,
       scheduled:
-        typeof scheduledPendingCount === "number" && scheduledPendingCount > 0
+        !__IS_FREE__ &&
+        typeof scheduledPendingCount === "number" &&
+        scheduledPendingCount > 0
           ? scheduledPendingCount
           : undefined,
     }),
@@ -705,7 +742,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   // Apply/clear filters reactively based on selectedNav (virtual folders)
   useEffect(() => {
     const ops = filterOpsRef.current;
-    if (selectedNav.toLowerCase() === "scheduled") {
+    if (!__IS_FREE__ && selectedNav.toLowerCase() === "scheduled") {
       ops.applyFilters({ scheduledOnly: true });
     } else if (selectedNav.toLowerCase() === "starred") {
       ops.applyFilters({ starred: true });
@@ -741,7 +778,9 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           normalizeFolderIdentity(folder.name) === normalizedId,
       );
 
-      if (selectedSystemFolder?.systemType === "scheduled") {
+      // Scheduled and Snoozed are Pro views. In Free a leftover Snoozed IMAP
+      // folder is an ordinary folder, and "scheduled" names nothing.
+      if (!__IS_FREE__ && selectedSystemFolder?.systemType === "scheduled") {
         const draftsFolder = getDraftsFolder();
         const fetchFolder = draftsFolder?.path ?? "Drafts";
         return {
@@ -753,7 +792,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         };
       }
 
-      if (selectedSystemFolder?.systemType === "snoozed") {
+      if (!__IS_FREE__ && selectedSystemFolder?.systemType === "snoozed") {
         return {
           fetchFolder: selectedSystemFolder.path,
           forceRefresh: false,
@@ -766,7 +805,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       const hasRealFolder = normalizedFolders.some(
         (folder) => normalizeFolderIdentity(folder.path) === normalizedId,
       );
-      if (!hasRealFolder && normalizedId === "scheduled") {
+      if (!__IS_FREE__ && !hasRealFolder && normalizedId === "scheduled") {
         const draftsFolder = getDraftsFolder();
         const fetchFolder = draftsFolder?.path ?? "Drafts";
         return {
@@ -777,7 +816,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           serviceFolder: fetchFolder,
         };
       }
-      if (!hasRealFolder && normalizedId === "snoozed") {
+      if (!__IS_FREE__ && !hasRealFolder && normalizedId === "snoozed") {
         return {
           fetchFolder: "Snoozed",
           forceRefresh: false,
@@ -831,7 +870,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         const generation = inboxService.getRequestGeneration();
         const token =
           syncToken ?? syncService.getSyncToken(account.accountId, folder);
-        const folderMap = account.consolidated
+        const folderMap = isCombinedAccount(account)
           ? getConsolidatedFolderMapForPath(foldersSource, folder)
           : undefined;
 
@@ -840,8 +879,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           await inbox.loadMessages({
             accountId: account.accountId,
             folder,
-            consolidated: account.consolidated,
-            accountIds: account.consolidated ? account.accountIds : undefined,
+            ...combinedLoadOptions(account),
             folderMap,
             limit:
               folder.toUpperCase() === "INBOX"
@@ -853,20 +891,23 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           return;
         }
 
+        const syncStartedAt = Date.now();
         const syncResult = await syncService.incrementalSync(
           account.accountId,
           folder,
           token,
           {
             folder,
-            consolidated: account.consolidated,
-            accountIds: account.consolidated ? account.accountIds : undefined,
+            ...combinedLoadOptions(account),
             folderMap,
           },
         );
 
         if (syncResult.success && syncResult.delta) {
-          if (inboxService.applyDiff(syncResult.delta, generation)) return;
+          if (
+            inboxService.applyDiff(syncResult.delta, generation, syncStartedAt)
+          )
+            return;
           syncResult.requiresFullSync = true;
         }
 
@@ -874,8 +915,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           await inbox.loadMessages({
             accountId: account.accountId,
             folder,
-            consolidated: account.consolidated,
-            accountIds: account.consolidated ? account.accountIds : undefined,
+            ...combinedLoadOptions(account),
             folderMap,
             limit:
               folder.toUpperCase() === "INBOX"
@@ -903,7 +943,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         (requestedFolder.toUpperCase() === "INBOX"
           ? DEFAULT_FOLDER_FETCH_LIMIT
           : NON_INBOX_FETCH_LIMIT);
-      const folderMap = account.consolidated
+      const folderMap = isCombinedAccount(account)
         ? getConsolidatedFolderMapForPath(foldersSource, requestedFolder)
         : undefined;
 
@@ -911,8 +951,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         accountId: account.accountId,
         folder: requestedFolder,
         forceRefresh: options?.forceRefresh ?? false,
-        consolidated: account.consolidated,
-        accountIds: account.consolidated ? account.accountIds : undefined,
+        ...combinedLoadOptions(account),
         folderMap,
         limit,
         timeoutMs:
@@ -963,7 +1002,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         requestedFolder,
         result.error,
       );
-      const inboxFolderMap = account.consolidated
+      const inboxFolderMap = isCombinedAccount(account)
         ? getConsolidatedFolderMapForPath(foldersSource, "INBOX")
         : undefined;
       setSelectedNav("INBOX");
@@ -972,8 +1011,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         accountId: account.accountId,
         folder: "INBOX",
         forceRefresh: false,
-        consolidated: account.consolidated,
-        accountIds: account.consolidated ? account.accountIds : undefined,
+        ...combinedLoadOptions(account),
         folderMap: inboxFolderMap,
         limit: DEFAULT_FOLDER_FETCH_LIMIT,
         timeoutMs: INBOX_FETCH_TIMEOUT_MS,
@@ -1045,7 +1083,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       {
         const ops = filterOpsRef.current;
         const nav = navFolder.toLowerCase();
-        if (nav === "scheduled") {
+        if (!__IS_FREE__ && nav === "scheduled") {
           ops.applyFilters({ scheduledOnly: true });
         } else if (nav === "starred") {
           ops.applyFilters({ starred: true });
@@ -1066,12 +1104,12 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           ops.applyFilters({ starred: true });
         } else if (navFolder === "important") {
           ops.applyFilters({ important: true });
-        } else if (navFolder === "scheduled") {
+        } else if (!__IS_FREE__ && navFolder === "scheduled") {
           ops.applyFilters({ scheduledOnly: true });
         }
 
         const account = target
-          ? { accountId: target.accountId, consolidated: false }
+          ? { accountId: target.accountId }
           : resolveAccountContext();
         if (account !== null) {
           void loadFolderWithFallback(account, fetchFolder, {
@@ -1084,7 +1122,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       if (isPagination) {
         if (fetchFolder === serviceFolderOps.selectedFolder) {
           const account = target
-            ? { accountId: target.accountId, consolidated: false }
+            ? { accountId: target.accountId }
             : resolveAccountContext();
           if (account !== null) {
             void loadFolderWithFallback(account, fetchFolder, {
@@ -1100,7 +1138,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       // and cache their results for later use.
       selectFolderTimeoutRef.current = setTimeout(() => {
         const account = target
-          ? { accountId: target.accountId, consolidated: false }
+          ? { accountId: target.accountId }
           : resolveAccountContext();
         if (account !== null) {
           void loadFolderWithFallback(account, fetchFolder, { forceRefresh });
@@ -1156,15 +1194,15 @@ export function useFolderOperations(): UseFolderOperationsReturn {
     if (account !== null) {
       // Bump the current account to the FRONT of the sync queue and kick the driver, so
       // Refresh triggers a real re-sync (not just a mirror re-read of the same rows).
-      const accountIds = account.consolidated
+      const accountIds = isCombinedAccount(account)
         ? (account.accountIds ?? [])
         : typeof account.accountId === "number"
           ? [account.accountId]
           : [];
       void refreshAccountSync(accountIds);
 
-      if (account.consolidated) {
-        await serviceFolderOps.loadConsolidatedFolders(
+      if (isCombinedAccount(account)) {
+        await serviceFolderOps.loadConsolidatedFolders?.(
           account.accountIds ?? [],
           true,
         );
@@ -1183,8 +1221,8 @@ export function useFolderOperations(): UseFolderOperationsReturn {
     if (account === null) {
       return;
     }
-    if (account.consolidated) {
-      await serviceFolderOps.loadConsolidatedFolders(
+    if (isCombinedAccount(account)) {
+      await serviceFolderOps.loadConsolidatedFolders?.(
         account.accountIds ?? [],
         false,
       );
@@ -1203,7 +1241,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
       if (account === null)
         return { success: false, error: "No account selected" };
 
-      if (account.consolidated) {
+      if (isCombinedAccount(account)) {
         const accountIds = account.accountIds ?? [];
         if (accountIds.length === 0) {
           return { success: false, error: "No account selected" };
@@ -1221,7 +1259,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         }
         const failures = results.filter(({ result }) => !result.success);
 
-        await serviceFolderOps.loadConsolidatedFolders(accountIds, true);
+        await serviceFolderOps.loadConsolidatedFolders?.(accountIds, true);
 
         if (failures.length > 0) {
           return {

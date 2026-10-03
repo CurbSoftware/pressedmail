@@ -36,6 +36,10 @@ interface ComposerAddressingProps {
   showListSuggestions?: boolean;
   disabled?: boolean;
   autoFocusTo?: boolean;
+  /** Read for the personalized list-send hint (Pro). */
+  subject?: string;
+  body?: string;
+  contentType?: string;
 }
 
 function sameRecipientList(a: Recipient[], b: Recipient[]): boolean {
@@ -63,6 +67,9 @@ export function ComposerAddressing({
   showListSuggestions = false,
   disabled = false,
   autoFocusTo = false,
+  subject = "",
+  body = "",
+  contentType,
 }: ComposerAddressingProps) {
   const ccFieldId = useId();
   const bccFieldId = useId();
@@ -170,6 +177,7 @@ export function ComposerAddressing({
               })
             }
             placeholder={__("Cc recipients", "pressedmail")}
+            showListSuggestions={showListSuggestions}
             disabled={disabled}
           />
         </div>
@@ -193,10 +201,12 @@ export function ComposerAddressing({
               })
             }
             placeholder={__("Bcc recipients", "pressedmail")}
+            showListSuggestions={showListSuggestions}
             disabled={disabled}
           />
         </div>
       )}
+
     </div>
   );
 }

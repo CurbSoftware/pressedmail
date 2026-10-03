@@ -27,8 +27,11 @@ const AlertDialogOverlay: React.FC<
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Overlay>
 > = ({ className, ...props }) => (
   <AlertDialogPrimitive.Overlay
+    data-pm-dialog-overlay
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-background/80 fixed inset-0 z-50',
+      // A darker scrim in dark mode: at 80% background the dialog's edge
+      // nearly vanished against the page (about 1.1:1).
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-background/80 dark:bg-black/70 fixed inset-0 z-50',
       className,
     )}
     {...props}

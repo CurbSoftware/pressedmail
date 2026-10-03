@@ -2,6 +2,7 @@ import { getFolderRole } from "@/lib/bulk-mail-actions";
 import { unwrapEmailBodyHtml } from "@/services/email-safe-html.service";
 import type { ComposeData, EmailMessage } from "@/types";
 import type { ScheduledEmail } from "@/types/scheduled-emails";
+import { restoreRecipientListFields } from "@/types/recipients";
 
 export interface DraftComposeIdentity {
   uid: string;
@@ -24,13 +25,15 @@ function hasDraftFolderRole(value: string | null | undefined): boolean {
 }
 
 export function isScheduledMessage(message: EmailMessage | null): boolean {
-  if (!message) return false;
+  // Scheduled sending is Pro: nothing in Free is ever a scheduled message.
+  if (__IS_FREE__ || !message) return false;
   return message.isScheduled === true || getScheduledEmailId(message) !== null;
 }
 
 export function getScheduledEmailId(
   message: EmailMessage | null,
 ): number | null {
+  if (__IS_FREE__) return null;
   const id = Number(message?.scheduledEmailId);
   return Number.isInteger(id) && id > 0 ? id : null;
 }
@@ -125,16 +128,37 @@ export function getDraftComposeData(
     to: message.to ?? "",
     cc: message.cc ?? "",
     bcc: message.bcc ?? "",
-    contactLists: Array.isArray(message.contactLists)
-      ? message.contactLists
-      : Array.isArray(message.contact_lists)
-        ? message.contact_lists
-        : [],
+    // Contact lists as recipients are Pro.
+    ...(__ENABLE_CONTACT_LISTS__
+      ? {
+          contactLists: restoreRecipientListFields(
+            Array.isArray(message.contactLists)
+              ? message.contactLists
+              : Array.isArray(message.contact_lists)
+                ? message.contact_lists
+                : [],
+            message.draftDocument?.recipientListFields,
+          ),
+          listDelivery: message.draftDocument?.listDelivery === true,
+        }
+      : null),
+    ...(message.email
+      ? {
+          senderIdentity: {
+            accountId: Number(message.accountId ?? selectedAccountId),
+            aliasId: null,
+            email: message.email,
+          },
+        }
+      : {}),
     inReplyTo: message.inReplyTo,
     references: message.references,
     subject: message.subject ?? "",
     body,
-    draftDocument: message.draftDocument,
+    draftDocument:
+      contentType === "plain" || message.draftDocument?.metadataOnly
+        ? undefined
+        : message.draftDocument,
     contentType,
     bodyBackgroundColor:
       message.bodyBackgroundColor ?? unwrapped.bodyBackgroundColor,
@@ -179,7 +203,7 @@ export function getDraftComposeSignature(
 
   return JSON.stringify({
     selectedFolder,
-    messageId: message.consolidatedUid ?? message.id,
+    messageId: message.identityKey ?? message.id,
     uid: draft.draftUid,
     folder: draft.draftFolder,
     accountId: draft.draftAccountId,
@@ -191,7 +215,7 @@ export function getDraftComposeSignature(
     to: draft.to,
     cc: draft.cc,
     bcc: draft.bcc,
-    contactLists: draft.contactLists,
+    ...(__ENABLE_CONTACT_LISTS__ ? { contactLists: draft.contactLists } : null),
     subject: draft.subject,
     body: draft.body,
     contentType: draft.contentType,

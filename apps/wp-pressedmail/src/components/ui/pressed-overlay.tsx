@@ -45,6 +45,14 @@ export const PRESSED_OVERLAY_WIDTH_CLASS_NAMES = {
   workspace: "w-[min(calc(100vw-2rem),72rem)]",
 } as const satisfies Record<PressedOverlaySize, string>;
 
+/**
+ * The kit's close X is a bare 16px icon. On phones, grow its hit area to
+ * 44px around the same centre (top-4 plus half the icon), so it neither
+ * moves nor covers more of the title than it did.
+ */
+const CLOSE_TOUCH_TARGET =
+  "max-sm:[&>button.absolute]:top-0.5 max-sm:[&>button.absolute]:right-0.5 max-sm:[&>button.absolute]:flex max-sm:[&>button.absolute]:size-11 max-sm:[&>button.absolute]:items-center max-sm:[&>button.absolute]:justify-center";
+
 type SizedContentProps<T> = T & {
   size: PressedOverlaySize;
 };
@@ -61,6 +69,7 @@ export function PressedDialogContent({
       className={cn(
         PRESSED_OVERLAY_WIDTH_CLASS_NAMES[size],
         "max-w-none gap-0 overflow-x-hidden overflow-y-auto p-0",
+        CLOSE_TOUCH_TARGET,
         className,
       )}
     />
@@ -115,7 +124,9 @@ export function PressedDialogHeader(props: HeaderProps) {
   const Icon = props.icon;
 
   return (
-    <DialogHeader className="border-b border-border px-6 py-5">
+    <DialogHeader
+      data-pm-overlay-section="header"
+      className="border-b border-border px-6 py-5">
       <DialogTitle>
         <DialogTitleRow variant={props.tone}>
           {Icon ? <Icon aria-hidden="true" /> : null}
@@ -138,7 +149,12 @@ export function PressedAlertDialogHeader(props: HeaderProps) {
   const Icon = props.icon;
 
   return (
-    <AlertDialogHeader className="border-b border-border px-6 py-5">
+    // The kit header centres its text below `sm` while the title row stays
+    // start-aligned, so the body sat centred under a left title on phones.
+    // Children stay stretched, so an error line in the body is full width.
+    <AlertDialogHeader
+      data-pm-overlay-section="header"
+      className="border-b border-border px-6 py-5 text-start">
       <AlertDialogTitle>
         <AlertDialogTitleRow variant={props.tone}>
           {Icon ? <Icon aria-hidden="true" /> : null}
@@ -161,7 +177,9 @@ export function PressedPopoverHeader(props: HeaderProps) {
   const Icon = props.icon;
 
   return (
-    <div className="border-b border-border px-6 py-5">
+    <div
+      data-pm-overlay-section="header"
+      className="border-b border-border px-6 py-5">
       <h3 className={overlayTitleClassName}>
         <span
           className={cn(
@@ -201,7 +219,14 @@ export function PressedOverlayFooter(props: HTMLAttributes<HTMLDivElement>) {
       {...props}
       data-pm-overlay-section="footer"
       className={cn(
-        "flex flex-col-reverse gap-2 border-t border-border px-6 py-4 sm:flex-row sm:justify-end",
+        // Pinned to the bottom of a scrolling dialog so its actions stay in
+        // reach on short screens.
+        "sticky bottom-0 z-10 flex flex-col-reverse gap-2 border-t border-border bg-popover px-6 py-4 sm:flex-row sm:justify-end",
+        // A confirm with no body: the header's divider is already there,
+        // and a second one right under it drew a 2px line.
+        "[[data-pm-overlay-section=header]+&]:border-t-0",
+        // Stacked full width on a phone, each button gets a 44px touch height.
+        "max-sm:[&>button]:min-h-11",
         props.className,
       )}
     />
@@ -216,4 +241,22 @@ export function PressedOverlayError(props: HTMLAttributes<HTMLDivElement>) {
       className={cn("text-sm text-destructive", props.className)}
     />
   );
+}
+
+/**
+ * Scroll a field into view inside the dialog body only. scrollIntoView also
+ * scrolled the dialog shell, which pushed the title and close button off a
+ * phone screen.
+ */
+export function revealInBody(target: HTMLElement): void {
+  const body = target.closest<HTMLElement>('[data-pm-overlay-section="body"]');
+  if (!body) {
+    target.scrollIntoView?.({ block: "nearest" });
+    return;
+  }
+  const box = body.getBoundingClientRect();
+  const spot = target.getBoundingClientRect();
+  const offset = spot.top - box.top - (box.height - spot.height) / 2;
+  if (typeof body.scrollBy === "function") body.scrollBy({ top: offset });
+  else body.scrollTop += offset;
 }

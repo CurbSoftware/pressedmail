@@ -13,7 +13,7 @@
  * What legitimately differs between surfaces is declared once, in
  * `PLATE_EMAIL_EDITOR_SURFACE_PRESETS` (`@kit/plate/email-surfaces`): the
  * feature flags, the minimum height, and which canvas the surface edits on.
- * Nothing in this file branches on the surface name.
+ * Templates and full-list emails retain block fields for later resolution.
  *
  * The email composer has more around the canvas than the authoring surfaces do
  * (plain-text mode, recipients, attachments, its own media-upload session
@@ -34,7 +34,7 @@ import {
   getPlateEmailEditorSurfacePreset,
   type PlateEmailEditorDialect,
   type PlateEmailEditorSurface,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 import type { Value } from "@kit/plate";
 
 import {
@@ -43,17 +43,22 @@ import {
 } from "@/components/composer";
 import { appMessage } from "@/context/toast";
 import { useFeaturesOptional } from "@/context/features/FeaturesContext";
+import { ContentBlocksProvider } from "@/components/composer/plate/composer-blocks-kit.active";
 import { resolveMaxAttachmentBytes } from "@/hooks/compose/v2/useComposeForm";
-import { useMaxAttachmentSizeMb } from "@/context/admin-settings";
+import {
+  useCanUploadAttachments,
+  useCanUseMediaLibraryAttachments,
+  useMaxAttachmentSizeMb,
+} from "@/context/admin-settings";
 import { cn } from "@/lib/utils";
 import { uploadImage, validateImage } from "@/services/image-upload.service";
 import type { Signature } from "@/types/signatures";
-
 import {
   ComposerEditorToolbar,
   type ComposerToolbarForm,
 } from "./ComposerEditorToolbar";
-import { useMediaLibraryPicker } from "./media-library/MediaLibraryPickerProvider";
+import { useContentBlocksEnabled } from "./use-content-blocks-enabled";
+import { useMediaLibraryPicker } from "./useMediaLibraryPicker";
 import { normalizeRichEditorHtml } from "./compose-utils";
 
 export interface ComposerAuthoringEditorProps {
@@ -82,6 +87,13 @@ export interface ComposerAuthoringEditorProps {
    * from `form.showAIPanel`, which is already gated upstream.
    */
   enableAiCommands?: boolean;
+  /**
+   * Show fields as chips and open the `{{` field list. Opt-in, so the message
+   * composer never turns text it was handed into chips: only the template and
+   * block editors set it. Multiplied by the surface's own `templateVariables`
+   * flag, and false in Free, whose kit is empty.
+   */
+  variablesEnabled?: boolean;
   canUseMediaLibraryImages?: boolean;
   canUploadImages?: boolean;
   subject?: string;
@@ -102,6 +114,11 @@ export interface ComposerAuthoringEditorProps {
   /** Controlled preview. Leave undefined to let the component own the toggle. */
   previewActive?: boolean;
   onTogglePreview?: () => void;
+  /** Templates resolve their unsaved content on the server instead of showing raw fields. */
+  previewContent?: React.ReactNode;
+  previewEnabled?: boolean;
+  previewDisabled?: boolean;
+  previewControl?: { testId: string };
   /**
    * Inline style for the outer canvas wrapper. The composer publishes its
    * user-picked colours and font as inherited CSS variables here.
@@ -124,6 +141,9 @@ export interface ComposerAuthoringEditorProps {
    */
   onSetBodyBackgroundColor?: (color: string | undefined) => void;
   onSetCanvasBackgroundColor?: (color: string | undefined) => void;
+  /** The current body background, for the toolbar when no `form` is passed. */
+  bodyBackgroundColor?: string;
+  /** Options only an edition with those features reads. */
 
   /**
    * Media insertion. The composer supplies both because it tracks an upload
@@ -137,6 +157,17 @@ export interface ComposerAuthoringEditorProps {
 
 /** Stable identity so the assembled toolbar form is not rebuilt every render. */
 const noSignatureSelect = (): void => {};
+
+/**
+ * The one address the email is to, for filling a saved block's contact fields.
+ * With more than one person across To, Cc and Bcc (or a list, which stands for
+ * many), nobody's details belong in a copy that goes to all of them.
+ */
+function soleRecipientEmail(form: ComposerToolbarForm): string | undefined {
+  const everyone = [...form.toRecipients, ...form.ccRecipients, ...form.bccRecipients];
+  const only = everyone[0];
+  return everyone.length === 1 && only && only.type !== "list" ? only.email : undefined;
+}
 
 function isSafeInlineImageUrl(value: string): boolean {
   const trimmed = value.trim();
@@ -174,15 +205,20 @@ export const ComposerAuthoringEditor = forwardRef<
     className,
     editorClassName,
     editorKey,
-    contentBlocksEnabled = false,
+    contentBlocksEnabled: contentBlocksEnabledProp,
     enableAiCommands = true,
-    canUseMediaLibraryImages = true,
-    canUploadImages = true,
+    variablesEnabled: variablesEnabledProp = false,
+    canUseMediaLibraryImages: canUseMediaLibraryImagesProp,
+    canUploadImages: canUploadImagesProp,
     subject = "",
     onSubjectChange,
     form,
     previewActive: controlledPreviewActive,
     onTogglePreview,
+    previewContent,
+    previewEnabled,
+    previewDisabled,
+    previewControl,
     contentStyle,
     editorStyle,
     toolbarVariant,
@@ -191,6 +227,7 @@ export const ComposerAuthoringEditor = forwardRef<
     onToggleContentType,
     onSetBodyBackgroundColor,
     onSetCanvasBackgroundColor,
+    bodyBackgroundColor,
     onImageLibrary,
     onImageUpload,
     onEditorReady,
@@ -229,10 +266,28 @@ export const ComposerAuthoringEditor = forwardRef<
   // decoupled. Absent context means absent features, which fails closed, and
   // the surfaces that own the AI entry point still gate it a second time.
   const features = useFeaturesOptional();
-  const aiFeatureEnabled = features?.isFeatureAvailable("ai_drafting") ?? false;
+  // AI drafting is Pro; Free reads no AI flag.
+  const aiFeatureEnabled =
+    !__IS_FREE__ && (features?.isFeatureAvailable("ai_drafting") ?? false);
   const aiEnabled =
     enableAiCommands && surfaceFeatures.aiCommands && aiFeatureEnabled;
+  // Saved blocks belong to emails and templates, on Pro licences that have
+  // Templates: one rule for the toolbar button, the slash menu and the Settings
+  // dialog. Another surface opts in by passing the prop.
+  const blocksAvailable = useContentBlocksEnabled(surface);
+  const contentBlocksEnabled = contentBlocksEnabledProp ?? blocksAvailable;
+  const blockListDelivery =
+    surface === "email" && __ENABLE_CONTACT_LISTS__ && form?.listDelivery === true;
+  const variablesEnabled =
+    !__IS_FREE__ && variablesEnabledProp && surfaceFeatures.templateVariables;
   const maxAttachmentSizeMb = useMaxAttachmentSizeMb();
+  // The admin media policy applies to every authoring surface (templates,
+  // signatures, auto-replies), not only the composer that passes it in.
+  const adminCanUseMediaLibrary = useCanUseMediaLibraryAttachments();
+  const adminCanUpload = useCanUploadAttachments();
+  const canUseMediaLibraryImages =
+    canUseMediaLibraryImagesProp ?? adminCanUseMediaLibrary;
+  const canUploadImages = canUploadImagesProp ?? adminCanUpload;
 
   const canUseMediaLibraryInlineImages =
     canUseMediaLibraryImages &&
@@ -390,12 +445,13 @@ export const ComposerAuthoringEditor = forwardRef<
       bccRecipients: [],
       subject,
       body: content,
-      showAIPanel: aiEnabled,
+      bodyBackgroundColor,
+      ...(__IS_FREE__ ? null : { showAIPanel: aiEnabled }),
       // Only reachable from the signature picker, which these surfaces do not
       // render because they pass signaturesEnabled={false} and no signatures.
       handleSignatureSelect: noSignatureSelect,
     }),
-    [aiEnabled, content, subject],
+    [aiEnabled, bodyBackgroundColor, content, subject],
   );
   const toolbarForm = form ?? assembledToolbarForm;
 
@@ -406,9 +462,10 @@ export const ComposerAuthoringEditor = forwardRef<
         "flex flex-1 flex-col min-h-0",
         // Preview always shows the email canvas, so the recipient's view does
         // not change with the author's UI theme. Before Preview, the surface
-        // decides: the composer edits on the app theme, the authoring surfaces
-        // write on the email canvas their surrounding card already bounds.
-        previewActive || flushCanvas
+        // decides: the composer and templates edit on the app theme, the
+        // signature and auto-reply surfaces write on the email canvas their
+        // surrounding card already bounds.
+        (previewActive && !previewContent) || flushCanvas
           ? "pm-email-content-surface"
           : "pm-composer-edit-surface",
         flushCanvas && "overflow-hidden rounded-none border-0",
@@ -422,7 +479,7 @@ export const ComposerAuthoringEditor = forwardRef<
       <div
         className={cn(
           "flex flex-1 flex-col min-h-0",
-          previewActive && "pm-email-preview-surface",
+          previewActive && !previewContent && "pm-email-preview-surface",
         )}
         data-preview={previewActive ? "true" : "false"}
         // A literal, not a prop: the QA inventory and the Playwright selector
@@ -432,47 +489,63 @@ export const ComposerAuthoringEditor = forwardRef<
         // live E2E specs and PMQA states address the canvas by it.
         data-test="body-editor-content"
         data-testid="body-editor-content">
-        <PressedMailRichTextEditor
-          key={editorKey}
-          ref={attachEditorRef}
-          surface={surface}
-          dialect={dialect}
-          initialValue={documentValue}
-          initialHtml={initialValue}
-          ariaLabel={ariaLabel}
-          placeholder={placeholder}
-          onChange={handleChange}
-          onValueChange={onDocumentChange}
-          disabled={disabled}
-          aiEnabled={aiEnabled}
-          onReady={onEditorReady}
-          contentStyle={editorStyle}
-          className={cn("flex-1", editorClassName)}>
-          <div className="border-b border-border">
-            <ComposerEditorToolbar
-              key={disabled ? "locked" : "ready"}
-              surface={surface}
-              form={toolbarForm}
-              disabled={disabled}
-              editorRef={editorRef}
-              signaturesEnabled={signaturesEnabled}
-              signatures={signatures ?? []}
-              canUseMediaLibraryAttachments={canUseMediaLibraryInlineImages}
-              canUploadAttachments={canUploadInlineImages}
-              onImageLibrary={onImageLibrary ?? handleImageLibrary}
-              onImageUpload={onImageUpload ?? handleImageUpload}
-              onTogglePreview={togglePreview}
-              previewActive={previewActive}
-              dialect={dialect}
-              onSelectDialect={onSelectDialect}
-              onToggleContentType={onToggleContentType}
-              onSetBodyBackgroundColor={onSetBodyBackgroundColor}
-              onSetCanvasBackgroundColor={onSetCanvasBackgroundColor}
-              contentBlocksEnabled={contentBlocksEnabled}
-              toolbarVariant={toolbarVariant}
-            />
-          </div>
-        </PressedMailRichTextEditor>
+        <ContentBlocksProvider
+          enabled={contentBlocksEnabled && surfaceFeatures.contentBlocks}
+          recipient={soleRecipientEmail(toolbarForm)}
+          accountId={toolbarForm.sendingAccountId ?? undefined}
+          preserveFields={surface === "template" || blockListDelivery}
+          listDelivery={blockListDelivery}>
+          <PressedMailRichTextEditor
+            key={editorKey}
+            ref={attachEditorRef}
+            surface={surface}
+            dialect={dialect}
+            initialValue={documentValue}
+            initialHtml={initialValue}
+            ariaLabel={ariaLabel}
+            placeholder={placeholder}
+            onChange={handleChange}
+            onValueChange={onDocumentChange}
+            disabled={disabled}
+            contentHidden={Boolean(previewContent && previewActive)}
+            aiEnabled={aiEnabled}
+            variablesEnabled={variablesEnabled}
+            onReady={onEditorReady}
+            contentStyle={editorStyle}
+            className={cn("flex-1", editorClassName)}>
+            <div className="border-b border-border">
+              <ComposerEditorToolbar
+                key={disabled ? "locked" : "ready"}
+                surface={surface}
+                form={toolbarForm}
+                disabled={disabled || Boolean(previewContent && previewActive)}
+                editorRef={editorRef}
+                signaturesEnabled={signaturesEnabled}
+                signatures={signatures ?? []}
+                canUseMediaLibraryAttachments={canUseMediaLibraryInlineImages}
+                canUploadAttachments={canUploadInlineImages}
+                onImageLibrary={onImageLibrary ?? handleImageLibrary}
+                onImageUpload={onImageUpload ?? handleImageUpload}
+                onTogglePreview={togglePreview}
+                previewActive={previewActive}
+                previewEnabled={previewEnabled}
+                previewDisabled={previewDisabled}
+                previewLabel={previewContent && previewActive ? __("Edit", "pressedmail") : undefined}
+                previewControl={previewControl}
+                dialect={dialect}
+                onSelectDialect={onSelectDialect}
+                onToggleContentType={onToggleContentType}
+                onSetBodyBackgroundColor={onSetBodyBackgroundColor}
+                onSetCanvasBackgroundColor={onSetCanvasBackgroundColor}
+                contentBlocksEnabled={contentBlocksEnabled}
+                toolbarVariant={toolbarVariant}
+              />
+            </div>
+            {previewActive && previewContent ? (
+              <div className="flex min-h-0 flex-1 flex-col p-3">{previewContent}</div>
+            ) : null}
+          </PressedMailRichTextEditor>
+        </ContentBlocksProvider>
       </div>
       {!callerOwnsUpload && (
         <input

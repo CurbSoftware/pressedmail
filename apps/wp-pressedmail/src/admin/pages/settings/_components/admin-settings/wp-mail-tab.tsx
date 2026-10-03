@@ -6,13 +6,15 @@ import {
   Alert,
   AlertDescription,
   Label,
-  RadioGroup,
-  RadioGroupItem,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from "@kit/ui/plugin";
 
 import {
@@ -23,6 +25,13 @@ import {
   type SettingsDraftHandle,
 } from "@/components/settings-ui";
 import { WpMailConnectionsPanel } from "@/admin/pages/settings/_components/admin-settings/wp-mail-connections-panel.active";
+import { WpMailDefaultSmtp } from "@/admin/pages/settings/_components/admin-settings/wp-mail-default-smtp.active";
+import {
+  WordPressNotificationTemplates,
+  sectionDraftBar,
+} from "@/admin/pages/settings/_components/admin-settings/wordpress-notification-templates.active";
+import { smtpHealthCopy } from "@/components/wp-mail/smtp-health-copy";
+import { WpMailRoutingCard } from "@/components/wp-mail/WpMailRoutingCard";
 import { WpMailLogTable } from "./wp-mail-log-table";
 import {
   fetchWpMailState,
@@ -34,18 +43,37 @@ import {
 const RETENTION_CHOICES = [0, 30, 60, 90];
 
 /**
+ * The halves of this page. One decides what WordPress sends its own mail
+ * through, the other holds the servers it can send through. Both panels are
+ * commonly needed at once, so neither reading order is the wrong one.
+ *
+ * Pro splits the decision in two and names the panels for what they hold:
+ * SMTP Accounts (`mail-servers`), Default SMTP (`default-smtp`, where the
+ * master switch lives) and System Emails (`system-emails`, the per-email
+ * choices and the delivery log). Free keeps the two it has always had. The
+ * internal ids are the same in both, so nothing that names a panel by id cares
+ * which edition it is running in.
+ */
+type WpMailPanel = "system-emails" | "mail-servers" | "default-smtp";
+
+/**
  * Settings tab for the SMTP server WordPress uses to send its own email.
  *
  * Site-wide and administrator-only, which is why it lives in the Admin group
  * rather than beside a user's personal mailboxes. It ships in both editions;
  * everything edition-specific comes from the server's `capabilities`.
  *
- * Connections save individually through their own editor, so this component
- * owns only the two site-wide settings: the runtime switch and log retention.
+ * Split into two panels: the system-email settings and the mail servers they
+ * send through. Connections save individually through their own editor, so this
+ * component owns only the two site-wide settings: the runtime switch and log
+ * retention.
  */
 export function WpMailTab() {
   const [state, setState] = useState<WpMailState | null>(null);
   const [draft, setDraft] = useState<WpMailSettingsView | null>(null);
+  // Both editions open on System Emails, as they always have. In Pro the master
+  // switch now sits one tab over, on Default SMTP.
+  const [panel, setPanel] = useState<WpMailPanel>("system-emails");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const settingsSaveInFlight = useRef(false);
@@ -85,6 +113,10 @@ export function WpMailTab() {
   );
   const connectionsDirty = connectionDraftList.some((entry) => entry.dirty);
   const connectionsSaving = connectionDraftList.some((entry) => entry.saving);
+  // The notification section registers like a connection form, so the leave prompt
+  // covers it, but its edits are not a form of their own: this tab's save bar
+  // saves and resets them with the tab's own settings.
+  const section = sectionDraftBar(connectionDrafts);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +139,17 @@ export function WpMailTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A test of a saved connection records its outcome on the server. Look again
+  // so the banner and the cards say so, and leave every draft alone: only the
+  // state is replaced, not the settings the master switch is being edited in.
+  const refreshHealth = useCallback(async () => {
+    try {
+      setState(await fetchWpMailState());
+    } catch {
+      // The tab already shows what it last knew. A failed refresh is not news.
+    }
+  }, []);
 
   const dirty =
     state !== null &&
@@ -173,6 +216,17 @@ export function WpMailTab() {
     return true;
   }, [connectionDraftList, dirty, handleSave]);
 
+  // The save bar: the section's rows first, because a refused row should not half-save the tab.
+  const saveBar = useCallback(async (): Promise<void> => {
+    if (!(await sectionDraftBar(connectionDrafts).save())) {
+      return;
+    }
+
+    if (dirty) {
+      await handleSave();
+    }
+  }, [connectionDrafts, dirty, handleSave]);
+
   useSettingsNavigationGuard({
     dirty: dirty || connectionsDirty,
     onSave: saveEverything,
@@ -222,6 +276,52 @@ export function WpMailTab() {
     (connection) =>
       connection.isDefault && connection.enabled && connection.isUsable,
   );
+
+  // The hints name the tab that holds the connections, and Pro calls it
+  // something else. Free's two sentences are exactly what they always were.
+  const routingCard = (
+    <WpMailRoutingCard
+      enabled={draft.enabled}
+      onEnabledChange={(enabled) => setDraft({ ...draft, enabled })}
+      hasConnection={hasConnection}
+      hasUsableDefault={hasUsableDefault}
+      disabled={saving || connectionsSaving}
+      pressedmailDescription={
+        __IS_PRO__
+          ? __(
+              "An SMTP account you set up here. Applies site-wide, to every plugin and theme.",
+              "pressedmail",
+            )
+          : __(
+              "A mail server you set up here. Applies site-wide, to every plugin and theme.",
+              "pressedmail",
+            )
+      }
+      noConnectionHint={
+        __IS_PRO__
+          ? __(
+              "Add an SMTP account on the SMTP Accounts tab to use this.",
+              "pressedmail",
+            )
+          : __(
+              "Add a mail server on the Mail servers tab to use this.",
+              "pressedmail",
+            )
+      }
+      notReadyHint={
+        __IS_PRO__
+          ? __(
+              "Enable an SMTP account on the SMTP Accounts tab, finish its settings, and make it the default to use this.",
+              "pressedmail",
+            )
+          : __(
+              "Enable a mail server on the Mail servers tab, finish its settings, and make it the default to use this.",
+              "pressedmail",
+            )
+      }
+    />
+  );
+
   return (
     <div
       className="space-y-4"
@@ -245,12 +345,20 @@ export function WpMailTab() {
               {__("WordPress email needs attention", "pressedmail")}
             </span>
             <span className="ml-1">
-              {health.connectionLabel ? `${health.connectionLabel}: ` : ""}
-              {health.message ||
-                __(
-                  "A recent message could not be sent. Review the mail server and send a test email.",
-                  "pressedmail",
-                )}
+              {health.errorClass
+                ? smtpHealthCopy(
+                    health.errorClass,
+                    health.connectionLabel,
+                    health.detail ?? "",
+                  )
+                : // A payload from before failures were classified.
+                  `${health.connectionLabel ? `${health.connectionLabel}: ` : ""}${
+                    health.message ||
+                    __(
+                      "A recent message could not be sent. Review the mail server and send a test email.",
+                      "pressedmail",
+                    )
+                  }`}
             </span>
           </AlertDescription>
         </Alert>
@@ -267,163 +375,160 @@ export function WpMailTab() {
         </Alert>
       ) : null}
 
-      <SettingsSectionCard
-        title={__("Where WordPress sends its own email", "pressedmail")}
-        description={__(
-          "Password resets, new user notices, WooCommerce order mail, form notifications: anything WordPress, a plugin or a theme sends.",
-          "pressedmail",
-        )}>
-        <RadioGroup
-          value={draft.enabled ? "pressedmail" : "wordpress"}
-          data-test="wp-mail-mailer-choice"
-          onValueChange={(value) => {
-            if (value === "pressedmail" && !hasUsableDefault) return;
-            setDraft({ ...draft, enabled: value === "pressedmail" });
-          }}
-          className="space-y-3">
-          <Label
-            htmlFor="wp-mail-mailer-wordpress"
-            className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5">
-            <RadioGroupItem
-              id="wp-mail-mailer-wordpress"
-              data-test="wp-mail-mailer-wordpress"
-              value="wordpress"
-              disabled={saving || connectionsSaving}
-              className="mt-0.5"
-            />
-            <span className="space-y-1">
-              <span className="block text-sm font-medium">
-                {__("WordPress default", "pressedmail")}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {__(
-                  "PHP mail(). Fine on hosts that deliver it, and quietly dropped on the ones that do not.",
-                  "pressedmail",
-                )}
-              </span>
-            </span>
-          </Label>
-
-          <Label
-            htmlFor="wp-mail-mailer-pressedmail"
-            data-test="wp-mail-mailer-pressedmail-option"
-            // A disabled radio that keeps a pointer cursor and full-strength
-            // text reads as available. Dim the whole option so the state is
-            // visible before it is clicked.
-            className={`flex items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5 ${
-              hasUsableDefault
-                ? "cursor-pointer"
-                : "cursor-not-allowed opacity-60"
-            }`}>
-            <RadioGroupItem
-              id="wp-mail-mailer-pressedmail"
-              data-test="wp-mail-enabled"
-              value="pressedmail"
-              disabled={saving || connectionsSaving || !hasUsableDefault}
-              className="mt-0.5"
-            />
-            <span className="space-y-1">
-              <span className="block text-sm font-medium">
-                {__("PressedMail SMTP", "pressedmail")}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {__(
-                  "The mail server set up below. Applies site-wide, to every plugin and theme.",
-                  "pressedmail",
-                )}
-              </span>
-              {!hasConnection ? (
-                <span
-                  className="block text-xs text-warning"
-                  data-test="wp-mail-mailer-blocked"
-                  data-testid="wp-mail-mailer-blocked">
-                  {__("Add a mail server below to use this.", "pressedmail")}
-                </span>
-              ) : !hasUsableDefault ? (
-                <span
-                  className="block text-xs text-warning"
-                  data-test="wp-mail-mailer-blocked"
-                  data-testid="wp-mail-mailer-blocked">
-                  {__(
-                    "Enable one of the servers below, finish its settings, and make it the default to use this.",
-                    "pressedmail",
-                  )}
-                </span>
-              ) : null}
-            </span>
-          </Label>
-        </RadioGroup>
-
-        <p
-          className="mt-4 rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground"
-          data-test="wp-mail-inbox-note"
-          data-testid="wp-mail-inbox-note">
-          {__(
-            "Your PressedMail inboxes are not affected either way. Mail you send from an inbox always goes out through that account's own server, so it stays authorised for its domain.",
-            "pressedmail",
+      {/* Both panels stay mounted, for two reasons that are not cosmetic. A
+          half-filled mail server editor holds a typed host name and password,
+          and this page's Add mail server (Add SMTP account, in Pro) action is registered from inside the
+          panel: replacing either one on a panel switch would drop the draft and
+          take the button out of the settings header with it. */}
+      <Tabs
+        value={panel}
+        onValueChange={(value) => setPanel(String(value) as WpMailPanel)}
+        data-test="wp-mail-panels"
+        data-testid="wp-mail-panels">
+        <TabsList aria-label={__("WordPress email sections", "pressedmail")}>
+          {__IS_PRO__ ? (
+            <>
+              <TabsTrigger
+                value="mail-servers"
+                data-test="wp-mail-panel-mail-servers"
+                data-testid="wp-mail-panel-mail-servers">
+                {__("SMTP Accounts", "pressedmail")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="default-smtp"
+                data-test="wp-mail-panel-default-smtp"
+                data-testid="wp-mail-panel-default-smtp">
+                {__("Default SMTP", "pressedmail")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="system-emails"
+                data-test="wp-mail-panel-system-emails"
+                data-testid="wp-mail-panel-system-emails">
+                {__("System Emails", "pressedmail")}
+              </TabsTrigger>
+            </>
+          ) : (
+            <>
+              <TabsTrigger
+                value="system-emails"
+                data-test="wp-mail-panel-system-emails"
+                data-testid="wp-mail-panel-system-emails">
+                {__("System Emails", "pressedmail")}
+              </TabsTrigger>
+              <TabsTrigger
+                value="mail-servers"
+                data-test="wp-mail-panel-mail-servers"
+                data-testid="wp-mail-panel-mail-servers">
+                {__("Mail servers", "pressedmail")}
+              </TabsTrigger>
+            </>
           )}
-        </p>
-      </SettingsSectionCard>
+        </TabsList>
 
-      {/* Always rendered. Hiding this while the site is on the WordPress
-          default would hide the only way to add the mail server the second
-          option needs, which is the state most people arrive in. */}
-      <WpMailConnectionsPanel
-        state={state}
-        onStateChange={handleStateChange}
-        registerDraft={registerConnectionDraft}
-        disabled={saving}
-      />
+        <TabsContent
+          value="system-emails"
+          keepMounted
+          className="space-y-4"
+          data-test="wp-mail-system-emails-panel">
+          {/* Pro decides where WordPress sends its email on the Default SMTP
+              panel. Free has no such panel, so its System Emails panel keeps
+              the switch, as it always has. */}
+          {__IS_PRO__ ? null : routingCard}
 
-      <SettingsSectionCard
-        title={__("Delivery log", "pressedmail")}
-        description={__(
-          "Records genuine WordPress mail so delivery failures can be diagnosed. PressedMail new-mail notification copies are excluded. Content, headers, and attachments are never recorded.",
-          "pressedmail",
-        )}>
-        <div className="space-y-4">
-          <div className="max-w-xs space-y-1">
-            <Label
-              htmlFor="wp-mail-retention-select"
-              className="text-xs font-medium">
-              {__("Keep entries for", "pressedmail")}
-            </Label>
-            <Select
-              value={String(draft.logRetentionDays)}
+          <WordPressNotificationTemplates
+            registerDraft={registerConnectionDraft}
+          />
+
+          <SettingsSectionCard
+            title={__("Delivery log", "pressedmail")}
+            description={__(
+              "Records genuine WordPress mail so delivery failures can be diagnosed. PressedMail new-mail notification copies are excluded. Content, headers, and attachments are never recorded.",
+              "pressedmail",
+            )}>
+            <div className="space-y-4">
+              <div className="max-w-xs space-y-1">
+                <Label
+                  htmlFor="wp-mail-retention-select"
+                  className="text-xs font-medium">
+                  {__("Keep entries for", "pressedmail")}
+                </Label>
+                <Select
+                  value={String(draft.logRetentionDays)}
+                  disabled={saving || connectionsSaving}
+                  onValueChange={(value) =>
+                    setDraft({ ...draft, logRetentionDays: Number(value) })
+                  }>
+                  <SelectTrigger
+                    id="wp-mail-retention-select"
+                    data-test="wp-mail-retention-select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RETENTION_CHOICES.map((days) => (
+                      <SelectItem key={days} value={String(days)}>
+                        {days === 0
+                          ? __("Do not log", "pressedmail")
+                          : sprintf(
+                              /* translators: %d: number of days entries are kept. */
+                              _n("%d day", "%d days", days, "pressedmail"),
+                              days,
+                            )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <WpMailLogTable
+                retentionDays={state.settings.logRetentionDays}
+              />
+            </div>
+          </SettingsSectionCard>
+        </TabsContent>
+
+        {__IS_PRO__ ? (
+          <TabsContent
+            value="default-smtp"
+            keepMounted
+            className="space-y-4"
+            data-test="wp-mail-default-smtp-panel">
+            {routingCard}
+            <WpMailDefaultSmtp
+              state={state}
+              onStateChange={handleStateChange}
               disabled={saving || connectionsSaving}
-              onValueChange={(value) =>
-                setDraft({ ...draft, logRetentionDays: Number(value) })
-              }>
-              <SelectTrigger
-                id="wp-mail-retention-select"
-                data-test="wp-mail-retention-select">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RETENTION_CHOICES.map((days) => (
-                  <SelectItem key={days} value={String(days)}>
-                    {days === 0
-                      ? __("Do not log", "pressedmail")
-                      : sprintf(
-                          /* translators: %d: number of days entries are kept. */
-                          _n("%d day", "%d days", days, "pressedmail"),
-                          days,
-                        )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+            />
+          </TabsContent>
+        ) : null}
 
-          <WpMailLogTable retentionDays={state.settings.logRetentionDays} />
-        </div>
-      </SettingsSectionCard>
+        <TabsContent
+          value="mail-servers"
+          keepMounted
+          className="space-y-4"
+          data-test="wp-mail-mail-servers-panel">
+          {/* Rendered in both states of the master switch on the other panel.
+              Hiding this while the site is on the WordPress default would hide
+              the only way to add the mail server that switch needs, which is
+              the state most people arrive in. */}
+          <WpMailConnectionsPanel
+            state={state}
+            onStateChange={handleStateChange}
+            registerDraft={registerConnectionDraft}
+            disabled={saving}
+            onRequestFocus={() => setPanel("mail-servers")}
+            onHealthChange={() => void refreshHealth()}
+          />
+        </TabsContent>
+      </Tabs>
 
       <SettingsSaveBar
-        dirty={dirty}
+        dirty={dirty || section.dirty}
         saving={saving || connectionsSaving}
-        onReset={() => setDraft(state.settings)}
-        onSave={() => void handleSave()}
+        onReset={() => {
+          setDraft(state.settings);
+          section.cancel();
+        }}
+        onSave={() => void saveBar()}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import { Plus, Settings2, UserCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
+import { SharedBadge, SharedWithIcon } from "@/components/sharing";
 import { useAppContext } from "@/context/AppProvider";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +32,7 @@ export function MobileAccountsScreen() {
       (accounts ?? []).map((account) => {
         const email = String(account.email ?? "");
         const label = (account as { name?: string }).name;
-        return { email, label };
+        return { email, label, account };
       }),
     [accounts],
   );
@@ -64,8 +65,12 @@ export function MobileAccountsScreen() {
                     <UserCircle2 className="h-6 w-6" aria-hidden="true" />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="break-words text-sm font-medium">
-                      {account.label || account.email}
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <span className="break-words text-sm font-medium">
+                        {account.label || account.email}
+                      </span>
+                      <SharedBadge resource={account.account} compact />
+                      <SharedWithIcon count={account.account.share_count} />
                     </span>
                     <span className="break-all text-xs text-muted-foreground">
                       {account.email}

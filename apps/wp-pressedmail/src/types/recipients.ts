@@ -28,6 +28,7 @@ const AVATAR_COLORS = [
  * Recipient type - can be a contact, list, or raw email.
  */
 export type RecipientType = "contact" | "list" | "email";
+export type RecipientField = "to" | "cc" | "bcc";
 
 /**
  * A recipient in the compose form.
@@ -56,6 +57,8 @@ export interface ContactListRecipientDescriptor {
   id: number;
   name: string;
   memberCount?: number;
+  /** Absent on older drafts, whose list selection belongs to To. */
+  field?: RecipientField;
 }
 
 /**
@@ -197,7 +200,8 @@ export function createRecipientFromList(list: ContactList): Recipient {
     email: "", // Lists don't have a single email
     displayName: list.name,
     list,
-    memberCount: list.contact_count,
+    // Who the send reaches, not everyone on the list.
+    memberCount: list.deliverable_count ?? list.contact_count,
   };
 }
 
@@ -220,7 +224,9 @@ export function createRecipientFromListDescriptor(
 
 export function getContactListRecipientDescriptors(
   recipients: Recipient[],
+  field?: RecipientField,
 ): ContactListRecipientDescriptor[] {
+  if (!__ENABLE_CONTACTS__) return [];
   return recipients.flatMap((recipient) => {
     if (recipient.type !== "list" || !recipient.list) return [];
     return [
@@ -228,6 +234,7 @@ export function getContactListRecipientDescriptors(
         id: recipient.list.id,
         name: recipient.list.name,
         memberCount: recipient.memberCount ?? recipient.list.contact_count,
+        ...(field ? { field } : {}),
       },
     ];
   });
@@ -239,7 +246,10 @@ export function recipientsFromComposeData(
 ): Recipient[] {
   return [
     ...parseEmailString(addresses),
-    ...lists.map(createRecipientFromListDescriptor),
+    // Contact lists are Pro; the Free build has no list recipients.
+    ...(__ENABLE_CONTACTS__
+      ? lists.map(createRecipientFromListDescriptor)
+      : []),
   ];
 }
 
@@ -393,6 +403,7 @@ export function getRecipientEmailKey(recipient: Recipient): string | null {
 export function dedupeRecipientsByEmail(
   recipients: Recipient[],
   seenEmails: Set<string> = new Set(),
+  seenLists: Set<number> = new Set(),
 ): Recipient[] {
   const seenIds = new Set<string>();
   const deduped: Recipient[] = [];
@@ -402,6 +413,11 @@ export function dedupeRecipientsByEmail(
       continue;
     }
     seenIds.add(recipient.id);
+
+    if (recipient.type === "list" && recipient.list) {
+      if (seenLists.has(recipient.list.id)) continue;
+      seenLists.add(recipient.list.id);
+    }
 
     const emailKey = getRecipientEmailKey(recipient);
     if (emailKey) {
@@ -430,12 +446,47 @@ export function dedupeRecipientGroupsByEmail(
   groups: RecipientGroups,
 ): RecipientGroups {
   const seenEmails = new Set<string>();
+  const seenLists = new Set<number>();
 
   return {
-    to: dedupeRecipientsByEmail(groups.to, seenEmails),
-    cc: dedupeRecipientsByEmail(groups.cc, seenEmails),
-    bcc: dedupeRecipientsByEmail(groups.bcc, seenEmails),
+    to: dedupeRecipientsByEmail(groups.to, seenEmails, seenLists),
+    cc: dedupeRecipientsByEmail(groups.cc, seenEmails, seenLists),
+    bcc: dedupeRecipientsByEmail(groups.bcc, seenEmails, seenLists),
   };
+}
+
+/** Keep field identity locally while the server expands authorized list IDs. */
+export function getRecipientGroupContactLists(
+  groups: RecipientGroups,
+): ContactListRecipientDescriptor[] {
+  const unique = dedupeRecipientGroupsByEmail(groups);
+  return (["to", "cc", "bcc"] as const).flatMap((field) =>
+    getContactListRecipientDescriptors(unique[field], field),
+  );
+}
+
+export function getRecipientListFields(
+  groups: RecipientGroups,
+): Record<string, RecipientField> {
+  return Object.fromEntries(
+    getRecipientGroupContactLists(groups).map((list) => [
+      list.id,
+      list.field ?? "to",
+    ]),
+  );
+}
+
+/** Hydrate field metadata only for labels already authorized by the server. */
+export function restoreRecipientListFields(
+  lists: ContactListRecipientDescriptor[],
+  fields?: Record<string, RecipientField>,
+): ContactListRecipientDescriptor[] {
+  return lists.map((list) => {
+    const field = fields?.[list.id];
+    return field === "to" || field === "cc" || field === "bcc"
+      ? { ...list, field }
+      : list;
+  });
 }
 
 /**

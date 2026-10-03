@@ -116,18 +116,27 @@ const MAILBOX_SLOTS: MailboxSlot[] = [
     alwaysVisible: true,
     fallbackPath: "Trash",
   },
-  {
-    type: "scheduled",
-    iconKey: "scheduled",
-    virtual: true,
-    fallbackPath: "scheduled",
-  },
-  {
-    type: "snoozed",
-    iconKey: "snoozed",
-    virtual: true,
-    fallbackPath: "snoozed",
-  },
+  // Scheduled and Snoozed are Pro views. Free declares neither.
+  ...(__ENABLE_SCHEDULED_EMAILS__ && !__IS_FREE__
+    ? [
+        {
+          type: "scheduled",
+          iconKey: "scheduled",
+          virtual: true,
+          fallbackPath: "scheduled",
+        } as const,
+      ]
+    : []),
+  ...(__ENABLE_SNOOZE__ && !__IS_FREE__
+    ? [
+        {
+          type: "snoozed",
+          iconKey: "snoozed",
+          virtual: true,
+          fallbackPath: "snoozed",
+        } as const,
+      ]
+    : []),
 ];
 
 const ICONS: Record<string, LucideIcon> = {
@@ -139,8 +148,12 @@ const ICONS: Record<string, LucideIcon> = {
   archive: Archive,
   junk: EmailJunkIcon as LucideIcon,
   trash: Trash2,
-  scheduled: ScheduledFolderIcon as LucideIcon,
-  snoozed: SnoozeClockIcon as LucideIcon,
+  ...(__IS_FREE__
+    ? {}
+    : {
+        scheduled: ScheduledFolderIcon as LucideIcon,
+        snoozed: SnoozeClockIcon as LucideIcon,
+      }),
   folder: Folder,
 };
 
@@ -218,14 +231,15 @@ export function MobileFoldersScreen() {
       const label = getMailboxSlotLabel(slot.type);
 
       if (slot.virtual) {
-        if (slot.type === "snoozed" && isFree) continue;
-        if (slot.type === "scheduled" && !scheduledEnabled) continue;
+        if (!__IS_FREE__ && slot.type === "snoozed" && isFree) continue;
+        if (!__IS_FREE__ && slot.type === "scheduled" && !scheduledEnabled)
+          continue;
         const countSnapshot =
           slot.type === "important"
             ? virtualFolderCounts.important
             : slot.type === "starred"
               ? virtualFolderCounts.starred
-              : slot.type === "scheduled"
+              : !__IS_FREE__ && slot.type === "scheduled"
                 ? {
                     count: virtualFolderCounts.scheduled ?? 0,
                     partial: false,

@@ -2,6 +2,7 @@ import type { InputHTMLAttributes } from "react";
 
 export type PressedMailSensitiveField =
   | "ai-api-key"
+  | "captcha-secret-key"
   | "license-key"
   | "mail-account-password"
   | "mailbox-lock-passphrase"

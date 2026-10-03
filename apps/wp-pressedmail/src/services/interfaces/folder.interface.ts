@@ -237,13 +237,14 @@ export interface IFolderOperations {
   ): Promise<FolderListResult>;
 
   /**
-   * Load and merge folders for a consolidated account selection.
+   * Load and merge folders for a consolidated account selection. Only a
+   * combined build's service has it.
    *
    * @param accountIds - Selected account IDs
    * @param forceRefresh - Force refresh from server
    * @returns Merged folder list result
    */
-  loadConsolidatedFolders(
+  loadConsolidatedFolders?(
     accountIds: number[],
     forceRefresh?: boolean,
   ): Promise<FolderListResult>;

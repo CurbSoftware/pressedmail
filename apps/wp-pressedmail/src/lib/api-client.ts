@@ -1,5 +1,7 @@
 import {
   captureRequestPrincipal,
+  captureEmailCacheRevision,
+  applyMailboxCachePolicy,
   invalidatePrincipalStorage,
   isRequestPrincipalCurrent,
   type StoragePrincipal,
@@ -118,7 +120,15 @@ function assertResponsePrincipal(response: Response): void {
 function fenceResponse(
   response: Response,
   principal: StoragePrincipal,
+  cacheRevision: number | null = null,
 ): Response {
+  const checkCache = () => {
+    if (cacheRevision !== null && cacheRevision !== captureEmailCacheRevision())
+      throw new Error(
+        __("Email storage changed. Reload the mailbox.", "pressedmail"),
+      );
+  };
+  checkCache();
   assertCurrentPrincipal(principal);
   if (responsePrincipals.has(response)) {
     if (responsePrincipals.get(response) !== principal) {
@@ -153,14 +163,18 @@ function fenceResponse(
         throw new TypeError("Response reader is unavailable.");
       descriptors[name] = {
         value: async function (this: Response, ...args: unknown[]) {
+          checkCache();
           assertCurrentPrincipal(principal);
           if (this !== response) throw new TypeError("Illegal invocation");
           try {
             const result: unknown = await Reflect.apply(reader, this, args);
+            checkCache();
             assertCurrentPrincipal(principal);
+            if (name === "json") applyMailboxCachePolicy(result);
             return result;
           } catch (error) {
             // A revoked body must not become a parser error or an empty error DTO.
+            checkCache();
             assertCurrentPrincipal(principal);
             throw error;
           }
@@ -172,7 +186,12 @@ function fenceResponse(
       value: function (this: Response) {
         assertCurrentPrincipal(principal);
         if (this !== response) throw new TypeError("Illegal invocation");
-        return fenceResponse(Reflect.apply(clone, this, []), principal);
+        checkCache();
+        return fenceResponse(
+          Reflect.apply(clone, this, []),
+          principal,
+          cacheRevision,
+        );
       },
     };
     Object.defineProperties(response, descriptors);
@@ -433,6 +452,8 @@ function normalizeErrorFields(body: Record<string, unknown>): {
   code?: unknown;
   message?: unknown;
   details?: unknown;
+  /** The WP_Error `data` object, when there is one: its `status`, `fields` and `messages`. */
+  data?: Record<string, unknown>;
 } {
   const nestedData =
     typeof body.data === "object" &&
@@ -445,6 +466,7 @@ function normalizeErrorFields(body: Record<string, unknown>): {
     code: body.code ?? nestedData.code,
     message: body.message ?? nestedData.message,
     details: body.details ?? nestedData.details,
+    data: Object.keys(nestedData).length > 0 ? nestedData : undefined,
   };
 }
 
@@ -560,16 +582,36 @@ async function fetchWithFallback(
   }
 }
 
-async function isInvalidNonce403(response: Response): Promise<boolean> {
+/** The error code of a 403, or null for any other status or an unreadable body. */
+async function read403Code(response: Response): Promise<string | null> {
   if (response.status !== 403) {
-    return false;
+    return null;
   }
   try {
-    const body = (await response.clone().json()) as { code?: unknown } | null;
-    return body?.code === INVALID_NONCE_CODE;
+    const body = (await response.clone().json()) as Record<
+      string,
+      unknown
+    > | null;
+    const code = body ? normalizeErrorFields(body).code : undefined;
+    return typeof code === "string" ? code : null;
   } catch (error) {
     ignoreMalformedJson(error);
-    return false;
+    return null;
+  }
+}
+
+/**
+ * Window event dispatched for every non-nonce 403 that carries an error code,
+ * with `detail: { code }`. Features that can lose access mid-session listen for
+ * their own code instead of every caller checking it.
+ */
+export const PERMISSION_DENIED_EVENT = "pressedmail:permission-denied";
+
+function announcePermissionDenied(code: string | null): void {
+  if (code && code !== INVALID_NONCE_CODE && typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(PERMISSION_DENIED_EVENT, { detail: { code } }),
+    );
   }
 }
 
@@ -610,11 +652,17 @@ export async function apiFetch(
   const principal = captureRequestPrincipal();
   assertCurrentPrincipal(principal);
   const url = coerceUrl(input);
+  const cacheRevision =
+    !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase()) ||
+    /\/user\/preferences(?:[/?]|$)|\/performance\/clear-body-cache/.test(url)
+      ? null
+      : captureEmailCacheRevision();
   const { timeoutMs = REQUEST_TIMEOUT_MS, heal = true } = opts;
 
   const response = fenceResponse(
     await fetchWithFallback(url, withNonce(init), timeoutMs),
     principal,
+    cacheRevision,
   );
 
   await rejectConfirmedLogout(response);
@@ -642,9 +690,10 @@ export async function apiFetch(
     return response;
   }
 
-  const invalidNonce = heal && (await isInvalidNonce403(response));
+  const deniedCode = await read403Code(response);
   assertCurrentPrincipal(principal);
-  if (!invalidNonce) {
+  if (!heal || deniedCode !== INVALID_NONCE_CODE) {
+    announcePermissionDenied(deniedCode);
     return response;
   }
 
@@ -657,15 +706,17 @@ export async function apiFetch(
   const retried = fenceResponse(
     await fetchWithFallback(url, withNonce(init), timeoutMs),
     principal,
+    cacheRevision,
   );
   await rejectConfirmedLogout(retried);
   assertCurrentPrincipal(principal);
-  const retryInvalidNonce = await isInvalidNonce403(retried);
+  const retryCode = await read403Code(retried);
   assertCurrentPrincipal(principal);
-  if (retryInvalidNonce) {
+  if (retryCode === INVALID_NONCE_CODE) {
     // Fresh nonce still rejected → the login cookie itself is gone.
     throw new SessionExpiredError();
   }
+  announcePermissionDenied(retryCode);
   return retried;
 }
 
@@ -711,10 +762,13 @@ export async function apiJson<T = unknown>(
       status?: number;
       code?: unknown;
       details?: unknown;
+      data?: Record<string, unknown>;
     };
     err.status = res.status;
     err.code = fields.code;
     err.details = fields.details;
+    // A validation error names its fields here (`fields`, `messages`).
+    err.data = fields.data;
     throw err;
   }
   const body = (await res.json()) as T;

@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { __, sprintf, _n } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import { X, User, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { RecipientTokenProps } from "@/types/recipients";
@@ -52,13 +52,8 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
       title={
         isList
           ? sprintf(
-              /* translators: 1: list name, 2: number of people in the list. */
-              _n(
-                "%1$s (%2$d member)",
-                "%1$s (%2$d members)",
-                recipient.memberCount ?? 0,
-                "pressedmail",
-              ),
+              /* translators: 1: list name, 2: number of people the message will be sent to. */
+              __("%1$s (%2$d will be mailed)", "pressedmail"),
               recipient.displayName,
               recipient.memberCount ?? 0,
             )
@@ -96,7 +91,9 @@ export const RecipientToken: React.FC<RecipientTokenProps> = ({
       </span>
       {/* Parentheses, not angle brackets: screen readers say "less" and
           "greater" for those. */}
-      {hiddenAddress && <span className="sr-only">{` (${hiddenAddress})`}</span>}
+      {hiddenAddress && (
+        <span className="sr-only">{` (${hiddenAddress})`}</span>
+      )}
 
       {/* Member count for lists */}
       {isList && recipient.memberCount !== undefined && (

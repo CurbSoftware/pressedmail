@@ -11,6 +11,7 @@ import {
   useMessageOperations,
 } from "@/context/InboxContext";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
+import { useSharedMailboxRole } from "@/components/sharing";
 import { getFolderRole } from "@/lib/bulk-mail-actions";
 import type { ImapFolder } from "@/services/interfaces";
 
@@ -33,7 +34,9 @@ function resolveCurrentFolder(
 }
 
 export function FolderRecoveryActions() {
-  const { refreshMessages } = useInbox();
+  const { refreshMessages, selectedAccountId } = useInbox();
+  // Emptying Trash deletes permanently: owners and Managers only.
+  const { canManage } = useSharedMailboxRole(selectedAccountId);
   const { emptyTrash } = useMessageOperations();
   const { folders, selectedFolder, getTrashFolder } = useFolderOperations();
   const [isEmptying, setIsEmptying] = React.useState(false);
@@ -41,7 +44,7 @@ export function FolderRecoveryActions() {
   const currentFolder = resolveCurrentFolder(folders, selectedFolder);
   const isTrash = getFolderRole(currentFolder) === "trash";
 
-  if (!isTrash) {
+  if (!isTrash || !canManage) {
     return null;
   }
 

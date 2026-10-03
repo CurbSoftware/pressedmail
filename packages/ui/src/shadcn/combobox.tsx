@@ -3,7 +3,10 @@
 import * as React from 'react';
 
 import { cn } from '#lib/utils';
-import { Combobox as ComboboxPrimitive } from '@base-ui/react';
+// The subpath, not the root barrel: every other component in this folder does
+// the same, and the barrel pulls the whole library into whichever bundle first
+// imports it.
+import { Combobox as ComboboxPrimitive } from '@base-ui/react/combobox';
 import { CheckIcon, ChevronDownIcon, XIcon } from 'lucide-react';
 
 import { Button } from './button';
@@ -237,9 +240,16 @@ function ComboboxChip({
   className,
   children,
   showRemove = true,
+  removeLabel,
   ...props
 }: ComboboxPrimitive.Chip.Props & {
   showRemove?: boolean;
+  /**
+   * Accessible name for the remove button. The button renders an icon only,
+   * and the icon is `aria-hidden`, so without this the control that deletes a
+   * chip is announced as an unnamed button.
+   */
+  removeLabel?: string;
 }) {
   return (
     <ComboboxPrimitive.Chip
@@ -256,6 +266,7 @@ function ComboboxChip({
           render={<Button variant="ghost" size="icon-xs" />}
           className="-ml-1 opacity-50 hover:opacity-100"
           data-slot="combobox-chip-remove"
+          aria-label={removeLabel}
         >
           <XIcon className="pointer-events-none" />
         </ComboboxPrimitive.ChipRemove>

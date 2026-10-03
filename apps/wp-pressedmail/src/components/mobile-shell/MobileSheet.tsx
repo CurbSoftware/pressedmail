@@ -21,6 +21,11 @@ export interface MobileSheetProps {
   className?: string;
   /** Bottom (default) or right edge slide-in. */
   side?: "bottom" | "right";
+  /**
+   * No body padding: the content draws its own, so its section dividers run
+   * edge to edge like the header's.
+   */
+  flush?: boolean;
 }
 
 /**
@@ -38,14 +43,25 @@ export function MobileSheet({
   footer,
   className,
   side = "bottom",
+  flush = false,
 }: MobileSheetProps) {
+  const popupRef = React.useRef<HTMLDivElement>(null);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
+        ref={popupRef}
+        // Opened by touch, focus the sheet itself: landing on a text field
+        // (the tag filter) raises the keyboard over the sheet's content.
+        // Keyboard and mouse keep the default first-field focus.
+        initialFocus={(openType) =>
+          openType === "touch" ? popupRef.current : true
+        }
         side={side}
         className={cn(
           "flex max-h-[92dvh] flex-col gap-0 rounded-t-2xl",
           "pm-safe-pb pm-safe-pl pm-safe-pr",
+          // Scroll shadows inside the sheet blend into its surface.
+          "[--pm-scroll-surface:var(--background)]",
           className,
         )}>
         <SheetHeader className="border-b border-border">
@@ -56,7 +72,11 @@ export function MobileSheet({
             <SheetDescription>{description}</SheetDescription>
           ) : null}
         </SheetHeader>
-        <div className="pm-momentum-scroll min-h-0 flex-1 px-4 py-3">
+        <div
+          className={cn(
+            "pm-momentum-scroll min-h-0 flex-1",
+            flush ? "p-0" : "px-4 py-3",
+          )}>
           {children}
         </div>
         {footer ? (

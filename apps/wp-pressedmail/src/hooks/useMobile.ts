@@ -34,40 +34,46 @@ function readContainerWidth(): number {
 }
 
 /**
- * True for an actual touch phone: a coarse pointer AND a sub-phone viewport.
- *
- * The scoped-container width alone misfires inside WP admin, the container can
- * stay >= 640px on a real phone until immersive mode collapses the admin menu,
- * but immersive mode only runs *after* the phone shell mounts (the shell renders
- * the immersive toggle). That deadlock is why phones fall through to the legacy
- * layout. This capability signal breaks the deadlock without per-device checks.
- *
- * The `innerWidth < phone` guard is essential: touchscreen laptops report a
- * coarse pointer but must never be forced into the phone shell.
+ * The viewport width when the primary pointer is coarse (a touch device), else
+ * null. Touchscreen laptops report a fine primary pointer, so they never reach
+ * the touch rules below.
  */
-function isCoarsePhoneViewport(): boolean {
+function coarseViewportWidth(): number | null {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return false;
+    return null;
   }
   try {
-    return (
-      window.matchMedia("(pointer: coarse)").matches &&
-      window.innerWidth < BREAKPOINTS.phone
-    );
+    return window.matchMedia("(pointer: coarse)").matches
+      ? window.innerWidth
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 function computeState(width: number, height: number): MobileState {
-  // Phone wins via either signal; tablet/desktop stay strictly container-based so
-  // the in-admin desktop responsive preview (narrow container, fine pointer) is
-  // preserved and a coarse phone with a wide container never reads as tablet.
-  const isMobile = width < BREAKPOINTS.phone || isCoarsePhoneViewport();
+  const touchViewport = coarseViewportWidth();
+  // Phone wins via either signal. The scoped-container width alone misfires
+  // inside WP admin: on a real phone the container can stay >= 640px until
+  // immersive mode collapses the admin menu, and immersive mode only runs once
+  // the phone shell mounts. A coarse pointer on a sub-phone viewport breaks
+  // that deadlock; the viewport guard keeps touch laptops out.
+  const isMobile =
+    width < BREAKPOINTS.phone ||
+    (touchViewport !== null && touchViewport < BREAKPOINTS.phone);
+  // The same deadlock one size up: a 1024px touch screen (iPad Mini
+  // landscape) is a tablet until the tablet shell hides the admin menu, and
+  // the width that frees must not then flip it to desktop. Otherwise the
+  // tablet/desktop split stays container-based, so the in-admin desktop
+  // responsive preview (narrow container, fine pointer) is preserved.
+  const isTablet =
+    !isMobile &&
+    ((width >= BREAKPOINTS.phone && width < BREAKPOINTS.tablet) ||
+      (touchViewport !== null && touchViewport <= BREAKPOINTS.tablet));
   return {
     isMobile,
-    isTablet: !isMobile && width >= BREAKPOINTS.phone && width < BREAKPOINTS.tablet,
-    isDesktop: !isMobile && width >= BREAKPOINTS.tablet,
+    isTablet,
+    isDesktop: !isMobile && !isTablet,
     width,
     height,
     orientation: height > width ? "portrait" : "landscape",

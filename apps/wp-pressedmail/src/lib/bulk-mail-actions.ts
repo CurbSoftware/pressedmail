@@ -8,7 +8,8 @@ const EXCLUDED_MOVE_ROLES = new Set([
   "drafts",
   "junk",
   "sent",
-  "scheduled",
+  // Scheduled is a Pro view; Free has no such role.
+  ...(__IS_FREE__ ? [] : ["scheduled"]),
   "spam",
   "trash",
 ]);
@@ -38,7 +39,7 @@ export function getFolderRole(folder: ImapFolder): string | null {
   if (name === "inbox" || path === "inbox") return "inbox";
   if (name.includes("draft")) return "drafts";
   if (name.includes("sent")) return "sent";
-  if (name.includes("scheduled")) return "scheduled";
+  if (!__IS_FREE__ && name.includes("scheduled")) return "scheduled";
   if (name.includes("trash") || pathIncludesSegment(path, "trash")) {
     return "trash";
   }
@@ -71,7 +72,11 @@ export function getBulkMoveTargetFolders(
   });
 }
 
-const SWEEP_EXCLUDED_MOVE_ROLES = new Set(["drafts", "sent", "scheduled"]);
+const SWEEP_EXCLUDED_MOVE_ROLES = new Set([
+  "drafts",
+  "sent",
+  ...(__IS_FREE__ ? [] : ["scheduled"]),
+]);
 
 /**
  * Destination folders for the Email Sweep "move to folder" dropdown. Unlike
@@ -206,4 +211,29 @@ export function buildMessageTagUpdate(
     localId: getMessageIdentityKey(message),
     tags: projectMessageTags(message, tag, shouldSelect),
   };
+}
+
+/**
+ * Which tags every message carries, which only some carry, and how many
+ * carry each. The tag picker shows the second group as mixed, labelled with
+ * its count, so a bulk apply can leave them alone.
+ */
+export function getBulkTagState(
+  messages: EmailMessage[],
+  tags: Array<{ id: number }>,
+): {
+  selectedTagIds: number[];
+  partialTagIds: number[];
+  tagCounts: Record<number, number>;
+} {
+  const selectedTagIds: number[] = [];
+  const partialTagIds: number[] = [];
+  const tagCounts: Record<number, number> = {};
+  for (const tag of tags) {
+    const count = messages.filter((m) => hasMessageTag(m, tag.id)).length;
+    tagCounts[tag.id] = count;
+    if (count > 0 && count === messages.length) selectedTagIds.push(tag.id);
+    else if (count > 0) partialTagIds.push(tag.id);
+  }
+  return { selectedTagIds, partialTagIds, tagCounts };
 }

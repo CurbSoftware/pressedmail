@@ -13,6 +13,7 @@ import { getPluginRestBase } from "@/lib/runtime-config";
 
 export type NormalSendOutcome =
   | "accepted"
+  | "queued"
   | "pending"
   | "uncertain"
   | "failed"
@@ -28,6 +29,7 @@ export interface NormalSendReceipt {
   http_status: number;
   delivery_state:
     | "accepted"
+    | "queued"
     | "pending"
     | "uncertain"
     | "not_accepted"
@@ -39,6 +41,96 @@ export interface NormalSendReceipt {
   message_id?: string;
   transport?: string | null;
   warning?: string;
+  delivery_id?: number;
+  progress?: ListDeliveryProgress;
+  pending_email_id?: number;
+  send_at?: string;
+  delay_seconds?: number;
+  remaining_seconds?: number;
+}
+
+export interface ListDeliveryProgress {
+  state:
+    | "queued"
+    | "preparing"
+    | "sending"
+    | "partial"
+    | "failed"
+    | "uncertain"
+    | "complete"
+    | "cancelled"
+    | "paused";
+  audience: number | null;
+  counts: Record<
+    | "queued"
+    | "claimed"
+    | "accepted"
+    | "failed"
+    | "uncertain"
+    | "skipped"
+    | "removed",
+    number
+  >;
+  due_at: string;
+  published_at: string | null;
+}
+
+export function parseListDeliveryProgress(
+  value: unknown,
+): ListDeliveryProgress | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    ![
+      "queued",
+      "preparing",
+      "sending",
+      "partial",
+      "failed",
+      "uncertain",
+      "complete",
+      "cancelled",
+      "paused",
+    ].includes(String(row.state)) ||
+    !(
+      row.audience === null ||
+      (typeof row.audience === "number" &&
+        Number.isSafeInteger(row.audience) &&
+        row.audience >= 0)
+    ) ||
+    typeof row.due_at !== "string" ||
+    !(row.published_at === null || typeof row.published_at === "string") ||
+    !row.counts ||
+    typeof row.counts !== "object"
+  )
+    return null;
+  const counts: Record<string, unknown> = {
+    removed: 0,
+    ...(row.counts as Record<string, unknown>),
+  };
+  if (
+    ![
+      "queued",
+      "claimed",
+      "accepted",
+      "failed",
+      "uncertain",
+      "skipped",
+      "removed",
+    ].every(
+      (key) =>
+        typeof counts[key] === "number" &&
+        Number.isSafeInteger(counts[key]) &&
+        (counts[key] as number) >= 0,
+    )
+  )
+    return null;
+  const total = Object.values(counts).reduce<number>(
+    (sum, number) => sum + (typeof number === "number" ? number : 0),
+    0,
+  );
+  if (row.audience !== null && total !== row.audience) return null;
+  return { ...row, counts } as unknown as ListDeliveryProgress;
 }
 
 type ErrorCode =
@@ -102,6 +194,10 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const inFlight = new Map<string, Promise<NormalSendReceipt>>();
 const acceptedIntents = new Map<
+  string,
+  { principal: StoragePrincipal; key: string; raw: string }
+>();
+const scheduledIntents = new Map<
   string,
   { principal: StoragePrincipal; key: string; raw: string }
 >();
@@ -206,6 +302,7 @@ function parseReceipt(
   const value = body as Record<string, unknown>;
   const statuses: Record<NormalSendOutcome, number> = {
     accepted: 200,
+    queued: 202,
     pending: 202,
     uncertain: 409,
     failed: 422,
@@ -224,7 +321,7 @@ function parseReceipt(
   )
     return null;
   const status =
-    outcome === "accepted"
+    outcome === "accepted" || outcome === "queued"
       ? "success"
       : outcome === "pending"
         ? "pending"
@@ -233,11 +330,37 @@ function parseReceipt(
     outcome === "failed" || outcome === "invalid"
       ? "not_accepted"
       : outcome === "accepted" ||
+          outcome === "queued" ||
           outcome === "pending" ||
           outcome === "uncertain"
         ? outcome
         : "unknown";
   if (value.status !== status || value.delivery_state !== state) return null;
+  const progress =
+    outcome === "queued" ? parseListDeliveryProgress(value.progress) : null;
+  if (
+    outcome === "queued" &&
+    (!progress ||
+      typeof value.delivery_id !== "number" ||
+      !Number.isSafeInteger(value.delivery_id) ||
+      value.delivery_id <= 0)
+  )
+    return null;
+  if (
+    value.pending_email_id !== undefined &&
+    (outcome !== "queued" ||
+      typeof value.pending_email_id !== "number" ||
+      !Number.isSafeInteger(value.pending_email_id) ||
+      value.pending_email_id <= 0 ||
+      typeof value.send_at !== "string" ||
+      ![value.delay_seconds, value.remaining_seconds].every(
+        (number) =>
+          typeof number === "number" &&
+          Number.isSafeInteger(number) &&
+          number >= 0,
+      ))
+  )
+    return null;
   return {
     status,
     outcome,
@@ -245,6 +368,15 @@ function parseReceipt(
     delivery_state: state,
     message: value.message,
     attempt_key: attempt,
+    ...(progress ? { delivery_id: value.delivery_id as number, progress } : {}),
+    ...(typeof value.pending_email_id === "number"
+      ? {
+          pending_email_id: value.pending_email_id,
+          send_at: value.send_at as string,
+          delay_seconds: value.delay_seconds as number,
+          remaining_seconds: value.remaining_seconds as number,
+        }
+      : {}),
     ...(typeof value.error_type === "string"
       ? { error_type: value.error_type }
       : {}),
@@ -322,7 +454,7 @@ async function sendLocked(
   let intent = readIntent(key, account, hash, principal);
   const remember = (receipt: NormalSendReceipt) => {
     assertCurrent(principal);
-    if (receipt.outcome === "accepted") {
+    if (receipt.outcome === "accepted" || receipt.outcome === "queued") {
       const current = readIntent(key, account, hash, principal);
       const raw = readRaw(key, principal);
       if (raw !== null && current?.attempt_key === receipt.attempt_key)
@@ -388,6 +520,64 @@ async function sendLocked(
 }
 
 /** Persist intent before transport; keep it until the successful composer actually closes. */
+export async function retainScheduledListIntent(
+  account: number,
+  authoredRequest: string,
+): Promise<string> {
+  const principal = captureStoragePrincipal();
+  assertCurrent(principal);
+  if (!Number.isSafeInteger(account) || account <= 0)
+    throw new NormalSendError("invalid_account");
+  if (!window.crypto?.subtle || typeof window.crypto.randomUUID !== "function")
+    throw new NormalSendError("crypto_unavailable");
+  if (typeof navigator.locks?.request !== "function")
+    throw new NormalSendError("locks_unavailable");
+  const hash = await sha256(
+    new TextEncoder().encode(authoredRequest).buffer,
+    principal,
+  );
+  const key = `scheduled-list-intent:${account}:${hash}`;
+  const physical = getPrincipalStorageKey(key, principal);
+  if (!physical) throw new NormalSendError("storage_unavailable");
+  return navigator.locks.request(physical, { mode: "exclusive" }, () => {
+    const existing = readIntent(key, account, hash, principal);
+    if (existing) {
+      scheduledIntents.set(existing.attempt_key, {
+        principal,
+        key,
+        raw: readRaw(key, principal)!,
+      });
+      return existing.attempt_key;
+    }
+    const attempt = window.crypto.randomUUID();
+    if (!UUID.test(attempt)) throw new NormalSendError("crypto_unavailable");
+    const raw = JSON.stringify({
+      account_id: account,
+      payload_hash: hash,
+      attempt_key: attempt,
+    });
+    if (
+      !setPrincipalStorageItem("local", key, raw, principal) ||
+      readRaw(key, principal) !== raw
+    )
+      throw new NormalSendError("storage_unavailable");
+    scheduledIntents.set(attempt, { principal, key, raw });
+    return attempt;
+  });
+}
+
+/** Call only after an owned native scheduled row was durably acknowledged. */
+export async function acknowledgeScheduledListIntent(
+  attempt: string,
+): Promise<boolean> {
+  const observed = scheduledIntents.get(attempt);
+  if (!observed) return false;
+  acceptedIntents.set(attempt, observed);
+  const removed = await acknowledgeNormalSend(attempt);
+  if (removed) scheduledIntents.delete(attempt);
+  return removed;
+}
+
 export async function sendNormalEmail(
   formData: FormData,
   options: NormalSendOptions = {},

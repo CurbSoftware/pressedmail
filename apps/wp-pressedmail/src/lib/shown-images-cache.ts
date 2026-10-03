@@ -10,7 +10,7 @@ interface ImagesShownIdentity {
   accountEmail?: string | null;
   folder?: string | null;
   folderLabel?: string | null;
-  consolidatedUid?: string | number | null;
+  identityKey?: string | number | null;
   uid?: string | number | null;
   messageId?: string | null;
   id?: string | number | null;
@@ -31,7 +31,7 @@ export function getImagesShownCacheKey(
   const account = identityPart(message.accountId ?? message.accountEmail ?? "");
   const folder = identityPart(message.folder ?? message.folderLabel ?? "");
   const messageId = identityPart(
-    message.consolidatedUid ??
+    message.identityKey ??
       message.uid ??
       message.messageId ??
       message.id ??

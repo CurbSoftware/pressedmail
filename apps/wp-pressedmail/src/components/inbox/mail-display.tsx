@@ -1,4 +1,5 @@
 import { appMessage } from "@/context/toast";
+import { useProFeatureAvailable } from "@/context/features/pro-feature.active";
 import { parseMessageIdentityRef } from "@/lib/message-identity";
 import React from "react";
 import { __, sprintf } from "@wordpress/i18n";
@@ -10,8 +11,6 @@ import {
   Loader2,
   Mail,
   Paperclip,
-  ShieldAlert,
-  ShieldCheck,
   Sparkles,
   Star,
   Tags,
@@ -23,20 +22,20 @@ import {
   useCanDownloadAttachments,
   useCanShowExternalImages,
 } from "@/context/admin-settings";
-import {
-  useAutoTagger,
-  useAutoTaggerToolAvailable,
-} from "@/context/auto-tagger/AutoTaggerContext";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
-import { useEmailSummaries } from "@/context/email-summary";
+import { useMailDisplayAutoTag } from "@/components/inbox/message-auto-tag.active";
+import { useOptionalEmailSummaries } from "@/hooks/useOptionalProContexts";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
 import { useInboxState } from "@/context/InboxContext";
 import { useTags } from "@/context/tags";
 import { prepareEmailBodyForDisplay } from "@/lib/email-content-normalization";
 import { isApiAuthError } from "@/lib/api-auth-errors";
+import { applyMessageTagSteps } from "@/lib/message-tag-apply";
 import { parseEmailDate } from "@/lib/email-date";
 import { parseSenderEmail, parseSenderName } from "@/lib/mail-utils";
 import { useMessagePhishingAutoScan } from "@/hooks/useMessagePhishingAutoScan";
+import { useMessageSecurityResults } from "@/context/security";
+import { SpamResultBadge } from "@/components/spam";
 import { useSenderContact } from "@/hooks/useSenderContact";
 import {
   getMessageIdentityKey,
@@ -55,14 +54,14 @@ import {
 import { formatFileSize } from "./compose/compose-utils";
 import { EmailSandbox } from "./EmailSandbox";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
-import { ITipBanner } from "./itip-banner";
+import { ITipBanner } from "@/components/inbox/itip-banner";
 import { AddToCalendarIconButton } from "@/components/calendar/AddToCalendarButton";
 import {
   ImportIcsPreview,
   type IcsImportSource,
 } from "@/components/calendar/ImportIcsPreview";
 import type { MessageAttachmentRef } from "@/types/message-attachments";
-import { useCalendar } from "@/context/calendar/CalendarContext";
+import { useOptionalCalendar } from "@/hooks/useOptionalProContexts";
 import { MailDetailSkeleton } from "./mail-detail-skeleton";
 import { PhishingResultBadge } from "@/components/phishing/PhishingResultBadge";
 import {
@@ -73,8 +72,12 @@ import {
 import { EmailTagBadges } from "@/components/tags/EmailTagBadges";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { SectionCard } from "@/components/ui/section-card";
+import { useSharedMailboxRole } from "@/components/sharing";
 import { EmailSummaryMarkdown } from "./EmailSummaryMarkdown";
-import { MailTagActionDropdown } from "./MailTagActionDropdown";
+import {
+  MailTagActionPopover,
+  type MailTagChange,
+} from "./MailTagActionPopover";
 
 import type { EmailAttachment, EmailMessage, EmailMessageTag } from "@/types";
 import type { Tag } from "@/types/tags";
@@ -116,6 +119,18 @@ interface MailDisplayProps {
   actionsInToolbar?: boolean;
 }
 
+/** Phishing and spam results for the open email, in one request. */
+function MessageSecurityResultsGate({
+  mail,
+  accountId,
+}: {
+  mail: EmailMessage | null;
+  accountId: number | null;
+}) {
+  useMessageSecurityResults({ message: mail, accountId });
+  return null;
+}
+
 function MessagePhishingAutoScanGate({
   mail,
   accountId,
@@ -148,21 +163,6 @@ function getHeaderValue(
   return "";
 }
 
-function summarizeAuthentication(value: string): string[] {
-  if (!value) return [];
-  const lower = value.toLowerCase();
-  const status = (key: "spf" | "dkim" | "dmarc") => {
-    if (lower.includes(`${key}=pass`)) return `${key.toUpperCase()} pass`;
-    if (lower.includes(`${key}=fail`)) return `${key.toUpperCase()} fail`;
-    if (lower.includes(`${key}=softfail`)) {
-      return `${key.toUpperCase()} softfail`;
-    }
-    return `${key.toUpperCase()} unknown`;
-  };
-
-  return [status("spf"), status("dkim"), status("dmarc")];
-}
-
 function HeaderDetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2">
@@ -179,18 +179,6 @@ function toEmailMessageTag(tag: Tag | EmailMessageTag): EmailMessageTag {
     color: tag.color,
     icon: tag.icon ?? null,
   };
-}
-
-function getAutoTagBody(message: EmailMessage, body: string): string {
-  return (
-    message.htmlBody ||
-    message.body ||
-    message.textBody ||
-    message.plainBody ||
-    message.text ||
-    body ||
-    ""
-  );
 }
 
 /**
@@ -261,21 +249,32 @@ export function MailDisplay({
   const messagesRef = React.useRef<HTMLDivElement>(null);
   const [showHeaderDetails, setShowHeaderDetails] = React.useState(false);
   const [showAISummary, setShowAISummary] = React.useState(false);
+  const summaryPanelId = React.useId();
+  const showSummaryButton = React.useRef<HTMLButtonElement>(null);
+  const hideSummaryButton = React.useRef<HTMLButtonElement>(null);
+  const restoreSummaryFocus = React.useRef(false);
+  React.useEffect(() => {
+    if (!restoreSummaryFocus.current) return;
+    restoreSummaryFocus.current = false;
+    (showAISummary ? hideSummaryButton : showSummaryButton).current?.focus();
+  }, [showAISummary]);
   const [manageSummaryOpen, setManageSummaryOpen] = React.useState(false);
   const [summaryMutationPending, setSummaryMutationPending] =
     React.useState(false);
   const { accounts, selectedAccount } = useAppContext();
   const { filterByTag, removeMessageTag } = useEmailMessageTagActions();
   const { tags, assignTag, removeTag, getMessageTags } = useTags();
-  const { classifyEmails } = useAutoTagger();
-  const autoTaggerAvailable = useAutoTaggerToolAvailable();
 
   // Inline AI summary disclosure availability is feature/build gated. The
   // summarize runtime can use its own provider settings, so do not gate this on
   // the legacy global AI provider.
-  const aiSummarizeFeatureAvailable = useFeatureAvailable("ai_summarize");
-  const calendarFeatureAvailable = useFeatureAvailable("calendar");
-  const { refreshVisibleLocalEvents } = useCalendar();
+  const aiSummarizeFeatureAvailable = useProFeatureAvailable("ai_summarize");
+  const calendarFeatureAvailable = useProFeatureAvailable("calendar");
+  const calendar = useOptionalCalendar();
+  const refreshVisibleLocalEvents =
+    __ENABLE_CALENDAR__ && calendar
+      ? calendar.refreshVisibleLocalEvents
+      : undefined;
   // Build-gate as well: Summarize is a Pro AI feature with no routes in the free
   // build, so never surface the trigger there (parity with BulkActionBar).
   //
@@ -284,9 +283,11 @@ export function MailDisplay({
   // whole summarize UI stayed compiled into the Free bundle, hidden at runtime.
   const aiSummariesAvailable =
     __ENABLE_AI_SUMMARIZE__ && aiSummarizeFeatureAvailable;
-  const { getSummary, summarizeMessages, deleteSummary, isSummarizing } =
-    useEmailSummaries();
-  const summaryRecord = aiSummariesAvailable ? getSummary(mail) : null;
+  const summaries = useOptionalEmailSummaries();
+  const isSummarizing =
+    __ENABLE_AI_SUMMARIZE__ && summaries ? summaries.isSummarizing : false;
+  const summaryRecord =
+    aiSummariesAvailable && summaries ? summaries.getSummary(mail) : null;
   const hasCachedAISummary =
     summaryRecord?.status === "success" && Boolean(summaryRecord.summary);
   // Every per-message cache this pane reads is keyed by the account-qualified
@@ -296,6 +297,9 @@ export function MailDisplay({
   const mailKey = React.useMemo(() => getMessageIdentityKey(mail), [mail]);
   const tagIdentity = getMessageIdentityRef(mail);
   const tagIdentityKey = getMessageIdentityKey(tagIdentity);
+  // Same gate as the reading-pane bar, bulk bar and mobile sheet: only the
+  // mailbox owner tags. The server refuses delegates anyway.
+  const mailboxRole = useSharedMailboxRole(tagIdentity?.accountId);
   const tagScopeRef = React.useRef({ key: tagIdentityKey });
   if (tagScopeRef.current.key !== tagIdentityKey) {
     tagScopeRef.current = { key: tagIdentityKey };
@@ -403,18 +407,22 @@ export function MailDisplay({
 
   const requestSummary = React.useCallback(
     async (force = false) => {
-      if (!mail || isSummarizing) return;
+      if (!__ENABLE_AI_SUMMARIZE__ || !summaries || !mail || isSummarizing)
+        return;
       setManageSummaryOpen(false);
       setShowAISummary(true);
       try {
-        await summarizeMessages([mail], force ? { force: true } : undefined);
+        await summaries.summarizeMessages(
+          [mail],
+          force ? { force: true } : undefined,
+        );
       } catch (error) {
         if (!isApiAuthError(error)) {
           throw error;
         }
       }
     },
-    [isSummarizing, mail, summarizeMessages],
+    [isSummarizing, mail, summaries],
   );
 
   const handleSummarizeClick = React.useCallback(() => {
@@ -435,10 +443,10 @@ export function MailDisplay({
   }, [requestSummary]);
 
   const handleDeleteSummary = React.useCallback(async () => {
-    if (!mail) return;
+    if (!__ENABLE_AI_SUMMARIZE__ || !summaries || !mail) return;
     setSummaryMutationPending(true);
     try {
-      const deleted = await deleteSummary(mail);
+      const deleted = await summaries.deleteSummary(mail);
       if (deleted) {
         setShowAISummary(false);
         setManageSummaryOpen(false);
@@ -446,7 +454,7 @@ export function MailDisplay({
     } finally {
       setSummaryMutationPending(false);
     }
-  }, [deleteSummary, mail]);
+  }, [summaries, mail]);
 
   // Admin security settings
   const canDownloadAttachments = useCanDownloadAttachments();
@@ -497,7 +505,8 @@ export function MailDisplay({
     },
     [buildCalendarAttachmentRef],
   );
-  const canReferenceCalendarMessage = buildCalendarAttachmentRef("1") !== null;
+  const canReferenceCalendarMessage =
+    __IS_PRO__ && buildCalendarAttachmentRef("1") !== null;
   const handleTagRemove = React.useCallback(
     async (tag: EmailMessageTag) => {
       const principal = captureRequestPrincipal();
@@ -537,11 +546,6 @@ export function MailDisplay({
     ],
   );
   const tagsEnabled = __ENABLE_TAGS__ && tagIdentity !== null;
-  const showAutoTagAction =
-    !__IS_FREE__ &&
-    __ENABLE_AUTO_TAGGER__ &&
-    __ENABLE_AI_AUTO_TAGGER__ &&
-    autoTaggerAvailable;
   const selectedTagIds = messageTagSelection.map((tag) => Number(tag.id));
 
   const handleTagDropdownOpenChange = React.useCallback(
@@ -575,7 +579,7 @@ export function MailDisplay({
   );
 
   const handleApplyMessageTags = React.useCallback(
-    async (nextTagIds: number[]) => {
+    async ({ add, remove }: MailTagChange) => {
       const principal = captureRequestPrincipal();
       if (
         !tagIdentity ||
@@ -586,81 +590,56 @@ export function MailDisplay({
       // A tag diff cannot be computed from an unknown starting selection.
       if (!messageTagsLoaded) {
         await handleTagDropdownOpenChange(true);
-        return;
+        throw new Error(
+          __(
+            "The tags were still loading. Check them and apply again.",
+            "pressedmail",
+          ),
+        );
       }
       const previousTagIds = new Set(
         messageTagSelection.map((tag) => Number(tag.id)),
       );
-      const nextTagIdSet = new Set(nextTagIds.map(Number));
-      const addedTagIds = Array.from(nextTagIdSet).filter(
-        (id) => !previousTagIds.has(id),
-      );
-      const removedTagIds = Array.from(previousTagIds).filter(
-        (id) => !nextTagIdSet.has(id),
-      );
+      const addedTagIds = add.filter((id) => !previousTagIds.has(id));
+      const removedTagIds = remove.filter((id) => previousTagIds.has(id));
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
       tagMutation.current = tagScope;
       tagReadVersion.current++;
       setPendingTagScope(tagScope);
+      const isCurrent = () => isCurrentTagScope(tagScope, principal);
+      const { accountId, uid, folder, uidValidity } = tagIdentity;
       try {
-        for (const tagId of addedTagIds) {
-          if (!isCurrentTagScope(tagScope, principal)) return;
-          await assignTag(
-            tagId,
-            tagIdentity.accountId,
-            tagIdentity.uid,
-            tagIdentity.folder,
-            tagIdentity.uidValidity,
-          );
-        }
-        for (const tagId of removedTagIds) {
-          if (!isCurrentTagScope(tagScope, principal)) return;
-          await removeTag(
-            tagId,
-            tagIdentity.accountId,
-            tagIdentity.uid,
-            tagIdentity.folder,
-            tagIdentity.uidValidity,
-          );
-        }
-        if (!isCurrentTagScope(tagScope, principal)) return;
-        await reloadMessageTags(principal);
-      } catch (error) {
-        invalidateTagCaches(principal);
-        if (!isCurrentTagScope(tagScope, principal)) return;
-        setMessageTagState((current) => ({ ...current, loaded: false }));
-        appMessage(
-          __(
-            "Some tags may have changed. Reloading the message tags.",
-            "pressedmail",
-          ),
-          "error",
-        );
-        try {
-          await reloadMessageTags(principal);
-        } catch {
-          if (isCurrentTagScope(tagScope, principal)) {
-            appMessage(
-              __(
-                "Reload this mailbox to check the message tags.",
-                "pressedmail",
-              ),
-              "error",
-            );
-            await getInboxService()
+        await applyMessageTagSteps({
+          writes: [
+            ...addedTagIds.map(
+              (tagId) => () =>
+                assignTag(tagId, accountId, uid, folder, uidValidity),
+            ),
+            ...removedTagIds.map(
+              (tagId) => () =>
+                removeTag(tagId, accountId, uid, folder, uidValidity),
+            ),
+          ],
+          isCurrent,
+          reload: () => reloadMessageTags(principal),
+          onWriteFailed: () => {
+            invalidateTagCaches(principal);
+            setMessageTagState((current) => ({ ...current, loaded: false }));
+          },
+          onReloadFailed: () => {
+            invalidateTagCaches(principal);
+            void getInboxService()
               .refresh()
               .catch((refreshError) => {
-                if (isCurrentTagScope(tagScope, principal))
+                if (isCurrent())
                   console.error(
                     "Failed to refresh message tags:",
                     refreshError,
                   );
               });
-          }
-        }
-        if (isCurrentTagScope(tagScope, principal))
-          console.error("Failed to update message tags:", error);
+          },
+        });
       } finally {
         if (tagMutation.current === tagScope) tagMutation.current = null;
         if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
@@ -748,6 +727,8 @@ export function MailDisplay({
     [mail?.subject],
   );
   const displayTo = React.useMemo(() => {
+    // Contact lists as recipients are Pro; Free shows the addresses only.
+    if (!__ENABLE_CONTACT_LISTS__) return mail?.to ?? "";
     const lists = Array.isArray(mail?.contactLists)
       ? mail.contactLists
       : Array.isArray(mail?.contact_lists)
@@ -756,7 +737,7 @@ export function MailDisplay({
     return [mail?.to, ...lists.map((list) => list.name)]
       .filter(Boolean)
       .join(", ");
-  }, [mail?.contactLists, mail?.contact_lists, mail?.to]);
+  }, [mail]);
   const mailDate = React.useMemo(
     () => parseEmailDate(mail?.receivedDate ?? mail?.date),
     [mail?.date, mail?.receivedDate],
@@ -765,58 +746,21 @@ export function MailDisplay({
   // Plain-text emails carry no inherent colors, so they may adapt to the UI
   // light/dark theme (R1). HTML content stays on the fixed-light sandbox.
   const textBodySurfaceClass = "pm-email-text-surface";
-  const handleAutoTag = React.useCallback(async () => {
-    const principal = captureRequestPrincipal();
-    if (
-      !mail ||
-      !tagIdentity ||
-      tagMutation.current === tagScope ||
-      !isCurrentTagScope(tagScope, principal)
-    )
-      return;
-    tagMutation.current = tagScope;
-    tagReadVersion.current++;
-    setPendingTagScope(tagScope);
-    try {
-      await classifyEmails(tagIdentity.accountId, [
-        {
-          uid: tagIdentity.uid,
-          uidValidity: tagIdentity.uidValidity,
-          folder: tagIdentity.folder,
-          subject: mail.subject || "",
-          from: mail.from || mail.email || "",
-          to: mail.to || "",
-          date: mail.receivedDate ?? mail.date ?? "",
-          body: getAutoTagBody(mail, body),
-        },
-      ]);
-      // Provider results describe classification, not necessarily every accepted
-      // tag write. Read the actual tags for this captured mailbox reference.
-      invalidateTagCaches(principal);
-      await reloadMessageTags(principal);
-    } catch (error) {
-      invalidateTagCaches(principal);
-      if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error)) {
-        appMessage(
-          __("Reload this mailbox to check the message tags.", "pressedmail"),
-          "error",
-        );
-      }
-    } finally {
-      if (tagMutation.current === tagScope) tagMutation.current = null;
-      if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
-      else invalidateTagCaches(principal);
-    }
-  }, [
-    mail,
+  const autoTag = useMailDisplayAutoTag(mail, body, {
     tagIdentity,
     tagScope,
-    body,
-    classifyEmails,
-    reloadMessageTags,
-    invalidateTagCaches,
+    tagMutation,
+    tagReadVersion,
+    setPendingTagScope,
     isCurrentTagScope,
-  ]);
+    invalidateTagCaches,
+    reloadMessageTags,
+  });
+  const showAutoTagAction =
+    !__IS_FREE__ &&
+    __ENABLE_AUTO_TAGGER__ &&
+    __ENABLE_AI_AUTO_TAGGER__ &&
+    autoTag.available;
 
   if (!mail) {
     return (
@@ -847,9 +791,6 @@ export function MailDisplay({
     getHeaderValue(headers, ["Reply-To"]);
   const messageId =
     mail.messageId || getHeaderValue(headers, ["Message-ID", "Message-Id"]);
-  const authentication = summarizeAuthentication(
-    getHeaderValue(headers, ["Authentication-Results"]),
-  );
 
   const isBodyLoading = !hasLoadedBody && isMessageDetailLoading;
   // The body is still being assembled server-side (or the fetch hit its budget): show a
@@ -867,11 +808,17 @@ export function MailDisplay({
     <div
       className={cn(
         "flex flex-col bg-card",
-        isMobileLayout ? "" : "h-full overflow-hidden",
+        // On a phone the screen scrolls, not this pane, so nothing gave the pane
+        // a height and the sandboxed body (which cannot size itself: no
+        // scripts) fell back to its 200px minimum. Filling the scroller lets the
+        // body take the rest of the screen, as it does on desktop.
+        isMobileLayout ? "min-h-full" : "h-full overflow-hidden",
       )}
       ref={messagesRef}
       data-test="message-detail">
-      {__ENABLE_PHISHING_DETECTION__ ? (
+      {__ENABLE_SPAM_DETECTION__ ? (
+        <MessageSecurityResultsGate mail={mail} accountId={accountId} />
+      ) : __ENABLE_PHISHING_DETECTION__ ? (
         <MessagePhishingAutoScanGate mail={mail} accountId={accountId} />
       ) : null}
 
@@ -880,7 +827,9 @@ export function MailDisplay({
         data-test="message-detail-content"
         className={cn(
           "flex flex-col gap-4 p-4",
-          isMobileLayout ? "" : "min-h-0 flex-1 overflow-auto",
+          // pb-0 on a phone: the screen's scroller already pads the bottom, and
+          // both together left a 48px dead band under the message body.
+          isMobileLayout ? "flex-1 pb-0" : "min-h-0 flex-1 overflow-auto",
         )}>
         {mail.bodyOmitted ? (
           <p role="status" className="text-sm text-muted-foreground">
@@ -890,7 +839,8 @@ export function MailDisplay({
             )}
           </p>
         ) : null}
-        {mail?.itip ? (
+        {/* Calendar invites are Pro: the Free build compiles no iTIP banner. */}
+        {__ENABLE_CALENDAR__ && mail?.itip ? (
           <ITipBanner
             event={mail.itip}
             onAddToCalendar={
@@ -909,7 +859,10 @@ export function MailDisplay({
               className="flex items-center justify-between gap-2"
               data-test="message-detail-sender-row">
               <div className="flex min-w-0 items-center gap-2">
-                {!actionsInToolbar && contactsAvailable && senderEmail ? (
+                {__ENABLE_CONTACTS__ &&
+                !actionsInToolbar &&
+                contactsAvailable &&
+                senderEmail ? (
                   existingContact ? (
                     <PressedTooltip
                       content={__("Remove sender from contacts", "pressedmail")}
@@ -967,7 +920,7 @@ export function MailDisplay({
                   unknown one without opening Contacts. Rendered in every
                   layout, including the ones that keep the inline toggle.
                 */}
-                {existingContact ? (
+                {__ENABLE_CONTACTS__ && existingContact ? (
                   <PressedTooltip
                     content={__("Already in your contacts", "pressedmail")}
                     side="bottom">
@@ -1034,9 +987,12 @@ export function MailDisplay({
               </p>
             ) : null}
             <div
-              className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+              // Wraps: when the tags and the date don't fit on one line (a
+              // phone), the tags drop below instead of cutting the date off.
+              className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs text-muted-foreground"
               data-test="message-detail-date-row">
-              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+              {/* flex-auto, not flex-1: a zero basis never triggers the wrap. */}
+              <div className="flex min-w-0 flex-auto items-center gap-1.5">
                 <PressedTooltip
                   content={
                     showHeaderDetails
@@ -1089,58 +1045,92 @@ export function MailDisplay({
                   </span>
                 ) : null}
               </div>
-              {/* flex-none, not a 55% basis: the tag group reserved over half
-                  the row even when it held a single icon, which is what cut
-                  the date off mid-timestamp. */}
-              <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5">
-                {messageTagSelection.length > 0 || tagsEnabled ? (
-                  <div
-                    className="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5"
-                    data-test="message-detail-tags-row">
-                    {messageTagSelection.length > 0 ? (
-                      <EmailTagBadges
-                        tags={messageTagSelection}
-                        wrap
-                        className="justify-end"
-                        onTagClick={filterByTag}
-                        onTagRemove={handleTagRemove}
-                      />
-                    ) : null}
-                    {tagsEnabled ? (
-                      <MailTagActionDropdown
-                        key={tagIdentityKey}
-                        isApplying={isTagApplying || !messageTagsLoaded}
-                        availableTags={tags}
-                        selectedTagIds={selectedTagIds}
-                        onApplyTags={handleApplyMessageTags}
-                        onAutoTag={handleAutoTag}
-                        onOpenChange={handleTagDropdownOpenChange}
-                        aiEnabled={showAutoTagAction}
-                        aiDisabled={isTagApplying}
-                        disabled={false}
-                        align="end"
-                        trigger={
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground"
-                            data-test="message-detail-tag-action"
-                            aria-label={__("Edit message tags", "pressedmail")}>
-                            <Tags className="h-4 w-4" />
-                          </Button>
-                        }
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-                {__ENABLE_PHISHING_DETECTION__ ? (
-                  <PhishingResultBadge
-                    messageId={mailKey}
-                    className="h-5 shrink-0"
-                  />
-                ) : null}
-              </div>
+              {/* The tags and the two results are direct children of the date
+                  row, each at its content width (ml-auto, never a 55% basis:
+                  that reserved over half the row for a single icon and cut the
+                  date off mid-timestamp) and each capped at the row (min-w-0,
+                  max-w-full, never shrink-0). They used to share one group
+                  that would not shrink, so a tag, a newsletter chip and a
+                  phishing chip made it wider than the pane and the phishing
+                  result was clipped to a "P". As siblings they wrap one whole
+                  unit at a time: the date and the tags first, the results
+                  under them, every result readable at any width. */}
+              {messageTagSelection.length > 0 || tagsEnabled ? (
+                <div
+                  className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5"
+                  data-test="message-detail-tags-row">
+                  {messageTagSelection.length > 0 ? (
+                    <EmailTagBadges
+                      tags={messageTagSelection}
+                      wrap
+                      className="justify-end"
+                      onTagClick={filterByTag}
+                      // Delegates can't write tags; no X they can't use.
+                      onTagRemove={
+                        mailboxRole.isOwner ? handleTagRemove : undefined
+                      }
+                    />
+                  ) : null}
+                  {tagsEnabled && mailboxRole.isOwner ? (
+                    <MailTagActionPopover
+                      key={tagIdentityKey}
+                      sheet={isMobileLayout}
+                      isApplying={isTagApplying}
+                      isLoading={!messageTagsLoaded}
+                      availableTags={tags}
+                      selectedTagIds={selectedTagIds}
+                      onApplyTags={handleApplyMessageTags}
+                      onOpenChange={handleTagDropdownOpenChange}
+                      extraAction={
+                        !__IS_FREE__ && showAutoTagAction && autoTag.autoTag
+                          ? {
+                              run: autoTag.autoTag,
+                              running: autoTag.isAutoTagging,
+                              disabled: isTagApplying,
+                            }
+                          : undefined
+                      }
+                      disabled={false}
+                      align="end"
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-6 w-6 shrink-0 p-0 text-muted-foreground hover:text-foreground",
+                            // 44px hit area on phones without growing the row.
+                            isMobileLayout &&
+                              "relative after:absolute after:-inset-2.5 after:content-['']",
+                          )}
+                          data-test="message-detail-tag-action"
+                          aria-label={__("Edit message tags", "pressedmail")}>
+                          <Tags className="h-4 w-4" />
+                        </Button>
+                      }
+                    />
+                  ) : null}
+                </div>
+              ) : null}
+              {/* Bag then fish, as in the list rows. Each badge draws its own
+                  divider, so the score never reads as part of the tag controls
+                  beside it. The pair travels as one unit: it sits beside the
+                  tags when there is room and drops under them when there is
+                  not, so the two results stay together. The gap between the
+                  two is the cluster's own, so no chip carries a left margin
+                  that could tip the pair onto a second line at 375. */}
+              {__ENABLE_SPAM_DETECTION__ || __ENABLE_PHISHING_DETECTION__ ? (
+                <div
+                  data-test="message-detail-verdicts"
+                  className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1.5 empty:hidden">
+                  {__ENABLE_SPAM_DETECTION__ ? (
+                    <SpamResultBadge message={mail} />
+                  ) : null}
+                  {__ENABLE_PHISHING_DETECTION__ ? (
+                    <PhishingResultBadge messageId={mailKey} />
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             {showHeaderDetails ? (
               <div
@@ -1179,30 +1169,6 @@ export function MailDisplay({
                     label={__("Message-ID", "pressedmail")}
                     value={messageId}
                   />
-                ) : null}
-                {authentication.length > 0 ? (
-                  <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2">
-                    <span className="font-medium text-muted-foreground">
-                      {__("Authentication", "pressedmail")}
-                    </span>
-                    <span className="flex flex-wrap gap-2">
-                      {authentication.map((item) => {
-                        const passed = item.toLowerCase().includes("pass");
-                        const Icon = passed ? ShieldCheck : ShieldAlert;
-                        return (
-                          <span
-                            key={item}
-                            className={cn(
-                              "inline-flex items-center gap-1",
-                              passed ? "text-success" : "text-warning",
-                            )}>
-                            <Icon className="h-3 w-3" />
-                            {item}
-                          </span>
-                        );
-                      })}
-                    </span>
-                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -1295,10 +1261,20 @@ export function MailDisplay({
                       | null,
                     folder: mail.folder ?? "",
                   }}
-                  onAddToCalendar={
-                    canReferenceCalendarMessage
-                      ? (index) =>
-                          openCalendarAttachment(attachments[index]?.part)
+                  renderAttachmentAction={
+                    __IS_PRO__ && canReferenceCalendarMessage
+                      ? (attachment, index, filename) =>
+                          isExactMimePart(attachment.part) &&
+                          isCalendarAttachment(attachment) ? (
+                            <AddToCalendarIconButton
+                              onClick={() =>
+                                openCalendarAttachment(
+                                  attachments[index]?.part,
+                                )
+                              }
+                              filename={filename}
+                            />
+                          ) : null
                       : undefined
                   }
                 />
@@ -1309,8 +1285,28 @@ export function MailDisplay({
               exact classes as the header-details panel above it, so generated
               output and raw headers read as the same kind of thing.
             */}
+            {aiSummariesAvailable && hasCachedAISummary && !showAISummary ? (
+              <Button
+                ref={showSummaryButton}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 w-fit text-primary [@media(pointer:coarse)]:min-h-11"
+                onClick={() => {
+                  restoreSummaryFocus.current = true;
+                  setShowAISummary(true);
+                }}
+                aria-expanded={false}
+                aria-controls={summaryPanelId}
+                data-test="message-ai-summary-show"
+                data-testid="message-ai-summary-show">
+                <AiFileIcon filled className="h-4 w-4" aria-hidden="true" />
+                {__("Show summary", "pressedmail")}
+              </Button>
+            ) : null}
             {aiSummariesAvailable && showAISummary ? (
               <SectionCard
+                id={summaryPanelId}
                 tone="primary"
                 size="sm"
                 className="mt-2"
@@ -1318,10 +1314,14 @@ export function MailDisplay({
                 title={__("Email summary", "pressedmail")}
                 actions={
                   <Button
+                    ref={hideSummaryButton}
                     type="button"
                     variant="ghost"
                     size="xs"
-                    onClick={() => setShowAISummary(false)}
+                    onClick={() => {
+                      restoreSummaryFocus.current = true;
+                      setShowAISummary(false);
+                    }}
                     data-test="message-ai-summary-hide"
                     className="text-muted-foreground hover:text-foreground">
                     {__("Hide", "pressedmail")}
@@ -1412,70 +1412,80 @@ export function MailDisplay({
           </div>
         )}
       </div>
-      <ConfirmationPanel
-        open={confirmRemoveOpen}
-        onOpenChange={setConfirmRemoveOpen}
-        title={__("Remove", "pressedmail")}
-        description={sprintf(
-          __(
-            "Remove %s from your contacts? This cannot be undone.",
-            "pressedmail",
-          ),
-          senderEmail,
-        )}
-        confirmText={__("Remove", "pressedmail")}
-        variant="destructive"
-        loading={contactMutationPending}
-        onConfirm={handleRemoveSenderFromContacts}
-      />
-      <AlertDialog open={manageSummaryOpen} onOpenChange={setManageSummaryOpen}>
-        <PressedAlertDialogContent
-          size="confirmation"
-          role="dialog"
-          aria-label={__("Manage AI summary", "pressedmail")}>
-          <PressedAlertDialogHeader
-            title={__("Manage AI summary", "pressedmail")}
-            icon={Sparkles}
-            description={__(
-              "This email already has an AI summary. Choose how to handle the current summary.",
+      {/* Contacts are Pro: Free compiles no contact dialog. */}
+      {__ENABLE_CONTACTS__ && (
+        <ConfirmationPanel
+          open={confirmRemoveOpen}
+          onOpenChange={setConfirmRemoveOpen}
+          title={__("Remove", "pressedmail")}
+          description={sprintf(
+            __(
+              "Remove %s from your contacts? This cannot be undone.",
               "pressedmail",
-            )}
-          />
-          <PressedOverlayFooter>
-            <AlertDialogCancel disabled={summaryMutationPending}>
-              {__("Cancel", "pressedmail")}
-            </AlertDialogCancel>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => {
-                void handleDeleteSummary();
-              }}
-              disabled={summaryMutationPending}>
-              {__("Delete", "pressedmail")}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                void handleOverwriteSummary();
-              }}
-              disabled={summaryMutationPending}>
-              {summaryMutationPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : null}
-              {__("Overwrite", "pressedmail")}
-            </Button>
-          </PressedOverlayFooter>
-        </PressedAlertDialogContent>
-      </AlertDialog>
+            ),
+            senderEmail,
+          )}
+          confirmText={__("Remove", "pressedmail")}
+          variant="destructive"
+          loading={contactMutationPending}
+          onConfirm={handleRemoveSenderFromContacts}
+        />
+      )}
+      {/* AI summaries are Pro: Free compiles no summary dialog. */}
+      {__ENABLE_AI_SUMMARIZE__ && (
+        <AlertDialog
+          open={manageSummaryOpen}
+          onOpenChange={setManageSummaryOpen}>
+          <PressedAlertDialogContent
+            size="confirmation"
+            role="dialog"
+            aria-label={__("Manage AI summary", "pressedmail")}>
+            <PressedAlertDialogHeader
+              title={__("Manage AI summary", "pressedmail")}
+              icon={Sparkles}
+              description={__(
+                "This email already has an AI summary. Choose how to handle the current summary.",
+                "pressedmail",
+              )}
+            />
+            <PressedOverlayFooter>
+              <AlertDialogCancel disabled={summaryMutationPending}>
+                {__("Cancel", "pressedmail")}
+              </AlertDialogCancel>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => {
+                  void handleDeleteSummary();
+                }}
+                disabled={summaryMutationPending}>
+                {__("Delete", "pressedmail")}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  void handleOverwriteSummary();
+                }}
+                disabled={summaryMutationPending}>
+                {summaryMutationPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                {__("Overwrite", "pressedmail")}
+              </Button>
+            </PressedOverlayFooter>
+          </PressedAlertDialogContent>
+        </AlertDialog>
+      )}
 
-      <ImportIcsPreview
-        source={calendarImportSource}
-        onClose={() => setCalendarImportSource(null)}
-        onImported={async () => {
-          await refreshVisibleLocalEvents();
-        }}
-      />
+      {__IS_PRO__ ? (
+        <ImportIcsPreview
+          source={calendarImportSource}
+          onClose={() => setCalendarImportSource(null)}
+          onImported={async () => {
+            await refreshVisibleLocalEvents?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1572,16 +1582,23 @@ function downloadAttachment(
   }, 100);
 }
 
+/** An extension's own control drawn on an attachment chip. */
+type AttachmentActionRenderer = (
+  attachment: AttachmentLike,
+  index: number,
+  filename: string,
+) => React.ReactNode;
+
 function HeaderAttachmentList({
   attachments,
   canDownload,
   downloadContext,
-  onAddToCalendar,
+  renderAttachmentAction,
 }: {
   attachments: AttachmentLike[];
   canDownload: boolean;
   downloadContext: AttachmentDownloadContext;
-  onAddToCalendar?: (index: number) => void;
+  renderAttachmentAction?: AttachmentActionRenderer;
 }) {
   const adminNotice = !canDownload ? (
     <p className="basis-full text-xs text-muted-foreground">
@@ -1604,7 +1621,7 @@ function HeaderAttachmentList({
           index={idx}
           canDownload={canDownload}
           downloadContext={downloadContext}
-          onAddToCalendar={onAddToCalendar}
+          renderAttachmentAction={renderAttachmentAction}
         />
       ))}
     </div>
@@ -1616,13 +1633,13 @@ function HeaderAttachmentChip({
   index,
   canDownload,
   downloadContext,
-  onAddToCalendar,
+  renderAttachmentAction,
 }: {
   attachment: AttachmentLike;
   index: number;
   canDownload: boolean;
   downloadContext: AttachmentDownloadContext;
-  onAddToCalendar?: (index: number) => void;
+  renderAttachmentAction?: AttachmentActionRenderer;
 }) {
   const filename =
     attachment.filename ||
@@ -1649,14 +1666,7 @@ function HeaderAttachmentChip({
           {sizeLabel}
         </span>
       )}
-      {onAddToCalendar &&
-      isExactMimePart(attachment.part) &&
-      isCalendarAttachment(attachment) ? (
-        <AddToCalendarIconButton
-          onClick={() => onAddToCalendar(index)}
-          filename={filename}
-        />
-      ) : null}
+      {renderAttachmentAction?.(attachment, index, filename) ?? null}
       <Button
         type="button"
         size="icon"

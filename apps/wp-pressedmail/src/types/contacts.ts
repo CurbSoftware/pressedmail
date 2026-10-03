@@ -10,16 +10,54 @@
 /**
  * Contact status.
  */
-export type ContactStatus = "active" | "inactive" | "bounced" | "unsubscribed";
+export type ContactStatus =
+  | "active"
+  | "inactive"
+  | "bounced"
+  | "unsubscribed"
+  /** Double opt-in signup that nobody has confirmed yet. */
+  | "pending";
+
+/**
+ * A member's state on one list. `contact.lists` says who is on a list; this
+ * says whether they get its mail. Only `subscribed` does. An unsubscribed
+ * member stays on the list. Eligible own opt-outs can rejoin only through
+ * a confirmed Ultimate campaign signup.
+ */
+export type ListSubscriptionState = "pending" | "subscribed" | "unsubscribed";
+
+/** What the server said about one list's members in one state. */
+export interface ListStateMembers {
+  members: Contact[];
+  /** True when there were more members than the read would follow. */
+  truncated: boolean;
+}
+
+/** How a member came to be on a list. `legacy` is a member from before lists tracked this. */
+export type ListMembershipSource = "manual" | "import" | "form" | "legacy";
+
+/** One list's subscription detail for one contact. */
+export interface ListMembership {
+  state: ListSubscriptionState;
+  source: ListMembershipSource;
+  /** When the member entered this state (UTC, `Y-m-d H:i:s`), or null when unknown. */
+  since: string | null;
+}
 
 /** How a contact was added to the address book. */
-export type ContactSource = "manual" | "imported" | "synced" | "detected";
+export type ContactSource =
+  | "manual"
+  | "imported"
+  | "synced"
+  | "detected"
+  | "form";
 
 export const CONTACT_SOURCES: readonly ContactSource[] = [
   "manual",
   "imported",
   "synced",
   "detected",
+  "form",
 ] as const;
 
 // ============================================
@@ -138,10 +176,21 @@ export interface Contact {
   notes: string | null;
   /** Contact status */
   status: ContactStatus;
-  /** How the contact was added (manual, imported, synced, detected). */
+  /** How the contact was added (manual, imported, synced, detected, form). */
   source?: ContactSource;
   /** List IDs this contact belongs to */
   lists: number[];
+  /**
+   * The contact's state on each list it is on, by list ID. A list missing
+   * here has no state to show. Set by the server, never by the app.
+   */
+  list_status?: Record<number, ListSubscriptionState>;
+  /**
+   * Source and date behind each `list_status` entry, by list ID. Also holds an
+   * unsubscribed entry for a list the contact has since left: the opt-out is
+   * kept on record, though the list is in neither `lists` nor `list_status`.
+   */
+  list_memberships?: Record<number, ListMembership>;
   /** Whether contact is favorite/starred */
   is_favorite: boolean;
   /** Last contacted date */
@@ -166,6 +215,11 @@ export interface Contact {
   avatar_url?: string | null;
   /** Nickname */
   nickname?: string | null;
+  /**
+   * A member of a list someone else shared with the current user (Ultimate).
+   * The server sends card fields only: no notes, tags, custom fields or history.
+   */
+  is_shared?: boolean;
 }
 
 /**
@@ -182,12 +236,41 @@ export interface ContactList {
   description: string | null;
   /** Number of contacts in list */
   contact_count: number;
+  /** Members who are subscribed. Pending and unsubscribed members are on the list but not mailed. */
+  subscribed_count?: number;
+  /** Subscribed members a send to the list reaches: a bounced or unconfirmed contact is not one. */
+  deliverable_count?: number;
+  /** Members who have not confirmed yet. */
+  pending_count?: number;
   /** List color (for UI display) */
   color: string | null;
   /** Creation timestamp */
   created_at: string;
   /** Last update timestamp */
   updated_at: string;
+  /** Set when another user shared this list with the current user (Ultimate). */
+  is_shared?: boolean;
+  share?: ContactListShare;
+  /** How many teammates the owner shared this list with. */
+  share_count?: number;
+}
+
+/** The current user's access to a contact list someone else shared with them. */
+export interface ContactListShare {
+  role: "viewer" | "editor";
+  owner_id: number;
+  owner_name: string;
+}
+
+/** The card fields a teammate may see and, as an Editor, set on a shared list's member. */
+export interface SharedMemberFields {
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  company?: string;
+  phone?: string;
+  job_title?: string;
+  website?: string;
 }
 
 /**
@@ -396,6 +479,30 @@ export interface ContactsContextValue {
     listId: number,
   ) => Promise<{ success: boolean; error?: string }>;
 
+  // Ultimate: shared contact lists
+  /** Members of the shared list last loaded with fetchSharedListMembers. */
+  sharedMembers: Contact[];
+  /** Load a shared list's members (card fields only); null clears them. */
+  fetchSharedListMembers: (listId: number | null) => Promise<void>;
+  /**
+   * Members of one of the user's own lists in one subscription state, filtered
+   * by the server, page by page to the end. `truncated` is true when the list
+   * was too long to read in full, so the caller never shows a part as the whole.
+   * Null when the read failed. Stops early, with null, once `signal` aborts.
+   */
+  fetchListMembersByState: (
+    listId: number,
+    state: ListSubscriptionState,
+    signal?: AbortSignal,
+  ) => Promise<ListStateMembers | null>;
+  /** Add a member to a list the user owns or edits; the row belongs to the list owner. */
+  addListMember: (
+    listId: number,
+    fields: SharedMemberFields,
+  ) => Promise<{ success: boolean; contact?: Contact; error?: string }>;
+  /** Owner, or Editor of a shared list. */
+  canEditList: (listId: number) => boolean;
+
   // Pro: Activity Tracking
   /** Get activities for a contact */
   getContactActivities: (
@@ -534,7 +641,11 @@ export type ContactActivityType =
   | "updated"
   | "created"
   | "call"
-  | "meeting";
+  | "meeting"
+  | "email_opened"
+  | "email_clicked"
+  | "email_bounced"
+  | "email_complaint";
 
 /**
  * Contact activity interface.

@@ -135,6 +135,15 @@ export interface RightPaneContainerProps {
   forceDisabledActionBar?: boolean;
   /** Notify parent layouts when this pane switches between reading and compose. */
   onPaneModeChange?: (mode: "reading" | "compose") => void;
+  /** Options only an edition with those features reads. */
+  extras?: RightPaneExtras;
+}
+
+/**
+ * Reading-pane options an edition adds. The Free build passes none and reads
+ * none, so their names never reach it.
+ */
+export interface RightPaneExtras {
   scheduledEmail?: ScheduledEmail | null;
   onScheduledEmailChanged?: () => void;
   onScheduledEmailCleared?: () => void;
@@ -149,10 +158,17 @@ export function RightPaneContainer({
   showOrganizeActions = true,
   forceDisabledActionBar,
   onPaneModeChange,
-  scheduledEmail: scheduledEmailProp = null,
-  onScheduledEmailChanged,
-  onScheduledEmailCleared,
+  extras,
 }: RightPaneContainerProps) {
+  const scheduledEmailProp = __IS_FREE__
+    ? null
+    : (extras?.scheduledEmail ?? null);
+  const onScheduledEmailChanged = __IS_FREE__
+    ? undefined
+    : extras?.onScheduledEmailChanged;
+  const onScheduledEmailCleared = __IS_FREE__
+    ? undefined
+    : extras?.onScheduledEmailCleared;
   const { selectedAccount, accounts } = useAppContext();
   const {
     refreshMessages,
@@ -199,10 +215,10 @@ export function RightPaneContainer({
     return scheduledCtx.emails.find((e) => e.id === id) ?? null;
   }, [scheduledEmailProp, scheduledCtx, selectedMessage]);
   const scheduledEditSourceRef = React.useRef({
-    scheduledEmailId: getScheduledEmailId(selectedMessage),
+    id: getScheduledEmailId(selectedMessage),
   });
   scheduledEditSourceRef.current = {
-    scheduledEmailId: getScheduledEmailId(selectedMessage),
+    id: getScheduledEmailId(selectedMessage),
   };
   const scheduledEmailRef = React.useRef(scheduledEmail);
   scheduledEmailRef.current = scheduledEmail;
@@ -288,7 +304,8 @@ export function RightPaneContainer({
   const composeFromUserActionRef = React.useRef(false);
 
   const selectedIdentity = getMessageIdentityKey(selectedMessage);
-  const paneIdentity = scheduledEmail
+  const paneIdentity =
+    !__IS_FREE__ && scheduledEmail
     ? JSON.stringify([
         "scheduled",
         scheduledEmail.id,
@@ -513,7 +530,10 @@ export function RightPaneContainer({
         to: draft.to ?? "",
         cc: draft.cc ?? "",
         bcc: draft.bcc ?? "",
-        contactLists: draft.contactLists ?? [],
+        // Contact lists as recipients are Pro.
+        ...(__ENABLE_CONTACT_LISTS__
+          ? { contactLists: draft.contactLists ?? [] }
+          : null),
         subject: draft.subject ?? "",
         body: draft.body ?? "",
         draftDocument: draft.draftDocument,
@@ -528,9 +548,17 @@ export function RightPaneContainer({
         draftMessageId: draft.draftMessageId,
         draftAttachmentManifestComplete: draft.draftAttachmentManifestComplete,
         draftOpened: draft.draftOpened,
-        scheduledEmailId: draft.scheduledEmailId,
-        scheduledAccountId: draft.scheduledAccountId,
-        scheduledAt: draft.scheduledAt,
+        // Scheduled sending is Pro: Free restores no scheduled draft.
+        ...(__IS_PRO__
+          ? {
+              senderIdentity: draft.senderIdentity,
+              // A template body that holds its own signature (Pro templates).
+              suppressAutoSignature: draft.suppressAutoSignature,
+              scheduledEmailId: draft.scheduledEmailId,
+              scheduledAccountId: draft.scheduledAccountId,
+              scheduledAt: draft.scheduledAt,
+            }
+          : {}),
         is_reply:
           nextComposeMode === "reply" || nextComposeMode === "reply-all",
       });
@@ -1141,6 +1169,8 @@ export function RightPaneContainer({
 
   const openScheduledCompose = React.useCallback(
     (email: ScheduledEmail, draft: ScheduledDraftHandoff) => {
+      // Scheduled sending is Pro: the Free build compiles no restore path.
+      if (__IS_FREE__) return;
       openPaneCompose("new", getScheduledComposeData(email, draft));
     },
     [openPaneCompose],
@@ -1148,7 +1178,7 @@ export function RightPaneContainer({
 
   const runScheduledAction = React.useCallback(
     async (action: "cancel" | "send-now") => {
-      if (!scheduledEmail || !scheduledCtx) return;
+      if (__IS_FREE__ || !scheduledEmail || !scheduledCtx) return;
 
       const source = captureSelection();
       setIsScheduledActionLoading(true);
@@ -1187,6 +1217,8 @@ export function RightPaneContainer({
   );
 
   const handleScheduledEdit = React.useCallback(async () => {
+    // Scheduled sending is Pro: the Free build compiles no edit path.
+    if (__IS_FREE__) return;
     const scheduledEmailId = scheduledEmail?.id ?? null;
     const sourceIdentity = getScheduledEmailDraftIdentity(scheduledEmail);
     if (
@@ -1230,7 +1262,7 @@ export function RightPaneContainer({
         scheduledEditRequestRef.current !== requestId ||
         composer.getComposeSessionVersion() !== composeSessionVersion ||
         scheduledEmailRef.current?.id !== scheduledEmailId ||
-        currentSource.scheduledEmailId !== scheduledEmailId ||
+        currentSource.id !== scheduledEmailId ||
         !draftComposeIdentitiesMatch(
           getScheduledEmailDraftIdentity(scheduledEmailRef.current),
           sourceIdentity,
@@ -1270,7 +1302,7 @@ export function RightPaneContainer({
   // update_scheduled_email allows cancelled/failed -> pending with a new time).
   const handleChangeTime = React.useCallback(
     async (date: Date) => {
-      if (!scheduledEmail || !scheduledCtx) return;
+      if (__IS_FREE__ || !scheduledEmail || !scheduledCtx) return;
       const sourceIdentity = getScheduledEmailDraftIdentity(scheduledEmail);
       if (!sourceIdentity) {
         appMessage(
@@ -1316,7 +1348,7 @@ export function RightPaneContainer({
   );
 
   const handleScheduledDelete = React.useCallback(async () => {
-    if (!scheduledEmail || !scheduledCtx) return;
+    if (__IS_FREE__ || !scheduledEmail || !scheduledCtx) return;
     const source = captureSelection();
     setIsScheduledActionLoading(true);
     try {
@@ -1348,7 +1380,9 @@ export function RightPaneContainer({
     scheduledEmail,
   ]);
 
+  // PressedOut is a Pro layout: the Free build compiles no disabled ribbon.
   const disabledPressedOutActionBar =
+    !__IS_FREE__ &&
     showActionBar &&
     actionBarOrientation === "pressedout-command" &&
     actionBarContainer &&
@@ -1371,7 +1405,7 @@ export function RightPaneContainer({
         )
       : null;
 
-  if (scheduledEmail && paneMode === "reading") {
+  if (!__IS_FREE__ && scheduledEmail && paneMode === "reading") {
     return (
       <TooltipProvider delayDuration={0}>
         {disabledPressedOutActionBar}
@@ -1433,7 +1467,11 @@ export function RightPaneContainer({
           onSendSuccess={handleSendSuccess}
           onDraftSaved={handleDraftSaved}
           onDraftDiscarded={handleDraftDiscarded}
-          onScheduledChanged={handleScheduledChanged}
+          extras={
+            __IS_FREE__
+              ? undefined
+              : { onScheduledChanged: handleScheduledChanged }
+          }
           className={className}
         />
       </TooltipProvider>
@@ -1608,7 +1646,11 @@ export function RightPaneContainer({
                 onSendSuccess={handleSendSuccess}
                 onDraftSaved={handleDraftSaved}
                 onDraftDiscarded={handleDraftDiscarded}
-                onScheduledChanged={handleScheduledChanged}
+                extras={
+                  __IS_FREE__
+                    ? undefined
+                    : { onScheduledChanged: handleScheduledChanged }
+                }
               />
             ) : (
               readingPaneContent

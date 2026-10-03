@@ -8,7 +8,7 @@ import {
   resolvePlateEmailEditorFeatureFlags,
   type PlateEmailEditorFeatureOverrides,
   type PlateEmailEditorSurface,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 
 export interface ComposerToolbarItemDefinition {
   id: ComposerToolbarItemId;
@@ -33,9 +33,9 @@ export type ComposerToolbarSurface = PlateEmailEditorSurface;
 
 /**
  * Render-order groups for the fixed toolbar's LEFT side. The trailing
- * `actions` group lists the RIGHT-side controls (signature, preview, print);
- * those always render and are never filtered by the saved
- * item set, they are listed here so presets/settings know every id.
+ * `actions` group lists the RIGHT-side controls (signature,
+ * preview, print). Signature, preview and print always render and are listed
+ * so presets/settings know every id.
  */
 export const COMPOSER_TOOLBAR_GROUPS: ComposerToolbarGroupDefinition[] = [
   {
@@ -163,6 +163,7 @@ export const COMPOSER_MOBILE_RECOMMENDED_TOOLBAR_ITEMS: ComposerToolbarItemId[] 
     "list_menu",
     "insert_link",
     "insert_image_library",
+    "content_blocks",
     "ai",
   ];
 
@@ -183,10 +184,13 @@ export const COMPOSER_STANDARD_TOOLBAR_ITEMS: ComposerToolbarItemId[] = [
   "list_menu",
   "insert_link",
   "insert_image_library",
+  "content_blocks",
   "more_menu",
   "clear_formatting",
-  // Right-side actions: always rendered, listed so the Customize switches
-  // show them as on.
+  // Insert field stays out: the row has at most 12 buttons (PF-046).
+  // Clear formatting is inside More, so its marker costs no toolbar space.
+  // Authors reach fields with `{{`, and the template editor gets the full set.
+  // Right-side actions: listed so the Customize switches show them as on.
   "signature",
   "preview",
   "print",
@@ -196,13 +200,7 @@ export const COMPOSER_TOOLBAR_PRESETS: Record<
   Exclude<ComposerToolbarPreset, "custom">,
   ComposerToolbarItemId[]
 > = {
-  simple: [
-    "bold",
-    "italic",
-    "list_menu",
-    "insert_link",
-    "print",
-  ],
+  simple: ["bold", "italic", "list_menu", "insert_link", "content_blocks", "print"],
   standard: COMPOSER_STANDARD_TOOLBAR_ITEMS,
   advanced: ALL_COMPOSER_TOOLBAR_ITEM_IDS,
   recommended_mobile: COMPOSER_MOBILE_RECOMMENDED_TOOLBAR_ITEMS,
@@ -292,26 +290,30 @@ function isToolbarItemAvailable(
     options.surfaceFeatureOverrides,
   );
 
-  if (
-    surface !== "email" &&
-    !AUTHORING_SURFACE_TOOLBAR_ITEM_IDS.has(itemId)
-  ) {
+  // A body background is part of a sent email, so only the message surface
+  // can set it.
+  if (itemId === "body_background") {
+    return surface === "email";
+  }
+
+  if (surface !== "email" && !AUTHORING_SURFACE_TOOLBAR_ITEM_IDS.has(itemId)) {
     return false;
   }
 
   if (itemId === "content_blocks") {
-    return surfaceFeatures.contentBlocks && Boolean(options.contentBlocksEnabled);
+    return (
+      surfaceFeatures.contentBlocks && Boolean(options.contentBlocksEnabled)
+    );
   }
 
-  if (
-    itemId === "insert_image_library"
-  ) {
+  if (itemId === "insert_image_library") {
     return surfaceFeatures.inlineMedia && options.inlineImagesEnabled !== false;
   }
 
   if (itemId === "ai") {
     return surfaceFeatures.aiCommands && aiEnabled;
   }
+
 
   if (itemId === "signature") {
     return surfaceFeatures.signatures;
@@ -362,10 +364,59 @@ function filterEnabledToolbarItems(
   return enabled;
 }
 
+/**
+ * Shown whatever the saved item set says. Template blocks, Background color
+ * and Insert field are forced only in the template editor, where they are part
+ * of the template body itself, so a preset (Simple, the mobile default) or a
+ * custom set saved before they existed must not hide them. On the email
+ * composer they are ordinary items the user can add or remove in Customize
+ * toolbar, and the Markdown dialect's slash menu offers the same blocks.
+ */
+export function alwaysShownComposerToolbarItemIds(
+  surface: ComposerToolbarSurface = "email",
+): readonly ComposerToolbarItemId[] {
+  return [];
+}
+
 export function resolveComposerToolbarItems(
   preset: ComposerToolbarPreset | undefined,
   customItems: readonly unknown[] | undefined,
   options: ComposerToolbarResolutionOptions = {},
+): Set<ComposerToolbarItemId> {
+  const items = resolveSavedToolbarItems(preset, customItems, options);
+  for (const id of filterAvailableToolbarItems(
+    alwaysShownComposerToolbarItemIds(options.surface),
+    options,
+  )) {
+    items.add(id);
+  }
+  return items;
+}
+
+/**
+ * Every item a saved preference names, before a surface or a licence narrows
+ * it. The Customize dialog edits only what its surface offers, so it reads this
+ * to keep the rest (Insert block while editing a template, a colour button
+ * after a plan change) exactly as saved.
+ */
+export function savedComposerToolbarItemIds(
+  preset: ComposerToolbarPreset | undefined,
+  customItems: readonly unknown[] | undefined,
+): ComposerToolbarItemId[] {
+  if (preset === "custom") {
+    const enabled = filterEnabledToolbarItems(customItems);
+    return enabled.length ? enabled : DEFAULT_COMPOSER_TOOLBAR_ITEMS;
+  }
+  return (
+    COMPOSER_TOOLBAR_PRESETS[preset ?? "standard"] ??
+    COMPOSER_TOOLBAR_PRESETS.standard
+  );
+}
+
+function resolveSavedToolbarItems(
+  preset: ComposerToolbarPreset | undefined,
+  customItems: readonly unknown[] | undefined,
+  options: ComposerToolbarResolutionOptions,
 ): Set<ComposerToolbarItemId> {
   if (preset === "custom") {
     const enabledCustomItems = filterEnabledToolbarItems(customItems);

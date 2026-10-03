@@ -9,6 +9,7 @@ import {
 } from "@/components/activity/use-activity-panel";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { isProcessManagerBuildEnabled } from "@/lib/build-variant";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { ActivityHeaderIcon } from "./HeaderIconSvgs";
 
 type TooltipSide = "top" | "right" | "bottom" | "left";
@@ -31,12 +32,15 @@ export function HeaderActivityButton({
   // Shared open-state so the header button + the footer status-bar toggle drive the
   // same mounted ActivitySheet.
   const open = useActivityPanelOpen();
+  const { preferences } = useUserPreferences();
   const label = __("Toggle activity log", "pressedmail");
 
   // The button opens the unified activity panel, which always shows the process
-  // / activity Tasks section (free + pro). The always-on process manager keeps
-  // the button visible in every build. See isProcessManagerBuildEnabled.
-  if (!isProcessManagerBuildEnabled()) {
+  // / activity Tasks section (free + pro). Visibility follows the user's preference.
+  if (
+    !isProcessManagerBuildEnabled() ||
+    preferences.header_activity_enabled === false
+  ) {
     return null;
   }
 

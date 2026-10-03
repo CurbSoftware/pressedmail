@@ -14,6 +14,12 @@ import { __ } from "@wordpress/i18n";
 import { Button } from "@kit/ui/plugin";
 import { FilterRulesManager } from "@/components/settings/filter-rules/FilterRulesManager";
 import { RunRulesNowButton } from "@/components/settings/filter-rules/RunRulesNowButton";
+import { RuleRunHistory } from "@/components/settings/filter-rules/RuleRunHistory";
+import {
+  SharedInboxRules,
+  sharedMailboxesLabel,
+  type SharedRuleAccount,
+} from "@/components/settings/filter-rules/pro-rule-options.active";
 import { useSettingsHeaderAction } from "@/components/settings-ui";
 import {
   UnderlineTabs,
@@ -31,13 +37,19 @@ interface AccountOption {
 const getApiUrl = (): string => window.pressedmailPlugin?.apiUrl || "";
 export function EmailRulesTab() {
   const [accounts, setAccounts] = useState<AccountOption[]>([]);
+  const [sharedAccounts, setSharedAccounts] = useState<SharedRuleAccount[]>([]);
   const [accountsFailed, setAccountsFailed] = useState(false);
   const [reloadAccounts, setReloadAccounts] = useState(0);
   const [activeRulesTab, setActiveRulesTab] = useState("manual");
   const [ruleCount, setRuleCount] = useState<number | undefined>(undefined);
+  // It runs your own rules. On the shared tab that read as running the
+  // shared mailbox's rules, which a viewer is told they cannot touch.
   const runRulesHeaderAction = useMemo(
-    () => <RunRulesNowButton accountId={null} ruleCount={ruleCount} />,
-    [ruleCount],
+    () =>
+      !__IS_FREE__ && activeRulesTab === "shared" ? null : (
+        <RunRulesNowButton accountId={null} ruleCount={ruleCount} />
+      ),
+    [activeRulesTab, ruleCount],
   );
   const usingSharedHeaderActions = useSettingsHeaderAction(
     "email-rules:run",
@@ -73,12 +85,33 @@ export function EmailRulesTab() {
           return;
         }
         setAccountsFailed(false);
+        // A user's own rules cover their own mailboxes. A shared mailbox's
+        // rules belong to its owner and live on the shared-inbox tab (Pro).
+        type LoadedAccount = {
+          id: number | string;
+          email: string;
+          share?: { role?: string; owner_name?: string };
+        };
         setAccounts(
-          loaded.map((account: { id: number | string; email: string }) => ({
-            id: Number(account.id),
-            email: account.email,
-          })),
+          (loaded as LoadedAccount[])
+            .filter((account) => __IS_FREE__ || !account.share)
+            .map((account) => ({
+              id: Number(account.id),
+              email: account.email,
+            })),
         );
+        if (!__IS_FREE__) {
+          setSharedAccounts(
+            (loaded as LoadedAccount[])
+              .filter((account) => account.share?.role)
+              .map((account) => ({
+                id: Number(account.id),
+                email: account.email,
+                role: account.share?.role as SharedRuleAccount["role"],
+                ownerName: String(account.share?.owner_name ?? ""),
+              })),
+          );
+        }
       } catch {
         // Without the account list, every folder picker is empty and a
         // move-to-folder rule can never be saved. Say so instead of rendering
@@ -120,7 +153,8 @@ export function EmailRulesTab() {
         </div>
       ) : null}
 
-      {!usingSharedHeaderActions ? (
+      {!usingSharedHeaderActions &&
+      (__IS_FREE__ || activeRulesTab !== "shared") ? (
         <div className="flex justify-end">
           <RunRulesNowButton accountId={null} ruleCount={ruleCount} />
         </div>
@@ -130,26 +164,51 @@ export function EmailRulesTab() {
         value={activeRulesTab}
         onValueChange={setActiveRulesTab}
         className="w-full">
-        <UnderlineTabsList>
+        {/* Hugs its tabs instead of a full-width box with the tabs bunched left. */}
+        <UnderlineTabsList className="w-fit max-w-full">
           <UnderlineTabsTrigger
             value="manual"
             data-test="email-rules-source-manual"
             data-testid="email-rules-source-manual">
-            {__("User-created", "pressedmail")}
+            {__("Yours", "pressedmail")}
           </UnderlineTabsTrigger>
           <UnderlineTabsTrigger
             value="generated"
             data-test="email-rules-source-generated"
             data-testid="email-rules-source-generated">
-            {__("Automatically generated", "pressedmail")}
+            {__("Generated", "pressedmail")}
+          </UnderlineTabsTrigger>
+          {!__IS_FREE__ &&
+          sharedMailboxesLabel() &&
+          sharedAccounts.length > 0 ? (
+            <UnderlineTabsTrigger
+              value="shared"
+              data-test="email-rules-source-shared"
+              data-testid="email-rules-source-shared">
+              {sharedMailboxesLabel()}
+            </UnderlineTabsTrigger>
+          ) : null}
+          <UnderlineTabsTrigger
+            value="activity"
+            data-test="email-rules-activity"
+            data-testid="email-rules-activity">
+            {__("Activity", "pressedmail")}
           </UnderlineTabsTrigger>
         </UnderlineTabsList>
-        <UnderlineTabsContent value="manual">
+        <UnderlineTabsContent
+          value="manual"
+          forceMount
+          className="data-[state=inactive]:hidden">
           <FilterRulesManager
             accountId={null}
             accountOptions={accounts}
             sourceFilter="manual"
             onRuleCountChange={setRuleCount}
+            // Generated rules come from sweeps, so that tab offers no Create rule.
+            headerActionHidden={
+              (!__IS_FREE__ && activeRulesTab === "shared") ||
+              activeRulesTab === "generated"
+            }
           />
         </UnderlineTabsContent>
         <UnderlineTabsContent value="generated">
@@ -159,6 +218,16 @@ export function EmailRulesTab() {
             sourceFilter="sweep"
             allowCreate={false}
           />
+        </UnderlineTabsContent>
+        {!__IS_FREE__ &&
+        sharedMailboxesLabel() &&
+        sharedAccounts.length > 0 ? (
+          <UnderlineTabsContent value="shared">
+            <SharedInboxRules accountOptions={sharedAccounts} />
+          </UnderlineTabsContent>
+        ) : null}
+        <UnderlineTabsContent value="activity">
+          <RuleRunHistory />
         </UnderlineTabsContent>
       </UnderlineTabs>
     </div>

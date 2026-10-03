@@ -9,7 +9,8 @@ export type PreferenceCategoryId =
   | "inbox"
   | "composer"
   | "notifications"
-  | "language";
+  | "language"
+  | "ai";
 
 export interface PreferenceCategory {
   id: PreferenceCategoryId;
@@ -21,6 +22,7 @@ export const PREFERENCE_CATEGORIES: readonly PreferenceCategory[] = [
   { id: "composer", label: __("Composer", "pressedmail") },
   { id: "notifications", label: __("Notifications", "pressedmail") },
   { id: "language", label: __("Language", "pressedmail") },
+  { id: "ai", label: __("AI", "pressedmail") },
 ];
 
 export interface PreferenceSectionProps {
@@ -136,9 +138,10 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
       "composer_default_font",
       "composer_default_font_size",
       "composer_signature_placement",
-      "composer_ai_default_tone",
-      "undo_send_enabled",
-      "undo_send_delay_seconds",
+      // Undo send is Pro.
+      ...(__ENABLE_UNDO_SEND__
+        ? ["undo_send_enabled", "undo_send_delay_seconds"]
+        : []),
     ],
     Component: lazy(async () => {
       const module =
@@ -229,6 +232,30 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
       return { default: module.LanguageSection };
     }),
   },
+  // AI is Pro: the Free build compiles no AI section, keys or chunk.
+  ...(__IS_FREE__
+    ? []
+    : ([
+      // Shown only while the admin has AI on with a valid connection; see
+      // PreferencesTab.
+      {
+        id: "ai",
+        title: __("AI", "pressedmail"),
+        category: "ai",
+        minTier: "pro",
+        keys: [
+          "composer_ai_default_tone",
+          "composer_ai_custom_prompt",
+          "ai_autotag_multiple",
+        ],
+        Component: lazy(async () => {
+          const module = await import(
+            "@/admin/pages/settings/_components/user-settings/ai-preferences-section"
+          );
+          return { default: module.AiPreferencesSection };
+        }),
+      },
+      ] satisfies PreferenceSection[])),
 ];
 
 export function isProPreferenceBuild(): boolean {

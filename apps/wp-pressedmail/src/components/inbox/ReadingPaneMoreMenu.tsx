@@ -48,7 +48,7 @@ export function ReadingPaneMoreMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        {orientation === "pressedout-command" ? (
+        {!__IS_FREE__ && orientation === "pressedout-command" ? (
           <PressedOutRibbonButton
             label={__("More", "pressedmail")}
             disabled={disabled}

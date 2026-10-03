@@ -57,11 +57,14 @@ export const oauthStatusRouteApi = (provider: "microsoft" | "google") =>
   routeApiPrefix + "/oauth/" + provider + "/status";
 export const accountsLoadRouteApi = routeApiPrefix + "/accounts/get";
 export const messagesLoadRouteApi = routeApiPrefix + "/messages/get/";
-export const messagesConsolidatedRouteApi =
-  routeApiPrefix + "/messages/consolidated";
+// Combined-view routes. A single-mailbox build has neither.
+export const messagesConsolidatedRouteApi = __SINGLE_MAILBOX__
+  ? ""
+  : routeApiPrefix + "/messages/consolidated";
 export const messagesDiffRouteApi = routeApiPrefix + "/messages/diff/";
-export const messagesConsolidatedDiffRouteApi =
-  routeApiPrefix + "/messages/consolidated/diff";
+export const messagesConsolidatedDiffRouteApi = __SINGLE_MAILBOX__
+  ? ""
+  : routeApiPrefix + "/messages/consolidated/diff";
 export const messagesFoldersRouteApi = routeApiPrefix + "/messages/folders/";
 export const syncBootstrapRouteApi = routeApiPrefix + "/sync/bootstrap";
 export const messageDetailRouteApi = routeApiPrefix + "/messages/detail/";
@@ -86,7 +89,6 @@ export const batchDeleteRouteApi = routeApiPrefix + "/messages/batch/delete";
 export const batchMoveRouteApi = routeApiPrefix + "/messages/batch/move";
 export const emptyTrashRouteApi = routeApiPrefix + "/messages/trash/empty";
 export const deleteEmailFromImapRouteApi = routeApiPrefix + "/message/delete";
-export const searchEmailRouteApi = routeApiPrefix + "/messages/search";
 export const moveEmailRouteApi = routeApiPrefix + "/message/move";
 export const flagEmailRouteApi = routeApiPrefix + "/message/flag";
 export const messageRawHeadersRouteApi =

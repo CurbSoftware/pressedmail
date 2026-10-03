@@ -1,14 +1,17 @@
 "use client";
 
+import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import { ChevronDown, Plus, Mail, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext, PROVIDER_ICONS } from "@/context/AppProvider";
 import { useInboxState } from "@/context/InboxContext";
 import {
-  useEntitlements,
-  useFeatureAvailableOrPending,
-} from "@/context/features/FeaturesContext";
+  useCombinedAccountIds,
+  useCombinedViewAvailable,
+  useSetCombinedAccountIds,
+} from "@/hooks/useCombinedAccountIds";
+import { useEntitlements } from "@/context/features/FeaturesContext";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import {
   getAccountNumericId,
@@ -17,6 +20,11 @@ import {
   normalizeConsolidatedAccountIds,
 } from "@/lib/consolidated-account-scope";
 import { isDefaultAccount } from "@/lib/default-account";
+import {
+  isSharedResource,
+  SharedBadge,
+  useInboxShareActions,
+} from "@/components/sharing";
 import CommonInboxIcon from "@/components/Icons/CommonInboxIcon";
 import type { EmailAccount } from "@/types";
 
@@ -115,13 +123,13 @@ export function HeaderAccountSelector({
     user,
     selectedAccount,
     setSelectedAccount,
-    selectedConsolidatedAccountIds,
-    setSelectedConsolidatedAccountIds,
     defaultAccountId,
   } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
+  const setSelectedConsolidatedAccountIds = useSetCombinedAccountIds();
   const { isLoading } = useInboxState();
-  const { licenseValid } = useEntitlements();
-  const combinedInboxAvailable = useFeatureAvailableOrPending("combined_inbox");
+  const licenseValid = useProLicenseValid();
+  const combinedInboxAvailable = useCombinedViewAvailable();
 
   const [open, setOpen] = useState(false);
 
@@ -130,10 +138,12 @@ export function HeaderAccountSelector({
   // button. Synced from the applied selection each time the popover opens, so the
   // user always edits from the current scope.
   const [pendingIds, setPendingIds] = useState<number[]>(() =>
-    normalizeConsolidatedAccountIds(selectedConsolidatedAccountIds),
+    __SINGLE_MAILBOX__
+      ? []
+      : normalizeConsolidatedAccountIds(selectedConsolidatedAccountIds),
   );
   useEffect(() => {
-    if (open) {
+    if (!__SINGLE_MAILBOX__ && open) {
       setPendingIds(
         normalizeConsolidatedAccountIds(selectedConsolidatedAccountIds),
       );
@@ -142,19 +152,20 @@ export function HeaderAccountSelector({
   const pendingIdSet = new Set(pendingIds);
 
   const currentValue = selectedAccount ?? user?.email ?? undefined;
-  const isConsolidatedView = currentValue === CONSOLIDATED_INBOX_VALUE;
-  const effectiveConsolidatedAccountIds = getEffectiveConsolidatedAccountIds(
-    accounts,
-    selectedConsolidatedAccountIds,
-    defaultAccountId,
-  );
+  const isConsolidatedView =
+    !__SINGLE_MAILBOX__ && currentValue === CONSOLIDATED_INBOX_VALUE;
+  const effectiveConsolidatedAccountIds = __SINGLE_MAILBOX__
+    ? []
+    : getEffectiveConsolidatedAccountIds(
+        accounts,
+        selectedConsolidatedAccountIds,
+        defaultAccountId,
+      );
   // "Loaded" = accounts the combined inbox is currently showing; "Selected" = what
   // the pending checkbox selection will load when "Combined Inbox" is clicked.
-  const pendingEffectiveAccountIds = getEffectiveConsolidatedAccountIds(
-    accounts,
-    pendingIds,
-    defaultAccountId,
-  );
+  const pendingEffectiveAccountIds = __SINGLE_MAILBOX__
+    ? []
+    : getEffectiveConsolidatedAccountIds(accounts, pendingIds, defaultAccountId);
   const loadedCount = effectiveConsolidatedAccountIds.length;
   const selectedCount = pendingEffectiveAccountIds.length;
   const hasPendingCombinedChanges =
@@ -170,6 +181,7 @@ export function HeaderAccountSelector({
   // appear a second after the header does.
   const showConsolidatedOption =
     !__IS_FREE__ &&
+    !__SINGLE_MAILBOX__ &&
     licenseValid &&
     combinedInboxAvailable &&
     accounts.length > 0;
@@ -178,6 +190,8 @@ export function HeaderAccountSelector({
     : accounts.find(
         (account) => account.email && account.email.toString() === currentValue,
       );
+
+  const shareActions = useInboxShareActions(activeAccount);
 
   const activeEmail = isConsolidatedView
     ? explicitConsolidatedAccountIds.length === 0
@@ -271,198 +285,208 @@ export function HeaderAccountSelector({
   }
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={isLoading}
-          aria-label={`Current account: ${activeEmail}. Click to switch accounts.`}
-          data-test="account-selector-trigger"
-          className={cn(
-            "flex w-full min-w-80 items-center gap-1.5 border-primary/50 bg-background text-foreground",
-          )}>
-          <span className="relative shrink-0">
-            {isConsolidatedView ? (
-              <CommonInboxIcon className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <Mail className="h-4 w-4" aria-hidden="true" />
-            )}
-          </span>
-          <span className="text-sm truncate">{truncatedEmail}</span>
-          <ChevronDown
-            className="h-3.5 w-3.5 text-muted-foreground shrink-0"
-            aria-hidden="true"
-          />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-80 border-primary/50">
-        {/* Consolidated Inbox Option */}
-        {showConsolidatedOption && (
-          <>
-            <DropdownMenuItem
-              onClick={handleApplyCombinedInbox}
-              data-test="consolidated-inbox-option"
-              className={cn(
-                "flex items-center gap-3 cursor-pointer py-2",
-                isConsolidatedView && "bg-accent",
-                hasPendingCombinedChanges &&
-                  "bg-primary/5 ring-1 ring-primary/40",
-              )}>
-              <CommonInboxIcon className="h-4 w-4 shrink-0" />
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <span className="text-sm font-medium">Combined Inbox</span>
-                <Badge
-                  variant="outline"
-                  className="text-xs tabular-nums"
-                  data-test="combined-inbox-count">
-                  {hasPendingCombinedChanges
-                    ? `${loadedCount} → ${selectedCount}`
-                    : selectedCount}
-                </Badge>
-                {hasPendingCombinedChanges && (
-                  <span className="text-[10px] font-medium text-primary">
-                    click to load
-                  </span>
-                )}
-              </div>
-            </DropdownMenuItem>
-            <div className="flex items-center gap-1.5 px-2 pb-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleSelectAllConsolidated();
-                }}
-                data-test="consolidated-select-all">
-                Select all
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleSelectNoneConsolidated();
-                }}
-                data-test="consolidated-select-none">
-                Select none
-              </Button>
-            </div>
-            <DropdownMenuSeparator />
-          </>
-        )}
-        {/* Email Accounts list. The label + add control above and the
-            consolidated controls stay pinned; only this list scrolls. */}
-        <DropdownMenuGroup>
-          <DropdownMenuLabel className="flex items-center justify-between gap-2 px-2 py-1.5">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <User className="h-4 w-4" aria-hidden="true" />
-              Email Accounts
+    <>
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isLoading}
+            aria-label={`Current account: ${activeEmail}. Click to switch accounts.`}
+            data-test="account-selector-trigger"
+            className={cn(
+              "flex w-full min-w-80 items-center gap-1.5 border-primary/50 bg-background text-foreground",
+            )}>
+            <span className="relative shrink-0">
+              {isConsolidatedView ? (
+                <CommonInboxIcon className="h-4 w-4" aria-hidden="true" />
+              ) : (
+                <Mail className="h-4 w-4" aria-hidden="true" />
+              )}
             </span>
-            {/* One slot, so nothing to add alongside. */}
-            {__SINGLE_MAILBOX__ ? null : (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleAddAccount}
-                aria-label="Add email account"
-                title="Add email account"
-                data-test="add-account-button">
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              </Button>
-            )}
-          </DropdownMenuLabel>
-
-          <div className="max-h-[min(60vh,20rem)] overflow-y-auto">
-            {accounts.map((account) => {
-              const accountIcon = getProviderIcon(account);
-              const accountEmail = account.email?.toString() ?? "";
-              const accountId = getAccountNumericId(account);
-              const isSelected = accountEmail === currentValue;
-              const isIncluded =
-                accountId !== null && pendingIdSet.has(accountId);
-              const isDefault = isDefaultAccount(account, defaultAccountId);
-              const displayName = getAccountDisplayName(account);
-              const newCount = getNewCount(accountEmail);
-
-              return (
-                <div
-                  key={accountEmail}
-                  className={cn(
-                    "flex items-start gap-2 px-2",
-                    isSelected && "bg-accent",
-                    isConsolidatedView && isIncluded && "bg-accent/40",
-                  )}
-                  data-test={`account-row-${accountEmail}`}>
-                  {showConsolidatedOption && (
-                    <label
-                      className="mt-2.5 flex shrink-0 cursor-pointer items-center"
-                      aria-label={`Include ${accountEmail} in combined inbox`}
-                      onClick={(event) => event.stopPropagation()}
-                      onPointerDown={(event) => event.stopPropagation()}>
-                      <Checkbox
-                        checked={isIncluded}
-                        onCheckedChange={() =>
-                          handleToggleConsolidatedAccount(account)
-                        }
-                        aria-label={`Include ${accountEmail} in combined inbox`}
-                                                data-test={`consolidated-account-checkbox-${accountEmail}`}
-                      />
-                    </label>
-                  )}
-                  <DropdownMenuItem
-                    onClick={() => handleSelectAccount(accountEmail)}
-                    data-test={`account-option-${accountEmail}`}
-                    className="flex flex-1 min-w-0 items-start gap-3 cursor-pointer py-2">
-                    <span
-                      className="flex items-center mt-0.5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0"
-                      aria-hidden="true">
-                      {accountIcon}
+            <span className="text-sm truncate">{truncatedEmail}</span>
+            <ChevronDown
+              className="h-3.5 w-3.5 text-muted-foreground shrink-0"
+              aria-hidden="true"
+            />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-80 border-primary/50">
+          {/* Consolidated Inbox Option */}
+          {showConsolidatedOption && (
+            <>
+              <DropdownMenuItem
+                onClick={handleApplyCombinedInbox}
+                data-test="consolidated-inbox-option"
+                className={cn(
+                  "flex items-center gap-3 cursor-pointer py-2",
+                  isConsolidatedView && "bg-accent",
+                  hasPendingCombinedChanges &&
+                    "bg-primary/5 ring-1 ring-primary/40",
+                )}>
+                <CommonInboxIcon className="h-4 w-4 shrink-0" />
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="text-sm font-medium">Combined Inbox</span>
+                  <Badge
+                    variant="outline"
+                    className="text-xs tabular-nums"
+                    data-test="combined-inbox-count">
+                    {hasPendingCombinedChanges
+                      ? `${loadedCount} → ${selectedCount}`
+                      : selectedCount}
+                  </Badge>
+                  {hasPendingCombinedChanges && (
+                    <span className="text-[10px] font-medium text-primary">
+                      click to load
                     </span>
-                    <div className="flex flex-col flex-1 min-w-0 max-w-70">
-                      <div className="flex items-center gap-1.5">
-                        {displayName && (
-                          <span className="text-sm font-medium wrap-break-word">
-                            {displayName}
-                          </span>
-                        )}
-                        {isDefault && (
-                          <Badge
-                            variant="secondary"
-                            className="shrink-0 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide"
-                            data-test={`account-default-badge-${accountEmail}`}>
-                            Default
-                          </Badge>
-                        )}
-                      </div>
-                      <span
-                        className={cn(
-                          "text-sm wrap-break-word",
-                          displayName && "text-muted-foreground",
-                        )}>
-                        {accountEmail}
-                      </span>
-                    </div>
-                    <NewMailBadge
-                      count={newCount}
-                      accountEmail={accountEmail}
-                    />
-                  </DropdownMenuItem>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              </DropdownMenuItem>
+              <div className="flex items-center gap-1.5 px-2 pb-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleSelectAllConsolidated();
+                  }}
+                  data-test="consolidated-select-all">
+                  Select all
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    handleSelectNoneConsolidated();
+                  }}
+                  data-test="consolidated-select-none">
+                  Select none
+                </Button>
+              </div>
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {/* Email Accounts list. The label + add control above and the
+            consolidated controls stay pinned; only this list scrolls. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="flex items-center justify-between gap-2 px-2 py-1.5">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <User className="h-4 w-4" aria-hidden="true" />
+                Email Accounts
+              </span>
+              {/* One slot, so nothing to add alongside. */}
+              {__SINGLE_MAILBOX__ ? null : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleAddAccount}
+                  aria-label="Add email account"
+                  title="Add email account"
+                  data-test="add-account-button">
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                </Button>
+              )}
+            </DropdownMenuLabel>
+
+            <div className="max-h-[min(60vh,20rem)] overflow-y-auto">
+              {accounts.map((account) => {
+                const accountIcon = getProviderIcon(account);
+                const accountEmail = account.email?.toString() ?? "";
+                const accountId = getAccountNumericId(account);
+                const isSelected = accountEmail === currentValue;
+                const isIncluded =
+                  accountId !== null && pendingIdSet.has(accountId);
+                const isDefault = isDefaultAccount(account, defaultAccountId);
+                const displayName = getAccountDisplayName(account);
+                const newCount = getNewCount(accountEmail);
+
+                return (
+                  <div
+                    key={accountEmail}
+                    className={cn(
+                      "flex items-start gap-2 px-2",
+                      isSelected && "bg-accent",
+                      isConsolidatedView && isIncluded && "bg-accent/40",
+                    )}
+                    data-test={`account-row-${accountEmail}`}>
+                    {showConsolidatedOption && !isSharedResource(account) && (
+                      <label
+                        className="mt-2.5 flex shrink-0 cursor-pointer items-center"
+                        aria-label={`Include ${accountEmail} in combined inbox`}
+                        onClick={(event) => event.stopPropagation()}
+                        onPointerDown={(event) => event.stopPropagation()}>
+                        <Checkbox
+                          checked={isIncluded}
+                          onCheckedChange={() =>
+                            handleToggleConsolidatedAccount(account)
+                          }
+                          aria-label={`Include ${accountEmail} in combined inbox`}
+                          data-test={`consolidated-account-checkbox-${accountEmail}`}
+                        />
+                      </label>
+                    )}
+                    <DropdownMenuItem
+                      onClick={() => handleSelectAccount(accountEmail)}
+                      data-test={`account-option-${accountEmail}`}
+                      className="flex flex-1 min-w-0 items-start gap-3 cursor-pointer py-2">
+                      <span
+                        className="flex items-center mt-0.5 [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0"
+                        aria-hidden="true">
+                        {accountIcon}
+                      </span>
+                      <div className="flex flex-col flex-1 min-w-0 max-w-70">
+                        <div className="flex items-center gap-1.5">
+                          {displayName && (
+                            <span className="text-sm font-medium wrap-break-word">
+                              {displayName}
+                            </span>
+                          )}
+                          <SharedBadge resource={account} />
+                          {isDefault && (
+                            <Badge
+                              variant="secondary"
+                              className="shrink-0 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide"
+                              data-test={`account-default-badge-${accountEmail}`}>
+                              Default
+                            </Badge>
+                          )}
+                        </div>
+                        <span
+                          className={cn(
+                            "text-sm wrap-break-word",
+                            displayName && "text-muted-foreground",
+                          )}>
+                          {accountEmail}
+                        </span>
+                      </div>
+                      <NewMailBadge
+                        count={newCount}
+                        accountEmail={accountEmail}
+                      />
+                    </DropdownMenuItem>
+                  </div>
+                );
+              })}
+            </div>
+          </DropdownMenuGroup>
+          {shareActions.menuItems ? (
+            <>
+              <DropdownMenuSeparator />
+              {shareActions.menuItems}
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {shareActions.dialog}
+    </>
   );
 }
 

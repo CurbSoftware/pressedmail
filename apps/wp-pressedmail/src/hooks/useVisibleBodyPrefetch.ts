@@ -1,8 +1,13 @@
 import { getMessageIdentityKey } from "@/lib/message-identity";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { useInbox, useInboxState } from "@/context/InboxContext";
 import { isSyncBusy } from "@/hooks/useSyncDriver";
+import {
+  isFollowingLeader,
+  isOwnViewCoveredByLeader,
+  isTabLeader,
+} from "@/lib/tab-channel";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 
 /**
@@ -31,6 +36,41 @@ const MAX_WARM_BATCHES_PER_SETTLE = 20;
 const WARM_PAGE_LIMIT = 50;
 
 /**
+ * A follower tab warms only when the user acted in it since the list last changed,
+ * and no longer ago than this (a slow folder load can take a while to land).
+ */
+const USER_CHANGE_WINDOW_MS = 15_000;
+
+/**
+ * No input yet. Opening a tab is not input. A follower's first list is gated only
+ * when the leader shows the same accounts and folder, so it has warmed those bodies
+ * already; warming them again held a PHP worker per batch while the leader synced.
+ * A first list the leader does not cover (a deep link to Sent) is warmed here,
+ * because nobody else will. Leader and solo tabs are not gated.
+ */
+let lastUserInputAt = 0;
+let inputBound = false;
+
+/** Clicks, keys, scrolls and history moves in this tab. Never unbound: tiny, passive. */
+function bindUserInput(): void {
+  if (inputBound || typeof window === "undefined") return;
+  inputBound = true;
+  const mark = () => {
+    lastUserInputAt = Date.now();
+  };
+  for (const type of [
+    "pointerdown",
+    "keydown",
+    "wheel",
+    "touchstart",
+    "scroll",
+    "popstate",
+  ]) {
+    window.addEventListener(type, mark, { capture: true, passive: true });
+  }
+}
+
+/**
  * Warm the bodies of the messages currently on screen, five at a time.
  *
  * Opening a message is slow on a modest server because the body is fetched from
@@ -47,6 +87,10 @@ const WARM_PAGE_LIMIT = 50;
  *
  * Already-cached messages are dropped by the prefetch service, so a repeat pass
  * over the same page costs one request that warms nothing and then stops.
+ *
+ * A follower tab (another tab leads the sync driver) sees its list change whenever
+ * the leader relays a mail change. Warming on those would repeat the leader's work
+ * from every open tab, so a follower warms only after its own user's input.
  */
 export function useVisibleBodyPrefetch(): void {
   const { prefetch, selectedAccountId, selectedFolder } = useInbox();
@@ -59,8 +103,29 @@ export function useVisibleBodyPrefetch(): void {
     .map((message) => `${message.accountId ?? ""}:${message.uid ?? message.id}`)
     .join(",");
 
+  const lastListChangeAt = useRef(0);
+  const lastPageKey = useRef("");
+
   useEffect(() => {
+    bindUserInput();
+    const previousChangeAt = lastListChangeAt.current;
+    // Only a new non-empty page counts as the list changing. Runs for a folder
+    // switch that has not landed yet, an empty list, or a new array with the same
+    // rows must not stamp it, or they swallow the input that led to the new page.
+    if (pageKey !== lastPageKey.current) {
+      lastPageKey.current = pageKey;
+      if (pageKey) lastListChangeAt.current = Date.now();
+    }
     if (!prefetch || messages.length === 0) return undefined;
+    if (
+      !isTabLeader() &&
+      isFollowingLeader() &&
+      (previousChangeAt !== 0 || isOwnViewCoveredByLeader()) &&
+      (lastUserInputAt <= previousChangeAt ||
+        Date.now() - lastUserInputAt > USER_CHANGE_WINDOW_MS)
+    ) {
+      return undefined;
+    }
 
     let cancelled = false;
     let timer: number | undefined;

@@ -1,0 +1,8 @@
+diff --git a/_root.js b/_root.js
+index d2852bed4d2e469b3b87ed31df2350047e005ff4..25c11299ea6a5745bcc1cdf44cc534d9b03a4696 100644
+--- a/_root.js
++++ b/_root.js
+@@ -6,2 +6,2 @@ var freeGlobal = require('./_freeGlobal');
+ /** Used as a reference to the global object. */
+-var root = freeGlobal || freeSelf || Function('return this')();
++var root = freeGlobal || freeSelf || globalThis;

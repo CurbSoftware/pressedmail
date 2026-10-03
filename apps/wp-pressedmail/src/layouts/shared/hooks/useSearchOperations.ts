@@ -9,14 +9,17 @@
  * @updated 3.0.0 - Fully migrated to InboxContext (no MessagesProvider)
  */
 
+import { useProFeatureAvailable } from "@/context/features/pro-feature.active";
 import { useCallback, useMemo, useState } from "react";
 import {
   useInbox,
   useSearchOperations as useServiceSearchOperations,
   useFilterOperations,
 } from "@/context/InboxContext";
-import { useContacts } from "@/context/contacts/ContactsContext";
-import { useCalendar } from "@/context/calendar/CalendarContext";
+import {
+  useOptionalCalendar,
+  useOptionalContactList,
+} from "@/hooks/useOptionalProContexts";
 import { useFeatureAvailable } from "@/context/features/FeaturesContext";
 import type { AdvancedSearchFilters } from "@/types/search";
 import { DEFAULT_SEARCH_FILTERS } from "@/types/search";
@@ -227,6 +230,17 @@ function getEventSearchText(event: CalendarEvent | LocalCalendarEvent): string {
     .toLowerCase();
 }
 
+const NO_CONTACTS: Contact[] = [];
+const NO_EVENTS: CalendarEvent[] = [];
+const NO_LOCAL_EVENTS: LocalCalendarEvent[] = [];
+
+const useContactsSearchAvailable: () => boolean = __ENABLE_CONTACTS__
+  ? () => useProFeatureAvailable("contacts")
+  : () => false;
+const useCalendarSearchAvailable: () => boolean = __ENABLE_CALENDAR__
+  ? () => useProFeatureAvailable("calendar")
+  : () => false;
+
 /**
  * Hook providing shared search operations for all layout components.
  */
@@ -234,10 +248,16 @@ export function useSearchOperations(): UseSearchOperationsReturn {
   const inbox = useInbox();
   const serviceSearchOps = useServiceSearchOperations();
   const filterOps = useFilterOperations();
-  const { contacts } = useContacts();
-  const { events, localEvents } = useCalendar();
-  const contactsAvailable = useFeatureAvailable("contacts");
-  const calendarAvailable = useFeatureAvailable("calendar");
+  // Read behind the defines so the Free build names neither feature.
+  const contactList = useOptionalContactList();
+  const calendar = useOptionalCalendar();
+  const contacts =
+    __ENABLE_CONTACTS__ && contactList ? contactList.contacts : NO_CONTACTS;
+  const events = __ENABLE_CALENDAR__ && calendar ? calendar.events : NO_EVENTS;
+  const localEvents =
+    __ENABLE_CALENDAR__ && calendar ? calendar.localEvents : NO_LOCAL_EVENTS;
+  const contactsAvailable = useContactsSearchAvailable();
+  const calendarAvailable = useCalendarSearchAvailable();
 
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [advancedFilters, setAdvancedFiltersState] =
@@ -248,8 +268,8 @@ export function useSearchOperations(): UseSearchOperationsReturn {
 
   const availableSearchTargets = useMemo<HeaderSearchTarget[]>(() => {
     const targets: HeaderSearchTarget[] = ["email"];
-    if (contactsAvailable) targets.push("contacts");
-    if (calendarAvailable) targets.push("events");
+    if (__ENABLE_CONTACTS__ && contactsAvailable) targets.push("contacts");
+    if (__ENABLE_CALENDAR__ && calendarAvailable) targets.push("events");
     return targets;
   }, [contactsAvailable, calendarAvailable]);
 
@@ -371,7 +391,7 @@ export function useSearchOperations(): UseSearchOperationsReturn {
 
       const termLower = term.toLowerCase();
 
-      if (target === "contacts") {
+      if (__ENABLE_CONTACTS__ && target === "contacts") {
         if (!contactsAvailable) return [];
 
         return contacts
@@ -389,7 +409,7 @@ export function useSearchOperations(): UseSearchOperationsReturn {
           }));
       }
 
-      if (target === "events") {
+      if (__ENABLE_CALENDAR__ && target === "events") {
         if (!calendarAvailable) return [];
 
         return [

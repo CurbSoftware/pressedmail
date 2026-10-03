@@ -45,6 +45,23 @@ export interface LocalCalendar {
   created_at: string;
   /** Last update timestamp */
   updated_at: string;
+  /** Set when another user shared this calendar with the current user (Ultimate). */
+  is_shared?: boolean;
+  share?: LocalCalendarShare;
+  /** How many teammates the owner shared this calendar with. */
+  share_count?: number;
+}
+
+/** The current user's access to a calendar someone else shared with them. */
+export interface LocalCalendarShare {
+  role: "viewer" | "editor";
+  owner_id: number;
+  owner_name: string;
+}
+
+/** Own calendars, and shared ones where the current user is an Editor. */
+export function canEditLocalCalendar(calendar: LocalCalendar): boolean {
+  return !calendar.share || calendar.share.role === "editor";
 }
 
 /**
@@ -457,6 +474,8 @@ export interface CalendarContextValue {
   }>;
   /** Get the default calendar */
   getDefaultCalendar: () => LocalCalendar | undefined;
+  /** Whether the current user may add, change and delete events in a calendar. */
+  canEditCalendar: (calendarId: number) => boolean;
   /** Send iCalendar invitation/update/cancellation to event guests */
   sendCalendarInvite: (
     eventId: number,

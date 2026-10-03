@@ -109,6 +109,8 @@ export interface PhishingUserSettings {
   effective_scope: ScanScope;
   auto_scan_enabled: boolean;
   can_configure: boolean;
+  /** "pressedmail_ai" when checks run on PressedMail AI credits. */
+  engine?: "llm" | "pressedmail_ai";
 }
 
 /**
@@ -234,6 +236,8 @@ export interface PhishingBatchAnalyzeResponse {
     results: Record<string, PhishingAnalysisResult>;
     total_analyzed: number;
     suspicious_count: number;
+    /** message_id => why that email was not checked. */
+    errors?: Record<string, string>;
   };
 }
 

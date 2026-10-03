@@ -240,8 +240,13 @@ export function AppStatusBar({
   activeTaskCount = 0,
   activityOpen = false,
 }: AppStatusBarProps) {
-  const { isWhitelabelEnabled, hidePoweredBy, supportUrl, documentationUrl } =
-    useWhitelabelTheme();
+  // The branding hook answers nothing in the Free build, which keeps the
+  // PressedMail attribution and links.
+  const branding = useWhitelabelTheme();
+  const isWhitelabelEnabled = !__IS_FREE__ && branding.isWhitelabelEnabled;
+  const hidePoweredBy = !__IS_FREE__ && branding.hidePoweredBy;
+  const supportUrl = __IS_FREE__ ? null : branding.supportUrl;
+  const documentationUrl = __IS_FREE__ ? null : branding.documentationUrl;
   const showPressedMailAttribution = !isWhitelabelEnabled || !hidePoweredBy;
 
   const left = hasAccount

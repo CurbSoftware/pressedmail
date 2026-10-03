@@ -73,7 +73,7 @@ import type { ImapFolder, SystemFolderType } from "@/services/interfaces";
 const MAILBOX_VIEW_ORDER: SystemFolderType[] = STANDARD_FOLDER_ORDER.flatMap(
   (type) => {
     if (type === "inbox") return ["inbox", "important", "starred"];
-    if (type === "snoozed") return ["scheduled", "snoozed"];
+    if (!__IS_FREE__ && type === "snoozed") return ["scheduled", "snoozed"];
     return [type];
   },
 );
@@ -98,8 +98,10 @@ const SYSTEM_FOLDER_ICONS: Record<string, LucideIcon> = {
   starred: Star,
   flagged: Star,
   important: EmailImportantIcon,
-  snoozed: SnoozeClockIcon,
-  scheduled: ScheduledFolderIcon,
+  // Snoozed and Scheduled are Pro views.
+  ...(__IS_FREE__
+    ? {}
+    : { snoozed: SnoozeClockIcon, scheduled: ScheduledFolderIcon }),
   outbox: Send,
   templates: FileText,
 };
@@ -115,8 +117,9 @@ const ALWAYS_VISIBLE_TYPES = new Set<SystemFolderType>([
   "spam",
   "junk",
   "trash",
-  // Snoozed is local workflow state; always reachable through its DB-backed view.
-  "snoozed",
+  // Snoozed is Pro local workflow state; always reachable through its
+  // DB-backed view.
+  ...(__IS_FREE__ ? [] : (["snoozed"] as SystemFolderType[])),
 ]);
 
 function getSelectableFolderPath(folder: {
@@ -132,7 +135,10 @@ export function FolderPane({
   className,
 }: FolderPaneProps) {
   const { accounts, setIsAddAccount, setSelectedAccount } = useAppContext();
-  const { isCombinedInbox, scope, accountIds } = useMailboxScope();
+  const { scope, accountIds } = useMailboxScope();
+  // A single-mailbox build has no combined view.
+  const isCombinedInbox =
+    !__SINGLE_MAILBOX__ && scope.type === "combined_inbox";
   const paneCompose = usePaneCompose();
   const { isLoading, isRefreshing, filterByReadStatus, filteredMessages } =
     useMailOperations();
@@ -189,6 +195,12 @@ export function FolderPane({
   // Categorize folders: one ordered standard block + the custom remainder.
   const { standardLinks } = React.useMemo(() => {
     const getSystemLabel = (type: SystemFolderType) => {
+      if (!__IS_FREE__ && type === "snoozed") {
+        return __("Snoozed", "pressedmail");
+      }
+      if (!__IS_FREE__ && type === "scheduled") {
+        return __("Scheduled", "pressedmail");
+      }
       switch (type) {
         case "inbox":
           return __("Inbox", "pressedmail");
@@ -197,12 +209,8 @@ export function FolderPane({
           return __("Starred", "pressedmail");
         case "important":
           return __("Important", "pressedmail");
-        case "snoozed":
-          return __("Snoozed", "pressedmail");
         case "sent":
           return __("Sent", "pressedmail");
-        case "scheduled":
-          return __("Scheduled", "pressedmail");
         case "outbox":
           return __("Outbox", "pressedmail");
         case "drafts":
@@ -271,8 +279,6 @@ export function FolderPane({
         case "spam":
         case "junk":
           return "Junk";
-        case "snoozed":
-          return "snoozed";
         default:
           return type;
       }
@@ -288,7 +294,7 @@ export function FolderPane({
       if (type === "important") {
         return virtualFolderCounts.important;
       }
-      if (type === "scheduled") {
+      if (!__IS_FREE__ && type === "scheduled") {
         return {
           count: virtualFolderCounts.scheduled ?? 0,
           partial: false,
@@ -338,20 +344,16 @@ export function FolderPane({
         return [buildFallbackSystemLink(type)];
       }
 
-      if (type === "scheduled") {
+      if (!__IS_FREE__ && type === "scheduled") {
         if (scheduledVirtualEnabled) {
           return [buildFallbackSystemLink("scheduled")];
         }
         return [];
       }
 
-      if (type === "snoozed" && __IS_FREE__) {
-        return [];
-      }
-
       if (realLink) return [realLink];
 
-      if (type === "snoozed") {
+      if (!__IS_FREE__ && type === "snoozed") {
         return [buildFallbackSystemLink("snoozed")];
       }
 

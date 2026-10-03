@@ -26,7 +26,7 @@ import {
   getPlateEmailEditorDialectPreset,
   type PlateEmailEditorChromeFeature,
   type PlateEmailEditorDialect,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 import { __ } from "@wordpress/i18n";
 
 import { ComposerReactPlugins } from "./plate-composer-react-kit";

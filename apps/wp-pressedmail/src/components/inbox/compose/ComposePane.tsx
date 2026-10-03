@@ -20,7 +20,10 @@ import {
   isImmersiveModeActive,
   restoreWordPressChrome,
 } from "@/hooks/useImmersiveMode";
-import { useComposeForm } from "@/hooks/compose/v2/useComposeForm";
+import {
+  useComposeForm,
+  type ComposeExtras,
+} from "@/hooks/compose/v2/useComposeForm";
 import { useModalPanel } from "@/hooks/compose/useModalPanel";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { composerDefaultFormatToContentType } from "@/lib/preference-behavior";
@@ -63,8 +66,8 @@ export interface ComposePaneProps {
   onDraftSaved?: (draftFolder?: string) => void;
   /** Callback when the currently open server draft is explicitly discarded. */
   onDraftDiscarded?: (draftFolder?: string) => void;
-  /** Callback after any scheduled-email row changes (refreshes Scheduled). */
-  onScheduledChanged?: () => void;
+  /** Composer options an edition adds. */
+  extras?: ComposeExtras;
   /** Optional class name */
   className?: string;
 }
@@ -76,7 +79,7 @@ export function ComposePane({
   onSendSuccess,
   onDraftSaved,
   onDraftDiscarded,
-  onScheduledChanged,
+  extras,
   className,
 }: ComposePaneProps) {
   const composerContext = useComposer();
@@ -107,7 +110,7 @@ export function ComposePane({
     onSendSuccess,
     onDraftSaved,
     onDraftDiscarded,
-    onScheduledChanged,
+    extras,
   });
 
   // Full view means the whole screen belongs to PressedMail, so it turns on

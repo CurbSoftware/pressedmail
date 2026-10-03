@@ -1,5 +1,7 @@
 "use client";
 
+
+import { useProAiBulkLimits, useProFeatureAvailable, useProFeatureEnabled } from "@/context/features/pro-feature.active";
 import * as React from "react";
 import { __, _n, _x, sprintf } from "@wordpress/i18n";
 import {
@@ -7,7 +9,7 @@ import {
   CircleAlert,
   Calendar,
   FolderInput,
-  ListChecks,
+  ListFilter,
   Loader2,
   Menu,
   MoreHorizontal,
@@ -45,6 +47,8 @@ import {
 import { SnoozeClockIcon } from "@/components/icons/FolderIcons";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
 import { useNavigate } from "react-router-dom";
+import { MobileNotificationsButton } from "@/components/application-layout/MobileNotificationsSheet";
+import { MARK_HIT_AREA_TOUCH, MARK_PAIR_TOUCH } from "@/lib/row-marks";
 
 import {
   BottomActionBar,
@@ -66,15 +70,23 @@ import {
   useMessageOperations,
 } from "@/context/InboxContext";
 import { useAppContext } from "@/context/AppProvider";
+import { useSharedMailboxRole } from "@/components/sharing";
 import { useComposer } from "@/context/composer";
 import { useTags } from "@/context/tags";
+import {
+  MailTagActionPanel,
+  mailTagTitle,
+  tagApplyStoppedMessage,
+  type MailTagCloseGuard,
+  type MailTagChange,
+} from "@/components/inbox/MailTagActionPopover";
 import { useOptionalScheduledEmails } from "@/context/scheduled/ScheduledEmailsContext";
 import { useFolderOperations as useSharedFolderOperations } from "@/layouts/shared/hooks/useFolderOperations";
 import {
   buildMessageTagUpdate,
   getBulkMoveTargetFolders,
+  getBulkTagState,
   getFolderRole,
-  hasMessageTag,
   resolveArchiveMoveTarget,
   resolveJunkMoveTarget,
   resolveTrashMoveTarget,
@@ -86,6 +98,7 @@ import {
 import { EmailSweep } from "@/components/inbox/EmailSweep";
 import { TaskProgressBanner } from "@/components/inbox/TaskProgressBanner";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
+import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useLayout } from "@/components/layouts";
 import { useLongPress } from "@/hooks/useLongPress";
 import { useEmailListMode } from "@/hooks/useEmailListMode";
@@ -144,17 +157,27 @@ import {
   captureRequestPrincipal,
   isRequestPrincipalCurrent,
 } from "@/lib/principal-storage";
-import { usePhishing } from "@/context/phishing/PhishingContext";
-import { useEmailSummaries } from "@/context/email-summary";
+import { useSecurity } from "@/context/security";
+import { PhishingIndicator } from "@/components/phishing/PhishingIndicator";
 import {
+  SpamIndicator,
+  SpamSheetActions,
+  useBulkSecurityCheck,
+} from "@/components/spam";
+import { bulkAiFailureMessage } from "@/lib/account-chunks";
+import { bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
+import {
+  useOptionalAutoTagger,
+  useOptionalEmailSummaries,
+  useOptionalPhishing,
+  useOptionalSnooze,
+} from "@/hooks/useOptionalProContexts";
+import {
+  useAiBulkLimits,
   useFeatureAvailable,
   useFeatureEnabled,
 } from "@/context/features/FeaturesContext";
-import {
-  useAutoTagger,
-  useAutoTaggerToolAvailable,
-} from "@/context/auto-tagger/AutoTaggerContext";
-import { useSnooze } from "@/components/snooze/use-snooze";
+import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
 import {
   getSnoozeTargetIdentityKey,
   parseSnoozeTargets,
@@ -167,10 +190,7 @@ import {
 } from "@/services/filter-rules.service";
 import type { FilterRule } from "@/types/filter-rules";
 import { ruleCanRunManually } from "@/types/filter-rules";
-import {
-  isImportantActionAvailable,
-  resolveInboxActionVisibility,
-} from "@/lib/inbox-action-visibility";
+import { resolveInboxActionVisibility } from "@/lib/inbox-action-visibility";
 import { PaginationFooter } from "@/layouts/shared/components/footer-system";
 import { buildEmailRowViewModel } from "@/components/inbox/email-row-model";
 
@@ -377,6 +397,7 @@ function MailRowComponent({
             </span>
           ) : null}
           <EmailTagBadges
+            inEmailList
             tags={mail.tags}
             maxVisible={2}
             onTagClick={onTagClick}
@@ -387,6 +408,28 @@ function MailRowComponent({
               className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
               aria-label={__("Has attachment", "pressedmail")}
             />
+          ) : null}
+          {/* Both checks, bag then fish, as on desktop. Each renders nothing
+              until a result exists, and the Free build aliases both to empty
+              stubs. They sit in one group so the gap between them can be
+              wider than the pointer target of either: the marks are 16px, and
+              12px halos at a 6px gap once let the bag's box cover half the
+              fish. See lib/row-marks.ts. */}
+          {__ENABLE_PHISHING_DETECTION__ || __ENABLE_SPAM_DETECTION__ ? (
+            <span className={MARK_PAIR_TOUCH} data-test="email-row-security-marks">
+              {__ENABLE_SPAM_DETECTION__ ? (
+                <SpamIndicator
+                  messageId={identity}
+                  className={cn("h-4 shrink-0", MARK_HIT_AREA_TOUCH)}
+                />
+              ) : null}
+              {__ENABLE_PHISHING_DETECTION__ ? (
+                <PhishingIndicator
+                  messageId={identity}
+                  className={cn("h-4 shrink-0", MARK_HIT_AREA_TOUCH)}
+                />
+              ) : null}
+            </span>
           ) : null}
         </div>
         {rowPresentation.showPreview && preview ? (
@@ -494,7 +537,7 @@ function resolveCurrentFolderRole(
   const normalizedNav = String(selectedNav ?? "")
     .trim()
     .toLowerCase();
-  if (normalizedNav === "scheduled") return "scheduled";
+  if (!__IS_FREE__ && normalizedNav === "scheduled") return "scheduled";
   if (normalizedNav === "draft" || normalizedNav === "drafts") return "drafts";
 
   const normalizedSelected = String(selectedFolder ?? "")
@@ -566,10 +609,16 @@ export function MobileInboxScreen() {
   const { activeFilters, applyFilters } = useFilterOperations();
   const { preferences } = useUserPreferences();
   const { isPagination, pageSize } = useEmailListMode();
-  const { accounts, selectedAccount, selectedConsolidatedAccountIds } =
-    useAppContext();
+  const { accounts, selectedAccount } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
+  // On a mailbox shared with this user a Viewer only reads, and tags, snooze,
+  // sweep, rules, importance and AI stay with the owner (as on desktop).
+  const mailboxRole = useSharedMailboxRole(
+    accounts.find((account) => account.email === selectedAccount)?.id,
+  );
   const { currentLayout } = useLayout();
-  const isConsolidatedInbox = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+  const isConsolidatedInbox =
+    !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE;
   const getMobileMessageIdentity = React.useCallback(
     (message: EmailMessage) =>
       isConsolidatedInbox
@@ -577,42 +626,55 @@ export function MobileInboxScreen() {
         : getMessageIdentityKey(message),
     [isConsolidatedInbox],
   );
-  const { tags, batchAssignTag, batchRemoveTag } = useTags();
+  const {
+    tags,
+    batchAssignTag,
+    batchRemoveTag,
+    capabilities: tagCapabilities,
+  } = useTags();
   const scheduledEmails = useOptionalScheduledEmails();
-  const { analyzeEmail, isEnabled: phishingEnabled } = usePhishing();
-  const { summarizeMessages } = useEmailSummaries();
-  const aiSummarizeAvailable = useFeatureAvailable("ai_summarize");
-  const snoozeAvailable = useFeatureEnabled("snooze");
-  const showSelectedImportant = isImportantActionAvailable({
-    isFreeBuild: __IS_FREE__,
-    smartInboxEnabled: useFeatureEnabled("smart_inbox"),
-  });
-  const { classifyEmails } = useAutoTagger();
+  // Phishing checks, AI summaries, auto-tagging and snooze are Pro: in Free
+  // each hook is null and every field read behind its define compiles out.
+  const phishing = useOptionalPhishing();
+  const phishingEnabled =
+    __ENABLE_PHISHING_DETECTION__ && phishing ? phishing.isEnabled : false;
+  const summaries = useOptionalEmailSummaries();
+  const aiSummarizeAvailable = useProFeatureAvailable("ai_summarize");
+  const snoozeAvailable = useProFeatureEnabled("snooze");
+  const { spamEnabled } = useSecurity();
+  // Importance is owner-scoped on the server (CredentialAccessGuard).
+  const showSelectedImportant = mailboxRole.isOwner;
+  const autoTagger = useOptionalAutoTagger();
+  const aiBulkLimits = useProAiBulkLimits();
   const autoTaggerAvailable = useAutoTaggerToolAvailable();
-  const {
-    showSnooze: showSelectedSnooze,
-    showPhishing: showSelectedPhishing,
-    showSummarize: showSelectedSummarize,
-    showAutoTag: showSelectedAutoTag,
-  } = resolveInboxActionVisibility({
-    isFreeBuild: __IS_FREE__,
-    snoozeBuildEnabled: __ENABLE_SNOOZE__,
-    snoozeEnabled: snoozeAvailable,
-    phishingBuildEnabled: __ENABLE_PHISHING_DETECTION__,
-    phishingEnabled,
-    aiSummarizeAvailable,
-    autoTaggerBuildEnabled: __ENABLE_AUTO_TAGGER__,
-    aiAutoTaggerBuildEnabled: __ENABLE_AI_AUTO_TAGGER__,
-    autoTaggerToolAvailable: autoTaggerAvailable,
-  });
+  // Free has none of these actions, so it never computes their visibility.
+  const selectedVisibility = __IS_FREE__
+    ? null
+    : resolveInboxActionVisibility({
+        isMailboxOwner: mailboxRole.isOwner,
+        isFreeBuild: __IS_FREE__,
+        snoozeBuildEnabled: __ENABLE_SNOOZE__,
+        snoozeEnabled: snoozeAvailable,
+        phishingBuildEnabled: __ENABLE_PHISHING_DETECTION__,
+        phishingEnabled,
+        spamBuildEnabled: __ENABLE_SPAM_DETECTION__,
+        spamEnabled,
+        aiSummarizeAvailable,
+        autoTaggerBuildEnabled: __ENABLE_AUTO_TAGGER__,
+        aiAutoTaggerBuildEnabled: __ENABLE_AI_AUTO_TAGGER__,
+        autoTaggerToolAvailable: autoTaggerAvailable,
+      });
+  const showSelectedSnooze = !__IS_FREE__ && selectedVisibility!.showSnooze;
+  const showSelectedPhishing =
+    !__IS_FREE__ && selectedVisibility!.showPhishing;
+  const showSelectedSpam = !__IS_FREE__ && selectedVisibility!.showSpam;
+  const showSelectedSummarize =
+    !__IS_FREE__ && selectedVisibility!.showSummarize;
+  const showSelectedAutoTag = !__IS_FREE__ && selectedVisibility!.showAutoTag;
   const showSelectedSecurityAiGroup =
-    showSelectedPhishing || showSelectedAutoTag || showSelectedSummarize;
-  const {
-    presets: snoozePresets,
-    snoozeEmail,
-    fetchPresets,
-    fetchCapabilities,
-  } = useSnooze();
+    showSelectedPhishing || showSelectedSpam || showSelectedAutoTag || showSelectedSummarize;
+  const snooze = useOptionalSnooze();
+  const snoozePresets = __ENABLE_SNOOZE__ && snooze ? snooze.presets : [];
   // selectedNav drives the centred folder title; folder + tag navigation now
   // lives on the Folders tab and account switching on the /accounts screen.
   const { selectedNav } = useSharedFolderOperations();
@@ -640,6 +702,8 @@ export function MobileInboxScreen() {
     null,
   );
   const [isBulkActionRunning, setIsBulkActionRunning] = React.useState(false);
+  const [isTagging, setIsTagging] = React.useState(false);
+  const tagSheetCloseGuard = React.useRef<MailTagCloseGuard | null>(null);
   const selectionScopeKey = JSON.stringify([
     selectedAccount,
     currentLayout,
@@ -730,11 +794,15 @@ export function MobileInboxScreen() {
     setPendingDeleteId(null);
   }, []);
 
-  const enterBulkMode = React.useCallback((id?: string) => {
-    draftOpenRequestRef.current += 1;
-    setBulkMode(true);
-    setSelectedIds(new Set(id ? [id] : []));
-  }, []);
+  const enterBulkMode = React.useCallback(
+    (id?: string) => {
+      if (!mailboxRole.canWrite) return;
+      draftOpenRequestRef.current += 1;
+      setBulkMode(true);
+      setSelectedIds(new Set(id ? [id] : []));
+    },
+    [mailboxRole.canWrite],
+  );
 
   const toggleSelected = React.useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -767,9 +835,15 @@ export function MobileInboxScreen() {
         references: draft.references,
         draftAttachmentManifestComplete: draft.draftAttachmentManifestComplete,
         draftOpened: draft.draftOpened,
-        scheduledEmailId: draft.scheduledEmailId,
-        scheduledAccountId: draft.scheduledAccountId,
-        scheduledAt: draft.scheduledAt,
+        // Scheduled sending is Pro: Free restores no scheduled draft.
+        ...(__IS_PRO__
+          ? {
+              senderIdentity: draft.senderIdentity,
+              scheduledEmailId: draft.scheduledEmailId,
+              scheduledAccountId: draft.scheduledAccountId,
+              scheduledAt: draft.scheduledAt,
+            }
+          : {}),
         is_reply: false,
       });
       navigate("/compose");
@@ -779,7 +853,8 @@ export function MobileInboxScreen() {
 
   const handleScheduledRowTap = React.useCallback(
     async (mail: EmailMessage) => {
-      if (scheduledEditPendingRef.current) return;
+      // Scheduled sending is Pro: Free has no scheduled rows to edit.
+      if (__IS_FREE__ || scheduledEditPendingRef.current) return;
 
       const scheduledEmailId = getScheduledEmailId(mail);
       const scheduledEmail = scheduledEmails?.emails.find(
@@ -976,7 +1051,7 @@ export function MobileInboxScreen() {
         return;
       }
 
-      if (isScheduledMessage(mail)) {
+      if (!__IS_FREE__ && isScheduledMessage(mail)) {
         void handleScheduledRowTap(mail);
         return;
       }
@@ -1070,7 +1145,8 @@ export function MobileInboxScreen() {
     [folders, selectedFolder, selectedNav],
   );
   const isDraftLikeFolder =
-    currentFolderRole === "drafts" || currentFolderRole === "scheduled";
+    currentFolderRole === "drafts" ||
+    (!__IS_FREE__ && currentFolderRole === "scheduled");
   const isTrashFolder = currentFolderRole === "trash";
   const isJunkFolder =
     currentFolderRole === "spam" || currentFolderRole === "junk";
@@ -1090,7 +1166,7 @@ export function MobileInboxScreen() {
       buildSweepScope({
         accounts,
         selectedAccount,
-        selectedConsolidatedAccountIds,
+        ...(__SINGLE_MAILBOX__ ? null : { selectedConsolidatedAccountIds }),
         selectedFolder,
         currentFolderRole,
         folders,
@@ -1152,10 +1228,10 @@ export function MobileInboxScreen() {
   }, [bulkMode, exitBulkMode, selectedIds.size]);
 
   React.useEffect(() => {
-    if (!snoozeSheetOpen) return;
-    void fetchPresets();
-    void fetchCapabilities();
-  }, [fetchCapabilities, fetchPresets, snoozeSheetOpen]);
+    if (__IS_FREE__ || !snooze || !snoozeSheetOpen) return;
+    void snooze.fetchPresets();
+    void snooze.fetchCapabilities();
+  }, [snooze, snoozeSheetOpen]);
 
   const validateSelectedMessages = React.useCallback(() => {
     if (
@@ -1257,7 +1333,7 @@ export function MobileInboxScreen() {
   );
 
   const handleDraftLikeDelete = React.useCallback(() => {
-    if (currentFolderRole === "scheduled") {
+    if (!__IS_FREE__ && currentFolderRole === "scheduled") {
       void runBulkOperation(
         async (captured) => {
           const failedIds: string[] = [];
@@ -1570,16 +1646,20 @@ export function MobileInboxScreen() {
     [runBulkOperation, selectedCount, selectedMessages, toggleImportant],
   );
 
-  const handleBulkApplyTag = React.useCallback(
-    async (tagId: number) => {
-      const tag = tags.find((item) => Number(item.id) === Number(tagId));
+  const bulkTagState = React.useMemo(
+    () => getBulkTagState(selectedMessages, tags),
+    [selectedMessages, tags],
+  );
+
+  const handleBulkApplyTags = React.useCallback(
+    async ({ add, remove }: MailTagChange) => {
       if (selectedCount !== selectedMessages.length) {
-        toast.error(
+        throw new Error(
           __("Reload the mailbox before changing tags.", "pressedmail"),
         );
-        return;
       }
-      if (!tag || selectedMessages.length === 0) return;
+      if (selectedMessages.length === 0 || add.length + remove.length === 0)
+        return;
 
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
@@ -1588,10 +1668,9 @@ export function MobileInboxScreen() {
         getMessageIdentityRef(message),
       );
       if (!principal || identities.some((ref) => !ref)) {
-        toast.error(
+        throw new Error(
           __("Reload the mailbox before changing tags.", "pressedmail"),
         );
-        return;
       }
       const refs = identities.flatMap((ref) =>
         ref
@@ -1605,54 +1684,12 @@ export function MobileInboxScreen() {
             ]
           : [],
       );
+      const steps: Array<[number, boolean]> = [
+        ...add.map((id): [number, boolean] => [id, true]),
+        ...remove.map((id): [number, boolean] => [id, false]),
+      ];
 
-      const shouldRemove = selectedMessages.every((message) =>
-        hasMessageTag(message, tagId),
-      );
-      setTagSheetOpen(false);
-      setIsBulkActionRunning(true);
-      try {
-        const operation = shouldRemove ? batchRemoveTag : batchAssignTag;
-        const result = await operation(tagId, refs);
-        if (!isRequestPrincipalCurrent(principal)) return;
-        if (result.failed > 0)
-          throw new Error(
-            __(
-              "Some tags could not be changed. Refresh the mailbox and retry.",
-              "pressedmail",
-            ),
-          );
-        const inboxService = getInboxService();
-        selectedMessages.forEach((message) => {
-          const update = buildMessageTagUpdate(message, tag, !shouldRemove);
-          inboxService.updateMessage(update.localId, { tags: update.tags });
-        });
-        if (!captured.isCurrent()) return;
-        const count = result.success;
-        toast.success(
-          shouldRemove
-            ? sprintf(
-                _n(
-                  "Removed tag from %d message",
-                  "Removed tag from %d messages",
-                  count,
-                  "pressedmail",
-                ),
-                count,
-              )
-            : sprintf(
-                _n(
-                  "Tagged %d message",
-                  "Tagged %d messages",
-                  count,
-                  "pressedmail",
-                ),
-                count,
-              ),
-        );
-        exitBulkMode();
-      } catch (error) {
-        if (!isRequestPrincipalCurrent(principal)) return;
+      const invalidateTagCaches = () => {
         const cache = getCacheService();
         cache.invalidateMessages({});
         for (const ref of refs)
@@ -1666,15 +1703,86 @@ export function MobileInboxScreen() {
               uid: ref.message_uid,
             }),
           );
-        if (captured.isCurrent())
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : __("Tag failed", "pressedmail"),
-          );
+      };
+      // The scope changed mid-apply: earlier steps may have landed, so redraw
+      // the list from the server rather than leave the old tags showing.
+      // The sheet closes, so a toast says the save stopped partway.
+      const redraw = () => {
+        if (!captured.isPrincipalCurrent()) return;
+        invalidateTagCaches();
+        void getInboxService().refresh();
+        toast.info(tagApplyStoppedMessage());
+      };
+
+      // The sheet stays open until the write lands, so a failure keeps the
+      // ticks and the panel can show why. Its own flag: another bulk action
+      // running must not make the tag sheet say it is applying.
+      setIsTagging(true);
+      try {
+        for (const [tagId, select] of steps) {
+          if (!captured.isCurrent()) return redraw();
+          const operation = select ? batchAssignTag : batchRemoveTag;
+          const result = await operation(tagId, refs);
+          if (!isRequestPrincipalCurrent(principal)) {
+            toast.info(tagApplyStoppedMessage());
+            return;
+          }
+          if (result.failed > 0)
+            throw new Error(
+              sprintf(
+                /* translators: %d: number of emails whose tags were not saved. */
+                _n(
+                  "%d email wasn't updated. Your choices are kept. Try again.",
+                  "%d emails weren't updated. Your choices are kept. Try again.",
+                  result.failed,
+                  "pressedmail",
+                ),
+                result.failed,
+              ),
+            );
+        }
+        const inboxService = getInboxService();
+        selectedMessages.forEach((message) => {
+          let current = message;
+          let localId = "";
+          for (const [tagId, select] of steps) {
+            const tag = tags.find((item) => Number(item.id) === tagId);
+            if (!tag) continue;
+            const update = buildMessageTagUpdate(current, tag, select);
+            localId = update.localId;
+            current = { ...current, tags: update.tags };
+          }
+          if (localId)
+            inboxService.updateMessage(localId, { tags: current.tags });
+        });
+        if (!captured.isCurrent()) return redraw();
+        toast.success(
+          sprintf(
+            /* translators: %d: number of emails tagged. */
+            _n(
+              "Updated tags for %d email",
+              "Updated tags for %d emails",
+              refs.length,
+              "pressedmail",
+            ),
+            refs.length,
+          ),
+        );
+        exitBulkMode();
+      } catch (error) {
+        if (!isRequestPrincipalCurrent(principal)) return;
+        invalidateTagCaches();
+        // Earlier steps may have landed: redraw the list from the server,
+        // whether or not the scope moved on meanwhile. (applyFilters with
+        // unchanged filters only re-filters what is loaded.)
+        void getInboxService().refresh();
+        if (!captured.isCurrent()) return;
+        throw error instanceof Error
+          ? error
+          : new Error(__("Tag failed", "pressedmail"));
       } finally {
         if (mountedRef.current && captured.isPrincipalCurrent())
-          setIsBulkActionRunning(false);
+          setIsTagging(false);
       }
     },
     [
@@ -1690,10 +1798,8 @@ export function MobileInboxScreen() {
 
   const handleSnoozeUntil = React.useCallback(
     async (snoozeUntil: string) => {
-      if (!showSelectedSnooze) {
-        toast.info(__("Snooze is not available", "pressedmail"));
-        return;
-      }
+      // Pro only: the buttons never render without it, and Free compiles none of this.
+      if (__IS_FREE__ || !snooze || !showSelectedSnooze) return;
       if (snoozeTargets.length === 0) {
         toast.error(__("No selected messages can be snoozed", "pressedmail"));
         return;
@@ -1708,7 +1814,7 @@ export function MobileInboxScreen() {
         let firstError = "";
         for (const target of snoozeTargets) {
           if (!captured.isCurrent()) break;
-          const result = await snoozeEmail({
+          const result = await snooze.snoozeEmail({
             account_id: target.accountId,
             message_uid: target.messageUid,
             source_uidvalidity: target.sourceUidValidity,
@@ -1771,12 +1877,13 @@ export function MobileInboxScreen() {
       validateSelectedMessages,
       selectedMessages,
       showSelectedSnooze,
-      snoozeEmail,
+      snooze,
       snoozeTargets,
     ],
   );
 
   const handleCustomSnooze = React.useCallback(() => {
+    if (__IS_FREE__) return;
     if (!customSnoozeDate) {
       toast.error(__("Choose a snooze date", "pressedmail"));
       return;
@@ -1899,14 +2006,11 @@ export function MobileInboxScreen() {
   ]);
 
   const handlePhishingCheck = React.useCallback(() => {
-    if (!showSelectedPhishing) {
-      toast.info(__("Phishing check is not available", "pressedmail"));
-      return;
-    }
+    // Pro only: the buttons never render without it, and Free compiles none of this.
+    if (__IS_FREE__ || !phishing || !showSelectedPhishing) return;
     void runBulkOperation(
       async (captured) => {
-        for (const message of selectedMessages) {
-          if (!captured.isCurrent()) return;
+        const accountOf = (message: EmailMessage) => {
           const accountId =
             resolveMessageAccountId(message, accounts, selectedAccount) ??
             accountIdForActions;
@@ -1918,11 +2022,45 @@ export function MobileInboxScreen() {
               ),
             );
           }
-          await analyzeEmail(
-            accountId,
+          return accountId;
+        };
+        // PressedMail AI checks up to 25 emails per request.
+        const chunkSize = bulkAiChunkSize(phishing.userSettings?.engine);
+        let failed = 0;
+        let firstFailure = "";
+        for (const chunk of chunkByAccount(
+          selectedMessages,
+          accountOf,
+          chunkSize,
+        )) {
+          if (!captured.isCurrent()) return;
+          if (chunkSize > 1) {
+            const batch = await phishing.batchAnalyze(
+              chunk.accountId,
+              chunk.items.map((message) => ({
+                ...toPhishingEmailData(message),
+                folder: message.folder || selectedFolder || "INBOX",
+              })),
+            );
+            // Keep going past one email's failure; report the count at the end.
+            const chunkErrors = Object.values(batch?.errors ?? {});
+            failed += chunkErrors.length;
+            firstFailure ||= chunkErrors[0] ?? "";
+            continue;
+          }
+          const [message] = chunk.items;
+          if (!message) continue;
+          await phishing.analyzeEmail(
+            chunk.accountId,
             toPhishingEmailData(message),
             message.folder || selectedFolder || "INBOX",
           );
+        }
+        if (failed > 0) {
+          return {
+            success: false,
+            error: bulkAiFailureMessage(failed, firstFailure),
+          };
         }
         return { success: true };
       },
@@ -1940,7 +2078,7 @@ export function MobileInboxScreen() {
   }, [
     accountIdForActions,
     accounts,
-    analyzeEmail,
+    phishing,
     runBulkOperation,
     selectedAccount,
     selectedCount,
@@ -1949,14 +2087,23 @@ export function MobileInboxScreen() {
     showSelectedPhishing,
   ]);
 
+  // Spam checks run their own loop. The hook sits here, not in the sheet,
+  // so its confirmations survive the sheet closing.
+  const spamBulk = useBulkSecurityCheck({
+    selectedMessages,
+    accountOf: (message: EmailMessage) =>
+      resolveMessageAccountId(message, accounts, selectedAccount) ??
+      accountIdForActions,
+    folder: selectedFolder || "INBOX",
+    onFinished: exitBulkMode,
+  });
+
   const handleSummarize = React.useCallback(() => {
-    if (!showSelectedSummarize) {
-      toast.info(__("Summarize is not available", "pressedmail"));
-      return;
-    }
+    // Pro only: the buttons never render without it, and Free compiles none of this.
+    if (__IS_FREE__ || !summaries || !showSelectedSummarize) return;
     void runBulkOperation(
       async () => {
-        const result = await summarizeMessages(selectedMessages);
+        const result = await summaries.summarizeMessages(selectedMessages);
         const firstFailure = result.failures?.[0]?.error;
         if (
           result.failedCount > 0 ||
@@ -1984,24 +2131,29 @@ export function MobileInboxScreen() {
     selectedCount,
     selectedMessages,
     showSelectedSummarize,
-    summarizeMessages,
+    summaries,
   ]);
 
   const handleAutoTag = React.useCallback(() => {
-    if (!showSelectedAutoTag) {
-      toast.info(__("Auto-tag is not available", "pressedmail"));
+    // Pro only: the buttons never render without it, and Free compiles none of this.
+    if (__IS_FREE__ || !autoTagger || !showSelectedAutoTag || !aiBulkLimits)
       return;
-    }
+    const autoTagCap = aiBulkLimits.autotag;
     void runBulkOperation(
       async (captured) => {
-        for (const message of selectedMessages) {
-          if (!captured.isCurrent()) return;
-          const accountId =
+        // PressedMail AI tags up to 25 emails per request, but never more than
+        // the admin's auto-tag bulk cap: the server drops anything past it.
+        for (const chunk of chunkByAccount(
+          selectedMessages,
+          (message) =>
             resolveMessageAccountId(message, accounts, selectedAccount) ??
-            accountIdForActions;
-          if (!accountId) continue;
-          const result = await classifyEmails(accountId, [
-            {
+            accountIdForActions,
+          bulkAiChunkSize(autoTagger.settings?.engine, autoTagCap),
+        )) {
+          if (!captured.isCurrent()) return;
+          const result = await autoTagger.classifyEmails(
+            chunk.accountId,
+            chunk.items.map((message) => ({
               uid: message.uid,
 
               uidValidity: message.uidValidity ?? message.uid_validity,
@@ -2016,8 +2168,8 @@ export function MobileInboxScreen() {
                 message.htmlBody ||
                 message.snippet ||
                 "",
-            },
-          ]);
+            })),
+          );
           if (result.status === "error") {
             throw new Error(
               result.message || __("Auto-tag failed", "pressedmail"),
@@ -2040,7 +2192,8 @@ export function MobileInboxScreen() {
   }, [
     accountIdForActions,
     accounts,
-    classifyEmails,
+    autoTagger,
+    aiBulkLimits,
     runBulkOperation,
     selectedAccount,
     selectedCount,
@@ -2197,7 +2350,7 @@ export function MobileInboxScreen() {
             id: "delete-draft",
             label: __("Delete", "pressedmail"),
             ariaLabel:
-              currentFolderRole === "scheduled"
+              !__IS_FREE__ && currentFolderRole === "scheduled"
                 ? __("Delete selected scheduled messages", "pressedmail")
                 : __("Delete selected drafts", "pressedmail"),
             icon: EmailTrashIcon,
@@ -2251,8 +2404,10 @@ export function MobileInboxScreen() {
       important: "important",
       starred: "starred",
       flagged: "flagged",
-      snoozed: "snoozed",
-      scheduled: "scheduled",
+      // Snoozed and Scheduled are Pro views.
+      ...(__IS_FREE__
+        ? {}
+        : { snoozed: "snoozed", scheduled: "scheduled" }),
     };
     const virtual = virtualViews[lower];
     if (virtual) return getMailboxSlotLabel(virtual);
@@ -2342,40 +2497,49 @@ export function MobileInboxScreen() {
               )
             ) : (
               // Lower-priority actions collapse into an overflow menu so the
-              // header never crowds on narrow phones (Menu/Search/Title/More
-              // stay visible; Refresh, Select, Settings live here).
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={__("More options", "pressedmail")}
-                    className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted aria-expanded:bg-muted">
-                    <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    disabled={isLoading}
-                    onClick={() => refreshMessages()}>
-                    <EmailRefreshIcon
-                      className={cn(
-                        "mr-2 h-4 w-4",
-                        isLoading && "animate-spin",
-                      )}
-                      aria-hidden="true"
-                    />
-                    {__("Refresh", "pressedmail")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => enterBulkMode()}>
-                    <CheckSquare className="mr-2 h-4 w-4" aria-hidden="true" />
-                    {__("Select", "pressedmail")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => navigate("/settings")}>
-                    <Settings2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                    {__("Settings", "pressedmail")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              // header never crowds on narrow phones (Menu/Search/Title/Bell/More
+              // stay visible; Refresh, Select, Settings live here). The bell is
+              // the only way to the notification feed from this screen.
+              <>
+                <MobileNotificationsButton />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={__("More options", "pressedmail")}
+                      className="pm-touch-target pm-no-tap-highlight inline-flex items-center justify-center rounded-full text-foreground active:bg-muted aria-expanded:bg-muted">
+                      <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      disabled={isLoading}
+                      onClick={() => refreshMessages()}>
+                      <EmailRefreshIcon
+                        className={cn(
+                          "mr-2 h-4 w-4",
+                          isLoading && "animate-spin",
+                        )}
+                        aria-hidden="true"
+                      />
+                      {__("Refresh", "pressedmail")}
+                    </DropdownMenuItem>
+                    {mailboxRole.canWrite ? (
+                      <DropdownMenuItem onClick={() => enterBulkMode()}>
+                        <CheckSquare
+                          className="mr-2 h-4 w-4"
+                          aria-hidden="true"
+                        />
+                        {__("Select", "pressedmail")}
+                      </DropdownMenuItem>
+                    ) : null}
+                    <DropdownMenuItem onClick={() => navigate("/settings")}>
+                      <Settings2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                      {__("Settings", "pressedmail")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
             )
           }
         />
@@ -2494,7 +2658,7 @@ export function MobileInboxScreen() {
                     onLongPress={handleRowLongPress}
                     onArchive={handleRowArchive}
                     onDelete={requestRowDelete}
-                    swipeDisabled={bulkMode}
+                    swipeDisabled={bulkMode || !mailboxRole.canWrite}
                     onTagClick={handleRowTagClick}
                     rowPresentation={rowPresentation}
                     threadCount={
@@ -2626,16 +2790,23 @@ export function MobileInboxScreen() {
                 setMoveSheetOpen(true);
               }}
             />
-            <SelectedSheetAction
-              label={__("Tag / Label", "pressedmail")}
-              icon={Tag}
-              disabled={selectedCount === 0 || tags.length === 0}
-              onAction={() => {
-                setActionSheetOpen(false);
-                setTagSheetOpen(true);
-              }}
-            />
-            {showSelectedSnooze ? (
+            {mailboxRole.isOwner ? (
+              <SelectedSheetAction
+                label={__("Tag", "pressedmail")}
+                icon={Tag}
+                // With no tags and no way to create one, the sheet would be
+                // a dead end.
+                disabled={
+                  selectedCount === 0 ||
+                  (tags.length === 0 && !tagCapabilities?.create)
+                }
+                onAction={() => {
+                  setActionSheetOpen(false);
+                  setTagSheetOpen(true);
+                }}
+              />
+            ) : null}
+            {!__IS_FREE__ && showSelectedSnooze ? (
               <SelectedSheetAction
                 label={__("Snooze", "pressedmail")}
                 icon={SnoozeClockIcon}
@@ -2648,25 +2819,29 @@ export function MobileInboxScreen() {
                 }}
               />
             ) : null}
-            <SelectedSheetAction
-              label={__("Sweep", "pressedmail")}
-              icon={EmailSweepIcon}
-              disabled={selectedCount === 0}
-              onAction={() => {
-                setActionSheetOpen(false);
-                setSweepOpen(true);
-              }}
-            />
-            <SelectedSheetAction
-              label={__("Run rules", "pressedmail")}
-              icon={ListChecks}
-              disabled={selectedCount === 0}
-              loading={rulesLoading}
-              onAction={openRulesSheet}
-            />
+            {mailboxRole.isOwner ? (
+              <>
+                <SelectedSheetAction
+                  label={__("Sweep", "pressedmail")}
+                  icon={EmailSweepIcon}
+                  disabled={selectedCount === 0}
+                  onAction={() => {
+                    setActionSheetOpen(false);
+                    setSweepOpen(true);
+                  }}
+                />
+                <SelectedSheetAction
+                  label={__("Run rules", "pressedmail")}
+                  icon={ListFilter}
+                  disabled={selectedCount === 0}
+                  loading={rulesLoading}
+                  onAction={openRulesSheet}
+                />
+              </>
+            ) : null}
           </SelectedSheetGroup>
 
-          {showSelectedSecurityAiGroup ? (
+          {!__IS_FREE__ && showSelectedSecurityAiGroup ? (
             <SelectedSheetGroup title={__("Security and AI", "pressedmail")}>
               {showSelectedPhishing ? (
                 <SelectedSheetAction
@@ -2677,6 +2852,14 @@ export function MobileInboxScreen() {
                     setActionSheetOpen(false);
                     handlePhishingCheck();
                   }}
+                />
+              ) : null}
+              {showSelectedSpam ? (
+                <SpamSheetActions
+                  bulk={spamBulk}
+                  Action={SelectedSheetAction}
+                  disabled={selectedCount === 0}
+                  onBeforeRun={() => setActionSheetOpen(false)}
                 />
               ) : null}
               {showSelectedAutoTag ? (
@@ -2776,157 +2959,173 @@ export function MobileInboxScreen() {
 
       <MobileSheet
         open={tagSheetOpen}
-        onOpenChange={setTagSheetOpen}
-        title={sprintf(
-          _n("Tag %d message", "Tag %d messages", selectedCount, "pressedmail"),
-          selectedCount,
-        )}>
-        <ul role="list" className="space-y-1">
-          {tags.map((tag) => (
-            <li key={tag.id}>
+        // A save in flight keeps the sheet open, and Escape inside the
+        // Remove all question only backs out of the question.
+        onOpenChange={(open) => {
+          if (!open && tagSheetCloseGuard.current?.()) return;
+          setTagSheetOpen(open);
+        }}
+        title={mailTagTitle(selectedCount)}
+        flush>
+        <MailTagActionPanel
+          availableTags={tags}
+          selectedTagIds={bulkTagState.selectedTagIds}
+          partialTagIds={bulkTagState.partialTagIds}
+          tagCounts={bulkTagState.tagCounts}
+          targetCount={selectedCount}
+          blockedReason={
+            selectedCount !== selectedMessages.length
+              ? __(
+                  "Some selected emails aren't loaded. Scroll to load them, or reload the mailbox.",
+                  "pressedmail",
+                )
+              : undefined
+          }
+          onApplyTags={handleBulkApplyTags}
+          extraAction={
+            !__IS_FREE__ && showSelectedAutoTag
+              ? {
+                  run: handleAutoTag,
+                  running: false,
+                  disabled: isBulkActionRunning || isTagging,
+                }
+              : undefined
+          }
+          isApplying={isTagging}
+          closeGuardRef={tagSheetCloseGuard}
+          onDone={() => setTagSheetOpen(false)}
+        />
+      </MobileSheet>
+
+      {/* Snooze is Pro: the Free build compiles no sheet. */}
+      {!__IS_FREE__ && (
+        <MobileSheet
+          open={snoozeSheetOpen}
+          onOpenChange={setSnoozeSheetOpen}
+          title={sprintf(
+            _n(
+              "Snooze %d message",
+              "Snooze %d messages",
+              selectedCount,
+              "pressedmail",
+            ),
+            selectedCount,
+          )}>
+          {!__IS_FREE__ && !snoozeAvailable ? (
+            <div className="space-y-3 px-2 text-sm text-muted-foreground">
+              <p>
+                {__(
+                  "Snooze is not available for this account or license.",
+                  "pressedmail",
+                )}
+              </p>
+            </div>
+          ) : snoozeCustomOpen ? (
+            <div className="space-y-4 px-1">
+              <div className="space-y-2">
+                <label
+                  htmlFor="mobile-bulk-snooze-date"
+                  className="text-xs font-medium text-muted-foreground">
+                  {__("Date", "pressedmail")}
+                </label>
+                <DateTimeSelector
+                  id="mobile-bulk-snooze-date"
+                  mode="date"
+                  min={todayInputValue()}
+                  value={customSnoozeDate}
+                  onChange={setCustomSnoozeDate}
+                  data-test="mobile-bulk-snooze-date"
+                  data-testid="mobile-bulk-snooze-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  htmlFor="mobile-bulk-snooze-time"
+                  className="text-xs font-medium text-muted-foreground">
+                  {__("Time", "pressedmail")}
+                </label>
+                <DateTimeSelector
+                  id="mobile-bulk-snooze-time"
+                  mode="time"
+                  value={customSnoozeTime}
+                  onChange={setCustomSnoozeTime}
+                  data-test="mobile-bulk-snooze-time"
+                  data-testid="mobile-bulk-snooze-time"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted"
+                  onClick={() => setSnoozeCustomOpen(false)}>
+                  {__("Back", "pressedmail")}
+                </button>
+                <button
+                  type="button"
+                  disabled={isSnoozing}
+                  className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground active:bg-primary/90 disabled:opacity-50"
+                  onClick={handleCustomSnooze}>
+                  {isSnoozing
+                    ? __("Snoozing...", "pressedmail")
+                    : __("Snooze", "pressedmail")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              {snoozePresets.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">
+                  {__("Loading snooze options...", "pressedmail")}
+                </p>
+              ) : (
+                snoozePresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    disabled={isSnoozing}
+                    className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm active:bg-muted disabled:opacity-50"
+                    onClick={() => {
+                      void handleSnoozeUntil(preset.time);
+                    }}>
+                    <SnoozeClockIcon
+                      className="h-5 w-5 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="min-w-0 flex-1 truncate">
+                      {preset.label}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {preset.relative}
+                    </span>
+                  </button>
+                ))
+              )}
               <button
                 type="button"
                 className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm active:bg-muted"
                 onClick={() => {
-                  void handleBulkApplyTag(tag.id);
+                  setCustomSnoozeDate((current) => current || todayInputValue());
+                  setSnoozeCustomOpen(true);
                 }}>
-                <span
-                  className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: tag.color }}
+                <Calendar
+                  className="h-5 w-5 text-muted-foreground"
                   aria-hidden="true"
                 />
-                <span className="min-w-0 truncate">{tag.name}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </MobileSheet>
-
-      <MobileSheet
-        open={snoozeSheetOpen}
-        onOpenChange={setSnoozeSheetOpen}
-        title={sprintf(
-          _n(
-            "Snooze %d message",
-            "Snooze %d messages",
-            selectedCount,
-            "pressedmail",
-          ),
-          selectedCount,
-        )}>
-        {!__IS_FREE__ && !snoozeAvailable ? (
-          <div className="space-y-3 px-2 text-sm text-muted-foreground">
-            <p>
-              {__(
-                "Snooze is not available for this account or license.",
-                "pressedmail",
-              )}
-            </p>
-          </div>
-        ) : snoozeCustomOpen ? (
-          <div className="space-y-4 px-1">
-            <div className="space-y-2">
-              <label
-                htmlFor="mobile-bulk-snooze-date"
-                className="text-xs font-medium text-muted-foreground">
-                {__("Date", "pressedmail")}
-              </label>
-              <DateTimeSelector
-                id="mobile-bulk-snooze-date"
-                mode="date"
-                min={todayInputValue()}
-                value={customSnoozeDate}
-                onChange={setCustomSnoozeDate}
-                data-test="mobile-bulk-snooze-date"
-                data-testid="mobile-bulk-snooze-date"
-              />
-            </div>
-            <div className="space-y-2">
-              <label
-                htmlFor="mobile-bulk-snooze-time"
-                className="text-xs font-medium text-muted-foreground">
-                {__("Time", "pressedmail")}
-              </label>
-              <DateTimeSelector
-                id="mobile-bulk-snooze-time"
-                mode="time"
-                value={customSnoozeTime}
-                onChange={setCustomSnoozeTime}
-                data-test="mobile-bulk-snooze-time"
-                data-testid="mobile-bulk-snooze-time"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted"
-                onClick={() => setSnoozeCustomOpen(false)}>
-                {__("Back", "pressedmail")}
-              </button>
-              <button
-                type="button"
-                disabled={isSnoozing}
-                className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground active:bg-primary/90 disabled:opacity-50"
-                onClick={handleCustomSnooze}>
-                {isSnoozing
-                  ? __("Snoozing...", "pressedmail")
-                  : __("Snooze", "pressedmail")}
+                <span>{__("Pick date/time", "pressedmail")}</span>
               </button>
             </div>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {snoozePresets.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-muted-foreground">
-                {__("Loading snooze options...", "pressedmail")}
-              </p>
-            ) : (
-              snoozePresets.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  disabled={isSnoozing}
-                  className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm active:bg-muted disabled:opacity-50"
-                  onClick={() => {
-                    void handleSnoozeUntil(preset.time);
-                  }}>
-                  <SnoozeClockIcon
-                    className="h-5 w-5 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <span className="min-w-0 flex-1 truncate">
-                    {preset.label}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {preset.relative}
-                  </span>
-                </button>
-              ))
-            )}
-            <button
-              type="button"
-              className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm active:bg-muted"
-              onClick={() => {
-                setCustomSnoozeDate((current) => current || todayInputValue());
-                setSnoozeCustomOpen(true);
-              }}>
-              <Calendar
-                className="h-5 w-5 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <span>{__("Pick date/time", "pressedmail")}</span>
-            </button>
-          </div>
-        )}
-      </MobileSheet>
+          )}
+        </MobileSheet>
+      )}
 
       <MobileSheet
         open={rulesSheetOpen}
         onOpenChange={setRulesSheetOpen}
         title={sprintf(
+          /* translators: %d: number of selected messages. */
           _n(
-            "Run rules on %d message",
-            "Run rules on %d messages",
+            "Run a rule on %d message",
+            "Run a rule on %d messages",
             selectedCount,
             "pressedmail",
           ),
@@ -2939,7 +3138,7 @@ export function MobileInboxScreen() {
           </div>
         ) : availableRules.length === 0 ? (
           <p className="px-3 py-2 text-sm text-muted-foreground">
-            {__("No enabled rules are available.", "pressedmail")}
+            {__("No rules you can run by hand. Rules that are off stay out.", "pressedmail")}
           </p>
         ) : (
           <ul role="list" className="space-y-1">
@@ -2952,7 +3151,7 @@ export function MobileInboxScreen() {
                     setRulesSheetOpen(false);
                     setPendingRule(rule);
                   }}>
-                  <ListChecks
+                  <ListFilter
                     className="h-5 w-5 text-muted-foreground"
                     aria-hidden="true"
                   />
@@ -2962,6 +3161,20 @@ export function MobileInboxScreen() {
             ))}
           </ul>
         )}
+        {/* A button, not a link: wp-admin paints every <a> in its own blue
+            with a blue focus ring, off the plugin's palette. */}
+        <button
+          type="button"
+          onClick={() => {
+            setRulesSheetOpen(false);
+            window.location.hash = "#/settings/email-rules";
+          }}
+          data-test="mobile-organize-manage-rules"
+          // A row like the rules above it, with room below for its focus ring.
+          className="pm-touch-target pm-no-tap-highlight mt-1 mb-1 flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm text-foreground active:bg-muted">
+          <ListFilter className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+          <span>{__("Manage rules", "pressedmail")}</span>
+        </button>
       </MobileSheet>
 
       <MobileSheet
@@ -3000,6 +3213,8 @@ export function MobileInboxScreen() {
           </button>
         </div>
       </MobileSheet>
+
+      {spamBulk.dialogs}
 
       {sweepScope && (
         <EmailSweep

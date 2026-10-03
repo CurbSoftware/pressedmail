@@ -22,8 +22,8 @@ import {
 export const MAILBOX_VIRTUAL_VIEWS = [
   "important",
   "starred",
-  "snoozed",
-  "scheduled",
+  // Snoozed and Scheduled are Pro views.
+  ...(__IS_FREE__ ? [] : (["snoozed", "scheduled"] as const)),
 ] as const;
 
 export type MailboxVirtualView = (typeof MAILBOX_VIRTUAL_VIEWS)[number];
@@ -91,7 +91,10 @@ export function resolveMailboxScope(
 ): MailboxScope {
   const folder = (selectedFolder ?? "").trim() || "INBOX";
 
-  if (selectedAccount === CONSOLIDATED_ACCOUNT_SCOPE_PREFIX) {
+  if (
+    !__SINGLE_MAILBOX__ &&
+    selectedAccount === CONSOLIDATED_ACCOUNT_SCOPE_PREFIX
+  ) {
     const accountIds = getEffectiveConsolidatedAccountIdsForLayout(
       accounts,
       selectedConsolidatedAccountIds,
@@ -148,22 +151,18 @@ export function resolveMailboxScope(
  * scope key is sorted).
  */
 export function serializeMailboxScope(scope: MailboxScope): string {
-  switch (scope.type) {
-    case "combined_inbox":
-      return scope.folder.toUpperCase() === "INBOX"
-        ? scope.scopeKey
-        : `${scope.scopeKey}:${scope.folder.toLowerCase()}`;
-    case "account_inbox":
-    case "account_folder":
-    case "virtual_view":
-      return scope.scopeKey;
+  if (!__SINGLE_MAILBOX__ && scope.type === "combined_inbox") {
+    return scope.folder.toUpperCase() === "INBOX"
+      ? scope.scopeKey
+      : `${scope.scopeKey}:${scope.folder.toLowerCase()}`;
   }
+  return scope.scopeKey;
 }
 
 export function isCombinedInboxScope(
   scope: MailboxScope,
 ): scope is Extract<MailboxScope, { type: "combined_inbox" }> {
-  return scope.type === "combined_inbox";
+  return !__SINGLE_MAILBOX__ && scope.type === "combined_inbox";
 }
 
 

@@ -515,6 +515,13 @@ export const useTags = (): TagsContextValue => {
 };
 
 /**
+ * Tags context when a provider is mounted, otherwise undefined. For surfaces
+ * that can render outside the mailbox shell (settings dialogs, tests).
+ */
+export const useTagsOptional = (): TagsContextValue | undefined =>
+  useContext(TagsContext);
+
+/**
  * Hook to get tag capabilities.
  */
 export const useTagCapabilities = (): TagCapabilities | null => {

@@ -31,6 +31,8 @@ export interface ScheduledEmail {
   id: number;
   user_id: number;
   account_id: number;
+  sender_alias_id?: number | null;
+  sender_alias_email?: string | null;
   draft_uid?: string | null;
   draft_folder?: string | null;
   draft_uidvalidity?: number | null;
@@ -41,6 +43,8 @@ export interface ScheduledEmail {
   cc_addresses: string | null;
   bcc_addresses: string | null;
   contact_lists?: ContactListRecipientDescriptor[];
+  list_delivery_id?: number | null;
+  list_delivery?: boolean;
   subject: string | null;
   body: string | null;
   tracking_requested?: boolean;
@@ -339,7 +343,13 @@ export function getScheduledComposeData(
     to: parseScheduledAddresses(email.to_addresses).join(", "),
     cc: parseScheduledAddresses(email.cc_addresses).join(", "),
     bcc: parseScheduledAddresses(email.bcc_addresses).join(", "),
-    contactLists: email.contact_lists ?? [],
+    ...(__ENABLE_CONTACT_LISTS__
+      ? {
+          contactLists: email.contact_lists ?? [],
+          listDelivery:
+            email.list_delivery === true || email.list_delivery_id != null,
+        }
+      : null),
     subject: email.subject ?? "",
     readReceipt: {
       requested: trackingRequested,
@@ -351,6 +361,11 @@ export function getScheduledComposeData(
     bodyBackgroundColor: unwrapped.bodyBackgroundColor,
     contentType,
     attachments,
+    senderIdentity: {
+      accountId: email.account_id,
+      aliasId: email.sender_alias_id ?? null,
+      email: email.sender_alias_email ?? undefined,
+    },
     scheduledEmailId: email.id,
     scheduledAccountId: email.account_id,
     scheduledAt: email.scheduled_at,

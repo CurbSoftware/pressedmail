@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -14,7 +15,9 @@ import { ComposeNavigationBlocker } from "./ComposeNavigationBlocker";
 import { CalendarHeaderIcon, ContactsHeaderIcon } from "./HeaderIconSvgs";
 import { EmailComposeNewIcon } from "@/components/icons/MailActionIcons";
 import { LayoutNavigationShell } from "./LayoutNavigationShell";
+import { MobileNotificationsSheet } from "./MobileNotificationsSheet";
 import { UpgradeModal } from "@/components/features/UpgradeModal.active";
+import { TemplatePickerHost } from "@/components/templates/TemplatePickerHost";
 import { PressedTooltipProvider } from "@/components/ui/pressed-tooltip";
 import { PaneComposeProvider } from "@/context/composer";
 import { useAppContext } from "@/context/AppProvider";
@@ -29,7 +32,8 @@ import {
   useActivityPanelOpen,
 } from "@/components/activity/use-activity-panel";
 import { ActivitySheet } from "@/components/activity/ActivitySheet";
-import { PressedOutUiProvider } from "@/context/PressedOutUiContext";
+// PressedOut is a Pro layout; Free mounts none of its UI state.
+import { LayoutUiProvider } from "@/context/layout-ui-provider.active";
 import {
   AppStatusBar,
   type AppStatusBarConnectionStatus,
@@ -38,9 +42,10 @@ import {
   SpeedDialMenu,
   SPEED_DIAL_MENU_PALETTE_PRESETS,
   SPEED_DIAL_MENU_SIZE_PRESETS,
-  type SpeedDialMenuPlacement,
 } from "@/layouts/shared/components/speed-dial-menu";
 import {
+  parseSpeedDialPosition,
+  speedDialOpeningAt,
   useUserPreferences,
   type SpeedDialPosition,
 } from "@/hooks/useUserPreferences";
@@ -65,20 +70,6 @@ const _startcase = (str: string) => {
     .split(" ") // Split the string into words
     .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize the first letter of each word
     .join(" "); // Join the words back into a string
-};
-
-const SPEED_DIAL_PLACEMENTS: Record<
-  Exclude<SpeedDialPosition, "off">,
-  SpeedDialMenuPlacement
-> = {
-  "top-left": "fixed-top-left",
-  "top-center": "fixed-top-center",
-  "top-right": "fixed-top-right",
-  "middle-left": "fixed-middle-left",
-  "middle-right": "fixed-middle-right",
-  "bottom-left": "fixed-bottom-left",
-  "bottom-center": "fixed-bottom-center",
-  "bottom-right": "fixed-bottom-right",
 };
 
 const ApplicationLayout = () => {
@@ -185,17 +176,23 @@ const ApplicationLayout = () => {
   const hasPath = pathSegments.length > 0;
   const fallbackSlug = pathSegments[pathSegments.length - 1];
   const pageTitle = fallbackSlug ? _startcase(fallbackSlug) : "Inbox";
-  const { preferences } = useUserPreferences();
-  // The launcher is viewport-fixed at bottom-right, which is exactly where
-  // every settings pane right-aligns its switches and selects: at 1280 and
-  // 1440 it sat on top of them. Settings already has its own sidebar and
-  // header navigation, so the launcher has nothing to offer there.
-  const onSettingsRoute = location.pathname.startsWith("/settings");
-  const speedDialPlacement =
-    preferences.speed_dial_position === "off" || onSettingsRoute
-      ? null
-      : (SPEED_DIAL_PLACEMENTS[preferences.speed_dial_position] ??
-        "fixed-bottom-right");
+  const { preferences, updatePreference } = useUserPreferences();
+  // The launcher floats over every page, settings included. It used to be hidden
+  // there because the bottom-right spot is where settings panes right-align their
+  // switches; dragging it out of the way is the fix now, and it has its own
+  // On/Off in the theme popover.
+  const speedDialEnabled = preferences.speed_dial_enabled ?? true;
+  const speedDialPosition = preferences.speed_dial_position;
+  const { x: speedDialX, y: speedDialY } =
+    parseSpeedDialPosition(speedDialPosition);
+  // Which way the launcher's menu opens, and the one spot content has to avoid.
+  const speedDialCorner = speedDialOpeningAt(speedDialX, speedDialY).corner;
+  const handleSpeedDialPositionChange = useCallback(
+    (next: SpeedDialPosition) => {
+      void updatePreference("speed_dial_position", next);
+    },
+    [updatePreference],
+  );
 
   useEffect(() => {
     if (!hasPath) {
@@ -297,9 +294,12 @@ const ApplicationLayout = () => {
         className="relative w-full overflow-hidden bg-background font-sans transition-all duration-250 ease-out"
         style={frameStyle}>
         <PaneComposeProvider>
-          <PressedOutUiProvider>
+          <LayoutUiProvider>
             {compactShellEnabled ? (
               <MobileAppShell
+                // The header has no bell below 1024px, so the feed lives in a
+                // sheet the Inbox header and the More screen both open.
+                overlays={<MobileNotificationsSheet />}
                 tabBar={
                   <MobileTabBar
                     items={tabItems}
@@ -322,7 +322,21 @@ const ApplicationLayout = () => {
               <div className="flex h-full w-full flex-col overflow-hidden">
                 {/* Dynamic header - renders layout-specific header based on current layout */}
                 <DynamicHeader />
-                <main className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background">
+                <main
+                  // Takes focus by script when a notification opens a page, so it
+                  // draws no ring of its own: the page is not a control.
+                  className="flex flex-col flex-1 min-h-0 overflow-hidden bg-background outline-none"
+                  // A launcher parked in the top-right corner sits over the right
+                  // edge of every route. Keep that route clear of it, with room
+                  // for the hover scale.
+                  style={{
+                    paddingRight:
+                      !showSetupWizard &&
+                      speedDialEnabled &&
+                      speedDialCorner === "top-right"
+                        ? 96
+                        : undefined,
+                  }}>
                   <div className="flex-1 min-h-0">
                     <LayoutNavigationShell>
                       <Outlet />
@@ -352,14 +366,20 @@ const ApplicationLayout = () => {
                 />
               </div>
             )}
-            {!compactShellEnabled && !showSetupWizard && speedDialPlacement && (
+            {!compactShellEnabled && !showSetupWizard && speedDialEnabled && (
               <SpeedDialMenu
-                placement={speedDialPlacement}
+                position={speedDialPosition}
+                topInset={adminBarHeight}
+                onPositionChange={handleSpeedDialPositionChange}
                 size={SPEED_DIAL_MENU_SIZE_PRESETS.header}
                 palette={SPEED_DIAL_MENU_PALETTE_PRESETS.surfacePrimary}
               />
             )}
-          </PressedOutUiProvider>
+            {/* The one "New email from template" picker. It hands its email to
+                the pane composer, so it lives inside the provider. Free
+                resolves this to a component that renders nothing. */}
+            <TemplatePickerHost />
+          </LayoutUiProvider>
         </PaneComposeProvider>
         <UpgradeModal />
         {/* Single activity/process panel for the whole app, driven by the shared

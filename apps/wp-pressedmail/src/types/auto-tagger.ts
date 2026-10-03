@@ -26,6 +26,15 @@ export interface AutoTaggerSettings {
   is_enabled: boolean;
   /** Custom prompt appended to the AI system prompt */
   custom_prompt: string;
+  /** "pressedmail_ai" when tagging runs on PressedMail AI credits. */
+  engine?: "llm" | "pressedmail_ai";
+  /** This user's PressedMail AI allowance, present when either AI feature uses it. */
+  pressedmail_ai?: {
+    enabled: boolean;
+    /** Monthly credit limit; null means no limit. */
+    limit: number | null;
+    used: number;
+  };
 }
 
 /**
@@ -81,7 +90,7 @@ export interface ClassificationResult {
     id: number;
     name: string;
     confidence: number;
-    source: "matching_rule" | "llm";
+    source: "matching_rule" | "llm" | "pressedmail_ai";
   }>;
 }
 

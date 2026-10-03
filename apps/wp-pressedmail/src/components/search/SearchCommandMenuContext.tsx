@@ -1,5 +1,6 @@
 "use client";
 
+import { useProFeatureAvailable } from "@/context/features/pro-feature.active";
 import {
   getPrincipalStorageItem,
   setPrincipalStorageItem,
@@ -78,7 +79,7 @@ export function SearchCommandMenuProvider({
 }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const currentPageScope = useCurrentPageScope();
-  const contactsAvailable = useFeatureAvailable("contacts");
+  const contactsAvailable = useProFeatureAvailable("contacts");
 
   // Get selected account ID for search hook
   const { selectedAccount, accounts } = useAppContext();

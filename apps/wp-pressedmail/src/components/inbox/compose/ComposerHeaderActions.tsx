@@ -1,13 +1,9 @@
 import { __, _x } from "@wordpress/i18n";
+import { ExternalLink, Loader2, Save, Trash2, X } from "lucide-react";
 import {
-  ExternalLink,
-  Loader2,
-  Maximize2,
-  Save,
-  Trash2,
-  X,
-} from "lucide-react";
-import { EmailSendPlaneIcon } from "@/components/icons/MailActionIcons";
+  ComposerFullViewIcon,
+  EmailSendPlaneIcon,
+} from "@/components/icons/MailActionIcons";
 
 import type { UseComposeFormReturn } from "@/hooks/compose/v2/useComposeForm";
 import { Button, ButtonGroup } from "@kit/ui/plugin";
@@ -90,7 +86,6 @@ export function ComposerHeaderSendGroup({
     handleSend,
     isDiscarding,
     isSavingDraft,
-    isScheduling,
     isSending,
     pendingInlineImageUploads,
   } = form;
@@ -101,9 +96,10 @@ export function ComposerHeaderSendGroup({
   const fullViewLabel = __("Expand compose to full view", "pressedmail");
   const isDeliveryPending =
     isSending ||
-    isScheduling ||
+    // Scheduled send is Pro.
+    (!__IS_FREE__ && form.isScheduling) ||
     isDiscarding ||
-    form.readReceipt?.pending ||
+    (__ENABLE_EMAIL_TRACKING__ && form.readReceipt?.pending) ||
     pendingInlineImageUploads > 0;
 
   if (variant === "ribbon") {
@@ -242,7 +238,7 @@ export function ComposerHeaderSendGroup({
             data-compose-view-trigger="full"
             className={RIBBON_BUTTON_CLASSES}>
             <span className={RIBBON_ICON_WRAP}>
-              <Maximize2 />
+              <ComposerFullViewIcon />
             </span>
             <span className={RIBBON_LABEL_CLASSES}>
               {__("Full view", "pressedmail")}
@@ -372,7 +368,7 @@ export function ComposerHeaderSendGroup({
             data-test="full-view-compose-button"
             data-compose-view-trigger="full"
             className="h-8 w-8">
-            <Maximize2 className="h-4 w-4" />
+            <ComposerFullViewIcon className="h-4 w-4" />
           </Button>
         </PressedTooltip>
       )}
@@ -397,7 +393,7 @@ export function ComposerHeaderCloseButton({
         onClick={form.handleDiscard}
         disabled={
           form.isSending ||
-          form.isScheduling ||
+          (!__IS_FREE__ && form.isScheduling) ||
           form.isDiscarding ||
           form.pendingInlineImageUploads > 0
         }

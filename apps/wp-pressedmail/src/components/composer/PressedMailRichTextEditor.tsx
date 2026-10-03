@@ -2,16 +2,18 @@ import React, { forwardRef } from "react";
 import type { PlateEmailEditorAdapterProps } from "@kit/plate/email-editor";
 import {
   getPlateEmailEditorSurfacePreset,
-} from "@kit/plate/email-surfaces";
+} from "@/lib/email-surfaces";
 
 import { PlateComposer } from "./plate-composer";
 import type {
   EmailEditorRef,
   PressedMailComposerValue,
+  PressedMailPlateComposerProps,
 } from "./plate-composer-types";
 
 export interface PressedMailRichTextEditorProps
-  extends PlateEmailEditorAdapterProps<PressedMailComposerValue> {}
+  extends PlateEmailEditorAdapterProps<PressedMailComposerValue>,
+    Pick<PressedMailPlateComposerProps, "variablesEnabled" | "contentHidden"> {}
 
 /**
  * Canonical PressedMail rich-text editor adapter.

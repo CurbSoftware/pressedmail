@@ -1,5 +1,5 @@
 import * as React from "react";
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import {
   accountCreateROuteApi,
   accountRemoveROuteApi,
@@ -17,6 +17,7 @@ import {
 } from "@/lib/consolidated-account-scope";
 import { resolveServerAccountId } from "@/lib/account-id";
 import { reconcileRemovedAccounts } from "@/lib/account-state-cleanup";
+import { useSharedAccountRevocation } from "@/components/sharing";
 import {
   resolveDefaultAccountId,
   stampDefaultAccountState,
@@ -28,8 +29,10 @@ import type {
   AppUser,
   AccountData,
   AccountUpdateInput,
+  OrdinaryAccountData,
 } from "@/types";
 import { PhishingProvider } from "@/context/phishing/PhishingContext";
+import { SecurityProvider } from "@/context/security";
 
 // Provider icons for different email services
 export const PROVIDER_ICONS = {
@@ -96,11 +99,20 @@ const managedAccountErrorMessage = (code: unknown): string => {
     case "DOMAIN_POLICY_DISABLED":
     case "DOMAIN_POLICY_FORBIDDEN":
     case "DOMAIN_NOT_ALLOWED":
-      return "This managed email account is not allowed by the current site policy.";
+      return __(
+        "This managed email account is not allowed by the current site policy.",
+        "pressedmail",
+      );
     case "DOMAIN_CONFIG_INVALID":
-      return "Managed email setup is temporarily unavailable.";
+      return __(
+        "Managed email setup is temporarily unavailable.",
+        "pressedmail",
+      );
     default:
-      return "Managed account setup failed. Please try again.";
+      return __(
+        "Managed account setup failed. Please try again.",
+        "pressedmail",
+      );
   }
 };
 
@@ -140,6 +152,23 @@ interface AppProviderProps {
   children: React.ReactNode;
 }
 
+const NO_SELECTION: number[] = [];
+const ignoreSelection: React.Dispatch<React.SetStateAction<number[]>> = () => {};
+
+/**
+ * The mailboxes a combined view reads, kept per signed-in user. A
+ * single-mailbox build has no combined view, so it keeps nothing.
+ */
+const useCombinedSelection: () => [
+  number[],
+  React.Dispatch<React.SetStateAction<number[]>>,
+] = __SINGLE_MAILBOX__
+  ? () => [NO_SELECTION, ignoreSelection]
+  : () =>
+      useLocalStorage<number[]>("selectedConsolidatedAccountIds", [], {
+        principalScoped: true,
+      });
+
 export default function AppProvider({ children }: AppProviderProps) {
   const [user, setUser] = useLocalStorage<AppUser | null>("user", null, {
     principalScoped: true,
@@ -155,9 +184,7 @@ export default function AppProvider({ children }: AppProviderProps) {
     { principalScoped: true },
   );
   const [selectedConsolidatedAccountIds, setSelectedConsolidatedAccountIds] =
-    useLocalStorage<number[]>("selectedConsolidatedAccountIds", [], {
-      principalScoped: true,
-    });
+    useCombinedSelection();
   const [defaultAccountId, setDefaultAccountId] = useLocalStorage<
     number | null
   >("defaultAccountId", null, { principalScoped: true });
@@ -241,6 +268,7 @@ export default function AppProvider({ children }: AppProviderProps) {
   }, [accounts.length, setUser]);
 
   React.useEffect(() => {
+    if (__SINGLE_MAILBOX__) return;
     setSelectedConsolidatedAccountIds((previous) => {
       const normalized = normalizeConsolidatedAccountIds(previous);
       const available = new Set(getAvailableAccountIds(accounts));
@@ -284,7 +312,10 @@ export default function AppProvider({ children }: AppProviderProps) {
     async (accountData: AccountData): Promise<EmailAccount> => {
       setIsLoading(true);
       setError(null);
-      const managed = accountData.managed === true;
+      // Managed-domain accounts are Pro. Each use repeats the define because
+      // the minifier does not fold a local constant inside this async callback.
+      const managed = !__IS_FREE__ && accountData.managed === true;
+      const ordinaryData = accountData as OrdinaryAccountData;
 
       try {
         // Call WordPress REST API to create account
@@ -294,7 +325,7 @@ export default function AppProvider({ children }: AppProviderProps) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(
-            managed
+            !__IS_FREE__ && managed
               ? {
                   managed: true,
                   localPart: accountData.localPart,
@@ -308,71 +339,73 @@ export default function AppProvider({ children }: AppProviderProps) {
                     : { password: accountData.password }),
                 }
               : {
-                  email: accountData.email,
+                  email: ordinaryData.email,
                   firstName:
-                    accountData.displayName.split(" ")[0] ||
-                    accountData.displayName,
-                  lastName: accountData.displayName.split(" ")[1] || "",
-                  appPassword: accountData.password,
-                  provider: accountData.provider,
-                  imapHost: accountData.imapHost,
-                  imapPort: accountData.imapPort,
-                  imapSecurity: accountData.imapSecurity,
-                  imapUsername: accountData.imapUsername,
-                  imapPassword: accountData.imapPassword,
-                  smtpHost: accountData.smtpHost,
-                  smtpPort: accountData.smtpPort,
-                  smtpSecurity: accountData.smtpSecurity,
-                  smtpUsername: accountData.smtpUsername,
-                  smtpPassword: accountData.smtpPassword,
-                  useSeparateCredentials: accountData.useSeparateCredentials,
-                  useOAuth: accountData.useOAuth,
+                    ordinaryData.displayName.split(" ")[0] ||
+                    ordinaryData.displayName,
+                  lastName: ordinaryData.displayName.split(" ")[1] || "",
+                  appPassword: ordinaryData.password,
+                  provider: ordinaryData.provider,
+                  imapHost: ordinaryData.imapHost,
+                  imapPort: ordinaryData.imapPort,
+                  imapSecurity: ordinaryData.imapSecurity,
+                  imapUsername: ordinaryData.imapUsername,
+                  imapPassword: ordinaryData.imapPassword,
+                  smtpHost: ordinaryData.smtpHost,
+                  smtpPort: ordinaryData.smtpPort,
+                  smtpSecurity: ordinaryData.smtpSecurity,
+                  smtpUsername: ordinaryData.smtpUsername,
+                  smtpPassword: ordinaryData.smtpPassword,
+                  useSeparateCredentials: ordinaryData.useSeparateCredentials,
+                  useOAuth: ordinaryData.useOAuth,
                 },
           ),
         });
 
         if (!response.ok) {
           const errorData = await response.json();
-          const message = managed
-            ? managedAccountErrorMessage(
-                errorData?.code ?? errorData?.data?.code,
-              )
-            : errorData.message || `HTTP error! status: ${response.status}`;
+          const message =
+            !__IS_FREE__ && managed
+              ? managedAccountErrorMessage(
+                  errorData?.code ?? errorData?.data?.code,
+                )
+              : errorData.message || `HTTP error! status: ${response.status}`;
           throw Object.assign(new Error(message), {
-            safeManagedMessage: managed,
+            safeManagedMessage: !__IS_FREE__ && managed,
           });
         }
 
         const result = await response.json();
 
         if (result.status === "error") {
-          const message = managed
-            ? managedAccountErrorMessage(result.code ?? result.data?.code)
-            : result.message;
+          const message =
+            !__IS_FREE__ && managed
+              ? managedAccountErrorMessage(result.code ?? result.data?.code)
+              : result.message;
           throw Object.assign(new Error(message), {
-            safeManagedMessage: managed,
+            safeManagedMessage: !__IS_FREE__ && managed,
           });
         }
 
         const newAccount = result.data?.user || result;
-        if (managed && !isCanonicalManagedAccount(newAccount)) {
+        if (!__IS_FREE__ && managed && !isCanonicalManagedAccount(newAccount)) {
           throw Object.assign(
             new Error(managedAccountErrorMessage(undefined)),
             { safeManagedMessage: true },
           );
         }
-        const accountEmail = managed ? newAccount.email : accountData.email;
-        const accountProvider: EmailAccount["provider"] = managed
-          ? newAccount.provider
-          : accountData.provider;
+        const accountEmail =
+          !__IS_FREE__ && managed ? newAccount.email : ordinaryData.email;
+        const accountProvider: EmailAccount["provider"] =
+          !__IS_FREE__ && managed ? newAccount.provider : ordinaryData.provider;
         const displayName =
-          (managed
+          (!__IS_FREE__ && managed
             ? accountData.senderName
-            : accountData.displayName
+            : ordinaryData.displayName
           )?.trim() ||
-          (managed
+          (!__IS_FREE__ && managed
             ? `${accountData.localPart}@${accountData.domain}`
-            : accountData.email);
+            : ordinaryData.email);
         const [firstName, ...restName] = displayName.split(/\s+/);
         const lastName = restName.join(" ");
 
@@ -444,9 +477,9 @@ export default function AppProvider({ children }: AppProviderProps) {
               name: wpUser?.displayName || wpUser?.username || displayName,
               email:
                 wpUser?.email ||
-                (managed
+                (!__IS_FREE__ && managed
                   ? `${accountData.localPart}@${accountData.domain}`
-                  : accountData.email),
+                  : ordinaryData.email),
               hasCompletedSetup: true,
               avatar: wpUser?.avatar,
               username: wpUser?.username,
@@ -467,7 +500,7 @@ export default function AppProvider({ children }: AppProviderProps) {
       } catch (err: any) {
         console.error("Error adding account:", err);
         setError(
-          managed
+          !__IS_FREE__ && managed
             ? err?.safeManagedMessage === true
               ? err.message
               : managedAccountErrorMessage(undefined)
@@ -564,7 +597,7 @@ export default function AppProvider({ children }: AppProviderProps) {
       setError(null);
 
       try {
-        if (updates.managed === true) {
+        if (!__IS_FREE__ && updates.managed === true) {
           const managedForm = new FormData();
           managedForm.append("id", accountId.toString());
           managedForm.append("managed", "true");
@@ -738,7 +771,7 @@ export default function AppProvider({ children }: AppProviderProps) {
       } catch (err: any) {
         console.error("Error updating account:", err);
         const message =
-          updates.managed === true
+          !__IS_FREE__ && updates.managed === true
             ? err?.safeManagedMessage === true
               ? err.message
               : managedAccountErrorMessage(undefined)
@@ -816,7 +849,7 @@ export default function AppProvider({ children }: AppProviderProps) {
   );
 
   const loadAccounts = React.useCallback(
-    async (signal?: AbortSignal): Promise<void> => {
+    async (signal?: AbortSignal): Promise<EmailAccount[] | null> => {
       setIsLoading(true);
       setError(null);
 
@@ -829,11 +862,11 @@ export default function AppProvider({ children }: AppProviderProps) {
           signal,
         });
 
-        if (signal?.aborted) return;
+        if (signal?.aborted) return null;
 
         if (response.status === 404) {
           setAccounts([]);
-          return;
+          return [];
         }
 
         if (!response.ok) {
@@ -842,7 +875,7 @@ export default function AppProvider({ children }: AppProviderProps) {
 
         const accountsData = await response.json();
 
-        if (signal?.aborted) return;
+        if (signal?.aborted) return null;
 
         const accountsLoaded =
           accountsData?.data?.accounts || accountsData?.accounts;
@@ -850,7 +883,7 @@ export default function AppProvider({ children }: AppProviderProps) {
         if (!Array.isArray(accountsLoaded) || accountsLoaded.length === 0) {
           setAccounts([]);
           setDefaultAccountId(null);
-          return;
+          return [];
         }
 
         // Sync the server's default-account pointer: prefer the explicit
@@ -887,8 +920,9 @@ export default function AppProvider({ children }: AppProviderProps) {
         );
         setDefaultAccountId(nextState.defaultAccountId);
         setAccounts(nextState.accounts);
+        return nextState.accounts;
       } catch (err) {
-        if (signal?.aborted) return;
+        if (signal?.aborted) return null;
         console.error("[AppProvider] Error loading accounts:", err);
         setError("Failed to load accounts");
         // Surface the failure instead of silently rendering the empty/setup
@@ -896,6 +930,7 @@ export default function AppProvider({ children }: AppProviderProps) {
         // explicit 404/empty response clears them, so a transient auth/network
         // failure does not look like "no accounts".
         appMessage("Failed to load accounts", "error");
+        return null;
       } finally {
         if (!signal?.aborted) {
           setIsLoading(false);
@@ -905,11 +940,13 @@ export default function AppProvider({ children }: AppProviderProps) {
     [setAccounts, setDefaultAccountId, setError],
   );
 
-  const reloadAccounts = React.useCallback(
-    async (): Promise<void> => loadAccounts(),
-    [loadAccounts],
-  );
+  const reloadAccounts = React.useCallback(async (): Promise<void> => {
+    await loadAccounts();
+  }, [loadAccounts]);
   reloadAccountsRef.current = reloadAccounts;
+
+  // Lost access to a shared mailbox refetches the list (inert in Free).
+  useSharedAccountRevocation(accounts, loadAccounts);
 
   // Load accounts on mount (abort controller prevents StrictMode double-fetch)
   React.useEffect(() => {
@@ -923,7 +960,7 @@ export default function AppProvider({ children }: AppProviderProps) {
 
   // Auto-select first account when accounts load and none is selected,
   // or reset if selectedAccount doesn't match any current account (stale localStorage).
-  // "all" is the consolidated inbox sentinel used by combined inbox views.
+  // "all" is the sentinel a combined view uses.
   React.useEffect(() => {
     const first = accounts[0];
     if (!first) return;
@@ -939,7 +976,11 @@ export default function AppProvider({ children }: AppProviderProps) {
 
     const isValid = accounts.some((a) => a.email === selectedAccount);
     if (!isValid) {
-      setSelectedAccount(first.email);
+      // The selected mailbox is gone (removed, or a share ended): go to the
+      // default rather than whichever mailbox happens to be first.
+      const fallback =
+        accounts.find((account) => account.is_default === true) ?? first;
+      setSelectedAccount(fallback.email);
     }
   }, [accounts, selectedAccount, setSelectedAccount]);
 
@@ -948,7 +989,7 @@ export default function AppProvider({ children }: AppProviderProps) {
   // NEW database id), purge its stale per-account state, sync tokens, caches,
   // folder selection, the first-sync gate, so it can never poison the mailbox
   // (the "clearing localStorage fixes sync" symptom). Also drop dead ids from
-  // the consolidated-inbox selection.
+  // a combined selection.
   const prevAccountsRef = React.useRef<EmailAccount[] | null>(null);
   React.useEffect(() => {
     const prev = prevAccountsRef.current;
@@ -962,6 +1003,7 @@ export default function AppProvider({ children }: AppProviderProps) {
       return;
     }
 
+    if (__SINGLE_MAILBOX__) return;
     const survivingIds = new Set(accounts.map((account) => String(account.id)));
     setSelectedConsolidatedAccountIds((ids) =>
       ids.filter((id) => survivingIds.has(String(id))),
@@ -1004,8 +1046,9 @@ export default function AppProvider({ children }: AppProviderProps) {
       setEditingAccount,
       selectedAccount,
       setSelectedAccount,
-      selectedConsolidatedAccountIds,
-      setSelectedConsolidatedAccountIds,
+      ...(__SINGLE_MAILBOX__
+        ? null
+        : { selectedConsolidatedAccountIds, setSelectedConsolidatedAccountIds }),
       defaultAccountId,
       setDefaultAccount,
       selectedMessage,
@@ -1053,7 +1096,9 @@ export default function AppProvider({ children }: AppProviderProps) {
 
   return (
     <AppContext.Provider value={values}>
-      <PhishingProvider>{children}</PhishingProvider>
+      <PhishingProvider>
+        <SecurityProvider>{children}</SecurityProvider>
+      </PhishingProvider>
     </AppContext.Provider>
   );
 }

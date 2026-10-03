@@ -32,8 +32,11 @@ export interface EmailRowViewModel {
   isImportant: boolean;
   /** Why the row is important, when the payload says. */
   importanceSource: EmailImportanceSource | null;
-  /** True when this row backs a scheduled email; dateLabel then shows the send time. */
-  isScheduled: boolean;
+  /**
+   * True when this row backs a scheduled email; dateLabel then shows the send
+   * time. Absent in the Free build, which has no scheduled sending.
+   */
+  isScheduled?: boolean;
   scheduledStatus?: string;
   hasAttachment: boolean;
   visibleLabels: string[];
@@ -143,10 +146,12 @@ export function buildEmailRowViewModel(
   );
   const accountEmail = message.accountEmail;
 
+  // Scheduled sending is Pro: Free rows are never scheduled.
   const isScheduled =
-    Boolean(message.isScheduled) || message.scheduledEmailId != null;
+    !__IS_FREE__ &&
+    (Boolean(message.isScheduled) || message.scheduledEmailId != null);
   const scheduledStatus =
-    typeof message.scheduledStatus === "string"
+    !__IS_FREE__ && typeof message.scheduledStatus === "string"
       ? message.scheduledStatus
       : undefined;
 
@@ -168,7 +173,7 @@ export function buildEmailRowViewModel(
       options.maxPreviewLength ?? 120,
     ),
     dateLabel:
-      isScheduled && message.scheduledAt
+      !__IS_FREE__ && isScheduled && message.scheduledAt
         ? formatScheduledTime(message.scheduledAt)
         : formatSmartTimestamp(
             parseEmailDate(message.receivedDate ?? message.date),
@@ -181,8 +186,7 @@ export function buildEmailRowViewModel(
         ? message.important
         : Boolean(message.is_important),
     importanceSource: message.importanceSource ?? null,
-    isScheduled,
-    scheduledStatus,
+    ...(__IS_FREE__ ? null : { isScheduled, scheduledStatus }),
     hasAttachment: Boolean(
       message.hasAttachments ||
       message.attachments?.length ||

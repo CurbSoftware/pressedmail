@@ -193,8 +193,9 @@ export function MessageListPane({
       {/* Connection error banner */}
       <ConnectionErrorBanner />
 
-      {/* Combined inbox: "Syncing N of M mailboxes…" (null for single mailbox) */}
-      <ConsolidatedSyncIndicator />
+      {/* Combined inbox: "Syncing N of M mailboxes…". No such view in a
+          single-mailbox build. */}
+      {__SINGLE_MAILBOX__ ? null : <ConsolidatedSyncIndicator />}
 
       {/* Message list body */}
       <ScrollArea

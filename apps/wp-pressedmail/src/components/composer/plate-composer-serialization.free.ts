@@ -7,6 +7,7 @@ import {
 
 import { parseComposerHtmlInert } from "@/lib/composer/composer-html-inert";
 import { serializeComposerValueToPlainText } from "@/lib/composer/plain-text-serialization";
+import { getComposerLinkStyle, readComposerLinkStyle } from "./plate/link-style";
 import {
   getTableCellBorderStyleAttribute,
   parseTableCellBorders,
@@ -206,8 +207,11 @@ function serializeNode(node: ComposerNode): string {
     case "a":
     case "link": {
       const href = safeLink(node.url ?? node.href);
+      const style = Object.entries(getComposerLinkStyle(node.linkStyle))
+        .map(([property, value]) => `${property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}:${value}`)
+        .join(";");
       return href
-        ? `<a href="${escapeAttribute(href)}">${children}</a>`
+        ? `<a href="${escapeAttribute(href)}"${optionalAttribute("style", style)}>${children}</a>`
         : children;
     }
     case "hr":
@@ -223,8 +227,6 @@ function serializeNode(node: ComposerNode): string {
       const filename = String(node.filename ?? "Attachment");
       return `<span data-pm-block="attachment"${optionalAttribute("data-filename", filename)}${optionalAttribute("data-size", node.size)}${optionalAttribute("data-attachment-id", node.id)}>${escapeHtml(filename)}</span>`;
     }
-    case "ai-suggestion":
-      return children;
     case "callout": {
       const background =
         typeof node.backgroundColor === "string"
@@ -520,7 +522,7 @@ function domNodeToComposerNodes(
   }
 
   if (tag === "a") {
-    return [{ type: "a", url: node.getAttribute("href") ?? "", children }];
+    return [{ type: "a", url: node.getAttribute("href") ?? "", ...readComposerLinkStyle(node), children }];
   }
   if (tag === "img") {
     return [

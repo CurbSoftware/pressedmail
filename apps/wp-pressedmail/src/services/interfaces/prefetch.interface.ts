@@ -23,6 +23,8 @@ export type FetchPriority = "user-selected" | "visible" | "background";
  * - `{ pending: true }` the server is still assembling the body (bodyState:'pending') or the
  *                       request hit its budget (RequestTimeoutError), the caller should show a
  *                       "taking longer" affordance and re-poll, NOT treat it as empty/failed.
+ *                       `stub` is the headers-only copy the server sends with a pending body, for a
+ *                       caller that has no list row to show the message from.
  * - `{ failed: true }`  a hard error on an explicit user-selected fetch (thrown non-timeout error
  *                       OR an error-envelope response). The caller shows a distinct "couldn't load
  *                       this message" error branch with a manual Retry. NEVER a false "No content".
@@ -33,7 +35,7 @@ export type FetchPriority = "user-selected" | "visible" | "background";
  */
 export type PrefetchOutcome =
   | { detail: EmailMessage }
-  | { pending: true }
+  | { pending: true; stub?: EmailMessage }
   | { failed: true; reason?: string; requiresRefresh?: boolean }
   | null;
 
@@ -82,6 +84,26 @@ export interface IPrefetchService {
     accountId: string,
     folder: string,
     messageIds: Array<string | number>,
+  ): Promise<WarmBatchOutcome>;
+
+  /**
+   * Ensure the server mirror holds bodies for these messages before a bulk
+   * operation reads them.
+   *
+   * The bulk form of warmBatch: up to fifty UIDs per request (the endpoint's
+   * `bulk` mode), sent sequentially per mailbox generation, with the bulk
+   * operation's AbortSignal so a stopped run stops warming too. Never throws:
+   * whatever could not be warmed is simply left for the operation's own
+   * bounded fallback.
+   */
+  warmBulk(
+    accountId: string | number,
+    folder: string,
+    messages: Array<{
+      uid?: string | number;
+      uidValidity?: string | number;
+    }>,
+    signal?: AbortSignal,
   ): Promise<WarmBatchOutcome>;
 
   /**

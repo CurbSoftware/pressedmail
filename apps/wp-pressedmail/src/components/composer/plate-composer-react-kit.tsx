@@ -86,7 +86,7 @@ import {
   PlaceholderPlugin,
   VideoPlugin,
 } from '@kit/plate/media/react';
-import { MentionInputPlugin, MentionPlugin } from '@kit/plate/mention/react';
+import { MentionPlugin } from '@kit/plate/mention/react';
 import {
   TableCellHeaderPlugin,
   TableCellPlugin,
@@ -123,7 +123,8 @@ import { AudioElement, FileElement, VideoElement } from './plate/media-node';
 import { PlaceholderElement } from './plate/media-placeholder-node';
 import { MediaPreviewDialog } from './plate/media-preview-dialog';
 import { MediaUploadToast } from './plate/media-upload-toast';
-import { MentionElement, MentionInputElement } from './plate/mention-node';
+import { MentionElement } from './plate/mention-node';
+import { MentionInputKit } from '@/components/composer/plate/mention-input-kit.active';
 import {
   TableCellElement,
   TableCellHeaderElement,
@@ -151,10 +152,12 @@ import {
 } from './plate/optional-fallback-plugins';
 import { SlashKit } from './plate/slash-kit';
 import { SplitSoftBreaksPlugin } from './plate/split-soft-breaks-plugin';
+import { getComposerLinkStyle, parseComposerLink } from './plate/link-style';
 
 /* ─── Minimal node components (PressedMail tokens only) ─── */
 
 function ComposerLinkNode(props: PlateElementProps<TLinkElement>) {
+  const style = getComposerLinkStyle(props.element.linkStyle);
   return (
     <PlateElement
       {...props}
@@ -162,11 +165,13 @@ function ComposerLinkNode(props: PlateElementProps<TLinkElement>) {
       attributes={{
         ...props.attributes,
         ...getLinkAttributes(props.editor, props.element),
+        'data-pm-authored-link-color': style.color ? 'true' : undefined,
         onMouseOver: (e) => {
           e.stopPropagation();
         },
       }}
-      className="text-primary underline underline-offset-2"
+      className={`${style.color ? '' : 'text-primary'} ${style.textDecoration ? '' : 'underline underline-offset-2'}`}
+      style={style}
     >
       {props.children}
     </PlateElement>
@@ -245,11 +250,15 @@ export const ComposerReactPlugins = [
     },
   }),
 
-  // Mentions wired to PressedMail contacts (email-safe → @name text)
+  // Mentions search PressedMail contacts, which are Pro. Free keeps the chip
+  // so a draft that already holds a mention still renders, but has no `@`
+  // trigger and no combobox, so the contact search never ships there.
   MentionPlugin.configure({
-    options: { triggerPreviousCharPattern: /^$|^[\s"']$/ },
+    options: __ENABLE_CONTACTS__
+      ? { triggerPreviousCharPattern: /^$|^[\s"']$/ }
+      : { triggerQuery: () => false },
   }).withComponent(MentionElement),
-  MentionInputPlugin.withComponent(MentionInputElement),
+  ...MentionInputKit,
 
   // Optional feature fallbacks. Existing equation/drawing values remain
   // visible, but the default PressedMail bundle does not import KaTeX,
@@ -278,6 +287,10 @@ export const ComposerReactPlugins = [
   // Links (floating insert/edit toolbar rendered after the editable, the
   // way the template's link-kit wires it)
   LinkPlugin.configure({
+    parsers: { html: { deserializer: {
+      rules: [{ validNodeName: 'A' }],
+      parse: ({ element, editor, type }) => parseComposerLink(element, editor, type),
+    } } },
     options: {
       allowedSchemes: ['http', 'https', 'mailto', 'tel'],
       transformInput: (url) => {
@@ -461,9 +474,14 @@ export const ComposerReactPlugins = [
   toPlatePlugin(AttachmentCardPlugin, {
     node: { component: AttachmentCardNode },
   }),
-  toPlatePlugin(AISuggestionPlugin, {
-    node: { component: AISuggestionNode },
-  }),
+  // AI suggestion marks come from Pro AI drafting; Free has no renderer.
+  ...(__IS_FREE__
+    ? []
+    : [
+        toPlatePlugin(AISuggestionPlugin, {
+          node: { component: AISuggestionNode },
+        }),
+      ]),
 
   // Promote every <br>/\n soft break to its own block so each line can be
   // styled independently (alignment, line-height). Wraps

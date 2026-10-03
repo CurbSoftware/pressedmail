@@ -1,10 +1,10 @@
-import type { Value } from '@kit/plate';
+import type { Value } from "@kit/plate";
 import type {
   PlateEmailEditorAdapterProps,
   PlateEmailEditorRef,
-} from '@kit/plate/email-editor';
-import type { ComposerSignaturePlacement } from '@/hooks/useUserPreferences';
-import type { Signature } from '@/types/signatures';
+} from "@kit/plate/email-editor";
+import type { ComposerSignaturePlacement } from "@/hooks/useUserPreferences";
+import type { Signature } from "@/types/signatures";
 
 export type PressedMailComposerValue = Value;
 
@@ -18,6 +18,9 @@ export type PressedMailComposerValue = Value;
  * a hand-built ref that has no signature command.
  */
 export interface ComposerSignatureCommand {
+  undo?: () => void;
+  redo?: () => void;
+  captureDropSelection?: (event: React.DragEvent) => boolean;
   /**
    * Seat a signature block, replacing the author's existing one. `placement`
    * decides whether it goes in front of the quote anchor or at the end of the
@@ -28,14 +31,25 @@ export interface ComposerSignatureCommand {
    * different rule from the one the string paths apply.
    */
   insertSignatureBlock?: (
-    signature: Pick<Signature, 'content' | 'content_type'>,
+    signature: Pick<Signature, "content" | "content_type">,
     placement: ComposerSignaturePlacement,
   ) => void;
   /** Remove the author's signature block, if the document has one. */
   removeSignatureBlock?: () => void;
 }
 
-export type EmailEditorRef = PlateEmailEditorRef & ComposerSignatureCommand;
+export type EmailEditorRef = PlateEmailEditorRef & ComposerSignatureCommand & {
+  /** Restore the captured selection after an authoring preview closes. */
+  restoreFocus?: () => void;
+};
 
-export interface PressedMailPlateComposerProps
-  extends PlateEmailEditorAdapterProps<PressedMailComposerValue> {}
+export interface PressedMailPlateComposerProps extends PlateEmailEditorAdapterProps<PressedMailComposerValue> {
+  /**
+   * Mount the field chip and its `{{` picker. Callers derive it from the
+   * surface's `templateVariables` flag and the `templates` feature. The Free
+   * kit is empty, so this does nothing there.
+   */
+  variablesEnabled?: boolean;
+  /** Keep the document mounted while a server-rendered preview is shown. */
+  contentHidden?: boolean;
+}

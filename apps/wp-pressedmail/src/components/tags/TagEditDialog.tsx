@@ -23,7 +23,10 @@ import {
   Switch,
   Textarea,
 } from "@kit/ui/plugin";
-import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
+import {
+  tagConfidenceHelp,
+  useAutoTaggerToolAvailable,
+} from "@/context/auto-tagger/AutoTaggerContext";
 import { SwatchColorPicker } from "../ui/color-picker/SwatchColorPicker";
 import {
   PressedAlertDialogContent,
@@ -39,6 +42,23 @@ import { TAG_COLORS } from "../../types/tags";
 import type { Tag, CreateTagData, UpdateTagData } from "../../types/tags";
 
 const DEFAULT_TAG_COLOR = TAG_COLORS[10] ?? "#3b82f6";
+/** Minimum AI confidence, in percent, before a tag applies automatically. */
+const DEFAULT_AI_CONFIDENCE = 70;
+
+// Auto-tagging is Pro: the Free build compiles none of a tag's AI fields.
+const confidenceText = (tag: Tag | null) =>
+  __ENABLE_AUTO_TAGGER__
+    ? String(tag?.ai_confidence ?? DEFAULT_AI_CONFIDENCE)
+    : String(DEFAULT_AI_CONFIDENCE);
+
+const legacyPrompt = (tag: Tag | null) =>
+  __ENABLE_AUTO_TAGGER__ ? tag?.ai_prompt : undefined;
+
+const autoTagEnabled = (tag: Tag | null) =>
+  __ENABLE_AUTO_TAGGER__ ? Boolean(tag?.ai_auto_tag_enabled) : false;
+
+const validConfidence = (value: string) =>
+  /^\d{1,2}$/.test(value) && Number(value) >= 1 && Number(value) <= 99;
 
 /**
  * Tag Edit Dialog Component
@@ -49,6 +69,10 @@ export interface TagEditDialogProps {
   tag: Tag | null;
   onSave: (data: CreateTagData | UpdateTagData) => Promise<void>;
   error?: string | null;
+  /** Where focus goes on close. Needed when the dialog has no trigger. */
+  onCloseAutoFocus?: (event: Event) => void;
+  /** Name to start a new tag with, such as the text typed in a filter. */
+  initialName?: string;
 }
 
 export const TagEditDialog: React.FC<TagEditDialogProps> = ({
@@ -57,31 +81,40 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
   tag,
   onSave,
   error,
+  onCloseAutoFocus,
+  initialName = "",
 }) => {
-  const aiAvailable = useAutoTaggerToolAvailable();
-  const [name, setName] = useState(tag?.name || "");
+  const autoTaggerToolAvailable = useAutoTaggerToolAvailable();
+  const aiAvailable = __ENABLE_AUTO_TAGGER__ && autoTaggerToolAvailable;
+  const [name, setName] = useState(tag?.name || initialName);
   const [color, setColor] = useState(tag?.color || DEFAULT_TAG_COLOR);
   // A tag's single description doubles as the AI auto-tag instruction. Fall back
   // to a legacy tag's ai_prompt for tags created before the description field.
   const [description, setDescription] = useState(
-    tag?.description || tag?.ai_prompt || "",
+    tag?.description || legacyPrompt(tag) || "",
   );
-  const [aiEnabled, setAiEnabled] = useState(tag?.ai_auto_tag_enabled || false);
+  const [aiEnabled, setAiEnabled] = useState(autoTagEnabled(tag));
+  const [confidence, setConfidence] = useState(confidenceText(tag));
   const [saving, setSaving] = useState(false);
+  const nameRef = React.useRef<HTMLInputElement>(null);
+  // Confidence only matters, and only shows, while auto-tagging is on.
+  const confidenceInvalid =
+    aiAvailable && aiEnabled && !validConfidence(confidence);
 
   // Reset form when dialog opens
   React.useEffect(() => {
     if (open) {
-      setName(tag?.name || "");
+      setName(tag?.name || initialName);
       setColor(tag?.color || DEFAULT_TAG_COLOR);
-      setDescription(tag?.description || tag?.ai_prompt || "");
-      setAiEnabled(tag?.ai_auto_tag_enabled || false);
+      setDescription(tag?.description || legacyPrompt(tag) || "");
+      setAiEnabled(autoTagEnabled(tag));
+      setConfidence(confidenceText(tag));
     }
-  }, [open, tag]);
+  }, [open, tag, initialName]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || confidenceInvalid) return;
 
     setSaving(true);
     try {
@@ -90,7 +123,14 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
         description: description.trim(),
         color,
         // AI auto-tag config is only meaningful when AI is configured.
-        ...(aiAvailable ? { ai_auto_tag_enabled: aiEnabled } : {}),
+        ...(__ENABLE_AUTO_TAGGER__ && aiAvailable
+          ? {
+              ai_auto_tag_enabled: aiEnabled,
+              ai_confidence: validConfidence(confidence)
+                ? Number(confidence)
+                : DEFAULT_AI_CONFIDENCE,
+            }
+          : {}),
       });
     } finally {
       setSaving(false);
@@ -99,15 +139,31 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <PressedDialogContent size="paletteForm">
+      <PressedDialogContent
+        size="paletteForm"
+        onCloseAutoFocus={onCloseAutoFocus}
+        // Radix selects a field it focuses on open, so the first keystroke
+        // replaced a name carried over from the tag filter. Caret at the end.
+        onOpenAutoFocus={(event) => {
+          const field = nameRef.current;
+          if (!field) return;
+          event.preventDefault();
+          field.focus();
+          field.setSelectionRange(field.value.length, field.value.length);
+        }}>
         <PressedDialogHeader
           title={
-            tag ? __("Edit tag", "pressedmail") : __("Create tag", "pressedmail")
+            tag
+              ? __("Edit tag", "pressedmail")
+              : __("Create tag", "pressedmail")
           }
           icon={TagIcon}
           description={
             tag
-              ? __("Change this tag's name, color or description.", "pressedmail")
+              ? __(
+                  "Change this tag's name, color or description.",
+                  "pressedmail",
+                )
               : __("Create a tag to label your email.", "pressedmail")
           }
           descriptionMode="sr-only"
@@ -118,7 +174,9 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
             {/* Name Input */}
             <div className="space-y-2">
               <Label htmlFor="tag-name">{__("Name", "pressedmail")}</Label>
-              <Input autoComplete="off"
+              <Input
+                ref={nameRef}
+                autoComplete="off"
                 id="tag-name"
                 data-test="tag-name"
                 value={name}
@@ -133,30 +191,28 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
               <Label htmlFor="tag-description">
                 {__("Description", "pressedmail")}
               </Label>
-              <Textarea autoComplete="off"
+              <Textarea
+                autoComplete="off"
                 id="tag-description"
                 data-test="tag-description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder={
-                  aiAvailable
-                    ? __(
-                        "Describe this tag. With AI auto-tagging on, this is the instruction the AI follows.",
-                        "pressedmail",
-                      )
-                    : __("What is this tag for?", "pressedmail")
-                }
+                // The AI switch below explains the instruction role in its
+                // helper text, which stays put while typing.
+                placeholder={__("What is this tag for?", "pressedmail")}
                 rows={4}
               />
             </div>
 
             {/* AI auto-tagging, only shown when the AI key/settings are configured */}
-            {aiAvailable ? (
+            {__ENABLE_AUTO_TAGGER__ && aiAvailable ? (
               <div className="space-y-2 rounded-md border border-border p-3">
-                <div className="flex items-center justify-between gap-3">
+                {/* The whole row is the label, so the small switch has a
+                    44px target on a phone. */}
+                <div className="flex items-center justify-between gap-3 pointer-coarse:min-h-11">
                   <Label
                     htmlFor="tag-ai-enabled"
-                    className="text-sm font-medium">
+                    className="flex-1 self-stretch text-sm font-medium pointer-coarse:flex pointer-coarse:items-center">
                     {__("AI auto-tagging", "pressedmail")}
                   </Label>
                   <Switch
@@ -172,6 +228,48 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
                     "pressedmail",
                   )}
                 </p>
+                {aiEnabled ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <Label
+                        htmlFor="tag-ai-confidence"
+                        className="text-sm font-medium">
+                        {__("Confidence", "pressedmail")}
+                      </Label>
+                      <div className="flex items-center gap-1">
+                        <Input
+                          autoComplete="off"
+                          id="tag-ai-confidence"
+                          data-test="tag-ai-confidence"
+                          // No type="number": wp-admin styles that type 40px
+                          // tall, beside a 32px Name field. The check below
+                          // already takes whole numbers only.
+                          inputMode="numeric"
+                          className="w-20"
+                          value={confidence}
+                          aria-invalid={confidenceInvalid}
+                          aria-describedby="tag-ai-confidence-help"
+                          onChange={(e) => setConfidence(e.target.value.trim())}
+                        />
+                        <span className="text-sm text-muted-foreground">%</span>
+                      </div>
+                    </div>
+                    <p
+                      id="tag-ai-confidence-help"
+                      className={
+                        confidenceInvalid
+                          ? "text-xs text-destructive"
+                          : "text-xs text-muted-foreground"
+                      }>
+                      {confidenceInvalid
+                        ? __(
+                            "Enter a whole number from 1 to 99.",
+                            "pressedmail",
+                          )
+                        : tagConfidenceHelp()}
+                    </p>
+                  </>
+                ) : null}
               </div>
             ) : null}
 
@@ -198,8 +296,6 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
                   description,
                   color,
                   icon: null,
-                  ai_prompt: description,
-                  ai_auto_tag_enabled: aiEnabled,
                   sort_order: 0,
                   is_active: true,
                   created_at: "",
@@ -217,13 +313,15 @@ export const TagEditDialog: React.FC<TagEditDialogProps> = ({
             <Button
               type="button"
               variant="outline"
+              className="pointer-coarse:min-h-11"
               onClick={() => onOpenChange(false)}>
               {__("Cancel", "pressedmail")}
             </Button>
             <Button
               type="submit"
+              className="pointer-coarse:min-h-11"
               data-test="tag-save"
-              disabled={!name.trim() || saving}>
+              disabled={!name.trim() || saving || confidenceInvalid}>
               {saving
                 ? __("Saving…", "pressedmail")
                 : tag
@@ -286,7 +384,9 @@ export const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
             onClick={handleConfirm}
             disabled={deleting}
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-            {deleting ? __("Deleting…", "pressedmail") : __("Delete", "pressedmail")}
+            {deleting
+              ? __("Deleting…", "pressedmail")
+              : __("Delete", "pressedmail")}
           </AlertDialogAction>
         </PressedOverlayFooter>
       </PressedAlertDialogContent>

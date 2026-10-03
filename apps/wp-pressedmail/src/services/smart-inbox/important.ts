@@ -5,12 +5,12 @@ import {
 import { getPluginRestBase } from "@/lib/runtime-config";
 import { apiFetch } from "@/lib/api-client";
 /**
- * Smart-inbox importance helpers.
+ * Message importance helpers.
  *
- * `important` has no IMAP flag, user-controlled importance is persisted through
- * the smart-inbox priority API (the same endpoint as useSmartInbox().markImportant).
- * These helpers let the inbox list optimistically toggle importance and revert on
- * failure, without depending on the React hook.
+ * `important` has no IMAP flag, so the user's override is persisted on the
+ * mailbox mirror through POST messages/important, which every edition
+ * registers. These helpers let the inbox list optimistically toggle importance
+ * and revert on failure, without depending on a React hook.
  */
 
 export interface ToggleResult {
@@ -27,7 +27,7 @@ export interface MarkImportantContext {
 }
 
 /**
- * Persist a message's importance via the smart-inbox priority endpoint.
+ * Persist a message's importance via POST messages/important.
  */
 export async function markMessageImportant(
   messageId: string | number,
@@ -73,7 +73,7 @@ export async function markMessageImportant(
     };
 
     const response = await apiFetch(
-      `${getPluginRestBase()}smart-inbox/important`,
+      `${getPluginRestBase()}messages/important`,
       {
         method: "POST",
         headers: {

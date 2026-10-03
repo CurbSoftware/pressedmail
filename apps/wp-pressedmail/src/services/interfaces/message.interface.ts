@@ -64,6 +64,24 @@ export interface BatchOperationResult extends OperationResult {
   createdFolders?: { path: string; folderId?: number | null }[];
   /** Per-account failures for cross-account (consolidated) operations. */
   accountErrors?: { accountId: string | number; error: string }[];
+  /**
+   * Local ids of messages the server moved or deleted while the caller asked
+   * to defer local removal. Present only with `deferRemoval`; the caller
+   * removes them (see `applyDeferredRemoval`) once the whole operation has
+   * finished, so per-row feedback stays visible until then.
+   */
+  removableLocalIds?: string[];
+}
+
+/**
+ * Options for batch operations that support deferred local removal.
+ */
+export interface BatchRemovalOptions {
+  /**
+   * Skip removing successfully mutated messages from the local list inline.
+   * Their local ids come back in `removableLocalIds` instead.
+   */
+  deferRemoval?: boolean;
 }
 
 /**

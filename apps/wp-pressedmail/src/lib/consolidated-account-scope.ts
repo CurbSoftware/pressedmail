@@ -19,8 +19,10 @@ export function getAccountNumericId(account: EmailAccount): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+/** Mailboxes the combined inbox may include: the user's own, never shared ones. */
 export function getAvailableAccountIds(accounts: EmailAccount[]): number[] {
   return accounts
+    .filter((account) => !account.share)
     .map(getAccountNumericId)
     .filter((id): id is number => id !== null);
 }
@@ -59,7 +61,8 @@ export function getEffectiveConsolidatedAccountIdsForLayout(
   defaultAccountId: number | string | null | undefined,
   layoutId: string,
 ): number[] {
-  return layoutId === "pressedout"
+  // PressedOut is a Pro layout; Free compiles only the selection path.
+  return !__IS_FREE__ && layoutId === "pressedout"
     ? getAvailableAccountIds(accounts)
     : getEffectiveConsolidatedAccountIds(
         accounts,

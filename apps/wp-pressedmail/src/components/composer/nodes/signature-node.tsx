@@ -26,7 +26,7 @@ export function SignatureNode({
     <PlateElement
       attributes={attributes}
       className={cn(
-        'pm-signature-block border-l-2 border-pro/30 pl-4 my-4',
+        'pm-signature-block my-4',
         className,
       )}
       element={element}

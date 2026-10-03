@@ -9,6 +9,7 @@
  * @since 1.6.0
  */
 
+import { useProFeatureAvailable, useProFeatureEnabled } from "@/context/features/pro-feature.active";
 import { __, _x, sprintf } from "@wordpress/i18n";
 import {
   useEffect,
@@ -26,7 +27,6 @@ import {
   Image as ImageIcon,
   FolderInput,
   Tags,
-  Maximize2,
   FileText,
 } from "lucide-react";
 import {
@@ -36,7 +36,6 @@ import {
 } from "@/lib/folder-target";
 import type { FolderTarget } from "@/services/interfaces";
 import { SnoozePopover } from "@/components/snooze/snooze-popover";
-import { useSnooze } from "@/components/snooze/use-snooze";
 import {
   AddSenderContactIcon,
   EmailArchiveIcon,
@@ -45,6 +44,7 @@ import {
   EmailForwardIcon,
   EmailMarkUnreadIcon,
   EmailMoreActionsIcon,
+  EmailOpenLargerViewIcon,
   EmailReplyAllIcon,
   EmailReplyIcon,
   EmailTrashIcon,
@@ -71,11 +71,11 @@ import {
   useMessageOperations,
   useFolderOperations,
 } from "@/context/InboxContext";
+import { useActionBarAutoTag } from "@/components/inbox/message-auto-tag.active";
 import {
-  useAutoTagger,
-  useAutoTaggerToolAvailable,
-} from "@/context/auto-tagger/AutoTaggerContext";
-import { useEmailSummaries } from "@/context/email-summary";
+  useOptionalEmailSummaries,
+  useOptionalSnooze,
+} from "@/hooks/useOptionalProContexts";
 import {
   useFeatureAvailable,
   useFeatureEnabled,
@@ -85,6 +85,8 @@ import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useSelectedMessagePhishingScan } from "@/hooks/useSelectedMessagePhishingScan";
 import { PhishingSafetyButton } from "@/components/phishing/PhishingSafetyButton";
+import { SpamProtectActions } from "@/components/spam";
+import { useSecurity } from "@/context/security";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
 import { getCacheService, getInboxService } from "@/services/implementations";
 import {
@@ -96,7 +98,11 @@ import {
   isRequestPrincipalCurrent,
   type StoragePrincipal,
 } from "@/lib/principal-storage";
-import { MailTagActionDropdown } from "./MailTagActionDropdown";
+import {
+  MailTagActionPopover,
+  type MailTagChange,
+} from "./MailTagActionPopover";
+import { useSharedMailboxRole } from "@/components/sharing";
 import {
   PRESSED_OUT_RIBBON_ICON_CLASS,
   PressedOutRibbonButton,
@@ -117,6 +123,7 @@ import { isAiSummarizeBuildEnabled } from "@/lib/build-variant";
 import type { EmailMessage, EmailMessageTag } from "@/types";
 import type { Tag } from "@/types/tags";
 import { resolveEmailBody } from "@/lib/email-content-normalization";
+import { applyMessageTagSteps } from "@/lib/message-tag-apply";
 
 /**
  * Build a readable move-target label. Nested folders are shown with their
@@ -264,7 +271,7 @@ export function PressedOutDisabledMessageActions({
             <PressedOutRibbonButton
               label={__("Tag", "pressedmail")}
               disabled
-              ariaLabel={__("Add tag", "pressedmail")}
+              ariaLabel={__("Edit tags", "pressedmail")}
               dataTest="reading-pane-action-tag"
               icon={<Tags className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
             />
@@ -350,30 +357,46 @@ export function PressedOutDisabledMessageActions({
   );
 }
 
+// Read behind the define so the Free build names no snooze feature.
+const useSnoozeEnabled: () => boolean = __IS_FREE__
+  ? () => false
+  : () => useProFeatureEnabled("snooze");
+
 export function EmailActionBar({
   message,
   onReply,
   onReplyAll,
   onForward,
-  onArchive,
+  onArchive: onArchiveProp,
   onTrash,
-  onMarkUnread,
+  onMarkUnread: onMarkUnreadProp,
   folderRecoveryAction,
-  onFolderRecovery,
+  onFolderRecovery: onFolderRecoveryProp,
   orientation = "horizontal",
-  showOrganizeActions = true,
+  showOrganizeActions: showOrganizeActionsProp = true,
   onExpand,
   isLoading = false,
   blockedCount = 0,
   showImages = false,
   onToggleImages,
 }: EmailActionBarProps) {
-  const [isClassifying, setIsClassifying] = useState(false);
-  const { unsnoozeEmail } = useSnooze();
-  const snoozeEnabled = useFeatureEnabled("snooze");
+  // On a mailbox shared with this user, a Viewer gets no respond or organize
+  // actions, and tags and snooze stay with the owner.
+  const mailboxRole = useSharedMailboxRole(
+    getMessageIdentityRef(message)?.accountId,
+  );
+  const canWrite = mailboxRole.canWrite;
+  const onArchive = canWrite ? onArchiveProp : undefined;
+  const onMarkUnread = canWrite ? onMarkUnreadProp : undefined;
+  const onFolderRecovery = canWrite ? onFolderRecoveryProp : undefined;
+  const showOrganizeActions = canWrite && showOrganizeActionsProp;
+  const snooze = useOptionalSnooze();
+  const snoozeEnabled = useSnoozeEnabled();
   // Local rows carry their durable owner. Original UIDs collide across folders
   // and can change during the parking move, so never resolve a snooze by UID.
+  // The Free build has no local rows, so it reads none of these fields.
   const snoozeId =
+    !__IS_FREE__ &&
     message.snoozed === true &&
     Number.isSafeInteger(message.snooze_id) &&
     Number(message.snooze_id) > 0 &&
@@ -389,15 +412,16 @@ export function EmailActionBar({
     analysisResult,
     runScan,
   } = useSelectedMessagePhishingScan(message);
+  const { spamEnabled } = useSecurity();
   const senderName = parseSenderName(message);
   // Bare address, not the raw From header: the contact lookup, the create
   // call and the remove-confirmation text all want an address alone.
   const senderEmail = parseSenderEmail(message);
   const senderContact = useSenderContact(senderEmail, senderName);
-  const { classifyEmails } = useAutoTagger();
-  const autoTaggerAvailable = useAutoTaggerToolAvailable();
-  const { summarizeMessages, isSummarizing } = useEmailSummaries();
-  const aiSummarizeAvailable = useFeatureAvailable("ai_summarize");
+  const summaries = useOptionalEmailSummaries();
+  const isSummarizing =
+    __ENABLE_AI_SUMMARIZE__ && summaries ? summaries.isSummarizing : false;
+  const aiSummarizeAvailable = useProFeatureAvailable("ai_summarize");
   const { tags, assignTag, removeTag, getMessageTags } = useTags();
   const { folders } = useInbox();
   const { moveMessage, getRawHeaders } = useMessageOperations();
@@ -544,75 +568,16 @@ export function EmailActionBar({
 
   const selectedTagIds = messageTagSelection.map((tag) => Number(tag.id));
 
-  useEffect(() => {
-    setIsClassifying(false);
-  }, [tagScope]);
-
-  const handleAutoClassify = useCallback(async () => {
-    const principal = captureRequestPrincipal();
-    if (
-      !tagIdentity ||
-      tagMutation.current === tagScope ||
-      !isCurrentTagScope(tagScope, principal)
-    )
-      return;
-    tagMutation.current = tagScope;
-    tagReadVersion.current++;
-    setPendingTagScope(tagScope);
-    setIsClassifying(true);
-    try {
-      const result = await classifyEmails(tagIdentity.accountId, [
-        {
-          uid: tagIdentity.uid,
-          uidValidity: tagIdentity.uidValidity,
-          folder: tagIdentity.folder,
-          subject: message.subject || "",
-          from: message.from || message.email || "",
-          to: message.to || "",
-          date: message.receivedDate ?? message.date ?? "",
-          body: message.htmlBody || message.body || "",
-        },
-      ]);
-      invalidateTagCaches(principal);
-      await reloadMessageTags(principal);
-      if (!isCurrentTagScope(tagScope, principal)) return;
-      if (result.status === "success" && result.results?.[0]?.tags?.length) {
-        const tagNames = result.results[0].tags
-          .map((t) => `${t.name} (${Math.round(t.confidence * 100)}%)`)
-          .join(", ");
-        toast.success(
-          sprintf(__("Tags applied: %s", "pressedmail"), tagNames),
-          { duration: 5000 },
-        );
-      } else if (result.status === "success") {
-        toast.info(__("No tags matched this email.", "pressedmail"));
-      } else {
-        toast.error(
-          result.message || __("Classification failed", "pressedmail"),
-        );
-      }
-    } catch (error) {
-      invalidateTagCaches(principal);
-      if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error)) {
-        console.error("Auto-classify error:", error);
-        toast.error(__("Classification failed", "pressedmail"));
-      }
-    } finally {
-      if (tagMutation.current === tagScope) tagMutation.current = null;
-      if (isCurrentTagScope(tagScope, principal)) {
-        setPendingTagScope(null);
-        setIsClassifying(false);
-      } else invalidateTagCaches(principal);
-    }
-  }, [
-    message,
+  const autoTag = useActionBarAutoTag(message, {
     tagIdentity,
     tagScope,
-    classifyEmails,
-    reloadMessageTags,
-    invalidateTagCaches,
+    tagMutation,
+    tagReadVersion,
+    setPendingTagScope,
     isCurrentTagScope,
-  ]);
+    invalidateTagCaches,
+    reloadMessageTags,
+  });
 
   const handlePrint = useCallback(() => {
     if (!isCurrentTagScope(tagScope, captureRequestPrincipal())) return;
@@ -695,7 +660,7 @@ export function EmailActionBar({
   );
 
   const handleApplyMessageTags = useCallback(
-    async (nextTagIds: number[]) => {
+    async ({ add, remove }: MailTagChange) => {
       const principal = captureRequestPrincipal();
       if (
         !tagIdentity ||
@@ -706,79 +671,56 @@ export function EmailActionBar({
       // A tag diff cannot be computed from an unknown starting selection.
       if (!messageTagsLoaded) {
         await handleTagDropdownOpenChange(true);
-        return;
+        throw new Error(
+          __(
+            "The tags were still loading. Check them and apply again.",
+            "pressedmail",
+          ),
+        );
       }
       const previousTagIds = new Set(
         messageTagSelection.map((tag) => Number(tag.id)),
       );
-      const nextTagIdSet = new Set(nextTagIds.map(Number));
-      const addedTagIds = Array.from(nextTagIdSet).filter(
-        (id) => !previousTagIds.has(id),
-      );
-      const removedTagIds = Array.from(previousTagIds).filter(
-        (id) => !nextTagIdSet.has(id),
-      );
+      const addedTagIds = add.filter((id) => !previousTagIds.has(id));
+      const removedTagIds = remove.filter((id) => previousTagIds.has(id));
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
       tagMutation.current = tagScope;
       tagReadVersion.current++;
       setPendingTagScope(tagScope);
+      const isCurrent = () => isCurrentTagScope(tagScope, principal);
+      const { accountId, uid, folder, uidValidity } = tagIdentity;
       try {
-        for (const tagId of addedTagIds) {
-          if (!isCurrentTagScope(tagScope, principal)) return;
-          await assignTag(
-            tagId,
-            tagIdentity.accountId,
-            tagIdentity.uid,
-            tagIdentity.folder,
-            tagIdentity.uidValidity,
-          );
-        }
-        for (const tagId of removedTagIds) {
-          if (!isCurrentTagScope(tagScope, principal)) return;
-          await removeTag(
-            tagId,
-            tagIdentity.accountId,
-            tagIdentity.uid,
-            tagIdentity.folder,
-            tagIdentity.uidValidity,
-          );
-        }
-        if (!isCurrentTagScope(tagScope, principal)) return;
-        await reloadMessageTags(principal);
-      } catch (error) {
-        invalidateTagCaches(principal);
-        if (!isCurrentTagScope(tagScope, principal)) return;
-        setMessageTagState((current) => ({ ...current, loaded: false }));
-        toast.error(
-          __(
-            "Some tags may have changed. Reloading the message tags.",
-            "pressedmail",
-          ),
-        );
-        try {
-          await reloadMessageTags(principal);
-        } catch {
-          if (isCurrentTagScope(tagScope, principal)) {
-            toast.error(
-              __(
-                "Reload this mailbox to check the message tags.",
-                "pressedmail",
-              ),
-            );
-            await getInboxService()
+        await applyMessageTagSteps({
+          writes: [
+            ...addedTagIds.map(
+              (tagId) => () =>
+                assignTag(tagId, accountId, uid, folder, uidValidity),
+            ),
+            ...removedTagIds.map(
+              (tagId) => () =>
+                removeTag(tagId, accountId, uid, folder, uidValidity),
+            ),
+          ],
+          isCurrent,
+          reload: () => reloadMessageTags(principal),
+          onWriteFailed: () => {
+            invalidateTagCaches(principal);
+            setMessageTagState((current) => ({ ...current, loaded: false }));
+          },
+          onReloadFailed: () => {
+            invalidateTagCaches(principal);
+            void getInboxService()
               .refresh()
               .catch((refreshError) => {
-                if (isCurrentTagScope(tagScope, principal))
+                if (isCurrent())
                   console.error(
                     "Failed to refresh message tags:",
                     refreshError,
                   );
               });
-          }
-        }
-        if (isCurrentTagScope(tagScope, principal))
-          console.error("Failed to update message tags:", error);
+          },
+        });
       } finally {
         if (tagMutation.current === tagScope) tagMutation.current = null;
         if (isCurrentTagScope(tagScope, principal)) setPendingTagScope(null);
@@ -831,10 +773,12 @@ export function EmailActionBar({
   }, [message, requireMessageIdentity, tagScope, isCurrentTagScope]);
 
   const handleSummarize = useCallback(async () => {
+    // AI summaries are Pro: the Free build compiles none of this.
+    if (!__ENABLE_AI_SUMMARIZE__ || !summaries) return;
     const principal = captureRequestPrincipal();
     if (!requireMessageIdentity(principal)) return;
     try {
-      const result = await summarizeMessages([message]);
+      const result = await summaries.summarizeMessages([message]);
       if (!isCurrentTagScope(tagScope, principal)) return;
       if (result.successCount === 0 && result.failedCount > 0) {
         toast.error(__("Failed to summarize email", "pressedmail"));
@@ -847,7 +791,7 @@ export function EmailActionBar({
     }
   }, [
     message,
-    summarizeMessages,
+    summaries,
     requireMessageIdentity,
     tagScope,
     isCurrentTagScope,
@@ -912,8 +856,9 @@ export function EmailActionBar({
   const tagsEnabled = __ENABLE_TAGS__ && tagIdentity !== null;
 
   type ActionTriggerStyle = "horizontal" | "vertical" | "pressedout-command";
+  // PressedOut is Pro: Free folds every command-bar branch away.
   const isCommandTrigger = (triggerStyle: ActionTriggerStyle) =>
-    triggerStyle === "pressedout-command";
+    !__IS_FREE__ && triggerStyle === "pressedout-command";
   const isVerticalTrigger = (triggerStyle: ActionTriggerStyle) =>
     triggerStyle === "vertical";
   const moreMenu = (triggerStyle: ActionTriggerStyle, children?: ReactNode) => (
@@ -942,14 +887,16 @@ export function EmailActionBar({
           disabled={isLoading}
           ariaLabel={label}
           dataTest="reading-pane-action-expand"
-          icon={<Maximize2 className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
+          icon={
+            <EmailOpenLargerViewIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
+          }
         />
       );
     }
 
     return isVerticalTrigger(triggerStyle) ? (
       <VerticalRibbonAction
-        icon={<Maximize2 />}
+        icon={<EmailOpenLargerViewIcon />}
         label={__("Open", "pressedmail")}
         ariaLabel={label}
         tooltip={label}
@@ -967,66 +914,69 @@ export function EmailActionBar({
           aria-label={label}
           data-test="reading-pane-action-expand"
           className="h-7 w-7">
-          <Maximize2 className={MAIL_ACTION_ICON_CLASS} />
+          <EmailOpenLargerViewIcon className={MAIL_ACTION_ICON_CLASS} />
         </Button>
       </PressedTooltip>
     );
   };
 
-  const moveAction = (triggerStyle: ActionTriggerStyle) => (
-    // Non-modal so the dropdown doesn't lock body pointer events / steal focus
-    // (which flash-closes it); mirrors the working Popover-based controls.
-    <DropdownMenu key={`move:${tagScope.key}`} modal={false}>
-      <DropdownMenuTrigger asChild>
-        {isCommandTrigger(triggerStyle) ? (
-          <PressedOutRibbonButton
-            label={__("Move", "pressedmail")}
-            disabled={isLoading}
-            ariaLabel={__("Move to folder", "pressedmail")}
-            dataTest="reading-pane-action-move"
-            onClick={(event) => event.stopPropagation()}
-            icon={<FolderInput className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
-          />
-        ) : isVerticalTrigger(triggerStyle) ? (
-          <VerticalRibbonAction
-            icon={<FolderInput />}
-            label={__("Move", "pressedmail")}
-            ariaLabel={__("Move to folder", "pressedmail")}
-            disabled={isLoading}
-            dataTest="reading-pane-action-move"
-            onClick={(event) => event.stopPropagation()}
-          />
-        ) : (
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={isLoading}
-            aria-label={__("Move to folder", "pressedmail")}
-            className="h-7 w-7"
-            onClick={(event) => event.stopPropagation()}>
-            <FolderInput className={MAIL_ACTION_ICON_CLASS} />
-          </Button>
-        )}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
-        {moveTargets.length === 0 ? (
-          <DropdownMenuItem disabled>
-            {__("No folders available", "pressedmail")}
-          </DropdownMenuItem>
-        ) : (
-          moveTargets.map((folder) => (
-            <DropdownMenuItem
-              key={folderTargetKey(folder)}
-              onSelect={() => void handleMove(folderMutationTarget(folder))}>
-              {formatMoveTargetLabel(folder)}
+  const moveAction = (triggerStyle: ActionTriggerStyle) =>
+    canWrite && (
+      // Non-modal so the dropdown doesn't lock body pointer events / steal focus
+      // (which flash-closes it); mirrors the working Popover-based controls.
+      <DropdownMenu key={`move:${tagScope.key}`} modal={false}>
+        <DropdownMenuTrigger asChild>
+          {isCommandTrigger(triggerStyle) ? (
+            <PressedOutRibbonButton
+              label={__("Move", "pressedmail")}
+              disabled={isLoading}
+              ariaLabel={__("Move to folder", "pressedmail")}
+              dataTest="reading-pane-action-move"
+              onClick={(event) => event.stopPropagation()}
+              icon={<FolderInput className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
+            />
+          ) : isVerticalTrigger(triggerStyle) ? (
+            <VerticalRibbonAction
+              icon={<FolderInput />}
+              label={__("Move", "pressedmail")}
+              ariaLabel={__("Move to folder", "pressedmail")}
+              disabled={isLoading}
+              dataTest="reading-pane-action-move"
+              onClick={(event) => event.stopPropagation()}
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={isLoading}
+              aria-label={__("Move to folder", "pressedmail")}
+              className="h-7 w-7"
+              onClick={(event) => event.stopPropagation()}>
+              <FolderInput className={MAIL_ACTION_ICON_CLASS} />
+            </Button>
+          )}
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto">
+          {moveTargets.length === 0 ? (
+            <DropdownMenuItem disabled>
+              {__("No folders available", "pressedmail")}
             </DropdownMenuItem>
-          ))
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+          ) : (
+            moveTargets.map((folder) => (
+              <DropdownMenuItem
+                key={folderTargetKey(folder)}
+                onSelect={() => void handleMove(folderMutationTarget(folder))}>
+                {formatMoveTargetLabel(folder)}
+              </DropdownMenuItem>
+            ))
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
 
   const snoozeAction = (triggerStyle: ActionTriggerStyle) => {
+    // Snooze is Pro: the Free build compiles neither the popover nor Return early.
+    if (__IS_FREE__ || !mailboxRole.isOwner) return null;
     if (message.snoozed === true && snoozeId === null) return null;
 
     if (snoozeId !== null) {
@@ -1049,7 +999,8 @@ export function EmailActionBar({
         const rowId = message.id;
         const rowAccount = message.accountId;
         try {
-          const result = await unsnoozeEmail(snoozeId);
+          if (!__ENABLE_SNOOZE__ || !snooze) return;
+          const result = await snooze.unsnoozeEmail(snoozeId);
           if (!isRequestPrincipalCurrent(principal)) return;
           if (!result.success) {
             if (!isCurrentTagScope(tagScope, principal)) return;
@@ -1171,6 +1122,7 @@ export function EmailActionBar({
   };
 
   const tagAction = (triggerStyle: ActionTriggerStyle) => {
+    if (!mailboxRole.isOwner) return null;
     if (!tagsEnabled) {
       // Tags unavailable (build flag off or account unresolved): keep a
       // disabled placeholder so the toolbar layout is stable.
@@ -1179,7 +1131,7 @@ export function EmailActionBar({
           <PressedOutRibbonButton
             label={__("Tag", "pressedmail")}
             disabled
-            ariaLabel={__("Add tag", "pressedmail")}
+            ariaLabel={__("Edit tags", "pressedmail")}
             dataTest="reading-pane-action-tag"
             icon={<Tags className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
           />
@@ -1189,7 +1141,7 @@ export function EmailActionBar({
         <VerticalRibbonAction
           icon={<Tags />}
           label={__("Tag", "pressedmail")}
-          ariaLabel={__("Add tag", "pressedmail")}
+          ariaLabel={__("Edit tags", "pressedmail")}
           disabled
           dataTest="reading-pane-action-tag"
         />
@@ -1198,31 +1150,43 @@ export function EmailActionBar({
           variant="ghost"
           size="icon"
           disabled
-          aria-label={__("Add tag", "pressedmail")}
+          aria-label={__("Edit tags", "pressedmail")}
           className="h-7 w-7">
           <Tags className={MAIL_ACTION_ICON_CLASS} />
         </Button>
       );
     }
     return (
-      <MailTagActionDropdown
+      <MailTagActionPopover
         key={tagIdentityKey}
         availableTags={tags}
         selectedTagIds={selectedTagIds}
-        onAutoTag={handleAutoClassify}
         onApplyTags={handleApplyMessageTags}
         onOpenChange={handleTagDropdownOpenChange}
+        // The command ribbon shows its label; the icon styles need the name.
+        tooltip={
+          isCommandTrigger(triggerStyle)
+            ? undefined
+            : __("Edit tags", "pressedmail")
+        }
         disabled={isLoading}
-        isApplying={isTagApplying || !messageTagsLoaded}
-        aiEnabled={showAiClassify}
-        aiDisabled={isClassifying || isLoading || isTagApplying}
-        isAutoTagging={isClassifying}
+        isApplying={isTagApplying}
+        isLoading={!messageTagsLoaded}
+        extraAction={
+          !__IS_FREE__ && showAiClassify && autoTag.autoTag
+            ? {
+                run: autoTag.autoTag,
+                running: autoTag.isAutoTagging,
+                disabled: autoTag.isAutoTagging || isLoading || isTagApplying,
+              }
+            : undefined
+        }
         align="end"
         trigger={
           isCommandTrigger(triggerStyle) ? (
             <PressedOutRibbonButton
               label={__("Tag", "pressedmail")}
-              ariaLabel={__("Add tag", "pressedmail")}
+              ariaLabel={__("Edit tags", "pressedmail")}
               dataTest="reading-pane-action-tag"
               onClick={(event) => event.stopPropagation()}
               icon={<Tags className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
@@ -1231,7 +1195,7 @@ export function EmailActionBar({
             <VerticalRibbonAction
               icon={<Tags />}
               label={__("Tag", "pressedmail")}
-              ariaLabel={__("Add tag", "pressedmail")}
+              ariaLabel={__("Edit tags", "pressedmail")}
               dataTest="reading-pane-action-tag"
               onClick={(event) => event.stopPropagation()}
             />
@@ -1239,7 +1203,7 @@ export function EmailActionBar({
             <Button
               variant="ghost"
               size="icon"
-              aria-label={__("Add tag", "pressedmail")}
+              aria-label={__("Edit tags", "pressedmail")}
               className="h-7 w-7"
               onClick={(event) => event.stopPropagation()}>
               <Tags className={MAIL_ACTION_ICON_CLASS} />
@@ -1345,16 +1309,18 @@ export function EmailActionBar({
    * already a contact and the confirm-before-remove step.
    */
   const hasSenderContactAction =
-    senderContact.available && Boolean(senderEmail);
+    __ENABLE_CONTACTS__ && senderContact.available && Boolean(senderEmail);
   const isSenderContact = senderContact.existingContact !== null;
-  const senderContactLabel = isSenderContact
-    ? __("Remove sender from contacts", "pressedmail")
-    : // The capped-plan copy is Pro-only. `__IS_FREE__` is a build-time
-      // constant, so the Free bundle drops this branch and its string rather
-      // than shipping licence wording it can never display.
-      !__IS_FREE__ && !senderContact.canCreate
-      ? __("Contact limit reached for your plan", "pressedmail")
-      : __("Add sender to contacts", "pressedmail");
+  const senderContactLabel = !__ENABLE_CONTACTS__
+    ? ""
+    : isSenderContact
+      ? __("Remove sender from contacts", "pressedmail")
+      : // The capped-plan copy is Pro-only. `__IS_FREE__` is a build-time
+        // constant, so the Free bundle drops this branch and its string rather
+        // than shipping licence wording it can never display.
+        !__IS_FREE__ && !senderContact.canCreate
+        ? __("Contact limit reached for your plan", "pressedmail")
+        : __("Add sender to contacts", "pressedmail");
   const senderContactDisabled =
     senderContact.pending || (!isSenderContact && !senderContact.canCreate);
   const handleSenderContact = () => {
@@ -1370,7 +1336,7 @@ export function EmailActionBar({
     : AddSenderContactIcon;
 
   const senderContactAction = (triggerStyle: ActionTriggerStyle) => {
-    if (!hasSenderContactAction) return null;
+    if (!__ENABLE_CONTACTS__ || !hasSenderContactAction) return null;
 
     const shortLabel = __("Contact", "pressedmail");
 
@@ -1412,6 +1378,26 @@ export function EmailActionBar({
       </PressedTooltip>
     );
   };
+
+  // Contacts are Pro: the Free build compiles no confirmation and no copy.
+  const senderContactConfirm = __ENABLE_CONTACTS__ ? (
+    <ConfirmationPanel
+      open={senderContact.confirmRemoveOpen}
+      onOpenChange={senderContact.setConfirmRemoveOpen}
+      title={__("Remove", "pressedmail")}
+      description={sprintf(
+        __(
+          "Remove %s from your contacts? This cannot be undone.",
+          "pressedmail",
+        ),
+        senderEmail,
+      )}
+      confirmText={__("Remove", "pressedmail")}
+      variant="destructive"
+      loading={senderContact.pending}
+      onConfirm={senderContact.removeSender}
+    />
+  ) : null;
 
   const summarizeAction = (triggerStyle: ActionTriggerStyle) => {
     if (!showSummarize) return null;
@@ -1490,59 +1476,68 @@ export function EmailActionBar({
     !__IS_FREE__ &&
     __ENABLE_AUTO_TAGGER__ &&
     __ENABLE_AI_AUTO_TAGGER__ &&
-    autoTaggerAvailable;
+    autoTag.available;
   const showPhishing =
     !__IS_FREE__ && __ENABLE_PHISHING_DETECTION__ && phishingEnabled;
+  // Spam checks are the mailbox owner's: a teammate's request is refused.
+  const showSpam =
+    !__IS_FREE__ && __ENABLE_SPAM_DETECTION__ && spamEnabled && mailboxRole.isOwner;
+  const showProtect = showPhishing || showSpam;
   // Read the define directly: esbuild can only fold a bare identifier, so behind
   // isAiSummarizeBuildEnabled() this whole control stayed compiled into the Free
   // bundle and was merely hidden at runtime.
   const showSummarize = __ENABLE_AI_SUMMARIZE__ && aiSummarizeAvailable;
   const recoveryAction = getFolderRecoveryDescriptor(folderRecoveryAction);
 
-  if (orientation === "pressedout-command") {
+  // PressedOut is a Pro layout: the Free build compiles none of its ribbon.
+  if (!__IS_FREE__ && orientation === "pressedout-command") {
     const pressedOutTrigger = orientation;
     return (
       <>
         <div
           className="flex min-w-0 items-center gap-1"
           data-test={`reading-pane-actions-${orientation}`}>
-          <div
-            role="group"
-            aria-label={__("Respond", "pressedmail")}
-            className="flex items-center gap-1">
-            <PressedOutRibbonButton
-              label={__("Reply", "pressedmail")}
-              onClick={onReply}
-              disabled={isLoading}
-              ariaLabel={__("Reply to sender", "pressedmail")}
-              dataTest="reading-pane-action-reply"
-              icon={
-                <EmailReplyIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
-              }
-            />
+          {canWrite && (
+            <div
+              role="group"
+              aria-label={__("Respond", "pressedmail")}
+              className="flex items-center gap-1">
+              <PressedOutRibbonButton
+                label={__("Reply", "pressedmail")}
+                onClick={onReply}
+                disabled={isLoading}
+                ariaLabel={__("Reply to sender", "pressedmail")}
+                dataTest="reading-pane-action-reply"
+                icon={
+                  <EmailReplyIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
+                }
+              />
 
-            <PressedOutRibbonButton
-              label={__("Reply All", "pressedmail")}
-              onClick={onReplyAll}
-              disabled={isLoading}
-              ariaLabel={__("Reply to all recipients", "pressedmail")}
-              dataTest="reading-pane-action-reply-all"
-              icon={
-                <EmailReplyAllIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
-              }
-            />
+              <PressedOutRibbonButton
+                label={__("Reply All", "pressedmail")}
+                onClick={onReplyAll}
+                disabled={isLoading}
+                ariaLabel={__("Reply to all recipients", "pressedmail")}
+                dataTest="reading-pane-action-reply-all"
+                icon={
+                  <EmailReplyAllIcon
+                    className={PRESSED_OUT_RIBBON_ICON_CLASS}
+                  />
+                }
+              />
 
-            <PressedOutRibbonButton
-              label={__("Forward", "pressedmail")}
-              onClick={onForward}
-              disabled={isLoading}
-              ariaLabel={__("Forward message", "pressedmail")}
-              dataTest="reading-pane-action-forward"
-              icon={
-                <EmailForwardIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
-              }
-            />
-          </div>
+              <PressedOutRibbonButton
+                label={__("Forward", "pressedmail")}
+                onClick={onForward}
+                disabled={isLoading}
+                ariaLabel={__("Forward message", "pressedmail")}
+                dataTest="reading-pane-action-forward"
+                icon={
+                  <EmailForwardIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
+                }
+              />
+            </div>
+          )}
 
           {showOrganizeActions && (
             <>
@@ -1605,7 +1600,7 @@ export function EmailActionBar({
             </>
           )}
 
-          {showPhishing && (
+          {showProtect && (
             <>
               <Separator orientation="vertical" className="mx-1 h-9" />
               <div
@@ -1622,6 +1617,13 @@ export function EmailActionBar({
                   ribbonLabel={__("Phishing", "pressedmail")}
                   className="h-[52px] w-16 gap-0.5 px-1 py-1"
                 />
+                {showSpam && (
+                  <SpamProtectActions
+                    message={message}
+                    variant="ribbon"
+                    disabled={isLoading}
+                  />
+                )}
               </div>
             </>
           )}
@@ -1674,7 +1676,7 @@ export function EmailActionBar({
                     aria-label={__("Open in larger view", "pressedmail")}
                     data-test="reading-pane-action-expand"
                     data-testid="reading-pane-action-expand">
-                    <Maximize2 className="mr-2 size-4" />
+                    <EmailOpenLargerViewIcon className="mr-2 size-4" />
                     {__("Open in larger view", "pressedmail")}
                   </DropdownMenuItem>
                 )}
@@ -1683,22 +1685,7 @@ export function EmailActionBar({
           </div>
         </div>
         {headersDialog}
-        <ConfirmationPanel
-          open={senderContact.confirmRemoveOpen}
-          onOpenChange={senderContact.setConfirmRemoveOpen}
-          title={__("Remove", "pressedmail")}
-          description={sprintf(
-            __(
-              "Remove %s from your contacts? This cannot be undone.",
-              "pressedmail",
-            ),
-            senderEmail,
-          )}
-          confirmText={__("Remove", "pressedmail")}
-          variant="destructive"
-          loading={senderContact.pending}
-          onConfirm={senderContact.removeSender}
-        />
+        {senderContactConfirm}
       </>
     );
   }
@@ -1708,36 +1695,43 @@ export function EmailActionBar({
       <div
         className="flex w-full flex-wrap items-center gap-1"
         data-test="reading-pane-actions-vertical">
-        <span className="sr-only">{__("Respond", "pressedmail")}</span>
-        <VerticalRibbonAction
-          icon={<EmailReplyIcon />}
-          label={__("Reply", "pressedmail")}
-          ariaLabel={__("Reply to sender", "pressedmail")}
-          tooltip={__("Reply", "pressedmail")}
-          onClick={onReply}
-          disabled={isLoading}
-          dataTest="reading-pane-action-reply"
-        />
-        <VerticalRibbonAction
-          icon={<EmailReplyAllIcon />}
-          label={__("Reply All", "pressedmail")}
-          ariaLabel={__("Reply to all recipients", "pressedmail")}
-          tooltip={__("Reply All", "pressedmail")}
-          onClick={onReplyAll}
-          disabled={isLoading}
-          dataTest="reading-pane-action-reply-all"
-        />
-        <VerticalRibbonAction
-          icon={<EmailForwardIcon />}
-          label={__("Forward", "pressedmail")}
-          ariaLabel={__("Forward message", "pressedmail")}
-          tooltip={__("Forward", "pressedmail")}
-          onClick={onForward}
-          disabled={isLoading}
-          dataTest="reading-pane-action-forward"
-        />
+        {canWrite && (
+          <>
+            <span className="sr-only">{__("Respond", "pressedmail")}</span>
+            <VerticalRibbonAction
+              icon={<EmailReplyIcon />}
+              label={__("Reply", "pressedmail")}
+              ariaLabel={__("Reply to sender", "pressedmail")}
+              tooltip={__("Reply", "pressedmail")}
+              onClick={onReply}
+              disabled={isLoading}
+              dataTest="reading-pane-action-reply"
+            />
+            <VerticalRibbonAction
+              icon={<EmailReplyAllIcon />}
+              label={__("Reply All", "pressedmail")}
+              ariaLabel={__("Reply to all recipients", "pressedmail")}
+              tooltip={__("Reply All", "pressedmail")}
+              onClick={onReplyAll}
+              disabled={isLoading}
+              dataTest="reading-pane-action-reply-all"
+            />
+            <VerticalRibbonAction
+              icon={<EmailForwardIcon />}
+              label={__("Forward", "pressedmail")}
+              ariaLabel={__("Forward message", "pressedmail")}
+              tooltip={__("Forward", "pressedmail")}
+              onClick={onForward}
+              disabled={isLoading}
+              dataTest="reading-pane-action-forward"
+            />
 
-        <Separator orientation="vertical" className="mx-1 h-12 self-center" />
+            <Separator
+              orientation="vertical"
+              className="mx-1 h-12 self-center"
+            />
+          </>
+        )}
 
         <span className="sr-only">{__("Organize", "pressedmail")}</span>
         {onMarkUnread && (
@@ -1777,19 +1771,21 @@ export function EmailActionBar({
               />
             )}
             {snoozeAction("vertical")}
-            <VerticalRibbonAction
-              icon={<EmailTrashIcon />}
-              label={__("Delete", "pressedmail")}
-              ariaLabel={__("Move to trash", "pressedmail")}
-              tooltip={__("Move to trash", "pressedmail")}
-              onClick={onTrash}
-              disabled={isLoading}
-              dataTest="reading-pane-action-trash"
-              className="hover:bg-destructive/10 hover:[&_svg]:text-destructive"
-            />
+            {canWrite && (
+              <VerticalRibbonAction
+                icon={<EmailTrashIcon />}
+                label={__("Delete", "pressedmail")}
+                ariaLabel={__("Move to trash", "pressedmail")}
+                tooltip={__("Move to trash", "pressedmail")}
+                onClick={onTrash}
+                disabled={isLoading}
+                dataTest="reading-pane-action-trash"
+                className="hover:bg-destructive/10 hover:[&_svg]:text-destructive"
+              />
+            )}
           </>
         )}
-        {showPhishing && (
+        {showProtect && (
           <>
             <span className="sr-only">{__("Protect", "pressedmail")}</span>
             {showPhishing && (
@@ -1803,6 +1799,13 @@ export function EmailActionBar({
                 ribbonLabel={__("Phishing", "pressedmail")}
               />
             )}
+            {showSpam && (
+              <SpamProtectActions
+                message={message}
+                variant="vertical"
+                disabled={isLoading}
+              />
+            )}
           </>
         )}
 
@@ -1812,22 +1815,7 @@ export function EmailActionBar({
         {expandAction("vertical")}
         {moreMenu("vertical")}
         {headersDialog}
-        <ConfirmationPanel
-          open={senderContact.confirmRemoveOpen}
-          onOpenChange={senderContact.setConfirmRemoveOpen}
-          title={__("Remove", "pressedmail")}
-          description={sprintf(
-            __(
-              "Remove %s from your contacts? This cannot be undone.",
-              "pressedmail",
-            ),
-            senderEmail,
-          )}
-          confirmText={__("Remove", "pressedmail")}
-          variant="destructive"
-          loading={senderContact.pending}
-          onConfirm={senderContact.removeSender}
-        />
+        {senderContactConfirm}
       </div>
     );
   }
@@ -1835,45 +1823,51 @@ export function EmailActionBar({
   return (
     <>
       <div className="flex flex-wrap items-center gap-3">
-        <span className="sr-only">{__("Respond", "pressedmail")}</span>
-        <div
-          className="flex items-center gap-0 rounded-md border border-border/60 px-0.5"
-          data-test="reading-pane-respond-group">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReply}
-            disabled={isLoading}
-            aria-label={__("Reply to sender", "pressedmail")}
-            className="h-7 gap-1">
-            <EmailReplyIcon className={MAIL_ACTION_ICON_CLASS} />
-            <span className="text-xs">{__("Reply", "pressedmail")}</span>
-          </Button>
+        {canWrite && (
+          <>
+            <span className="sr-only">{__("Respond", "pressedmail")}</span>
+            <div
+              className="flex items-center gap-0 rounded-md border border-border/60 px-0.5"
+              data-test="reading-pane-respond-group">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onReply}
+                disabled={isLoading}
+                aria-label={__("Reply to sender", "pressedmail")}
+                className="h-7 gap-1">
+                <EmailReplyIcon className={MAIL_ACTION_ICON_CLASS} />
+                <span className="text-xs">{__("Reply", "pressedmail")}</span>
+              </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReplyAll}
-            disabled={isLoading}
-            aria-label={__("Reply to all recipients", "pressedmail")}
-            className="h-7 gap-1">
-            <EmailReplyAllIcon className={MAIL_ACTION_ICON_CLASS} />
-            <span className="text-xs">{__("Reply All", "pressedmail")}</span>
-          </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onReplyAll}
+                disabled={isLoading}
+                aria-label={__("Reply to all recipients", "pressedmail")}
+                className="h-7 gap-1">
+                <EmailReplyAllIcon className={MAIL_ACTION_ICON_CLASS} />
+                <span className="text-xs">
+                  {__("Reply All", "pressedmail")}
+                </span>
+              </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onForward}
-            disabled={isLoading}
-            aria-label={__("Forward message", "pressedmail")}
-            className="h-7 gap-1">
-            <EmailForwardIcon className={MAIL_ACTION_ICON_CLASS} />
-            <span className="text-xs">{__("Forward", "pressedmail")}</span>
-          </Button>
-        </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onForward}
+                disabled={isLoading}
+                aria-label={__("Forward message", "pressedmail")}
+                className="h-7 gap-1">
+                <EmailForwardIcon className={MAIL_ACTION_ICON_CLASS} />
+                <span className="text-xs">{__("Forward", "pressedmail")}</span>
+              </Button>
+            </div>
 
-        <Separator orientation="vertical" className="h-5" />
+            <Separator orientation="vertical" className="h-5" />
+          </>
+        )}
 
         <span className="sr-only">{__("Organize", "pressedmail")}</span>
         <div
@@ -1930,24 +1924,26 @@ export function EmailActionBar({
 
               {snoozeAction("horizontal")}
 
-              <PressedTooltip
-                content={__("Move to trash", "pressedmail")}
-                side="top">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onTrash}
-                  disabled={isLoading}
-                  aria-label={__("Move to trash", "pressedmail")}
-                  className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                  <EmailTrashIcon className={MAIL_ACTION_ICON_CLASS} />
-                </Button>
-              </PressedTooltip>
+              {canWrite && (
+                <PressedTooltip
+                  content={__("Move to trash", "pressedmail")}
+                  side="top">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={onTrash}
+                    disabled={isLoading}
+                    aria-label={__("Move to trash", "pressedmail")}
+                    className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                    <EmailTrashIcon className={MAIL_ACTION_ICON_CLASS} />
+                  </Button>
+                </PressedTooltip>
+              )}
             </>
           )}
         </div>
 
-        {showPhishing && (
+        {showProtect && (
           <>
             <Separator orientation="vertical" className="h-5" />
 
@@ -1964,6 +1960,13 @@ export function EmailActionBar({
                   result={analysisResult}
                   onRunScan={runScan}
                   className="h-7 w-7"
+                />
+              )}
+              {showSpam && (
+                <SpamProtectActions
+                  message={message}
+                  variant="icon"
+                  disabled={isLoading}
                 />
               )}
             </div>
@@ -1983,22 +1986,7 @@ export function EmailActionBar({
         </div>
       </div>
       {headersDialog}
-      <ConfirmationPanel
-        open={senderContact.confirmRemoveOpen}
-        onOpenChange={senderContact.setConfirmRemoveOpen}
-        title={__("Remove", "pressedmail")}
-        description={sprintf(
-          __(
-            "Remove %s from your contacts? This cannot be undone.",
-            "pressedmail",
-          ),
-          senderEmail,
-        )}
-        confirmText={__("Remove", "pressedmail")}
-        variant="destructive"
-        loading={senderContact.pending}
-        onConfirm={senderContact.removeSender}
-      />
+      {senderContactConfirm}
     </>
   );
 }

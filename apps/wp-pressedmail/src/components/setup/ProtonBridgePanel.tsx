@@ -53,12 +53,15 @@ export function ProtonBridgePanel() {
           </AlertDescription>
         </Alert>
 
-        <p className="text-xs text-muted-foreground">
-          {__(
-            "Alternative for sending only: Pro users can send through Proton's smtp.protonmail.ch with an SMTP token via Custom SMTP (custom-domain addresses, no inbox access).",
-            "pressedmail",
-          )}
-        </p>
+        {/* Custom SMTP is Pro, so Free ships no pointer to it. */}
+        {!__IS_FREE__ && (
+          <p className="text-xs text-muted-foreground">
+            {__(
+              "Alternative for sending only: send through Proton's smtp.protonmail.ch with an SMTP token via Custom SMTP (custom-domain addresses, no inbox access).",
+              "pressedmail",
+            )}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

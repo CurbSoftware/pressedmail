@@ -44,16 +44,21 @@ import {
 } from "../../preferences-sections";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useComposerPalettesEnabled } from "@/hooks/useComposerPalettesEnabled";
+import { useAIAvailable } from "@/context/ai/AIContext";
 
 export function PreferencesTab() {
   // Color palettes are Ultimate-tier; the rest of the sections are build-tier.
   const palettesEnabled = useComposerPalettesEnabled();
+  // AI prefs only matter once the admin has AI on with a working connection.
+  const aiAvailable = useAIAvailable();
   const sections = useMemo(
     () =>
       visiblePreferenceSections().filter(
-        (section) => palettesEnabled || section.id !== "color-palettes",
+        (section) =>
+          (palettesEnabled || section.id !== "color-palettes") &&
+          (aiAvailable || section.category !== "ai"),
       ),
-    [palettesEnabled],
+    [palettesEnabled, aiAvailable],
   );
 
   return <PreferencesTabView sections={sections} />;

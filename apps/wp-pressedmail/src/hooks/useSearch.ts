@@ -219,8 +219,12 @@ export function useSearchState(initialAccountId?: number) {
  */
 export function useSearch(initialAccountId?: number) {
   const state = useSearchState(initialAccountId);
-  const contactsAvailable = useFeatureAvailable("contacts");
-  const calendarAvailable = useFeatureAvailable("calendar");
+  // The defines fold both flags to false in the Free build, so the contact
+  // and calendar branches below compile out instead of hiding at runtime.
+  const contactsFeature = useFeatureAvailable("contacts");
+  const calendarFeature = useFeatureAvailable("calendar");
+  const contactsAvailable = __ENABLE_CONTACTS__ && contactsFeature;
+  const calendarAvailable = __ENABLE_CALENDAR__ && calendarFeature;
 
   // Determine the effective scope based on feature availability
   const effectiveScope = useMemo(() => {

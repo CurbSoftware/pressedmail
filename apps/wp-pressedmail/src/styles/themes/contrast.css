@@ -38,6 +38,19 @@
     --chart-4: oklch(0.7083 0 0);
     --chart-5: oklch(0.8587 0 0);
 
+    /* Status tokens, synced with this palette's statusHues in
+       theme-variables.ts. Free has no runtime registry, so without these the
+       palette fell back to the saturated :root green. */
+    --success: oklch(0.52 0.112 150);
+    --success-foreground: oklch(1 0 0);
+    --success-border: oklch(0.5 0.105 150);
+    --warning: oklch(0.5 0.091 70);
+    --warning-foreground: oklch(1 0 0);
+    --warning-border: oklch(0.46 0.084 70);
+    --info: oklch(0.52 0.119 255);
+    --info-foreground: oklch(1 0 0);
+    --info-border: oklch(0.48 0.112 255);
+
     /* Legacy theme variables - Monochrome color palette */
     --theme-primary: #111111;
     --theme-primary-foreground: #ffffff;
@@ -52,9 +65,9 @@
     --theme-border: #111111;
     --theme-input: #ffffff;
     --theme-ring: #111111;
-    --theme-success: #22c55e;
-    --theme-warning: #f59e0b;
-    --theme-error: #ef4444;
+    --theme-success: var(--success);
+    --theme-warning: var(--warning);
+    --theme-error: var(--destructive);
     --theme-starred: #facc15;
     /* Filled importance chevron. Deeper than this palette's other ambers so the
        glyph clears the 3:1 non-text floor on the light card and canvas. */
@@ -335,18 +348,18 @@
 }
 
 .contrast-theme .theme-badge-success {
-  background-color: #dcfce7;
-  color: #16a34a;
+  background-color: color-mix(in oklch, var(--success) 15%, transparent);
+  color: var(--success-text, var(--success));
 }
 
 .contrast-theme .theme-badge-warning {
-  background-color: #fef3c7;
-  color: #d97706;
+  background-color: color-mix(in oklch, var(--warning) 15%, transparent);
+  color: var(--warning-text, var(--warning));
 }
 
 .contrast-theme .theme-badge-error {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: color-mix(in oklch, var(--destructive) 15%, transparent);
+  color: var(--destructive-text, var(--destructive));
 }
 
 /* Avatar styles */

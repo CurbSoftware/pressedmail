@@ -1,5 +1,6 @@
 "use client";
 
+import { proToolTabs } from "@/components/settings/pro-tools/tools.active";
 import { useMemo } from "react";
 import { __ } from "@wordpress/i18n";
 
@@ -145,6 +146,7 @@ export function useAvailableSettingsTabs() {
       });
     }
 
+    if (isPro) result.push(...proToolTabs());
     return result;
   }, []);
 

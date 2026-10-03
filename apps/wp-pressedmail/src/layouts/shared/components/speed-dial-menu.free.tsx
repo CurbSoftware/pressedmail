@@ -1,5 +1,6 @@
-import { useState, type CSSProperties } from "react";
+import { useCallback, useId, useState, type CSSProperties } from "react";
 import { __ } from "@wordpress/i18n";
+import { Move } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { EmailComposeNewIcon } from "@/components/icons/MailActionIcons";
@@ -12,7 +13,11 @@ import { useAppContext } from "@/context/AppProvider";
 import { usePaneCompose } from "@/context/composer";
 import { cn } from "@/lib/utils";
 import { FLOATING_NAVIGATION_Z_INDEX } from "@/components/ui/pane-layers";
-import type { SpeedDialPosition } from "@/hooks/useUserPreferences";
+import {
+  parseSpeedDialPosition,
+  type SpeedDialPosition,
+} from "@/hooks/useUserPreferences";
+import { useSpeedDialDrag } from "@/layouts/shared/components/use-speed-dial-drag";
 
 export interface SpeedDialMenuSizeConfig {
   launcherDiameter: number;
@@ -36,11 +41,6 @@ export interface SpeedDialMenuPaletteConfig {
   item: SpeedDialMenuPaletteTone;
   activeItem: SpeedDialMenuPaletteTone;
 }
-
-type FixedSpeedDialPosition = Exclude<SpeedDialPosition, "off">;
-export type SpeedDialMenuPlacement =
-  | "inline"
-  | `fixed-${FixedSpeedDialPosition}`;
 
 const DEFAULT_SIZE: SpeedDialMenuSizeConfig = {
   launcherDiameter: 48,
@@ -72,38 +72,45 @@ export const SPEED_DIAL_MENU_PALETTE_PRESETS = {
   },
 } as const satisfies Record<string, SpeedDialMenuPaletteConfig>;
 
-function placementClasses(placement: SpeedDialMenuPlacement) {
-  if (placement === "inline") return "relative";
-  const fixed = placement.replace(/^fixed-/, "");
-  return cn(
-    "fixed",
-    fixed.startsWith("top-") &&
-      "top-[calc(var(--wp-admin-bar-height,32px)_+_4.75rem)]",
-    fixed.startsWith("middle-") && "top-1/2 -translate-y-1/2",
-    fixed.startsWith("bottom-") && "bottom-5",
-    fixed.endsWith("-left") && "left-5",
-    fixed.endsWith("-center") && "left-1/2 -translate-x-1/2",
-    fixed.endsWith("-right") && "right-5",
-  );
-}
-
 interface SpeedDialMenuProps {
   className?: string;
   size?: Partial<SpeedDialMenuSizeConfig>;
   palette?: Partial<SpeedDialMenuPaletteConfig>;
-  placement?: SpeedDialMenuPlacement;
+  /** Stored position: a legacy corner token or `<x>,<y>` viewport percentages. */
+  position?: SpeedDialPosition;
+  /** WordPress admin bar height, which the launcher must stay below. */
+  topInset?: number;
+  /** Called on drop with the position to store. */
+  onPositionChange?: (position: SpeedDialPosition) => void;
 }
 
 export function SpeedDialMenu({
   className,
   size,
-  placement = "inline",
+  position = "bottom-right",
+  topInset = 0,
+  onPositionChange,
 }: SpeedDialMenuProps) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const compose = usePaneCompose();
   const { accounts, setIsAddAccount } = useAppContext();
   const resolvedSize = { ...DEFAULT_SIZE, ...size };
+  const commitPosition = useCallback(
+    (next: string) => onPositionChange?.(next as SpeedDialPosition),
+    [onPositionChange],
+  );
+  const { offset, isDragging, handleProps } = useSpeedDialDrag({
+    position,
+    diameter: resolvedSize.launcherDiameter,
+    topInset,
+    onCommit: commitPosition,
+  });
+  const gripHintId = useId();
+  const dialPoint = parseSpeedDialPosition(position);
+  // The stack opens away from the nearest edge, like the Pro dial's fan.
+  const opensUpward = dialPoint.y >= 50;
+  const alignsRight = dialPoint.x >= 50;
   const actions = [
     {
       id: "compose",
@@ -131,17 +138,25 @@ export function SpeedDialMenu({
 
   return (
     <div
-      className={cn(placementClasses(placement), className)}
+      data-test="pressedmail-speed-dial"
+      data-testid="pressedmail-speed-dial"
+      className={cn("group/dial fixed shrink-0", className)}
       style={
         {
-          zIndex:
-            placement === "inline" ? undefined : FLOATING_NAVIGATION_Z_INDEX,
+          zIndex: FLOATING_NAVIGATION_Z_INDEX,
+          left: offset.left,
+          top: offset.top,
           width: resolvedSize.launcherDiameter,
           minHeight: resolvedSize.launcherDiameter,
         } as CSSProperties
       }>
       {open ? (
-        <div className="absolute bottom-full right-0 mb-2 flex flex-col gap-2">
+        <div
+          className={cn(
+            "absolute flex flex-col gap-2",
+            opensUpward ? "bottom-full mb-2" : "top-full mt-2",
+            alignsRight ? "right-0" : "left-0",
+          )}>
           {actions.map((action) => {
             const Icon = action.icon;
             return (
@@ -188,6 +203,29 @@ export function SpeedDialMenu({
           }}
         />
       </button>
+
+      {/* Drag grip: hover the launcher to reveal it, drag it to move the dial,
+          or focus it and press the arrow keys. A real button, so the one way to
+          place the launcher without a pointer is focusable and announced rather
+          than hidden from assistive tech. */}
+      <button
+        {...handleProps}
+        type="button"
+        aria-label={__("Move speed dial", "pressedmail")}
+        aria-describedby={gripHintId}
+        data-test="speed-dial-drag-handle"
+        data-testid="speed-dial-drag-handle"
+        className={cn(
+          "absolute -top-1 -right-1 z-50 flex size-5 touch-none items-center justify-center rounded-full border bg-background text-muted-foreground shadow-md transition-opacity",
+          isDragging
+            ? "cursor-grabbing opacity-100"
+            : "cursor-grab opacity-0 group-hover/dial:opacity-100 group-focus-within/dial:opacity-100",
+        )}>
+        <Move className="size-3" aria-hidden="true" />
+      </button>
+      <span id={gripHintId} className="sr-only">
+        {__("Use the arrow keys to move the speed dial.", "pressedmail")}
+      </span>
     </div>
   );
 }

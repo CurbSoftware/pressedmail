@@ -42,6 +42,7 @@ declare const __ENABLE_DARK_MODE__: boolean;
 
 /** AI-powered phishing detection and security scanning (Pro) */
 declare const __ENABLE_PHISHING_DETECTION__: boolean;
+declare const __ENABLE_SPAM_DETECTION__: boolean;
 
 // =============================================================================
 // STANDARD FEATURE FLAGS (Free - No Limits)
@@ -108,6 +109,10 @@ declare const __ENABLE_CONTACT_CUSTOM_FIELDS__: boolean;
 
 /** External contact provider sync: unavailable in production */
 declare const __ENABLE_CONTACTS_SYNC__: boolean;
+
+/** Public signup forms that add visitors to contact lists (Pro) */
+declare const __ENABLE_SIGNUP_FORMS__: boolean;
+
 
 // =============================================================================
 // AI FEATURE FLAGS
@@ -196,10 +201,9 @@ declare const __ENABLE_AUTO_REPLIES__: boolean;
 /** Conditional signatures (Pro) */
 
 /** Multiple sender identities (Pro) */
-declare const __ENABLE_SENDER_ALIASES__: boolean;
 
-/** Quick text blocks (Pro) */
-declare const __ENABLE_SNIPPETS__: boolean;
+/** Reusable email templates and blocks (Pro) */
+declare const __ENABLE_TEMPLATES__: boolean;
 
 // =============================================================================
 // SECURITY FEATURE FLAGS

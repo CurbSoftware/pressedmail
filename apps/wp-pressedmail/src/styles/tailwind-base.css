@@ -19,6 +19,8 @@
   --color-pro: var(--pro);
   --color-pro-foreground: var(--pro-foreground);
   --color-pro-border: var(--pro-border);
+  /* Without this, bg-pro-muted generates no CSS at all. */
+  --color-pro-muted: var(--pro-muted);
 }
 
 @font-face {
@@ -143,6 +145,14 @@
     --destructive-border: oklch(0.5 0.2 27);
   }
 
+  /* A confirmation reads at the page's own text size. In the portal the kit's
+     rem sizes put its one sentence below the tile copy it sits over (13px
+     under 13.5px), on the one screen where the user must read before deleting. */
+  [data-pm-portal] [data-pm-overlay-size="confirmation"] {
+    --text-sm: calc(var(--pm-font-size, 18px) * 0.875);
+    --text-sm--line-height: calc(var(--pm-font-size, 18px) * 1.25);
+  }
+
   #wpcontent {
     padding-left: 0;
   }
@@ -168,10 +178,7 @@
     min-height: calc(100vh - 32px);
     width: 100%;
     color-scheme: light;
-    /* Compact controls: /ui reads this into --spacing-control (h-control).
-       32px so every field gets 2px more breathing room per side than the
-       old 28px; one token, so buttons and fields still share a height. */
-    --control-height: 2rem;
+    /* --control-height is set once, with the portals, further down. */
 
     /* Override Tailwind 4 text size variables to scale with --pm-font-size */
     --text-xs: calc(var(--pm-font-size, 18px) * 0.75);
@@ -271,7 +278,7 @@
     --popover-foreground: oklch(0.194 0.039 255.586);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.194 0.039 255.586);
-    --border: oklch(0.894 0.008 228.864);
+    --border: oklch(0.74 0.008 228.864);
     --input: oklch(0.62 0.008 228.864);
     --primary: oklch(0.52 0.11 222);
     --primary-foreground: oklch(0.98 0.02 201);
@@ -673,6 +680,15 @@
   color: revert-layer;
   text-decoration: revert-layer;
   box-shadow: revert-layer;
+}
+
+/* wp-admin's common.css has an unlayered `.hidden { display: none }`, so it
+   beat every layered breakpoint or state variant beside `hidden`: the signup
+   form preview (`hidden lg:block`) and every `hidden sm:inline` label never
+   showed. revert-layer hands display back to Tailwind, where `hidden` and its
+   variants cascade as written. */
+body :is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .hidden {
+  display: revert-layer;
 }
 
 /* ==========================================================================
@@ -1098,7 +1114,9 @@
     overflow-x: auto;
   }
 
-  .pm-email-preview-surface :where([data-slate-editor]) {
+  /* .pm-email-preview-sheet is the static twin of the live sheet: the
+     template Preview dialog renders server-resolved HTML on it. */
+  .pm-email-preview-surface :where([data-slate-editor], .pm-email-preview-sheet) {
     /* The email "sheet" honors the user-picked email background; the live
        editor background (inline on .pm-composer-editor) is neutralized below
        so the canvas color shows beside the centered sheet. */
@@ -1112,7 +1130,7 @@
     color: var(--pm-email-fg) !important;
   }
 
-  .pm-email-preview-surface :where([data-slate-editor]) :where(a) {
+  .pm-email-preview-surface :where([data-slate-editor]) :where(a:not([data-pm-authored-link-color])) {
     color: var(--pm-email-link) !important;
   }
 
@@ -1192,21 +1210,120 @@
   padding-block: 0 !important;
 }
 
+/* Portalled popovers, dialogs and sheets render outside #pressedmail-plugin,
+   so they never saw its --control-height and every kit control in them fell
+   back to the kit's 36px. Same token, same 32px, wherever a control renders. */
+[data-pm-portal] {
+  --control-height: 2rem;
+}
+
+/* wp-admin's root font size puts rem-based text-xs at about 11px in a portal,
+   under the 12px floor the plugin uses everywhere else (sweep option notes,
+   value counts). In-app text-xs scales with --pm-font-size and is larger. */
+:where([data-pm-portal]) {
+  --text-xs: max(0.75rem, 12px);
+}
+
+/* Portalled dialogs sit outside #pressedmail-plugin, where wp-admin forms.css
+   still paints a select's text #1e1e1e (unreadable on a dark field) and gives
+   every text field and select a 40px min-height and 14px text the kit
+   controls do not have, so a value box stood 4px taller than the select next
+   to it with bigger text. The kit classes already set the fill and border
+   there, as in the tag dialog, so only the text, the height and the padding
+   need taking back. */
+[data-pm-portal]
+  input:is(
+    [type="text"],
+    [type="email"],
+    [type="password"],
+    [type="search"],
+    [type="tel"],
+    [type="url"],
+    [type="number"],
+    [type="date"],
+    [type="time"]
+  ):not([data-no-theme]),
+[data-pm-portal] select:not([data-no-theme]) {
+  color: var(--foreground) !important;
+  font-size: var(--text-sm) !important;
+  /* --control-height, not --spacing-control: the latter is declared on :root
+     and resolves there, to the kit's 36px fallback. */
+  min-height: var(--control-height) !important;
+  padding-block: 0 !important;
+}
+
+/* Compact controls: /ui reads this into --spacing-control (h-control).
+   32px so every field gets 2px more breathing room per side than the old
+   28px; one token, so buttons and fields still share a height. Portalled
+   dialogs, popovers and menus sit outside #pressedmail-plugin, so they take
+   the same declaration rather than falling back to the kit's 36px. */
+#pressedmail-plugin,
+[data-pm-portal] {
+  --control-height: 2rem;
+}
+
+/* In a portal, wp-admin forms.css still draws its own select arrow, offset
+   from the kit's chevron (two arrows), and a line-height of 2 that sits the
+   text low in a 32px box. The kit NativeSelect brings its own chevron. */
+[data-pm-portal] select[data-slot="native-select"] {
+  background-image: none !important;
+  line-height: normal;
+}
+
+/* wp-admin forms.css paints its own focus on fields: a WP-blue border and a
+   1px box-shadow ring. In a portal nothing took that back, so a dialog had
+   two focus styles. Same as inside the app: the border tints to --ring and
+   the shared outline is the indicator. */
+[data-pm-portal] :is(input, select, textarea):focus:not([data-no-theme]) {
+  border-color: var(--ring) !important;
+  box-shadow: none !important;
+}
+
+/* wp-admin common.css gives every p a 1em margin and every li 6px below,
+   unlayered, so they beat Tailwind's spacing inside portalled dialogs: a
+   blank line under every dialog's text and a strip under every list row.
+   revert-layer hands margins back to the layers (utilities, then
+   preflight's zero). Rendered email keeps the author's spacing. */
+[data-pm-portal]
+  :is([role="dialog"], [role="alertdialog"])
+  :is(p, li):not(.pm-email-preview-surface *) {
+  margin: revert-layer;
+}
+
+/* A modal's scrim sits at z-index 50 and the wp-admin menu at 9990, so the
+   menu stayed bright, and looked clickable, over a dimmed app. While a
+   PressedMail dialog is open the menu drops under the scrim with the rest. */
+body:has([data-pm-overlay-frame]) #adminmenuwrap {
+  z-index: 1;
+}
+
+/* A dialog whose body changes height as it is used (the Share dialog) opts
+   in to a fixed top edge. The kit frame centres with an inline style, hence
+   !important. The content's max height gives back what the offset takes. */
+[data-pm-overlay-frame]:has([data-pm-anchor="top"]) {
+  align-items: flex-start !important;
+  padding-top: min(10dvh, 5rem);
+}
+
+[data-pm-overlay-frame] [data-pm-anchor="top"] {
+  max-height: calc(100dvh - min(10dvh, 5rem) - 1rem);
+}
+
 /* Focus states */
-#pressedmail-plugin input[type="text"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="email"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="password"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="search"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="tel"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="url"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="number"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="date"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="time"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="datetime-local"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="month"]:focus:not([data-no-theme]),
-#pressedmail-plugin input[type="week"]:focus:not([data-no-theme]),
-#pressedmail-plugin textarea:focus:not([data-no-theme]),
-#pressedmail-plugin select:focus:not([data-no-theme]) {
+#pressedmail-plugin input[type="text"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="email"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="password"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="search"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="tel"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="url"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="number"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="date"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="time"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="datetime-local"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="month"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin input[type="week"]:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin textarea:focus:not([data-no-theme]):not([aria-invalid="true"]),
+#pressedmail-plugin select:focus:not([data-no-theme]):not([aria-invalid="true"]) {
   /* A border tint, and nothing else. This block used to kill the outline and
      paint its own 2px box-shadow ring, at a specificity the shared focus rule
      could not reach, so the one accessible indicator in the plugin was
@@ -1235,42 +1352,41 @@
 
 /* Hover states (when not focused or disabled) */
 #pressedmail-plugin
-  input[type="text"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="text"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="email"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="email"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="password"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="password"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="search"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="search"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="tel"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="tel"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="url"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="url"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="number"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="number"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="date"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="date"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="time"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="time"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="datetime-local"]:hover:not(:focus):not(:disabled):not(
-    [data-no-theme]
-  ),
+  input[type="datetime-local"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="month"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="month"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  input[type="week"]:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  input[type="week"]:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  textarea:hover:not(:focus):not(:disabled):not([data-no-theme]),
+  textarea:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]),
 #pressedmail-plugin
-  select:hover:not(:focus):not(:disabled):not([data-no-theme]) {
+  select:hover:not(:focus):not(:disabled):not([data-no-theme]):not([aria-invalid="true"]) {
   border-color: color-mix(in oklch, var(--ring) 50%, var(--input)) !important;
 }
 
-/* Disabled states */
-#pressedmail-plugin input:disabled:not([data-no-theme]),
-#pressedmail-plugin textarea:disabled:not([data-no-theme]),
-#pressedmail-plugin select:disabled:not([data-no-theme]) {
+/* Disabled states. Portalled dialogs too: without them a locked field in a
+   dark dialog kept the enabled fill, and opacity alone did not read as off. */
+:is(#pressedmail-plugin, [data-pm-portal]) input:disabled:not([data-no-theme]),
+:is(#pressedmail-plugin, [data-pm-portal]) textarea:disabled:not([data-no-theme]),
+:is(#pressedmail-plugin, [data-pm-portal]) select:disabled:not([data-no-theme]) {
   opacity: 0.5 !important;
   cursor: not-allowed !important;
   background-color: var(--muted) !important;
@@ -1325,9 +1441,70 @@
   ) !important;
 }
 
+/* wp-admin forms.css also rings a focused radio or checkbox in the admin
+   colour scheme's blue (box-shadow), on top of the plugin's own focus outline.
+   Drop it so focus shows one ring in the plugin's token. */
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  :is(input[type="radio"], input[type="checkbox"]):not([data-no-theme]):focus {
+  box-shadow: none !important;
+}
+
+/* Tag checklist boxes. The shared unchecked border sits under 3:1 against
+   the popover in several palettes (WCAG 1.4.11), and the tag list is nothing
+   but checkboxes, so its boxes take the muted text colour, which every
+   palette keeps readable on its popover. The ID in :is() outranks the
+   portal rules further down. */
+body
+  :is(#pressedmail-plugin, [data-pm-portal])
+  [data-test="mail-tag-option"]
+  [data-slot="checkbox"]:not([data-checked]):not([data-indeterminate]) {
+  border-color: var(--muted-foreground) !important;
+}
+
+/* The shared boxes carry a 1px outline one pixel out, in every state. In the
+   tag list a ticked or mixed box then looked focused next to the row that
+   really was, so here the row's own indicator is the only ring. */
+body
+  :is(#pressedmail-plugin, [data-pm-portal])
+  [data-test="mail-tag-option"]
+  [data-slot="checkbox"] {
+  outline-color: transparent !important;
+}
+
+/* wp-admin's common.css gives every li a 6px bottom margin, unlayered, so
+   no utility can take it back. The tag rows carry their own spacing. */
+body :is(#pressedmail-plugin, [data-pm-portal]) li:has(> [data-test="mail-tag-option"]) {
+  margin: 0;
+}
+
+/* Scroll shadows: a soft edge shows at the top or bottom of a list only while
+   there is more to scroll that way. The covers scroll with the content and
+   hide the shadows at each end. Set --pm-scroll-surface to the surface the
+   list sits on. */
+.pm-scroll-shadows {
+  --pm-scroll-cover: var(--pm-scroll-surface, var(--popover));
+  background:
+    linear-gradient(var(--pm-scroll-cover) 30%, transparent) top / 100% 1.5rem
+      no-repeat local,
+    linear-gradient(transparent, var(--pm-scroll-cover) 70%) bottom / 100%
+      1.5rem no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.22), transparent)
+      top / 100% 0.5rem no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.22), transparent)
+      bottom / 100% 0.5rem no-repeat scroll;
+  background-color: var(--pm-scroll-cover);
+}
+
+/* The tag filter takes the field fill every other plugin input uses. The
+   portal theme paints the kit Input's .bg-background with the page colour,
+   which in dark mode is darker than the popover around it. */
+body [data-pm-portal] input[data-pm-tag-filter] {
+  background-color: var(--pm-field-bg) !important;
+}
+
 /* Kit UI checkboxes - tokenized states shared by inbox, contacts, and portals */
 :where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
-  [data-slot="checkbox"]:not([data-checked]) {
+  [data-slot="checkbox"]:not([data-checked]):not([data-indeterminate]) {
   border-color: var(--checkbox-border, var(--input)) !important;
   background-color: var(--checkbox-background, transparent) !important;
   outline: 1px solid
@@ -1336,7 +1513,9 @@
 }
 
 :where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
-  [data-slot="checkbox"][data-checked] {
+  [data-slot="checkbox"][data-checked],
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="checkbox"][data-indeterminate] {
   border-color: var(--checkbox-checked-background, var(--primary)) !important;
   background-color: var(
     --checkbox-checked-background,
@@ -1357,6 +1536,9 @@
 
 :where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
   [data-slot="checkbox"][data-checked]
+  [data-slot="checkbox-indicator"],
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal])
+  [data-slot="checkbox"][data-indeterminate]
   [data-slot="checkbox-indicator"] {
   color: var(
     --checkbox-checked-foreground,
@@ -1401,8 +1583,18 @@
   --pm-primary-text: oklch(from var(--primary) min(l, 0.5) c h);
   --pm-success-text: color-mix(in oklch, var(--success) 70%, black);
   --pm-success-text: oklch(from var(--success) min(l, 0.5) c h);
+  /* Warning is the one status that cannot simply be darkened. The palettes'
+     warning hues (70 to 85) are a yellow, and a yellow dark enough for text
+     is mustard-olive, which read as brown beside the clear red and blue of
+     the other bands. Light mode therefore turns the hue toward orange and
+     lifts the chroma a little, so the text still reads as amber. Chroma stops
+     at 0.16: a custom theme's brighter fill would otherwise push it out of
+     the sRGB gamut, where it clips to red. Contrast on every palette stays at
+     5.3:1 or better, and the nearest distance to destructive stays over 0.1
+     in OKLab. Dark mode is already a proper amber (lightness 0.8) and keeps
+     the plain derivation. */
   --pm-warning-text: color-mix(in oklch, var(--warning) 70%, black);
-  --pm-warning-text: oklch(from var(--warning) min(l, 0.5) c h);
+  --pm-warning-text: oklch(from var(--warning) min(l + 0.02, 0.52) min(c * 1.2, 0.16) calc(h - 14));
   --pm-info-text: color-mix(in oklch, var(--info) 70%, black);
   --pm-info-text: oklch(from var(--info) min(l, 0.5) c h);
   --pm-destructive-text: color-mix(in oklch, var(--destructive) 70%, black);
@@ -1454,8 +1646,16 @@
   --pm-success-text: oklch(from var(--success) max(l, 0.8) c h);
   --pm-warning-text: color-mix(in oklch, var(--warning) 55%, white);
   --pm-warning-text: oklch(from var(--warning) max(l, 0.8) c h);
+  /* Info is the one status whose dark text needs a chroma cap. The default
+     palette's blue (hue 222, chroma 0.17) cannot exist at lightness 0.8 in
+     sRGB, so a browser clips it to a neon cyan, rgb(0, 212, 255), beside the
+     soft red, amber and green of the other statuses. Capping chroma at 0.12
+     keeps the hue and lands inside the gamut as a sky blue, rgb(84, 207, 245),
+     with the same lightness and so the same contrast. The other palettes' blue
+     (hue 255) is out of gamut at any chroma above 0.1 and already clips to a
+     soft blue, which the cap leaves as it was. */
   --pm-info-text: color-mix(in oklch, var(--info) 55%, white);
-  --pm-info-text: oklch(from var(--info) max(l, 0.8) c h);
+  --pm-info-text: oklch(from var(--info) max(l, 0.8) min(c, 0.12) h);
   --pm-destructive-text: color-mix(in oklch, var(--destructive) 55%, white);
   --pm-destructive-text: oklch(from var(--destructive) max(l, 0.8) c h);
   /* Translucent, and mixed with transparent rather than with a surface, so the
@@ -1538,6 +1738,32 @@ body
 }
 
 /*
+ * Tinted destructive buttons (the kit's destructive variant). Its hover fill,
+ * destructive at 20%, took the red label down to 4.16:1 in light mode, under
+ * AA for text. In light mode hover keeps the resting 10% tint, where the label
+ * holds 4.5:1 in every palette (accessibility-floor.test.ts), and shows hover
+ * with a ring in the label's colour instead. Dark mode's label is the light
+ * derived colour and stays AA on the kit's own hover fill.
+ */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  [data-slot="button"].hover\:bg-destructive\/20:not(.dark *):hover {
+  background-color: color-mix(
+    in oklch,
+    var(--destructive) 10%,
+    transparent
+  ) !important;
+  box-shadow: inset 0 0 0 1px var(--pm-destructive-text) !important;
+}
+
+/*
  * Faded muted text. `text-muted-foreground/70` and its siblings composite the
  * muted colour against whatever is behind it, which measured 3.7:1 on the
  * default light card: below AA for the composer placeholders, the reading
@@ -1582,12 +1808,33 @@ body
   opacity: 1 !important;
 }
 
+/* The kit Input fades its placeholder (/70, /60 in dark), and those
+   utilities come out one class more specific than the rule above, so every
+   kit field was still at 3.9:1. Same full-strength colour, matched on the
+   class so it outranks them. */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  :is(
+    [class~="placeholder:text-muted-foreground/70"],
+    [class~="dark:placeholder:text-muted-foreground/60"]
+  )::placeholder {
+  color: var(--muted-foreground) !important;
+}
+
 /*
  * Control boundaries. A text field, a select and an unchecked checkbox each
  * own one hairline, and it is the only thing that says where the control is.
  * The palette values are not reliable there (nine dark palettes state --input
  * as translucent white, which composites to 1.1-1.8:1), so the boundary is
- * mixed from the surface it sits on.
+ * mixed from the surface it sits on. An invalid field is left out: the id in
+ * :is() outranks every aria-invalid rule, so no invalid field showed red.
  */
 body
   :is(
@@ -1604,8 +1851,29 @@ body
       ),
     textarea,
     select
-  ):not([data-no-theme]) {
+  ):not([data-no-theme]):not([aria-invalid="true"]) {
   border-color: var(--pm-control-border) !important;
+}
+
+/*
+ * An invalid field shows the destructive edge everywhere the forced control
+ * borders above reach. It must outrank each of them; tailwind-base.test.ts
+ * computes the specificity of every unlayered !important border rule that can
+ * land on a control and fails if one would paint over this.
+ */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  :is(input, textarea, select, button)[aria-invalid="true"]:not(
+    [data-no-theme]
+  ) {
+  border-color: var(--destructive) !important;
 }
 
 body
@@ -1617,15 +1885,19 @@ body
     [data-radix-portal],
     [data-radix-popper-content-wrapper]
   )
-  [data-slot="checkbox"]:not([data-checked]) {
+  [data-slot="checkbox"]:not([data-checked]):not([data-indeterminate]) {
   border-color: var(--pm-control-border) !important;
 }
 
 /*
  * An unchecked switch showed a near-black knob on a near-black track in dark
- * mode: 1.38:1 track to card, 1.04:1 knob to track. Both halves are state, so
- * both need to be visible: the track carries the boundary colour and the knob
- * carries the surface, which keeps them 3:1 apart in either mode.
+ * mode: 1.38:1 track to card, 1.04:1 knob to track. A --pm-control-border
+ * track fixed that only halfway: that token is deliberately soft (under 2:1 on
+ * a settings tile), and the off state is state, not a field edge, so it needs
+ * WCAG 1.4.11's full 3:1. So an off switch is drawn as an outline: a card
+ * track ringed in --muted-foreground with a --muted-foreground knob. Both the
+ * ring against the surface and the knob against the track are text-grade
+ * colours, held at 3:1 by accessibility-floor.test.ts in every palette.
  *
  * Three spellings of "on" have to be excluded: base-ui writes data-checked
  * and Radix writes data-state="checked", and aria-checked stays in the chain
@@ -1645,7 +1917,8 @@ body
   :is([data-slot="switch"], [role="switch"]):not([data-checked]):not(
     [data-state="checked"]
   ):not([aria-checked="true"]) {
-  background-color: var(--pm-control-border) !important;
+  background-color: var(--card) !important;
+  box-shadow: inset 0 0 0 1px var(--muted-foreground) !important;
 }
 
 body
@@ -1661,7 +1934,11 @@ body
     [data-state="checked"]
   ):not([aria-checked="true"])
   [data-slot="switch-thumb"] {
-  background-color: var(--card) !important;
+  background-color: var(--muted-foreground) !important;
+  /* A smaller knob, so the 1px ring shows all the way round instead of
+     disappearing under a full-height knob, and "off" stops outweighing the
+     filled "on" track. Its own property, so the kit's translate still moves it. */
+  scale: 0.625;
 }
 
 /*
@@ -1724,6 +2001,82 @@ body
   outline-offset: 2px;
 }
 
+/*
+ * Tag checklist rows (tag popover and tag sheets). The box is 16px, so its
+ * outline alone is easy to lose; the whole row lights up instead, the way the
+ * menu primitives highlight their items. One indicator per focus: the box
+ * gives up its outline here, which the extra [role] outranks the rule above
+ * for.
+ */
+body
+  :is(#pressedmail-plugin, [data-pm-portal])
+  [data-test="mail-tag-option"]:has(:focus-visible) {
+  background-color: var(--muted);
+  /* An outline, like the shared rule: it survives forced colours, where a
+     box-shadow would leave the row with no indicator at all. */
+  outline: 1px solid var(--pm-focus-ring);
+  outline-offset: -1px;
+}
+
+body
+  :is(#pressedmail-plugin, [data-pm-portal])
+  [data-test="mail-tag-option"]
+  [data-slot="checkbox"][role="checkbox"]:focus-visible {
+  outline-color: transparent !important;
+}
+
+/*
+ * Pills. An outline only follows border-radius on engines that round it
+ * (Safari learned this in 16.4), and the Setup docs chips are fully rounded,
+ * so the contract above draws a rectangle around them there. Anything carrying
+ * pm-focus-pill swaps the outline for a ring instead: box-shadow follows
+ * border-radius everywhere.
+ *
+ * The doubled class is load-bearing. The contract's :is(...) lists are
+ * specificity-heavy, and the repeat is what keeps this later rule on top of
+ * the outline it replaces. Do not simplify it away.
+ *
+ * The first shadow is a 2px gap in --card, reproducing the outline offset the
+ * rest of the plugin shows, and it assumes the pill sits on a Card. A pill
+ * used on another surface should switch to a single
+ * 0 0 0 1px var(--pm-focus-ring) shadow.
+ */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  .pm-focus-pill.pm-focus-pill:focus-visible {
+  outline: none !important;
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 3px var(--pm-focus-ring);
+}
+
+/*
+ * Small pointer targets (the spam bag and phishing fish in a row and in the
+ * reading pane header). The glyph is 16px, and the shared 1px outline reads
+ * as a hairline around something that small, so these take 2px. Still an
+ * outline, so forced colours keep it. Same doubled attribute as the pill rule
+ * above, for the same specificity reason.
+ */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  [data-mark-target][data-mark-target]:focus-visible {
+  outline-width: 2px !important;
+}
+
 /* The plain-text body is an editor canvas, not a field. Move its keyboard
    focus cue to the containing surface so the text area keeps clean edges. */
 body
@@ -1751,7 +2104,9 @@ body
  * fix one. Zeroing the two ring-shadow variables inside the plugin's own scope
  * is the same visual result with a blast radius of one plugin.
  *
- * Only form controls are covered. A bare `ring-2 ring-primary` elsewhere is a
+ * Form controls are covered here and kit Buttons just below: on a button the
+ * kit's 3px ring plus this outline read as a heavy double ring, and on a red
+ * confirm as a red, navy and white stack. A bare `ring-2 ring-primary` elsewhere is a
  * selection or drag-over indicator, not a focus one, and several of those must
  * survive; they are left alone because they are not focus-visible here.
  */
@@ -1776,6 +2131,46 @@ body
   --tw-ring-offset-shadow: 0 0 #0000 !important;
 }
 
+/* Kit Buttons get the same treatment, but only in PressedMail's own scopes:
+   a generic Radix portal may hold another plugin's buttons, and they keep
+   their ring. The kit also tints a focused button's border to --ring, which
+   drew a second stroke inside the outline, so the border keeps its resting
+   colour: none, or the outline variant's border. */
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal]
+  )
+  [data-slot="button"]:focus-visible {
+  --tw-ring-shadow: 0 0 #0000 !important;
+  --tw-ring-offset-shadow: 0 0 #0000 !important;
+  border-color: transparent !important;
+}
+
+body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal]
+  )
+  [data-slot="button"].border-border:focus-visible {
+  border-color: var(--border) !important;
+}
+
+.dark
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal]
+  )
+  [data-slot="button"].border-border:focus-visible {
+  border-color: var(--input) !important;
+}
+
 @media (forced-colors: active) {
   body
     #pressedmail-plugin
@@ -1796,6 +2191,23 @@ body
     :focus-visible {
     outline: 2px solid Highlight !important;
     outline-offset: 2px;
+  }
+
+  /* Forced colors discards box-shadow, so the pill goes back to the outline.
+     Corners may square off here; an indicator existing beats a pretty one. */
+  body
+    :is(
+      #pressedmail-plugin,
+      #pressedmail-plugin-frontend,
+      .pressedmail-frontend,
+      [data-pm-portal],
+      [data-radix-portal],
+      [data-radix-popper-content-wrapper]
+    )
+    .pm-focus-pill.pm-focus-pill:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+    box-shadow: none;
   }
 }
 
@@ -1907,7 +2319,9 @@ body
 }
 
 #pressedmail-plugin input[type="search"]::-webkit-search-cancel-button,
-#pressedmail-plugin input[type="search"]::-webkit-search-decoration {
+#pressedmail-plugin input[type="search"]::-webkit-search-decoration,
+[data-pm-portal] input[type="search"]::-webkit-search-cancel-button,
+[data-pm-portal] input[type="search"]::-webkit-search-decoration {
   -webkit-appearance: none !important;
 }
 
@@ -2011,7 +2425,7 @@ body
   --muted-foreground: oklch(0.422 0.05 255.24);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.194 0.039 255.586);
-  --border: oklch(0.894 0.008 228.864);
+  --border: oklch(0.74 0.008 228.864);
   --input: oklch(0.62 0.008 228.864);
   --primary: oklch(0.52 0.11 222);
   --primary-foreground: oklch(0.98 0.02 201);
@@ -2194,7 +2608,7 @@ html.dark [data-radix-portal] {
   --popover-foreground: oklch(0.194 0.039 255.586);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.194 0.039 255.586);
-  --border: oklch(0.894 0.008 228.864);
+  --border: oklch(0.74 0.008 228.864);
   --input: oklch(0.62 0.008 228.864);
   --primary: oklch(0.52 0.11 222);
   --primary-foreground: oklch(0.98 0.02 201);
@@ -2526,16 +2940,27 @@ html.dark [data-radix-portal] {
   padding-bottom: var(--safe-bottom);
 }
 
-:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-touch-target {
+/* [data-pm-portal] too: sheets and dialogs portal out of #pressedmail-plugin,
+   and their rows fell back to 38-40px. */
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .pm-touch-target {
   min-height: 2.75rem;
   min-width: 2.75rem;
 }
 
-:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-no-tap-highlight {
+/* Menu and listbox rows on a touch screen: 44px, the phone floor. Select
+   items were 32px, a thumb short, in every rule, sweep and signup menu. */
+@media (pointer: coarse) {
+  :where([data-pm-portal])
+    :is([role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]) {
+    min-height: 2.75rem;
+  }
+}
+
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .pm-no-tap-highlight {
   -webkit-tap-highlight-color: transparent;
 }
 
-:where(#pressedmail-plugin, #pressedmail-plugin-frontend) .pm-momentum-scroll {
+:where(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .pm-momentum-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -2735,6 +3160,39 @@ html.dark [data-radix-portal] {
   padding-inline: var(--pm-email-preview-padding-x);
 }
 
+/* The static twin of the live sheet above, for server-resolved HTML (the
+   template Preview dialog), in the author's writing font. Not scoped to
+   #pressedmail-plugin: dialogs portal outside the plugin root. */
+.pm-email-preview-surface .pm-email-preview-sheet {
+  box-sizing: border-box;
+  inline-size: clamp(
+    var(--pm-email-preview-reader-min-width),
+    100%,
+    var(--pm-email-preview-reader-width)
+  );
+  max-inline-size: var(--pm-email-preview-reader-width);
+  margin-inline: auto;
+  padding-block: var(--pm-email-preview-padding-y);
+  padding-inline: var(--pm-email-preview-padding-x);
+  font-size: var(--pm-composer-font-size, 14px);
+  font-family: var(--pm-composer-font-family, system-ui, sans-serif);
+}
+
+/* wp-admin's unlayered common.css sets p at 13px and strips list bullets.
+   The send pipeline inlines margins and heading sizes but leaves body text to
+   inherit, so hand the author's writing size and list markers back. */
+.pm-email-preview-surface .pm-email-preview-sheet :where(p, li, td, th) {
+  font-size: inherit;
+}
+
+.pm-email-preview-surface .pm-email-preview-sheet :where(ul) {
+  list-style: disc;
+}
+
+.pm-email-preview-surface .pm-email-preview-sheet :where(ol) {
+  list-style: decimal;
+}
+
 #pressedmail-plugin .pm-composer-editor [data-slate-editor] p,
 #pressedmail-plugin .pm-composer-editor [data-slate-editor] blockquote p {
   margin: 0;
@@ -2803,12 +3261,7 @@ html.dark [data-radix-portal] {
  */
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor] {
   --background: var(--pm-email-bg, #ffffff);
@@ -2861,12 +3314,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-background, .bg-card, .bg-popover) {
@@ -2875,12 +3323,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-muted, .hover\:bg-muted:hover) {
@@ -2889,12 +3332,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-muted\/30) {
@@ -2907,12 +3345,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-muted\/40) {
@@ -2925,12 +3358,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-muted\/50, .hover\:bg-muted\/50:hover) {
@@ -2943,12 +3371,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-muted\/60) {
@@ -2961,12 +3384,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(
@@ -2980,12 +3398,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-primary, .hover\:bg-primary:hover) {
@@ -2994,12 +3407,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-primary\/5) {
@@ -3012,12 +3420,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-primary\/10, .hover\:bg-primary\/10:hover) {
@@ -3030,12 +3433,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-primary\/20) {
@@ -3048,12 +3446,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-primary\/90, .hover\:bg-primary\/90:hover) {
@@ -3066,12 +3459,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-secondary) {
@@ -3080,12 +3468,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.bg-destructive) {
@@ -3094,12 +3477,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(
@@ -3118,12 +3496,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-muted-foreground, .hover\:text-muted-foreground:hover) {
@@ -3132,12 +3505,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-primary, .hover\:text-primary:hover) {
@@ -3146,12 +3514,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-primary-foreground) {
@@ -3160,12 +3523,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-destructive, .hover\:text-destructive:hover) {
@@ -3174,12 +3532,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-destructive-foreground) {
@@ -3188,12 +3541,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.text-success) {
@@ -3202,12 +3550,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.placeholder\:text-muted-foreground)::placeholder {
@@ -3216,12 +3559,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.border-border, .border-input, .border-muted) {
@@ -3230,12 +3568,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.border-primary, .hover\:border-primary:hover) {
@@ -3244,12 +3577,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.border-primary\/20) {
@@ -3262,12 +3590,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.border-primary\/50, .hover\:border-primary\/50:hover) {
@@ -3280,12 +3603,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.border-destructive) {
@@ -3294,12 +3612,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.ring-ring, .ring-primary) {
@@ -3308,12 +3621,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.focus-visible\:border-ring:focus-visible) {
@@ -3322,12 +3630,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.focus-visible\:ring-ring\/50:focus-visible) {
@@ -3340,12 +3643,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.ring-offset-background) {
@@ -3355,12 +3653,7 @@ html.dark [data-radix-portal] {
 .dark
   :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(.dark\:bg-input\/30) {
@@ -3379,12 +3672,7 @@ html.dark [data-radix-portal] {
    so exclusion is the only safe shape. */
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   table:not(.pm-composer-table)
@@ -3398,12 +3686,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   th {
@@ -3412,12 +3695,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :where(h1, h2, h3, h4, h5, h6) {
@@ -3426,12 +3704,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   pre {
@@ -3442,12 +3715,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   blockquote {
@@ -3459,12 +3727,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   a {
@@ -3473,12 +3736,7 @@ html.dark [data-radix-portal] {
 
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   hr {
@@ -3498,12 +3756,7 @@ html.dark [data-radix-portal] {
  */
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(
@@ -3517,12 +3770,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(
@@ -3541,12 +3789,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-regexp, .hljs-string) {
@@ -3554,12 +3797,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-name, .hljs-quote, .hljs-selector-tag, .hljs-selector-pseudo) {
@@ -3567,12 +3805,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-comment, .hljs-code, .hljs-formula) {
@@ -3580,12 +3813,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-built_in, .hljs-symbol) {
@@ -3593,12 +3821,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   :is(.hljs-title, .hljs-title.class_, .hljs-title.function_) {
@@ -3606,12 +3829,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-section {
@@ -3620,12 +3838,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-bullet {
@@ -3633,12 +3846,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-emphasis {
@@ -3646,12 +3854,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-strong {
@@ -3659,12 +3862,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-addition {
@@ -3673,12 +3871,7 @@ html.dark [data-radix-portal] {
 }
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   :is(.pm-email-content-surface, .pm-composer-edit-surface)
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor]
   .hljs-deletion {
@@ -3695,12 +3888,7 @@ html.dark [data-radix-portal] {
    it wins on source order. */
 :is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
   .pm-composer-edit-surface
-  :is(
-    .pm-plate-email-surface,
-    .pm-plate-signature-surface,
-    .pm-plate-auto-reply-surface,
-    .pm-plate-content-block-surface
-  )
+  .pm-plate-surface
   .pm-composer-editor
   [data-slate-editor] {
   color-scheme: normal;

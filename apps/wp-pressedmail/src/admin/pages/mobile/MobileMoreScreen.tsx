@@ -8,7 +8,12 @@ import { useNavigate } from "react-router-dom";
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
 import { MobileImmersiveToggle } from "@/components/mobile-shell/MobileImmersiveToggle";
 import { toggleActivityPanel } from "@/components/activity/use-activity-panel";
+import { useTemplatesMoreSections } from "@/components/templates/templates-menu-model";
+import { openNotificationsSheet } from "@/components/application-layout/use-notifications-sheet";
+import { useNotificationFeed } from "@/layouts/shared/hooks/useNotificationFeed";
 import { useProcessQueue } from "@/hooks/useProcessQueue";
+import { useFeatureAvailable } from "@/context/features/FeaturesContext";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 
 import { buildMoreMenuSections, type MoreMenuSection } from "./more-menu";
 
@@ -40,11 +45,12 @@ function MoreList({
                   className="border-b border-border last:border-b-0">
                   <button
                     type="button"
-                    onClick={() =>
-                      row.action === "activity"
-                        ? toggleActivityPanel()
-                        : row.to && onNavigate(row.to)
-                    }
+                    onClick={() => {
+                      if (row.onSelect) row.onSelect();
+                      else if (row.action === "activity") toggleActivityPanel();
+                      else if (row.action === "notifications") openNotificationsSheet();
+                      else if (row.to) onNavigate(row.to);
+                    }}
                     className="pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 px-3 py-3 text-left text-foreground active:bg-muted">
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                       <Icon className="h-5 w-5" aria-hidden="true" />
@@ -84,20 +90,27 @@ export function MobileMoreScreen() {
   const navigate = useNavigate();
   const pluginData =
     typeof window !== "undefined" ? window.pressedmailPlugin : undefined;
-  const isPro = pluginData?.isPro ?? false;
   const canManageSettings = pluginData?.canManageSettings ?? false;
-  const canManagePro = (isPro === true || isPro === "1") && canManageSettings;
+  // The Pro settings entry is Pro; Free reads neither.
+  const isPro = __IS_FREE__ ? false : (pluginData?.isPro ?? false);
+  const canManagePro =
+    !__IS_FREE__ && (isPro === true || isPro === "1") && canManageSettings;
   const { activeTasks } = useProcessQueue();
+  const { preferences } = useUserPreferences();
+  const { unreadCount: notificationCount } = useNotificationFeed();
   const activeTaskCount = activeTasks.length;
+  const extraSections = useTemplatesMoreSections();
 
   const sections = React.useMemo(
     () =>
       buildMoreMenuSections({
         canManageSettings,
-        canManagePro,
         activeTaskCount,
+        extraSections,
+        notificationCount,
+        ...(__IS_FREE__ ? null : { canManagePro }),
       }),
-    [canManagePro, canManageSettings, activeTaskCount],
+    [canManagePro, canManageSettings, activeTaskCount, extraSections, notificationCount],
   );
 
   return (

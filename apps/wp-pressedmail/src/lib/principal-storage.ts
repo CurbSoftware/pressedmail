@@ -1,3 +1,104 @@
+export const EMAIL_CACHE_POLICY_EVENT = "pressedmail:email-cache-policy";
+let emailCacheEnabled =
+  typeof window === "undefined" ||
+  window.pressedmailPlugin?.emailCacheEnabled !== false;
+let emailCacheRevision = 0;
+const uncachedMailboxes = new Set<number>();
+/** Aggregate browser stores must never mix an opted-out shared mailbox into cached data. */
+export const canCacheEmailInBrowser = (): boolean =>
+  emailCacheEnabled && uncachedMailboxes.size === 0;
+export function applyMailboxCachePolicy(
+  value: unknown,
+  broadcast = true,
+): void {
+  if (!value || typeof value !== "object") return;
+  const policy = (
+    value as { cache_policy?: { accountId?: unknown; enabled?: unknown } }
+  ).cache_policy;
+  if (
+    !policy ||
+    typeof policy.accountId !== "number" ||
+    !Number.isSafeInteger(policy.accountId) ||
+    policy.accountId <= 0 ||
+    typeof policy.enabled !== "boolean"
+  )
+    return;
+  const wasAllowed = canCacheEmailInBrowser();
+  // A response cannot prove a newer opt-in than another tab's opt-out.
+  // Keep this session restricted until a fresh page obtains current policy.
+  if (policy.enabled) return;
+  const alreadyRestricted = uncachedMailboxes.has(policy.accountId);
+  uncachedMailboxes.add(policy.accountId);
+  if (broadcast && !alreadyRestricted)
+    setPrincipalStorageItem(
+      "local",
+      "pressedmail-mailbox-cache-policy",
+      JSON.stringify(policy),
+    );
+  if (!canCacheEmailInBrowser()) purgeEmailCacheStorage();
+  if (wasAllowed !== canCacheEmailInBrowser()) {
+    emailCacheRevision++;
+    window.dispatchEvent(
+      new CustomEvent(EMAIL_CACHE_POLICY_EVENT, {
+        detail: { external: false },
+      }),
+    );
+  }
+}
+const EMAIL_CACHE_KEYS =
+  /^(?:pressedmail-(?:message-cache|detail-cache|folder-cache|open-pane|sync-tokens|sync-state|recent-searches|email-summaries)|pressedmail_recent_searches)/;
+export const isEmailCacheEnabled = (): boolean => emailCacheEnabled;
+export const captureEmailCacheRevision = (): number => emailCacheRevision;
+
+/** Purge only email-derived state. Authored composer drafts and settings survive. */
+export function purgeEmailCacheStorage(): void {
+  const current = captureStoragePrincipal();
+  if (!current) return;
+  const prefix = scopedKeyPrefix(current);
+  for (const area of ["local", "session"] as const) {
+    const target = storage(area);
+    if (!target) continue;
+    try {
+      for (let i = target.length - 1; i >= 0; i--) {
+        const key = target.key(i);
+        if (!key) continue;
+        if (EMAIL_CACHE_KEYS.test(key)) target.removeItem(key);
+        else if (key.startsWith(prefix)) {
+          try {
+            const logical = JSON.parse(key.slice(KEY_PREFIX.length))[2];
+            if (typeof logical === "string" && EMAIL_CACHE_KEYS.test(logical))
+              target.removeItem(key);
+          } catch {
+            // One malformed key must not prevent cleaning the remaining cache.
+          }
+        }
+      }
+    } catch {
+      /* Browser storage restrictions do not authorize persistence. */
+    }
+  }
+}
+
+export function setEmailCachePolicy(enabled: boolean, broadcast = true): void {
+  const changed = emailCacheEnabled !== enabled;
+  emailCacheEnabled = enabled;
+  if (!enabled) purgeEmailCacheStorage();
+  if (!changed) return;
+  emailCacheRevision++;
+  if (broadcast)
+    setPrincipalStorageItem(
+      "local",
+      "pressedmail-email-cache-policy",
+      JSON.stringify({ enabled, revision: Date.now() }),
+    );
+  if (typeof window !== "undefined")
+    window.dispatchEvent(
+      new CustomEvent(EMAIL_CACHE_POLICY_EVENT, {
+        detail: { enabled, external: !broadcast },
+      }),
+    );
+}
+
 export const PRINCIPAL_CHANGE_EVENT = "pressedmail:principal-change";
 
 export interface StoragePrincipal {
@@ -20,7 +121,6 @@ const LEGACY_KEYS = [
   "pressedmail-user",
   "pressedmail-accounts",
   "pressedmail-selectedAccount",
-  "pressedmail-selectedConsolidatedAccountIds",
   "pressedmail-defaultAccountId",
   "pressedmail-compose-draft",
   "pressedmail-message-cache",
@@ -35,9 +135,16 @@ const LEGACY_KEYS = [
   "pressedmail-first-sync-done",
   "pressedmail-entry-bootstrap-done",
   "pressedmail-session-started-at",
-  "pressedmail-undo-send-failures-seen",
   "pressedmail.sidebar.accordion.expanded",
-  "pressedmail-email-summaries:v1",
+  // Keys only an edition with those features ever wrote. A build without
+  // them never loaded code that could write them.
+  ...(__IS_FREE__
+    ? []
+    : [
+        "pressedmail-selectedConsolidatedAccountIds",
+        "pressedmail-undo-send-failures-seen",
+        "pressedmail-email-summaries:v1",
+      ]),
 ];
 
 let initialized = false;
@@ -106,6 +213,34 @@ export function purgeLegacyPrincipalStorage(): void {
 }
 
 function handleStorageChange(event: StorageEvent): void {
+  if (
+    event.key === getPrincipalStorageKey("pressedmail-mailbox-cache-policy")
+  ) {
+    try {
+      const policy = JSON.parse(
+        getPrincipalStorageItem("local", "pressedmail-mailbox-cache-policy") ??
+          "null",
+      );
+      applyMailboxCachePolicy({ cache_policy: policy }, false);
+    } catch {
+      /* Ignore invalid cross-tab metadata. */
+    }
+    return;
+  }
+  if (event.key === getPrincipalStorageKey("pressedmail-email-cache-policy")) {
+    const value = getPrincipalStorageItem(
+      "local",
+      "pressedmail-email-cache-policy",
+    );
+    try {
+      const policy = JSON.parse(value ?? "null");
+      if (typeof policy?.enabled === "boolean")
+        setEmailCachePolicy(policy.enabled, false);
+    } catch {
+      /* Ignore invalid cross-tab metadata. */
+    }
+    return;
+  }
   if (event.key !== activeKey && event.key !== null) return;
   if (event.storageArea && event.storageArea !== storage("local")) return;
   // Read the latest marker rather than trusting a queued, possibly older event.
@@ -274,6 +409,7 @@ export function initializePrincipalStorage(
     // Without a shared marker, all sensitive persistence fails closed.
     activeValue = null;
   }
+  if (!emailCacheEnabled) purgeEmailCacheStorage();
   return principal;
 }
 
@@ -368,6 +504,7 @@ export function getPrincipalStorageItem(
   key: string,
   captured = captureStoragePrincipal(),
 ): string | null {
+  if (!canCacheEmailInBrowser() && EMAIL_CACHE_KEYS.test(key)) return null;
   const scopedKey = getPrincipalStorageKey(key, captured);
   if (!scopedKey) return null;
   try {
@@ -383,6 +520,7 @@ export function setPrincipalStorageItem(
   value: string,
   captured = captureStoragePrincipal(),
 ): boolean {
+  if (!canCacheEmailInBrowser() && EMAIL_CACHE_KEYS.test(key)) return false;
   const scopedKey = getPrincipalStorageKey(key, captured);
   if (!scopedKey) return false;
   try {

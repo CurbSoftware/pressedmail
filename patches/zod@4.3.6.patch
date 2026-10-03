@@ -1,0 +1,72 @@
+diff --git a/src/v4/classic/schemas.ts b/src/v4/classic/schemas.ts
+index 481d25a17f8b348c951a10e7438de0da4565c041..32a7ecdacf4160622b62b9d8717646fdbb8f5cb1 100644
+--- a/src/v4/classic/schemas.ts
++++ b/src/v4/classic/schemas.ts
+@@ -1257,4 +1257,4 @@ export interface ZodObject<
+ export const ZodObject: core.$constructor<ZodObject> = /*@__PURE__*/ core.$constructor("ZodObject", (inst, def) => {
+-  core.$ZodObjectJIT.init(inst, def);
++  core.$ZodObject.init(inst, def);
+   ZodType.init(inst, def);
+   inst._zod.processJSONSchema = (ctx, json, params) => processors.objectProcessor(inst, ctx, json, params);
+diff --git a/v4/classic/external.js b/v4/classic/external.js
+index 9567900bbb57099481c0ea5864fbf697d62021a5..dacc0bfdf5b7a98aad81e7408f08c82b1a25f846 100644
+--- a/v4/classic/external.js
++++ b/v4/classic/external.js
+@@ -11,7 +11,6 @@ config(en());
+ export { globalRegistry, registry, config, $output, $input, $brand, clone, regexes, treeifyError, prettifyError, formatError, flattenError, TimePrecision, util, NEVER, } from "../core/index.js";
+ export { toJSONSchema } from "../core/json-schema-processors.js";
+ export { fromJSONSchema } from "./from-json-schema.js";
+-export * as locales from "../locales/index.js";
+ // iso
+ // must be exported from top-level
+ // https://github.com/colinhacks/zod/issues/4491
+diff --git a/v4/classic/schemas.cjs b/v4/classic/schemas.cjs
+index e9282990f52a91e84cd80f850134ab583d915899..84a922f39c0da1f2a4774d969e7dbfcbcf96649a 100644
+--- a/v4/classic/schemas.cjs
++++ b/v4/classic/schemas.cjs
+@@ -666,7 +666,7 @@ function keyof(schema) {
+     return _enum(Object.keys(shape));
+ }
+ exports.ZodObject = core.$constructor("ZodObject", (inst, def) => {
+-    core.$ZodObjectJIT.init(inst, def);
++    core.$ZodObject.init(inst, def);
+     exports.ZodType.init(inst, def);
+     inst._zod.processJSONSchema = (ctx, json, params) => processors.objectProcessor(inst, ctx, json, params);
+     index_js_1.util.defineLazy(inst, "shape", () => {
+diff --git a/v4/classic/schemas.js b/v4/classic/schemas.js
+index a95b9589fbefaa579a8f58e32f435f64a0ef2c1c..e3a36af91da3605fd828ab20d139e18c862acb41 100644
+--- a/v4/classic/schemas.js
++++ b/v4/classic/schemas.js
+@@ -548,7 +548,7 @@ export function keyof(schema) {
+     return _enum(Object.keys(shape));
+ }
+ export const ZodObject = /*@__PURE__*/ core.$constructor("ZodObject", (inst, def) => {
+-    core.$ZodObjectJIT.init(inst, def);
++    core.$ZodObject.init(inst, def);
+     ZodType.init(inst, def);
+     inst._zod.processJSONSchema = (ctx, json, params) => processors.objectProcessor(inst, ctx, json, params);
+     util.defineLazy(inst, "shape", () => {
+diff --git a/v4/core/index.js b/v4/core/index.js
+index d334515bf004600f2e55ff85e3730f1b2f2ff703..a847f37f6dfe003cd40fa653eecbd3d8cffcffeb 100644
+--- a/v4/core/index.js
++++ b/v4/core/index.js
+@@ -6,7 +6,6 @@ export * from "./checks.js";
+ export * from "./versions.js";
+ export * as util from "./util.js";
+ export * as regexes from "./regexes.js";
+-export * as locales from "../locales/index.js";
+ export * from "./registries.js";
+ export * from "./doc.js";
+ export * from "./api.js";
+diff --git a/v4/mini/external.js b/v4/mini/external.js
+index d6523c153e213be110c21b370164b5eca1cdf744..d6d257037b978f51ec55b055b5bf68a076f5b2f0 100644
+--- a/v4/mini/external.js
++++ b/v4/mini/external.js
+@@ -4,7 +4,6 @@ export * from "./schemas.js";
+ export * from "./checks.js";
+ export { globalRegistry, registry, config, $output, $input, $brand, clone, regexes, treeifyError, prettifyError, formatError, flattenError, TimePrecision, util, NEVER, } from "../core/index.js";
+ export { toJSONSchema } from "../core/json-schema-processors.js";
+-export * as locales from "../locales/index.js";
+ /** A special constant with type `never` */
+ // export const NEVER = {} as never;
+ // iso

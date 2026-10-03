@@ -1,5 +1,10 @@
 import type { CSSProperties } from "react";
 
+import {
+  normalizeHexColor,
+  selectActionForeground,
+} from "@/lib/whitelabel/brand-palette";
+
 /**
  * CSS custom properties the composer surfaces read for user-set backgrounds.
  * They are set on the outer surface wrapper and inherited by
@@ -56,4 +61,23 @@ export function buildComposerSurfaceStyle({
   return Object.keys(style).length > 0
     ? (style as CSSProperties)
     : undefined;
+}
+
+/**
+ * Text colour that reads on a picked body background. The authoring canvas
+ * follows the UI theme, so a white body in dark mode would otherwise carry
+ * near-white text. Undefined when there is no pick or it is not a hex colour.
+ */
+export function readableBodyForeground(
+  bodyBackgroundColor?: string,
+): string | undefined {
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(
+    bodyBackgroundColor?.trim() ?? "",
+  );
+  const hex = normalizeHexColor(
+    short
+      ? `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`
+      : (bodyBackgroundColor ?? ""),
+  );
+  return hex ? selectActionForeground(hex, "#FFFFFF") : undefined;
 }

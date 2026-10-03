@@ -116,7 +116,8 @@ export function SwatchColorPicker({
                 select(index, event.currentTarget.parentElement)
               }
               className={cn(
-                "size-7 rounded-full border border-black/10 transition-shadow",
+                // 44px on coarse pointers; 28px already clears the WCAG floor.
+                "size-7 rounded-full border border-black/10 transition-shadow pointer-coarse:size-11",
                 checked &&
                   "ring-2 ring-foreground ring-offset-2 ring-offset-background",
               )}
@@ -151,6 +152,10 @@ export function SwatchColorPicker({
             <ColorSwatchPopover
               value={custom || value}
               label={__("Choose a custom color", "pressedmail")}
+              // Solid, like the swatches beside it. These colours have no
+              // alpha, and the transparency checks showed through the
+              // rounded edge as a speckled rim.
+              className="h-7 w-7 shrink-0 rounded border !bg-none pointer-coarse:h-11 pointer-coarse:w-11"
               data-test="tag-color-custom-swatch">
               <PalettePicker
                 value={custom || value}

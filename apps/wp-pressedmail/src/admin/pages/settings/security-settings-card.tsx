@@ -1,6 +1,6 @@
 import { __ } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Shield,
   Loader2,
@@ -10,8 +10,12 @@ import {
   Eye,
   Database,
   Trash2,
+  CheckCircle2,
 } from "lucide-react";
-import { useUserPreferences } from "@/hooks/useUserPreferences";
+import {
+  getUserPreferencesSnapshot,
+  useUserPreferences,
+} from "@/hooks/useUserPreferences";
 import {
   notifyAutosaveError,
   notifyAutosaveSuccess,
@@ -52,6 +56,7 @@ import {
   type MailboxLockRuntimeStatus,
 } from "@/lib/mailbox-lock";
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
+import { LockShareNote } from "@/components/sharing";
 
 interface ImpersonationStatus {
   protection_enabled: boolean;
@@ -86,8 +91,27 @@ const getApiUrl = (): string => {
   return (window as any).pressedmailPlugin?.apiUrl || "";
 };
 
+// The switch stays on the label's row at every width, so on a phone it is not
+// stranded under the description.
 const securityTileClass =
-  "grid gap-3 rounded-lg border bg-muted/30 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start";
+  "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 rounded-lg border bg-muted/30 p-4";
+
+// A hover step you can see: the palette's --primary-hover sits a few points
+// from --primary, so the on track moves toward the text colour instead, which is
+// darker in light mode and lighter in dark, so hover always adds contrast.
+// Fading toward the tile read as disabled in dark mode. Focus and the off look
+// are global (tailwind-base.css), like every other control's.
+// The visible switch is 32x18; the kit's own ::after hit area makes the tap
+// target 56x34, and 56x48 on a phone, so no extra padding is needed here.
+const securitySwitchClass =
+  "hover:data-checked:bg-[color-mix(in_oklch,var(--primary)_70%,var(--foreground))]";
+
+// Every status line in the storage tile: one 14px icon slot, one indent.
+const cacheStatusLineClass = "flex items-center gap-1.5 text-xs";
+
+// The kit's light outline hover is about 1.06:1 against rest; a darker edge
+// makes hover visible. Used by both outline buttons in the storage flow.
+const cacheOutlineHoverClass = "hover:border-muted-foreground hover:bg-muted";
 
 const TIMEOUT_OPTIONS: { value: number; label: () => string }[] = [
   { value: 0, label: () => __("Never", "pressedmail") },
@@ -126,7 +150,21 @@ export function SecuritySettingsCard() {
   const [message, setMessage] = useState<Message | null>(null);
   const [cacheConfirmOpen, setCacheConfirmOpen] = useState(false);
   const [cacheBusy, setCacheBusy] = useState(false);
-  const [cachePurgeFailed, setCachePurgeFailed] = useState(false);
+  // A clear is running. Both clears (the dialog's and the button's) show the
+  // same status line, spinner plus "Clearing stored email...", in the live region.
+  const [cacheClearing, setCacheClearing] = useState(false);
+  // The running clear came from the button, which then stays put (same label,
+  // same width) so focus is not lost.
+  const [cacheRetrying, setCacheRetrying] = useState(false);
+  // One inline outcome for the stored-content flow: no toasts, so a failure is
+  // never reported twice, and never under a stale message from the last try.
+  const [cacheOutcome, setCacheOutcome] = useState<
+    "idle" | "purge-failed" | "save-failed"
+  >("idle");
+  // Set by a successful clear and kept through a later failed save, so the
+  // clear button never comes back for content that is already gone.
+  const [cacheCleared, setCacheCleared] = useState(false);
+  const cacheRetryRef = useRef<HTMLButtonElement>(null);
 
   // --- Lock setup / management state (immediate actions, not draft-saved) ---
   const [setupPassphrase, setSetupPassphrase] = useState("");
@@ -336,21 +374,31 @@ export function SecuritySettingsCard() {
   }, [baselineDraft]);
 
   const isEmailCacheOn = preferences.cache_email_body_content;
+  // An earlier purge the server never finished (it may have run in the
+  // background), so some stored content may still be on the site.
+  const cachePurgePending = preferences.body_purge_pending === true;
 
   const enableEmailCache = useCallback(async () => {
     setCacheBusy(true);
+    setCacheOutcome("idle");
     const ok = await updatePreference("cache_email_body_content", true);
     setCacheBusy(false);
 
     if (ok) {
+      // Storage is on again and refills in the background: nothing is "cleared" now.
+      setCacheCleared(false);
       notifyAutosaveSuccess("user-email-cache");
     } else {
-      notifyAutosaveError();
+      setCacheOutcome("save-failed");
     }
   }, [updatePreference]);
 
-  const clearStoredEmailContent = useCallback(async () => {
+  const clearStoredEmailContent = useCallback(async (retry = false) => {
     setCacheBusy(true);
+    setCacheClearing(true);
+    setCacheRetrying(retry);
+    // A retry starts clean: the old failure must not sit next to the new attempt.
+    setCacheOutcome("idle");
     try {
       const response = await apiFetch(
         `${getApiUrl()}${getRuntimeRestNamespace()}/performance/clear-body-cache`,
@@ -367,40 +415,78 @@ export function SecuritySettingsCard() {
         throw new Error(data.message || "purge failed");
       }
 
-      setCachePurgeFailed(false);
-      notifyAutosaveSuccess("user-email-cache");
+      setCacheCleared(true);
     } catch (error) {
       console.error("Failed to purge cached email bodies:", error);
-      setCachePurgeFailed(true);
-      notifyAutosaveError();
+      setCacheOutcome("purge-failed");
     } finally {
       setCacheBusy(false);
+      setCacheClearing(false);
+      setCacheRetrying(false);
     }
   }, []);
 
   const confirmDisableEmailCache = useCallback(async () => {
     setCacheBusy(true);
+    setCacheClearing(true);
+    setCacheOutcome("idle");
     const ok = await updatePreference("cache_email_body_content", false);
+    setCacheClearing(false);
     if (!ok) {
-      setCachePurgeFailed(true);
+      // The server saves the setting before it deletes, so a failure with the
+      // setting now off is the delete. If the save itself failed, the store put
+      // the switch back on: say that, or the dialog would just close silently.
+      setCacheOutcome(
+        getUserPreferencesSnapshot().cache_email_body_content
+          ? "save-failed"
+          : "purge-failed",
+      );
       setCacheBusy(false);
       setCacheConfirmOpen(false);
-      notifyAutosaveError();
       return;
     }
     setCacheConfirmOpen(false);
-    await clearStoredEmailContent();
-  }, [clearStoredEmailContent, updatePreference]);
+    setCacheCleared(true);
+    setCacheBusy(false);
+  }, [updatePreference]);
+
+  // Keyboard users land back where they were, not on <body>: the dialog opens
+  // from the switch without a Trigger, so it has nothing to return to itself.
+  const cacheSwitchFocusTarget = useCallback(
+    () =>
+      document.querySelector<HTMLElement>(
+        '[data-test="cache-email-body-toggle"]',
+      ),
+    [],
+  );
+
+  // A clear started from the dialog that then fails: move focus from the
+  // switch to the retry button, the one thing left to do.
+  useEffect(() => {
+    if (
+      cacheOutcome === "purge-failed" &&
+      document.activeElement === cacheSwitchFocusTarget()
+    ) {
+      cacheRetryRef.current?.focus();
+    }
+  }, [cacheOutcome, cacheSwitchFocusTarget]);
 
   const handleEmailCacheToggle = useCallback(
     (next: boolean) => {
+      // Not disabled while busy, so it keeps focus and full contrast; a change
+      // mid-request is simply ignored.
+      if (cacheBusy) {
+        return;
+      }
       if (next) {
         void enableEmailCache();
       } else {
+        // A new attempt: the last one's error must not sit under the dialog.
+        setCacheOutcome("idle");
         setCacheConfirmOpen(true);
       }
     },
-    [enableEmailCache],
+    [cacheBusy, enableEmailCache],
   );
 
   const saveChanges = useCallback(async () => {
@@ -749,16 +835,17 @@ export function SecuritySettingsCard() {
                 "pressedmail",
               )}
             </p>
+            <LockShareNote />
           </details>
         </div>
 
         <div className="grid gap-3" data-test="user-security-settings-grid">
           <div
-            className="flex items-start gap-3 rounded-md bg-muted/40 p-3"
+            className="flex items-start gap-3 rounded-lg border bg-muted/30 p-4"
             role="note"
             data-test="security-impersonation-tile">
             <div className="flex min-w-0 gap-3">
-              <UserX className="h-5 w-5 shrink-0 text-muted-foreground" />
+              <UserX className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground" />
               <div className="space-y-1">
                 <p className="text-sm font-medium leading-5">
                   {__("Your mailbox stays private", "pressedmail")}
@@ -788,27 +875,16 @@ export function SecuritySettingsCard() {
             <div
               className={securityTileClass}
               data-test="security-remote-images-tile">
+              {/* Same grid as the storage tile below: title beside the switch,
+                  text under both on phones. */}
               <div className="flex min-w-0 gap-3">
                 <Eye className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-                <div className="space-y-1">
-                  <Label
-                    htmlFor="auto-show-images"
-                    className="text-sm font-medium cursor-pointer">
-                    {__("Automatically load remote images", "pressedmail")}
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    {__(
-                      "When enabled, external images in emails load automatically without clicking 'Show images' each time.",
-                      "pressedmail",
-                    )}
-                  </p>
-                  <p className="text-xs text-muted-foreground/80 mt-2">
-                    {__(
-                      "This may expose your activity to email senders via tracking pixels.",
-                      "pressedmail",
-                    )}
-                  </p>
-                </div>
+                <Label
+                  id="auto-show-images-label"
+                  htmlFor="auto-show-images"
+                  className="text-sm font-medium leading-5 cursor-pointer">
+                  {__("Automatically load remote images", "pressedmail")}
+                </Label>
               </div>
               <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
                 {saveStatus === "saving" && (
@@ -816,6 +892,8 @@ export function SecuritySettingsCard() {
                 )}
                 <Switch
                   id="auto-show-images"
+                  aria-labelledby="auto-show-images-label"
+                  className={securitySwitchClass}
                   checked={draft.auto_show_images}
                   onCheckedChange={(checked) =>
                     updateDraft("auto_show_images", checked)
@@ -825,57 +903,180 @@ export function SecuritySettingsCard() {
                   data-testid="auto-show-images-toggle"
                 />
               </div>
+              <div className="col-span-2 -mt-2 space-y-2 pl-8 sm:col-span-1">
+                <p className="text-xs text-muted-foreground">
+                  {__(
+                    "When enabled, external images in emails load automatically without clicking 'Show images' each time.",
+                    "pressedmail",
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {__(
+                    "This may expose your activity to email senders via tracking pixels.",
+                    "pressedmail",
+                  )}
+                </p>
+              </div>
             </div>
           )}
 
           <div
             className={securityTileClass}
             data-test="security-email-cache-tile">
+            {/* Title row beside the switch; the text below spans the full width on
+                phones instead of wrapping in a narrow column next to it. The tag
+                sits outside the label, so the switch's name is just the title. */}
             <div className="flex min-w-0 gap-3">
               <Database className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-              <div className="space-y-1">
+              <p className="text-sm font-medium leading-5">
                 <Label
+                  id="cache-email-body-content-label"
                   htmlFor="cache-email-body-content"
-                  className="text-sm font-medium cursor-pointer">
-                  {__("Cache email content in DB (Recommended)", "pressedmail")}
+                  className="inline cursor-pointer text-sm font-medium leading-5">
+                  {__("Store email on this site", "pressedmail")}
                 </Label>
-                <p className="text-xs text-muted-foreground">
-                  {__(
-                    "Recommended. Caches the full content of emails you open so they reopen instantly, including across sessions and devices.",
-                    "pressedmail",
-                  )}
-                </p>
-                <p className="text-xs text-muted-foreground/80 mt-2">
-                  {__(
-                    "Turning this off can make opening emails slower, since each message is downloaded live from your mail server.",
-                    "pressedmail",
-                  )}
-                </p>
-                {!isEmailCacheOn && (
-                  <div className="space-y-1 pt-2">
-                    {cachePurgeFailed && (
-                      <p role="alert" className="text-xs text-destructive">
-                        {__("Stored content could not be cleared. Your email and Rich Text draft documents remain inaccessible while caching is off. Retry the cleanup.", "pressedmail")}
-                      </p>
-                    )}
-                    <Button type="button" variant="outline" size="sm" disabled={cacheBusy} onClick={() => void clearStoredEmailContent()}>
-                      {__("Clear stored email content", "pressedmail")}
-                    </Button>
-                  </div>
-                )}
-              </div>
+                <span className="ml-2 whitespace-nowrap text-xs font-normal text-muted-foreground">
+                  {__("Recommended", "pressedmail")}
+                </span>
+              </p>
             </div>
             <div className="flex shrink-0 items-center gap-2 sm:pt-0.5">
-              {cacheBusy && (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              )}
+              {/* The spinner's slot is always there, so the text never reflows. It
+                  shows a save; a delete says so in words below. */}
+              <span
+                className="flex size-4 items-center justify-center"
+                aria-hidden="true">
+                {cacheBusy && !cacheClearing && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </span>
               <Switch
                 id="cache-email-body-content"
+                aria-labelledby="cache-email-body-content-label"
+                aria-describedby="cache-email-body-content-description"
+                className={securitySwitchClass}
                 data-test="cache-email-body-toggle"
                 checked={isEmailCacheOn}
                 onCheckedChange={handleEmailCacheToggle}
-                disabled={prefsLoading || cacheBusy}
+                disabled={prefsLoading}
+                aria-busy={cacheBusy || undefined}
               />
+            </div>
+            <div className="col-span-2 -mt-2 space-y-2 pl-8 sm:col-span-1">
+              <p
+                id="cache-email-body-content-description"
+                className="text-xs text-muted-foreground">
+                {isEmailCacheOn
+                  ? __(
+                      "Stores messages, bodies and metadata from all your mail folders for fast access. Attachment files load when you open them. Stored messages have no automatic expiry.",
+                      "pressedmail",
+                    )
+                  : __(
+                      "Messages load directly from IMAP and will be slower. Views and rules that need stored email are unavailable.",
+                      "pressedmail",
+                    )}
+              </p>
+              {/* One polite region for every status line: an assertive role=alert
+                  inside it made some screen readers announce errors twice. */}
+              <div aria-live="polite" className="space-y-2 empty:hidden">
+                {cacheClearing && !cacheRetrying && (
+                  <p
+                    className={cacheStatusLineClass + " text-muted-foreground"}>
+                    <Loader2
+                      className="size-3.5 shrink-0 animate-spin"
+                      aria-hidden="true"
+                    />
+                    {__("Deleting stored email\u2026", "pressedmail")}
+                  </p>
+                )}
+                {cacheOutcome === "save-failed" && (
+                  <p className={cacheStatusLineClass + " text-destructive"}>
+                    <AlertCircle
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    {__(
+                      "Couldn't save this setting. Use the switch to try again.",
+                      "pressedmail",
+                    )}
+                  </p>
+                )}
+                {!isEmailCacheOn && cacheOutcome === "purge-failed" && (
+                  <p className={cacheStatusLineClass + " text-destructive"}>
+                    <AlertCircle
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    {__(
+                      "Couldn't delete stored email. It's still on this site.",
+                      "pressedmail",
+                    )}
+                  </p>
+                )}
+                {!isEmailCacheOn &&
+                  cachePurgePending &&
+                  !cacheCleared &&
+                  !cacheClearing &&
+                  cacheOutcome === "idle" && (
+                    <p
+                      className={
+                        cacheStatusLineClass + " text-muted-foreground"
+                      }>
+                      <AlertCircle
+                        className="size-3.5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      {__(
+                        "An earlier delete didn't finish, so some stored email may still be on this site.",
+                        "pressedmail",
+                      )}
+                    </p>
+                  )}
+                {!isEmailCacheOn && cacheCleared && cacheOutcome === "idle" && (
+                  <p
+                    className={
+                      cacheStatusLineClass + " font-medium text-success"
+                    }>
+                    <CheckCircle2
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    {__("Stored email deleted.", "pressedmail")}
+                  </p>
+                )}
+                {/* Only when something may be left to delete: a delete that failed
+                    now, one that never finished (from an earlier visit or the
+                    background), or the retry running on this button, which then
+                    shows its own spinner instead of a second status line. */}
+                {!isEmailCacheOn &&
+                  !cacheCleared &&
+                  (cacheOutcome === "purge-failed" ||
+                    cacheRetrying ||
+                    (cachePurgePending && !cacheClearing)) && (
+                    <Button
+                      ref={cacheRetryRef}
+                      type="button"
+                      variant="outline"
+                      className={
+                        cacheOutlineHoverClass +
+                        " max-sm:min-h-11 aria-disabled:cursor-wait"
+                      }
+                      aria-disabled={cacheBusy || undefined}
+                      onClick={() => {
+                        if (!cacheBusy) {
+                          void clearStoredEmailContent(true);
+                        }
+                      }}>
+                      {cacheRetrying && (
+                        <Loader2
+                          className="size-3.5 animate-spin"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {__("Delete stored email", "pressedmail")}
+                    </Button>
+                  )}
+              </div>
             </div>
           </div>
         </div>
@@ -1013,36 +1214,56 @@ export function SecuritySettingsCard() {
       <AlertDialog open={cacheConfirmOpen} onOpenChange={setCacheConfirmOpen}>
         <PressedAlertDialogContent
           size="confirmation"
+          onCloseAutoFocus={(event) => {
+            const target = cacheSwitchFocusTarget();
+            if (target) {
+              event.preventDefault();
+              target.focus();
+            }
+          }}
           data-test="cache-email-body-confirm"
           data-testid="cache-email-body-confirm">
           <PressedAlertDialogHeader
-            title={__("Turn off email content caching?", "pressedmail")}
+            title={__("Stop storing email on this site?", "pressedmail")}
             icon={Trash2}
             tone="destructive"
             description={__(
-              "Turning this off deletes the email content already cached for your account and loads each message live from your mail server. This can make opening emails slower. You can turn it back on at any time.",
+              "This removes cached messages, bodies, headers, snippets, search data and AI reports from this site and browser. Your settings, templates and authored drafts stay. Messages load directly from IMAP and will be slower. Combined inboxes, local search, threads and rules that need stored email will be unavailable.",
               "pressedmail",
             )}
           />
           <PressedOverlayFooter>
-            <AlertDialogCancel
-              onClick={() => setCacheConfirmOpen(false)}
-              disabled={cacheBusy}
-              data-test="cache-email-body-confirm-cancel"
-              data-testid="cache-email-body-confirm-cancel">
-              {__("Cancel", "pressedmail")}
+            {/* A kit Button, so Cancel gets the same height, focus ring and
+                data-slot rules as the action beside it. Radix focuses Cancel on
+                open, so a stray Enter never deletes anything. */}
+            <AlertDialogCancel asChild>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCacheConfirmOpen(false)}
+                disabled={cacheBusy}
+                // mt-0: the kit's Cancel adds mt-2 for its own stacked footer; this
+                // footer already spaces its buttons with a gap.
+                className={cacheOutlineHoverClass + " mt-0"}
+                data-test="cache-email-body-confirm-cancel"
+                data-testid="cache-email-body-confirm-cancel">
+                {__("Cancel", "pressedmail")}
+              </Button>
             </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            <Button
+              type="button"
               disabled={cacheBusy}
+              // Solid, like every other irreversible delete in PressedMail (the
+              // tag and signature dialogs): the committing action is the loudest.
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               data-test="cache-email-body-confirm-accept"
               data-testid="cache-email-body-confirm-accept"
               onClick={(event) => {
                 event.preventDefault();
                 void confirmDisableEmailCache();
               }}>
-              {__("Turn off and clear cache", "pressedmail")}
-            </AlertDialogAction>
+              {__("Turn off and delete", "pressedmail")}
+            </Button>
           </PressedOverlayFooter>
         </PressedAlertDialogContent>
       </AlertDialog>

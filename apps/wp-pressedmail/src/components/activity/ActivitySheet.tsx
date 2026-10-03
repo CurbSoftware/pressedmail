@@ -292,7 +292,13 @@ export function ActivitySheet({ open, onOpenChange }: ActivitySheetProps) {
       return;
     }
     refreshProcessQueue();
-    const id = window.setInterval(() => refreshProcessQueue(), 1500);
+    // 5 s, not 1.5 s: on top of the store's own poll this was the heaviest timer
+    // on a shared host, and the panel still feels live. A follower tab skips these
+    // ticks while the leader relays the queue.
+    const id = window.setInterval(
+      () => refreshProcessQueue({ automatic: true }),
+      5000,
+    );
     return () => window.clearInterval(id);
   }, [open]);
 

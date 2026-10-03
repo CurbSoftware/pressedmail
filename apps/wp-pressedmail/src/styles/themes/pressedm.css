@@ -17,7 +17,7 @@
     --popover-foreground: oklch(0.194 0.039 255.586);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.194 0.039 255.586);
-    --border: oklch(0.894 0.008 228.864);
+    --border: oklch(0.74 0.008 228.864);
     --input: oklch(0.62 0.008 228.864);
     --checkbox-border: oklch(0.691 0.023 236.924);
     --checkbox-background: transparent;
@@ -37,6 +37,19 @@
     --chart-4: oklch(0.61 0.11 222);
     --chart-5: oklch(0.52 0.09 223);
 
+    /* Status tokens, synced with this palette's statusHues in
+       theme-variables.ts. Free has no runtime registry, so without these the
+       palette fell back to the saturated :root green. */
+    --success: oklch(0.52 0.16 145);
+    --success-foreground: oklch(1 0 0);
+    --success-border: oklch(0.5 0.15 145);
+    --warning: oklch(0.5 0.13 85);
+    --warning-foreground: oklch(1 0 0);
+    --warning-border: oklch(0.46 0.12 85);
+    --info: oklch(0.52 0.17 222);
+    --info-foreground: oklch(1 0 0);
+    --info-border: oklch(0.48 0.16 222);
+
     /* Legacy theme variables */
     --theme-primary: #0f91b2;
     --theme-primary-foreground: #eafdfe;
@@ -48,12 +61,12 @@
     --theme-foreground: #081526;
     --theme-muted: #eff1f3;
     --theme-muted-foreground: oklch(0.422 0.05 255.24);
-    --theme-border: #d7dde0;
+    --theme-border: oklch(0.74 0.008 228.9);
     --theme-input: #ffffff;
     --theme-ring: #5184ab;
-    --theme-success: #1c882d;
-    --theme-warning: #edb417;
-    --theme-error: #e7000b;
+    --theme-success: var(--success);
+    --theme-warning: var(--warning);
+    --theme-error: var(--destructive);
     /* Filled importance chevron. Amber-600 (#d97706, the Executive value) only
        reaches 3.01:1 on this palette's tinted canvas, so it is a step deeper
        here: 3.42:1 on the canvas and 3.62:1 on the white card in light mode,
@@ -101,9 +114,9 @@
     --theme-border: oklch(0.901 0.019 242.985 / 14%);
     --theme-input: #050d17;
     --theme-ring: #85a9c4;
-    --theme-success: #1c882d;
-    --theme-warning: #edb417;
-    --theme-error: #e7000b;
+    --theme-success: var(--success);
+    --theme-warning: var(--warning);
+    --theme-error: var(--destructive);
   }
 }
 

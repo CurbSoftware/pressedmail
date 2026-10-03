@@ -8,7 +8,6 @@ import {
 } from "@/components/icons/MailActionIcons";
 
 import { MailList } from "@/components/inbox/mail-list";
-import { MailListPaginated } from "@/components/inbox/mail-list-paginated";
 import { MailListSkeleton } from "@/components/inbox/mail-list-skeleton";
 import { Nav } from "@/components/inbox/nav";
 import { LayoutRouter } from "@/components/inbox/layouts";
@@ -47,8 +46,6 @@ function MailCompInner({
   defaultCollapsed = false,
   navCollapsedSize,
   layoutVariant = "classic",
-  listVariant = "default",
-  pageSize = 50,
   showComposer = true,
 }: Omit<MailProps, "mails">) {
   const resolvedLayout = React.useMemo(
@@ -126,7 +123,7 @@ function MailCompInner({
             variant="outline"
             size="sm"
             disabled={isLoading}
-            onClick={() => refreshMessages()}
+            onClick={() => refreshMessages({ syncAllAccounts: true })}
             className="flex-1">
             <EmailRefreshIcon
               className={cn("h-4 w-4", isLoading && "animate-spin")}
@@ -264,20 +261,9 @@ function MailCompInner({
     </div>
   );
 
-  // Paginated mail list for PressedG theme (search handled by header)
-  const paginatedMailListContent = (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <MailListPaginated pageSize={pageSize} />
-      </div>
-    </div>
-  );
-
-  // Select list content based on variant
-  const mailListContent =
-    listVariant === "paginated"
-      ? paginatedMailListContent
-      : defaultMailListContent;
+  // Every known layout, PressedG's paginated list included, renders through
+  // LayoutRouter below, so this fallback shell only ever shows the default list.
+  const mailListContent = defaultMailListContent;
 
   // Reading pane with proper compose functionality
   const readingPaneContent = (
@@ -347,11 +333,9 @@ function MailCompInner({
 }
 
 /** Valid layout IDs for the new layout system */
-const VALID_LAYOUT_IDS: readonly LayoutId[] = [
-  "pressedm",
-  "pressedg",
-  "pressedout",
-];
+const VALID_LAYOUT_IDS: readonly LayoutId[] = __IS_FREE__
+  ? ["pressedm"]
+  : ["pressedm", "pressedg", "pressedout"];
 
 export function MailComp({
   layoutVariant = "classic",

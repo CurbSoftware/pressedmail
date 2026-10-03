@@ -40,6 +40,12 @@ const FLAG_STUB_ALIASES = [
   },
   {
     flag: "__ENABLE_AI_SETTINGS__",
+    find: /^@\/admin\/pages\/settings\/_components\/user-settings\/ai-preferences-section$/,
+    target:
+      "./src/admin/pages/settings/_components/user-settings/ai-preferences-section.stub.tsx",
+  },
+  {
+    flag: "__ENABLE_AI_SETTINGS__",
     find: /^@\/context\/ai\/AIContext$/,
     target: "./src/context/ai/AIContext.stub.tsx",
   },
@@ -82,6 +88,18 @@ const FLAG_STUB_ALIASES = [
     flag: "__ENABLE_PHISHING_DETECTION__",
     find: /^@\/hooks\/useMessagePhishingAutoScan$/,
     target: "./src/hooks/useMessagePhishingAutoScan.stub.ts",
+  },
+  {
+    // Spam checks are Pro only (plan 8.1): shared components reach them only
+    // through these two specifiers, whose Free stubs render and do nothing.
+    flag: "__ENABLE_SPAM_DETECTION__",
+    find: /^@\/components\/spam$/,
+    target: "./src/components/spam/index.free.tsx",
+  },
+  {
+    flag: "__ENABLE_SPAM_DETECTION__",
+    find: /^@\/context\/security$/,
+    target: "./src/context/security/index.free.tsx",
   },
   {
     flag: "__ENABLE_AUTO_TAGGER__",
@@ -172,6 +190,11 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // PressedMail AI batching names a Pro-only engine; Free sends one email per request.
+      find: /^@\/lib\/ai-batches$/,
+      replacement: pick("./src/lib/ai-batches.free.ts", "./src/lib/ai-batches.ts"),
+    },
+    {
       find: /^@\/lib\/provider-gate$/,
       replacement: pick(
         "./src/lib/provider-gate.free.ts",
@@ -197,6 +220,16 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/components/features/UpgradeModal.free.tsx",
         "./src/components/features/UpgradeModal.tsx",
+      ),
+    },
+    {
+      // Pro rule conditions, actions, triggers and the shared-inbox rules
+      // panel. Free registers none of them with the rule engine, so it ships
+      // none of their copy either.
+      find: /^@\/components\/settings\/filter-rules\/pro-rule-options\.active$/,
+      replacement: pick(
+        "./src/components/settings/filter-rules/pro-rule-options.free.ts",
+        "./src/components/settings/filter-rules/pro-rule-options.pro.ts",
       ),
     },
     {
@@ -262,6 +295,22 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Calendar invites are Pro-only, so Free has no iTIP banner.
+      find: /^@\/components\/inbox\/itip-banner$/,
+      replacement: pick(
+        "./src/components/inbox/itip-banner.free.tsx",
+        "./src/components/inbox/itip-banner.tsx",
+      ),
+    },
+    {
+      // Contacts are Pro-only, so Free carries no sender add/remove client.
+      find: /^@\/hooks\/useSenderContact$/,
+      replacement: pick(
+        "./src/hooks/useSenderContact.free.ts",
+        "./src/hooks/useSenderContact.ts",
+      ),
+    },
+    {
       // Scheduled sending is Pro-only, so Free never names its edit route.
       find: /^@\/services\/scheduled-email-edit$/,
       replacement: pick(
@@ -276,6 +325,63 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/admin/pages/settings/_components/admin-settings/use-latest-release.free.ts",
         "./src/admin/pages/settings/_components/admin-settings/use-latest-release.ts",
+      ),
+    },
+    {
+      // PressedOut's shared UI state. Free has one layout and mounts none.
+      find: /^@\/context\/layout-ui-provider\.active$/,
+      replacement: pick(
+        "./src/context/layout-ui-provider.free.tsx",
+        "./src/context/layout-ui-provider.pro.ts",
+      ),
+    },
+    {
+      // Pro feature flags read from shared components. Free answers false.
+      find: /^@\/context\/features\/pro-feature\.active$/,
+      replacement: pick(
+        "./src/context/features/pro-feature.free.ts",
+        "./src/context/features/pro-feature.pro.ts",
+      ),
+    },
+    {
+      // The auto-reply authoring surfaces are Pro.
+      find: /^@\/lib\/email-surfaces$/,
+      replacement: pick(
+        "./src/lib/email-surfaces.free.ts",
+        "./src/lib/email-surfaces.ts",
+      ),
+    },
+    {
+      // Undo send, inline AI, contact lists and read receipts in the composer.
+      find: /^@\/hooks\/compose\/v2\/compose-pro-inputs\.active$/,
+      replacement: pick(
+        "./src/hooks/compose/v2/compose-pro-inputs.free.ts",
+        "./src/hooks/compose/v2/compose-pro-inputs.pro.ts",
+      ),
+    },
+    {
+      // Managed-domain account setup follows a Pro domain policy. Free has
+      // only the ordinary provider flow.
+      find: /^@\/components\/setup\/managed-domain-setup\.active$/,
+      replacement: pick(
+        "./src/components/setup/managed-domain-setup.free.ts",
+        "./src/components/setup/managed-domain-setup.pro.ts",
+      ),
+    },
+    {
+      // AI auto-tag for an open message. Free builds no classify request.
+      find: /^@\/components\/inbox\/message-auto-tag\.active$/,
+      replacement: pick(
+        "./src/components/inbox/message-auto-tag.free.ts",
+        "./src/components/inbox/message-auto-tag.pro.ts",
+      ),
+    },
+    {
+      // The `@`-mention input searches Pro contacts; Free registers none.
+      find: /^@\/components\/composer\/plate\/mention-input-kit\.active$/,
+      replacement: pick(
+        "./src/components/composer/plate/mention-input-kit.free.ts",
+        "./src/components/composer/plate/mention-input-kit.pro.tsx",
       ),
     },
     {
@@ -351,6 +457,22 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // The band table the UI compares against (plan 4.7). Free has no
+      // security checks, so it gets an empty module.
+      find: /^@\/lib\/security-bands$/,
+      replacement: pick(
+        "./src/lib/security-bands.free.ts",
+        "./src/lib/security-bands.ts",
+      ),
+    },
+    {
+      find: /^@\/components\/icons\/SpamIcons$/,
+      replacement: pick(
+        "./src/components/icons/SpamIcons.free.tsx",
+        "./src/components/icons/SpamIcons.tsx",
+      ),
+    },
+    {
       find: /^@\/lib\/phishing-email$/,
       replacement: pick(
         "./src/lib/phishing-email.free.ts",
@@ -365,6 +487,48 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Templates, forms and campaigns are Pro, so Free carries none of their icons.
+      find: /^@\/components\/icons\/TemplatesIcons$/,
+      replacement: pick(
+        "./src/components/icons/TemplatesIcons.free.tsx",
+        "./src/components/icons/TemplatesIcons.tsx",
+      ),
+    },
+    {
+      // Field chips and their `{{` picker are part of templates, which are Pro.
+      find: /^@\/components\/composer\/nodes\/template-variable-kit\.active$/,
+      replacement: pick(
+        "./src/components/composer/nodes/template-variable-kit.free.ts",
+        "./src/components/composer/nodes/template-variable-kit.ts",
+      ),
+    },
+    {
+      // The header's Templates button. Free has no templates, forms or campaigns.
+      find: /^@\/components\/application-layout\/HeaderTemplatesMenu$/,
+      replacement: pick(
+        "./src/components/application-layout/HeaderTemplatesMenu.free.tsx",
+        "./src/components/application-layout/HeaderTemplatesMenu.tsx",
+      ),
+    },
+    {
+      // The one mounted "New email from template" picker. Free has no
+      // templates, so it mounts nothing and registers nothing.
+      find: /^@\/components\/templates\/TemplatePickerHost$/,
+      replacement: pick(
+        "./src/components/templates/TemplatePickerHost.free.tsx",
+        "./src/components/templates/TemplatePickerHost.tsx",
+      ),
+    },
+    {
+      // The rows behind the Templates menu, the More section and the speed
+      // dial. Free answers with none.
+      find: /^@\/components\/templates\/templates-menu-model$/,
+      replacement: pick(
+        "./src/components/templates/templates-menu-model.free.ts",
+        "./src/components/templates/templates-menu-model.ts",
+      ),
+    },
+    {
       find: /^@\/components\/snooze\/use-snooze$/,
       replacement: pick(
         "./src/components/snooze/use-snooze.free.ts",
@@ -376,6 +540,22 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/context/undo-send.free.tsx",
         "./src/context/undo-send.tsx",
+      ),
+    },
+    {
+      // The localized whitelabel runtime is Ultimate; Free has none.
+      find: /^@\/context\/admin-settings\/whitelabel-runtime\.active$/,
+      replacement: pick(
+        "./src/context/admin-settings/whitelabel-runtime.free.ts",
+        "./src/context/admin-settings/whitelabel-runtime.pro.ts",
+      ),
+    },
+    {
+      // Free has one inbox layout and no admin layout lock.
+      find: /^@\/hooks\/useLayout$/,
+      replacement: pick(
+        "./src/hooks/useLayout.free.ts",
+        "./src/hooks/useLayout.ts",
       ),
     },
     {
@@ -407,10 +587,47 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Templates are Pro. Free resolves a section that renders nothing, so the
+      // settings page never imports the template editor.
+      find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/wordpress-notification-templates\.active$/,
+      replacement: pick(
+        "./src/admin/pages/settings/_components/admin-settings/wordpress-notification-templates.free.tsx",
+        "./src/admin/pages/settings/_components/admin-settings/wordpress-notification-templates.pro.tsx",
+      ),
+    },
+    {
+      // The words for a default connection, a system email's assigned connection
+      // and a sender two connections dispute only exist with several connections.
+      // Free resolves a twin that says nothing, so none of them ship in it.
+      find: /^@\/components\/wp-mail\/smtp-pro-copy\.active$/,
+      replacement: pick(
+        "./src/components/wp-mail/smtp-pro-copy.free.ts",
+        "./src/components/wp-mail/smtp-pro-copy.pro.ts",
+      ),
+    },
+    {
+      // Choosing between SMTP connections is Pro. Free holds one and resolves a
+      // picker that renders nothing.
+      find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/wp-mail-default-smtp\.active$/,
+      replacement: pick(
+        "./src/admin/pages/settings/_components/admin-settings/wp-mail-default-smtp.free.tsx",
+        "./src/admin/pages/settings/_components/admin-settings/wp-mail-default-smtp.pro.tsx",
+      ),
+    },
+    {
       find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/allowed-domains-tab\.active$/,
       replacement: pick(
         "./src/admin/pages/settings/_components/admin-settings/allowed-domains-tab.free.tsx",
         "./src/admin/pages/settings/_components/admin-settings/allowed-domains-tab.tsx",
+      ),
+    },
+    {
+      // Saved blocks are Pro: the composer's Insert block button and the slash
+      // menu's Blocks group. Free resolves a kit that renders and offers nothing.
+      find: /^@\/components\/composer\/plate\/composer-blocks-kit\.active$/,
+      replacement: pick(
+        "./src/components/composer/plate/composer-blocks-kit.free.tsx",
+        "./src/components/composer/plate/composer-blocks-kit.tsx",
       ),
     },
     {
@@ -443,6 +660,14 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Sharing is Ultimate-only; Free gets inert stubs and no sharing code.
+      find: /^@\/components\/sharing$/,
+      replacement: pick(
+        "./src/components/sharing/index.free.ts",
+        "./src/components/sharing/index.ts",
+      ),
+    },
+    {
       find: /^@\/layouts\/registry\.active$/,
       replacement: pick(
         "./src/layouts/registry.free.ts",
@@ -454,6 +679,20 @@ function editionAliases(appDir, variant, featureFlags) {
       replacement: pick(
         "./src/components/application-layout/DynamicHeader.free.tsx",
         "./src/components/application-layout/DynamicHeader.pro.tsx",
+      ),
+    },
+    {
+      find: /^@\/components\/settings\/pro-tools\/tools\.active$/,
+      replacement: pick(
+        "./src/components/settings/pro-tools/tools.free.tsx",
+        "./src/components/settings/pro-tools/tools.pro.tsx",
+      ),
+    },
+    {
+      find: /^@\/components\/contacts\/custom-fields\.active$/,
+      replacement: pick(
+        "./src/components/contacts/custom-fields.free.tsx",
+        "./src/components/contacts/ContactCustomFields.tsx",
       ),
     },
     ...FLAG_STUB_ALIASES.filter((entry) => !flags[entry.flag]).map((entry) => ({

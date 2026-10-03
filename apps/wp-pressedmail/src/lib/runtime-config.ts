@@ -31,6 +31,18 @@ export function getRuntimeIsLicensed(): boolean {
   return isTruthyRuntimeFlag(window.pressedmailPlugin?.isLicensed);
 }
 
+/**
+ * Something fills `pressedmail_unsubscribe_url` at send time (Pro sets the
+ * flag from `has_filter`). Without one an Unsubscribe block sends nothing.
+ */
+export function hasUnsubscribeProvider(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return isTruthyRuntimeFlag(window.pressedmailPlugin?.unsubscribeProvider);
+}
+
 /** WordPress site timezone shared by browser and server notification policy. */
 export function getRuntimeSiteTimezone(): string {
   if (typeof window === "undefined") {

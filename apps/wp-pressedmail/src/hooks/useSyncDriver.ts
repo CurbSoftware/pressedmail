@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import {
   advanceSync,
   processQueueSync,
+  ServerBusyError,
 } from "@/services/sync-driver.service";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 import {
@@ -10,6 +11,17 @@ import {
   PermissionError,
   SessionExpiredError,
 } from "@/lib/api-client";
+import {
+  announceLeader,
+  isTabLeader,
+  setTabLeader,
+} from "@/lib/tab-channel";
+
+/**
+ * Leadership is shared with the rest of the app through `lib/tab-channel`: follower tabs
+ * read it to skip polls the leader already runs. This lock is the only election.
+ */
+export { isTabLeader, subscribeLeadership } from "@/lib/tab-channel";
 
 /**
  * In-app mailbox-sync driver.
@@ -23,10 +35,11 @@ import {
  *
  * Slow-server semantics (the D2 fix): /sync/advance can legitimately take tens of seconds
  * against a rate-limited IMAP server. The client gives it a 45s budget and treats a
- * `RequestTimeoutError` as "still working, come back soon". NOT a failure: no backoff, no
- * session error, stay on the ACTIVE cadence. Only after 3 consecutive timeouts does it raise
- * an INFO-level "running slowly" hint (never a session error). A `locked:true` response
- * (another request holds the per-user lock) is also NOT idle. Retry on the ACTIVE cadence.
+ * `RequestTimeoutError` as "still working": no session error, but it backs off, because the
+ * aborted request is still holding a PHP worker. After 3 consecutive timeouts it raises an
+ * INFO-level "running slowly" hint. A 429/503/5xx is a `ServerBusyError`: wait at least its
+ * Retry-After and show a quiet "Server busy" chip. `locked:true` waits 15 s with no drain.
+ * Only one visible tab drives the loop (Web Locks leader).
  *
  * Alternation: after each advance resolves the driver runs the FULL background-queue drain
  * (`/sync/process-queue`) SEQUENTIALLY, never in parallel (pm.max_children=2), when the head
@@ -45,6 +58,11 @@ import {
 
 const ACTIVE_INTERVAL_MS = 3500;
 const IDLE_INTERVAL_MS = 45000;
+/** Another worker (usually wp-cron) holds the per-user lock: give it room, skip the drain. */
+const LOCKED_INTERVAL_MS = 15000;
+
+/** Browser lock that picks the one visible tab allowed to drive sync. */
+const LEADER_LOCK = "pressedmail-sync-driver";
 const WINDOWS_PER_TICK = 2;
 
 /** Consecutive failures before the driver surfaces a visible connection-state error. */
@@ -71,6 +89,9 @@ let timer: number | null = null;
 let mountCount = 0;
 let consecutiveFailures = 0;
 let consecutiveTimeouts = 0;
+let consecutiveBusy = 0;
+/** A load hint ("Server busy" or "running slowly") is up; the next success must clear it. */
+let loadHintShown = false;
 let overdueStreak = 0;
 /**
  * Depth the app's own last FULL drain left behind, or null when that drain could not
@@ -79,6 +100,58 @@ let overdueStreak = 0;
  */
 let lastDrainOverdue: number | null = null;
 let activeTickCount = 0;
+let releaseLeadership: (() => void) | null = null;
+/** Aborts a lock request still queued behind another tab, so a hidden tab never inherits it. */
+let pendingClaim: AbortController | null = null;
+
+/**
+ * Take the leader lock while this tab is visible. Every open tab used to run its own
+ * loop, so two tabs doubled the load on a two-worker shared host. A hidden tab gives the
+ * lock up so a visible one can lead, and a queued request is cancelled when the tab hides.
+ */
+function claimLeadership(): void {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.locks ||
+    releaseLeadership ||
+    pendingClaim
+  ) {
+    return;
+  }
+  const claim = new AbortController();
+  pendingClaim = claim;
+  navigator.locks.request(LEADER_LOCK, { signal: claim.signal }, () => {
+    pendingClaim = null;
+    // Granted after this tab hid or unmounted: hand the lock straight back.
+    if (mountCount <= 0 || (typeof document !== "undefined" && document.hidden)) {
+      return undefined;
+    }
+    return new Promise<void>((resolve) => {
+      setTabLeader(true);
+      releaseLeadership = () => {
+        setTabLeader(false);
+        releaseLeadership = null;
+        resolve();
+      };
+      schedule(400);
+    });
+  }).catch(() => {
+    if (pendingClaim === claim) {
+      pendingClaim = null;
+    }
+    if (claim.signal.aborted) {
+      return; // We cancelled it on purpose.
+    }
+    // Locks unavailable (sandboxed frame): lead alone rather than never syncing.
+    setTabLeader(true);
+  });
+}
+
+function yieldLeadership(): void {
+  pendingClaim?.abort();
+  pendingClaim = null;
+  releaseLeadership?.();
+}
 
 /**
  * Whether the sync driver is mid-tick.
@@ -125,11 +198,15 @@ async function tick(): Promise<void> {
     inFlight ||
     typeof document === "undefined" ||
     document.hidden ||
-    mountCount <= 0
+    mountCount <= 0 ||
+    !isTabLeader()
   ) {
     schedule(IDLE_INTERVAL_MS);
     return;
   }
+
+  // Keep-alive: followers treat a leader they have not heard from for a while as gone.
+  announceLeader();
 
   inFlight = true;
   try {
@@ -151,12 +228,15 @@ async function runTick(): Promise<void> {
   let failed = false;
   let authTerminal = false;
   let failureReason = "";
+  let busy: ServerBusyError | null = null;
 
   try {
     result = await advanceSync(WINDOWS_PER_TICK);
   } catch (error) {
     if (isRequestTimeoutError(error)) {
       timedOut = true;
+    } else if (error instanceof ServerBusyError) {
+      busy = error;
     } else {
       failed = true;
       authTerminal = isAuthTerminal(error);
@@ -167,16 +247,30 @@ async function runTick(): Promise<void> {
     }
   }
 
-  // A timeout is NOT a failure: the server is slow-but-working (rate-limited IMAP). Do not
-  // back off, do not mark a session error. Stay ACTIVE and come back soon. Only a sustained
-  // run of timeouts raises the info-level "running slowly" hint.
+  // A timeout is not a session failure (the server is slow but working), but it is a sign
+  // the host is saturated: the aborted request keeps a PHP worker busy. Back off instead of
+  // queuing another request 3.5 s later. A sustained run raises the "running slowly" hint.
   if (timedOut) {
     consecutiveFailures = 0;
     consecutiveTimeouts += 1;
     if (consecutiveTimeouts >= SLOW_HINT_THRESHOLD) {
       connectionState.markSyncDelayed(SLOW_SYNC_HINT);
+      loadHintShown = true;
     }
-    schedule(ACTIVE_INTERVAL_MS);
+    schedule(backoffDelay(consecutiveTimeouts));
+    return;
+  }
+
+  // Rate limited or overloaded: wait at least what the server asked for, and say so
+  // quietly. It is a load condition, not a broken session, so no red banner.
+  if (busy) {
+    consecutiveBusy += 1;
+    const delay = Math.max(backoffDelay(consecutiveBusy), busy.retryAfterMs);
+    connectionState.markSyncDelayed(
+      `Server busy. Retrying in ${Math.round(delay / 1000)} s.`,
+    );
+    loadHintShown = true;
+    schedule(delay);
     return;
   }
 
@@ -201,10 +295,20 @@ async function runTick(): Promise<void> {
   }
 
   // Success.
+  // Backfill progress is not announced to other tabs: during an initial sync it advances on
+  // every tick for hours, and each announcement would make every follower refetch. The
+  // leader's own view poll hands on changes that follower views can actually see.
   const advance = result ?? { advanced: 0, remaining: 0, locked: false, overdueJobs: 0 };
   consecutiveFailures = 0;
   consecutiveTimeouts = 0;
+  consecutiveBusy = 0;
   connectionState.clearSessionError();
+  // Requests succeed again, so a load hint is stale whatever the backlog says. The
+  // cron-health check below re-raises its own chip if it still applies.
+  if (loadHintShown) {
+    loadHintShown = false;
+    connectionState.clearSyncDelayed();
+  }
 
   // Cron-health chip: it means work PressedMail owes you is not getting done. The count the
   // server reports already excludes dispatcher wakes that nothing can drain, so a depth
@@ -226,9 +330,15 @@ async function runTick(): Promise<void> {
     connectionState.clearSyncDelayed();
   }
 
-  // `locked:true` (another request holds the per-user lock) is NOT idle. Work may well be
-  // in progress elsewhere; retry on the ACTIVE cadence instead of dropping to the 45s idle.
-  const active = advance.remaining > 0 || advance.locked;
+  // `locked:true`: another worker (usually wp-cron) holds the per-user lock and is doing
+  // the work. Firing again every 3.5 s, plus a drain, only queued requests behind it on a
+  // two-worker host. Come back in a while and skip the drain.
+  if (advance.locked) {
+    schedule(LOCKED_INTERVAL_MS);
+    return;
+  }
+
+  const active = advance.remaining > 0;
   activeTickCount = active ? activeTickCount + 1 : 0;
 
   // Alternate the FULL background-queue drain: when the head backfill is caught up
@@ -260,13 +370,18 @@ export function useSyncDriver(enabled = true): void {
 
     mountCount += 1;
     if (mountCount === 1) {
+      claimLeadership();
       schedule(800); // Kick shortly after the app mounts.
     }
 
     const onVisibility = () => {
-      if (typeof document !== "undefined" && !document.hidden) {
-        schedule(400);
+      if (typeof document === "undefined") return;
+      if (document.hidden) {
+        yieldLeadership();
+        return;
       }
+      claimLeadership();
+      schedule(400);
     };
     document.addEventListener("visibilitychange", onVisibility);
 
@@ -275,6 +390,7 @@ export function useSyncDriver(enabled = true): void {
       document.removeEventListener("visibilitychange", onVisibility);
       if (mountCount <= 0) {
         stop();
+        yieldLeadership();
       }
     };
   }, [enabled]);

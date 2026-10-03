@@ -10,10 +10,8 @@ import {
   PencilLine,
   PenTool,
   PlusCircle,
-  Share2,
   Star,
   Trash2,
-  Users,
 } from "lucide-react";
 
 import type { EmailAccount } from "@/types";
@@ -22,6 +20,13 @@ import { useAppContext } from "@/context/AppProvider";
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { useSignatures } from "@/context/signatures";
 import { isDefaultAccount as matchesDefaultAccount } from "@/lib/default-account";
+import {
+  isSharedResource,
+  SharedAccountsSection,
+  SharedWithIcon,
+  ShareInboxButton,
+  useLeaveShare,
+} from "@/components/sharing";
 import type { Signature } from "@/types/signatures";
 
 import {
@@ -62,29 +67,6 @@ const PROVIDER_LABELS: Record<string, string> = {
 const getProviderLabel = (provider?: string) => {
   if (!provider) return __("Email", "pressedmail");
   return PROVIDER_LABELS[provider] || provider;
-};
-
-const PERMISSION_LABELS: Record<
-  string,
-  { label: string; variant: "default" | "secondary" | "outline" }
-> = {
-  view_only: { label: __("View Only", "pressedmail"), variant: "outline" },
-  reply: { label: __("Can Reply", "pressedmail"), variant: "secondary" },
-  full: { label: __("Full Access", "pressedmail"), variant: "default" },
-};
-
-const getPermissionBadge = (permission?: string) => {
-  if (!permission)
-    return {
-      label: __("Unknown", "pressedmail"),
-      variant: "secondary" as const,
-    };
-  return (
-    PERMISSION_LABELS[permission] || {
-      label: permission,
-      variant: "secondary" as const,
-    }
-  );
 };
 
 const getNameParts = (account: EmailAccount) => {
@@ -143,7 +125,12 @@ export function EmailConnectionsCard() {
     setEditingAccount,
     defaultAccountId,
     setDefaultAccount,
+    reloadAccounts,
   } = useAppContext();
+  // Held here, not on the shared row: leaving the last mailbox empties the
+  // list and unmounts the row and its section, and the confirm has to close
+  // normally, not vanish with them.
+  const leaveShared = useLeaveShare("inbox", reloadAccounts);
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobileOrTablet();
@@ -168,20 +155,15 @@ export function EmailConnectionsCard() {
     useState<EmailAccount | null>(null);
   const [signatureSaving, setSignatureSaving] = useState(false);
   const [signatureError, setSignatureError] = useState<string | null>(null);
-  const { ownedAccounts, sharedAccounts } = useMemo(() => {
-    const owned = accounts.filter((account) => !account.is_shared);
-    const shared = accounts.filter((account) => account.is_shared);
-
-    const sortAccounts = (accountList: EmailAccount[]) =>
-      [...accountList].sort((a, b) =>
-        a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
-      );
-
-    return {
-      ownedAccounts: sortAccounts(owned),
-      sharedAccounts: sortAccounts(shared),
-    };
-  }, [accounts]);
+  const ownedAccounts = useMemo(
+    () =>
+      accounts
+        .filter((account) => !isSharedResource(account))
+        .sort((a, b) =>
+          a.email.localeCompare(b.email, undefined, { sensitivity: "base" }),
+        ),
+    [accounts],
+  );
 
   const activeSignatures = useMemo(
     () =>
@@ -414,7 +396,7 @@ export function EmailConnectionsCard() {
           </Alert>
         ) : null}
 
-        {ownedAccounts.length === 0 && sharedAccounts.length === 0 ? (
+        {accounts.length === 0 ? (
           !hasLoaded ? (
             <SettingsSkeleton
               label={__("Loading your existing connections", "pressedmail")}
@@ -479,6 +461,11 @@ export function EmailConnectionsCard() {
                                     {__("Default", "pressedmail")}
                                   </Badge>
                                 ) : null}
+                                <SharedWithIcon
+                                  count={account.share_count}
+                                  className="ml-1"
+                                  data-testid="account-shared-icon"
+                                />
                               </div>
                               <span
                                 className="block break-all text-sm text-muted-foreground"
@@ -521,6 +508,10 @@ export function EmailConnectionsCard() {
                           ) : null}
 
                           <div className="mt-3 flex items-center justify-end gap-2">
+                            <ShareInboxButton
+                              account={account}
+                              className="pm-touch-target h-11 w-11 p-0"
+                            />
                             <Button
                               variant="outline"
                               size="sm"
@@ -615,6 +606,11 @@ export function EmailConnectionsCard() {
                                       {__("Default", "pressedmail")}
                                     </Badge>
                                   ) : null}
+                                  <SharedWithIcon
+                                    count={account.share_count}
+                                    className="ml-1"
+                                    data-testid="account-shared-icon"
+                                  />
                                 </div>
                               </td>
                               <td className="max-w-[24rem] overflow-hidden whitespace-nowrap px-4 py-3 text-muted-foreground">
@@ -699,6 +695,7 @@ export function EmailConnectionsCard() {
                                       )}
                                     </Button>
                                   </PressedTooltip>
+                                  <ShareInboxButton account={account} />
                                   <PressedTooltip
                                     content={__("Edit", "pressedmail")}
                                     side="top">
@@ -757,131 +754,19 @@ export function EmailConnectionsCard() {
               </div>
             )}
 
-            {/* Shared Accounts Section */}
-            {sharedAccounts.length > 0 && (
-              <div>
-                <h3 className="mb-3 text-lg font-medium text-foreground flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  {__("Shared Mailboxes", "pressedmail")}
-                </h3>
-                {isMobile ? (
-                  <ul data-pm-mobile-cards role="list" className="space-y-2">
-                    {sharedAccounts.map((account) => {
-                      const provider = getProviderLabel(account.provider);
-                      const permissionBadge = getPermissionBadge(
-                        account.permission,
-                      );
-
-                      return (
-                        <li
-                          key={account.id}
-                          data-test="shared-email-account-card"
-                          data-testid="shared-email-account-card"
-                          className="rounded-lg border p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <span className="block truncate text-sm font-medium text-foreground">
-                                {getDisplayName(account)}
-                              </span>
-                              <span className="block truncate text-sm text-muted-foreground">
-                                {account.email}
-                              </span>
-                            </div>
-                            <Badge
-                              variant="secondary"
-                              className="flex shrink-0 items-center gap-1">
-                              <Share2 className="h-3 w-3" />
-                              {__("Shared", "pressedmail")}
-                            </Badge>
-                          </div>
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <Badge variant="outline">{provider}</Badge>
-                            <Badge variant={permissionBadge.variant}>
-                              {permissionBadge.label}
-                            </Badge>
-                          </div>
-                          <p className="mt-2 text-sm text-muted-foreground">
-                            {sprintf(
-                              __("Shared by %s", "pressedmail"),
-                              account.owner_name ||
-                                __("Unknown", "pressedmail"),
-                            )}
-                          </p>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : (
-                  <div className="overflow-hidden rounded-lg border">
-                    <table className="min-w-full divide-y divide-border text-sm">
-                      <thead className="bg-muted/50 text-left">
-                        <tr>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">
-                            {__("Display Name", "pressedmail")}
-                          </th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">
-                            {__("Email Address", "pressedmail")}
-                          </th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">
-                            {__("Provider", "pressedmail")}
-                          </th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">
-                            {__("Access Level", "pressedmail")}
-                          </th>
-                          <th className="px-4 py-3 font-medium text-muted-foreground">
-                            {__("Shared By", "pressedmail")}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        {sharedAccounts.map((account) => {
-                          const provider = getProviderLabel(account.provider);
-                          const permissionBadge = getPermissionBadge(
-                            account.permission,
-                          );
-
-                          return (
-                            <tr key={account.id}>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium text-foreground">
-                                    {getDisplayName(account)}
-                                  </span>
-                                  <Badge
-                                    variant="secondary"
-                                    className="flex items-center gap-1">
-                                    <Share2 className="h-3 w-3" />
-                                    {__("Shared", "pressedmail")}
-                                  </Badge>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground">
-                                {account.email}
-                              </td>
-                              <td className="px-4 py-3 pr-6">
-                                <Badge variant="outline">{provider}</Badge>
-                              </td>
-                              <td className="px-4 py-3">
-                                <Badge variant={permissionBadge.variant}>
-                                  {permissionBadge.label}
-                                </Badge>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground">
-                                {account.owner_name ||
-                                  __("Unknown", "pressedmail")}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
+            <SharedAccountsSection
+              accounts={accounts}
+              isMobile={isMobile}
+              getDisplayName={getDisplayName}
+              getProviderLabel={getProviderLabel}
+              onLeave={leaveShared.leave}
+              leaving={leaveShared.isPending}
+            />
           </div>
         )}
       </CardContent>
+
+      {leaveShared.dialog}
 
       <Dialog
         open={deleteOpen}

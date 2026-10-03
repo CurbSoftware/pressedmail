@@ -1,10 +1,7 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
 
 import type {
-  AiBulkLimits,
-  CalendarLayoutConfig,
   CalendarLayoutId,
-  ContactsLayoutConfig,
   ContactsLayoutId,
   EnhancedFeatureStatus,
   Feature,
@@ -14,7 +11,6 @@ import type {
   LayoutConfig,
   LayoutId,
   ProEntitlementKey,
-  RuntimeEntitlements,
 } from "@/types/features";
 
 const AVAILABLE_FEATURES = new Set<FeatureId>([
@@ -38,8 +34,6 @@ const AVAILABLE_FEATURES = new Set<FeatureId>([
   "microsoft_oauth",
 ]);
 
-const STATIC_ENTITLEMENTS = {} as RuntimeEntitlements;
-const STATIC_AI_LIMITS = {} as AiBulkLimits;
 
 const FREE_LAYOUT: LayoutConfig = {
   id: "pressedm",
@@ -52,31 +46,6 @@ const FREE_LAYOUT: LayoutConfig = {
   showTopSearchBar: false,
   threadedView: false,
   showStatusBar: false,
-};
-
-const FALLBACK_CONTACTS_LAYOUT: ContactsLayoutConfig = {
-  id: "default",
-  name: "Default",
-  description: "Contact list",
-  viewMode: "list",
-  navVariant: "groups",
-  showDetailPane: true,
-  inlineEditing: false,
-  showSearchBar: true,
-  showBulkActions: true,
-};
-
-const FALLBACK_CALENDAR_LAYOUT: CalendarLayoutConfig = {
-  id: "default",
-  name: "Default",
-  description: "Calendar",
-  defaultView: "month",
-  navVariant: "mini",
-  showMiniCalendar: true,
-  showEventList: false,
-  showDetailPane: true,
-  dragEnabled: false,
-  showTimezone: false,
 };
 
 function featureLimit(featureId: FeatureId): number {
@@ -108,19 +77,31 @@ const STATIC_STATUS = {
   ),
 } as EnhancedFeatureStatus;
 
-const STATIC_VALUE: FeatureContextValue = {
+// The Free value carries only what a Free component reads. The licence,
+// entitlement, AI-limit, contacts-layout and calendar-layout members are Pro;
+// Free reads them through pro-feature.active, which answers "off" without
+// touching this context.
+type ProFeatureMembers =
+  | "aiBulkLimits"
+  | "entitlements"
+  | "isEntitlementEnabled"
+  | "isPro"
+  | "getAvailableContactsLayouts"
+  | "isContactsLayoutAvailable"
+  | "getContactsLayoutConfig"
+  | "getAvailableCalendarLayouts"
+  | "isCalendarLayoutAvailable"
+  | "getCalendarLayoutConfig";
+
+const STATIC_VALUE: Omit<FeatureContextValue, ProFeatureMembers> = {
   features: STATIC_STATUS,
-  // The Free build never fetches, so its entitlements are settled from the
-  // first render and consumers gating on "ready" must not wait for anything.
+  // The Free build never fetches, so its flags are settled from the first
+  // render and consumers gating on "ready" must not wait for anything.
   entitlementsStatus: "ready",
   loading: false,
   error: null,
-  aiBulkLimits: STATIC_AI_LIMITS,
-  entitlements: STATIC_ENTITLEMENTS,
-  isEntitlementEnabled: () => false,
   hasFeatureAccess: (featureSlug) =>
     AVAILABLE_FEATURES.has(featureSlug as FeatureId),
-  isPro: false,
   isFeatureAvailable: (featureId) => AVAILABLE_FEATURES.has(featureId),
   isFeatureEnabled: (featureId) => AVAILABLE_FEATURES.has(featureId),
   getFeatureValue: <T,>(featureId: FeatureId) =>
@@ -132,12 +113,6 @@ const STATIC_VALUE: FeatureContextValue = {
   getAvailableLayouts: () => ["pressedm"],
   isLayoutAvailable: (layoutId) => layoutId === "pressedm",
   getLayoutConfig: () => FREE_LAYOUT,
-  getAvailableContactsLayouts: () => [],
-  isContactsLayoutAvailable: () => false,
-  getContactsLayoutConfig: () => FALLBACK_CONTACTS_LAYOUT,
-  getAvailableCalendarLayouts: () => [],
-  isCalendarLayoutAvailable: () => false,
-  getCalendarLayoutConfig: () => FALLBACK_CALENDAR_LAYOUT,
   isFeatureLoaded: (featureId) => AVAILABLE_FEATURES.has(featureId),
   getFeature: featureRecord,
   refreshFeatures: async () => {},
@@ -149,7 +124,7 @@ const FeaturesContext = createContext<FeatureContextValue | undefined>(
 
 export function FeaturesProvider({ children }: { children: ReactNode }) {
   return (
-    <FeaturesContext.Provider value={STATIC_VALUE}>
+    <FeaturesContext.Provider value={STATIC_VALUE as FeatureContextValue}>
       {children}
     </FeaturesContext.Provider>
   );

@@ -29,13 +29,9 @@ interface ThemeStyles {
 interface ThemeContextValue {
   currentTheme: string;
   setTheme: (themeId: string) => void;
-  isPro: false;
   availableThemes: string[];
   isThemeAvailable: (themeId: string) => boolean;
   theme: ThemeStyles;
-  customTheme: null;
-  setCustomTheme: () => void;
-  canUseCustomTheme: false;
   themeType: "default" | "standard";
 }
 
@@ -65,13 +61,9 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const fallback: ThemeContextValue = {
   currentTheme: DEFAULT_THEME,
   setTheme: () => undefined,
-  isPro: false,
   availableThemes: AVAILABLE_THEMES,
   isThemeAvailable,
   theme: EMPTY_STYLES,
-  customTheme: null,
-  setCustomTheme: () => undefined,
-  canUseCustomTheme: false,
   themeType: "default",
 };
 

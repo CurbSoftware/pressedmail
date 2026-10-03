@@ -9,6 +9,7 @@
 import { useMemo } from "react";
 
 import { useAppContext } from "@/context/AppProvider";
+import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useInbox } from "@/context/InboxContext";
 import { useLayout } from "@/components/layouts";
 import {
@@ -21,18 +22,13 @@ export interface UseMailboxScopeResult {
   scope: MailboxScope;
   /** Folder-sensitive identity ({@link serializeMailboxScope}). */
   scopeKey: string;
-  isCombinedInbox: boolean;
   /** Account ids in scope (combined → all selected; single → that account). */
   accountIds: number[];
 }
 
 export function useMailboxScope(): UseMailboxScopeResult {
-  const {
-    accounts,
-    selectedAccount,
-    selectedConsolidatedAccountIds,
-    defaultAccountId,
-  } = useAppContext();
+  const { accounts, selectedAccount, defaultAccountId } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
   const { selectedFolder } = useInbox();
   const { currentLayout } = useLayout();
 
@@ -47,7 +43,8 @@ export function useMailboxScope(): UseMailboxScopeResult {
     );
 
     const accountIds =
-      scope.type === "combined_inbox" || scope.type === "virtual_view"
+      (!__SINGLE_MAILBOX__ && scope.type === "combined_inbox") ||
+      scope.type === "virtual_view"
         ? scope.accountIds
         : scope.type === "account_inbox" || scope.type === "account_folder"
           ? [scope.accountId].filter((id) => id > 0)
@@ -56,7 +53,6 @@ export function useMailboxScope(): UseMailboxScopeResult {
     return {
       scope,
       scopeKey: serializeMailboxScope(scope),
-      isCombinedInbox: scope.type === "combined_inbox",
       accountIds,
     };
   }, [

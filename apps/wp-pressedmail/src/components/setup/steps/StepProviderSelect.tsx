@@ -59,11 +59,59 @@ export function StepProviderSelect({
   const disabledProviderSet = new Set(disabledProviders);
   const comingSoonProviderSet = new Set(comingSoonProviders);
 
+  /**
+   * Gated providers get a muted one-line presentation row: logo, name and the
+   * status chips inline. No docs link and no buttons until the provider ships,
+   * so the card carries nothing interactive and stays as short as a text line.
+   */
+  const renderComingSoonCard = ([key, provider]: ProviderEntry) => {
+    const providerLabelId = `${providerLabelPrefix}-${key}`;
+    const Icon = provider.icon;
+
+    return (
+      <Card
+        key={key}
+        data-test={`provider-${key}`}
+        role="group"
+        aria-labelledby={providerLabelId}
+        className="cursor-default border border-border">
+        <CardContent className="p-4 flex flex-row flex-wrap items-center gap-2">
+          <div className="w-10 h-10 flex items-center justify-center text-muted-foreground">
+            <Icon className="w-10 h-10" aria-hidden="true" />
+          </div>
+          <span
+            id={providerLabelId}
+            className="font-semibold text-sm text-muted-foreground">
+            {provider.name}
+          </span>
+          {__IS_PRO__ ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <div
+                data-test="provider-coming-soon-badge"
+                data-testid="provider-coming-soon-badge"
+                className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {__("Coming soon", "pressedmail")}
+              </div>
+              {provider.experimental ? (
+                <div className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  {__("Experimental", "pressedmail")}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
+
   const renderProviderCard = ([key, provider]: ProviderEntry) => {
     const providerLabelId = `${providerLabelPrefix}-${key}`;
     const Icon = provider.icon;
     const isDisabled = disabledProviderSet.has(key);
     const isComingSoon = comingSoonProviderSet.has(key);
+    if (isComingSoon) {
+      return renderComingSoonCard([key, provider]);
+    }
     const authOptions = getProviderAuthOptions?.(key);
     const hasAuthButtons =
       !isDisabled &&
@@ -79,21 +127,9 @@ export function StepProviderSelect({
         aria-labelledby={providerLabelId}
         className="relative cursor-default border border-border transition-colors">
         <CardContent className="p-4 flex flex-col items-center justify-center gap-2">
-          {__IS_PRO__ && (isComingSoon || provider.experimental) ? (
-            <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
-              {isComingSoon ? (
-                <div
-                  data-test="provider-coming-soon-badge"
-                  data-testid="provider-coming-soon-badge"
-                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {__("Coming soon", "pressedmail")}
-                </div>
-              ) : null}
-              {provider.experimental ? (
-                <div className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                  {__("Experimental", "pressedmail")}
-                </div>
-              ) : null}
+          {__IS_PRO__ && provider.experimental ? (
+            <div className="absolute top-2 left-2 rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+              {__("Experimental", "pressedmail")}
             </div>
           ) : null}
 
@@ -160,7 +196,7 @@ export function StepProviderSelect({
               target="_blank"
               rel="noopener noreferrer"
               data-test={`provider-${key}-docs`}
-              className="mt-1 inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
+              className="pm-focus-pill mt-1 inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
               <BookOpen className="size-3.5" aria-hidden="true" />
               {__("Setup docs", "pressedmail")}
               <span className="sr-only">

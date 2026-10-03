@@ -4,6 +4,9 @@ packages:
   - 'tooling/*'
 
 allowBuilds:
+  # Build accelerator pulled in by the trigger.dev CLI (web-curb-email
+  # devDependency). The CLI works without it; no native build needed.
+  '@depot/cli': false
   '@parcel/watcher': true
   '@sentry/cli': true
   '@swc/core': true
@@ -127,3 +130,5 @@ patchedDependencies:
   # 53.0.7 calls conditional mark renderers directly, changing Slate's hook order.
   # Mount each renderer as a component until the upstream fix is in our catalog.
   '@platejs/core@53.0.7': patches/@platejs__core@53.0.7.patch
+  lodash@4.18.1: patches/lodash@4.18.1.patch
+  zod@4.3.6: patches/zod@4.3.6.patch

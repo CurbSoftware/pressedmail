@@ -2,6 +2,7 @@ import { getLinkAttributes } from '@kit/plate/link';
 import type { TLinkElement } from '@kit/plate';
 import type { SlateElementProps } from '@kit/plate/static';
 import { SlateElement } from '@kit/plate/static';
+import { getComposerLinkStyle } from './link-style';
 
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 
@@ -41,6 +42,7 @@ export function LinkElementStatic(props: SlateElementProps<TLinkElement>) {
       style={{
         color: '#1d4ed8',
         textDecoration: 'underline',
+        ...getComposerLinkStyle(props.element.linkStyle),
       }}
     >
       {props.children}

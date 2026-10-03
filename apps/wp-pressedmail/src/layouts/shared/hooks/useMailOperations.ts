@@ -20,6 +20,11 @@ import {
 import { DEFAULT_COMPOSE_DATA, useComposer } from "@/context/composer";
 import { appMessage } from "@/context/toast";
 import type { EmailMessage, ComposeData } from "@/types";
+import {
+  sharedMailboxRoleOf,
+  sharedRoleRefusal,
+  type SharedMailboxRole,
+} from "@/components/sharing";
 import type { MutationTarget } from "@/lib/folder-target";
 import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
@@ -95,6 +100,9 @@ export interface UseMailOperationsReturn {
   clearFilters: () => void;
 }
 
+const canWrite = (role: SharedMailboxRole) => role.canWrite;
+const isOwner = (role: SharedMailboxRole) => role.isOwner;
+
 function snapshotMessageIds(ids: readonly string[]): string[] | null {
   const result: string[] = [];
   for (const id of ids) {
@@ -139,6 +147,30 @@ export function useMailOperations(): UseMailOperationsReturn {
       return { success: false, requiresRefresh: true, error };
     }, []);
 
+  // Shared mailboxes: a Viewer changes nothing and only the owner uses the
+  // owner-only tools. The server refuses these anyway; stopping here saves
+  // the round trip and says why.
+  const roleBlocked = useCallback(
+    (
+      ids: readonly string[],
+      allowed: (role: SharedMailboxRole, folder: string) => boolean,
+    ): MailOperationResult | null => {
+      for (const id of ids) {
+        const ref = parseAccountQualifiedToken(id);
+        if (ref?.kind !== "message") continue;
+        const account = accounts.find(
+          (candidate) => String(candidate.id) === String(ref.accountId),
+        );
+        if (!allowed(sharedMailboxRoleOf(account), ref.folder)) {
+          const error = sharedRoleRefusal();
+          appMessage(error, "error");
+          return { success: false, error };
+        }
+      }
+      return null;
+    },
+    [accounts],
+  );
   const refreshFolderCounts = useCallback(() => {
     if (mounted.current)
       void current.current.inbox.refreshCurrentFolders().catch(() => {});
@@ -187,6 +219,8 @@ export function useMailOperations(): UseMailOperationsReturn {
     async (messageIds: string[]): Promise<MailOperationResult> => {
       const ids = snapshotMessageIds(messageIds);
       if (!ids) return identityFailure();
+      const blocked = roleBlocked(messageIds, canWrite);
+      if (blocked) return blocked;
       try {
         let result: MailOperationResult;
         if (ids.length === 1) {
@@ -218,13 +252,15 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, identityFailure],
+    [serviceMessageOps, identityFailure, roleBlocked],
   );
 
   const markAsUnread = useCallback(
     async (messageIds: string[]): Promise<MailOperationResult> => {
       const ids = snapshotMessageIds(messageIds);
       if (!ids) return identityFailure();
+      const blocked = roleBlocked(messageIds, canWrite);
+      if (blocked) return blocked;
       try {
         if (ids.length === 1) {
           const result = await serviceMessageOps.markAsUnread(ids[0]!);
@@ -255,13 +291,15 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, identityFailure],
+    [serviceMessageOps, identityFailure, roleBlocked],
   );
 
   const toggleRead = useCallback(
     async (message: EmailMessage): Promise<MailOperationResult> => {
       const identity = getMessageIdentityKey(message);
       if (!identity) return identityFailure();
+      const blocked = roleBlocked([identity], canWrite);
+      if (blocked) return blocked;
       try {
         const isRead = message.read || message.is_read;
         const result = isRead
@@ -279,7 +317,7 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, identityFailure],
+    [serviceMessageOps, identityFailure, roleBlocked],
   );
 
   const moveToFolder = useCallback(
@@ -289,6 +327,8 @@ export function useMailOperations(): UseMailOperationsReturn {
     ): Promise<MailOperationResult> => {
       const ids = snapshotMessageIds(messageIds);
       if (!ids) return identityFailure();
+      const blocked = roleBlocked(messageIds, canWrite);
+      if (blocked) return blocked;
       const destination =
         typeof targetFolder === "string" ? targetFolder : { ...targetFolder };
       try {
@@ -326,7 +366,7 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, refreshFolderCounts, identityFailure],
+    [serviceMessageOps, refreshFolderCounts, identityFailure, roleBlocked],
   );
 
   const applyAfterRemoval = useCallback(
@@ -369,6 +409,8 @@ export function useMailOperations(): UseMailOperationsReturn {
     async (messageIds: string[]): Promise<MailOperationResult> => {
       const ids = snapshotMessageIds(messageIds);
       if (!ids) return identityFailure();
+      const blocked = roleBlocked(messageIds, canWrite);
+      if (blocked) return blocked;
       const source = captureRemoval(ids);
       try {
         const results = await Promise.allSettled(
@@ -428,6 +470,7 @@ export function useMailOperations(): UseMailOperationsReturn {
       captureRemoval,
       identityFailure,
       refreshFolderCounts,
+      roleBlocked,
     ],
   );
 
@@ -435,6 +478,17 @@ export function useMailOperations(): UseMailOperationsReturn {
     async (messageIds: string[]): Promise<MailOperationResult> => {
       const ids = snapshotMessageIds(messageIds);
       if (!ids) return identityFailure();
+      // Deleting from Trash is permanent: owners and Managers only.
+      const trashPath = current.current.inbox.getTrashFolder?.()?.path;
+      const blocked = roleBlocked(
+        messageIds,
+        (role, folder) =>
+          role.canWrite &&
+          (role.canManage ||
+            trashPath === undefined ||
+            trashPath.toLowerCase() !== folder.toLowerCase()),
+      );
+      if (blocked) return blocked;
       const source = captureRemoval(ids);
       try {
         if (getUserPreferencesSnapshot().confirm_delete) {
@@ -494,6 +548,7 @@ export function useMailOperations(): UseMailOperationsReturn {
       captureRemoval,
       identityFailure,
       refreshFolderCounts,
+      roleBlocked,
     ],
   );
 
@@ -501,6 +556,8 @@ export function useMailOperations(): UseMailOperationsReturn {
     async (message: EmailMessage): Promise<MailOperationResult> => {
       const identity = getMessageIdentityKey(message);
       if (!identity) return identityFailure();
+      const blocked = roleBlocked([identity], canWrite);
+      if (blocked) return blocked;
       try {
         const result = await serviceMessageOps.toggleStar(identity);
         return {
@@ -515,13 +572,15 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, identityFailure],
+    [serviceMessageOps, identityFailure, roleBlocked],
   );
 
   const toggleImportant = useCallback(
     async (message: EmailMessage): Promise<MailOperationResult> => {
       const identity = getMessageIdentityKey(message);
       if (!identity) return identityFailure();
+      const blocked = roleBlocked([identity], isOwner);
+      if (blocked) return blocked;
       try {
         const result = await serviceMessageOps.toggleImportant(identity);
         return {
@@ -537,7 +596,7 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
     },
-    [serviceMessageOps, identityFailure],
+    [serviceMessageOps, identityFailure, roleBlocked],
   );
 
   // ============== Compose Operations (via ComposerContext) ==============

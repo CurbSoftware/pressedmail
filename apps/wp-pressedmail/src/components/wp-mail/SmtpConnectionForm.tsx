@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { __ } from "@wordpress/i18n";
+import { AlertCircle, CheckCircle2, Info, Loader2, Plus } from "lucide-react";
 
 import {
+  Button,
   Checkbox,
   Input,
   Label,
@@ -9,17 +12,36 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
 } from "@kit/ui/plugin";
 
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
 
+import { buildSenderProbeReport } from "./test-status";
 import {
   SINGLE_CONNECTION_CAPABILITIES,
+  SMTP_AUTH_TYPES,
   type SmtpConnectionCapabilities,
   type SmtpConnectionFormErrors,
   type SmtpConnectionValue,
+  type SmtpSenderTest,
 } from "./types";
+
+/**
+ * Per-address sender testing for a SAVED connection.
+ *
+ * Only a stored connection can be probed, because the probe logs in with that
+ * connection's own credentials, so the surrounding editor turns the buttons off
+ * while the form has unsaved edits or no id yet.
+ */
+export interface SmtpSenderTesting {
+  test: (address: string) => void;
+  /** The outcome per address, keyed by the lowercased address. */
+  results: Record<string, SmtpSenderTest>;
+  /** The address being probed right now, or "". */
+  pending: string;
+  /** Why Test is off. Empty when it is available. */
+  disabledReason: string;
+}
 
 export interface SmtpConnectionFormProps {
   value: SmtpConnectionValue;
@@ -34,7 +56,30 @@ export interface SmtpConnectionFormProps {
    */
   idPrefix?: string;
   disabled?: boolean;
+  /** Absent where there is nothing to probe against. */
+  senderTesting?: SmtpSenderTesting;
 }
+
+/**
+ * Automatic's display token.
+ *
+ * The stored spelling of Automatic is the empty string, but Radix refuses a
+ * `SelectItem` whose value is empty and throws, taking the whole editor down
+ * with it. The wire value stays ""; only the control speaks this token, and it
+ * is translated back on the way out.
+ */
+const AUTH_AUTO_VALUE = "auto";
+
+/**
+ * The chip tone per verdict. A verdict that is not a pass is not automatically a
+ * failure: "inconclusive" and "unreachable" say nothing about the address, and
+ * painting either red is how a working sender gets deleted.
+ */
+const SENDER_TONE = {
+  success: "text-success",
+  destructive: "text-destructive",
+  info: "text-muted-foreground",
+} as const;
 
 /**
  * The SMTP connection fields, without any surrounding card or action buttons.
@@ -51,7 +96,9 @@ export function SmtpConnectionForm({
   capabilities = SINGLE_CONNECTION_CAPABILITIES,
   idPrefix = "global-smtp",
   disabled = false,
+  senderTesting,
 }: SmtpConnectionFormProps) {
+  const [changingPassword, setChangingPassword] = useState(false);
   const id = (suffix: string) => `${idPrefix}-${suffix}`;
   const patch = (changes: Partial<SmtpConnectionValue>) =>
     onChange({ ...value, ...changes });
@@ -72,7 +119,137 @@ export function SmtpConnectionForm({
     };
   };
 
-  const showLabel = capabilities.routing || capabilities.fallback;
+  const showLabel = capabilities.routing;
+  // Row 0 is the connection's own default sender; the rest are the addresses
+  // routed through it, which are also senders a template may choose.
+  const alternates = value.fromAddresses ?? [];
+  const addressesLabelId = id("from-addresses-label");
+  const addressesHelpId = id("from-addresses-help");
+  const testing = capabilities.routing ? senderTesting : undefined;
+  const testingOff =
+    Boolean(testing?.pending) || Boolean(testing?.disabledReason);
+
+  const setAddress = (index: number, address: string) => {
+    if (index === 0) {
+      patch({ fromEmail: address });
+      return;
+    }
+    const next = [...(value.fromAddresses ?? [])];
+    next[index - 1] = address;
+    patch({ fromAddresses: next });
+  };
+
+  /**
+   * One sender: the address field, its Test button when probing is on offer, and
+   * whatever the last test said.
+   */
+  const senderRow = (index: number, address: string) => {
+    const first = index === 0;
+    const error = first ? errors.fromEmail : errors.fromAddresses;
+    const test = address ? testing?.results[address.toLowerCase()] : undefined;
+    const report =
+      test?.state === "done" ? buildSenderProbeReport(test.probe) : null;
+    const resultTestId = id(`sender-${index}-result`);
+
+    return (
+      // Keyed by position: a row is an address, and two rows may both be empty.
+      <div key={index} className="space-y-1">
+        <div className="flex items-center gap-2">
+          <Input
+            autoComplete="off"
+            id={first ? id("from-email") : id(`from-address-${index}`)}
+            data-test={
+              first ? id("from-email-input") : id(`from-address-${index}-input`)
+            }
+            type="email"
+            placeholder={__("wordpress@example.com", "pressedmail")}
+            aria-labelledby={first ? undefined : addressesLabelId}
+            value={address}
+            disabled={disabled}
+            {...errorAttributes(
+              first ? "from-email" : "from-addresses",
+              error,
+              first || error ? [] : [addressesHelpId],
+            )}
+            onChange={(event) => setAddress(index, event.target.value)}
+            className={`min-w-0 flex-1 ${error ? "border-destructive" : ""}`}
+          />
+          {testing ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              data-test={id(`sender-${index}-test`)}
+              disabled={disabled || testingOff || address === ""}
+              onClick={() => testing.test(address)}>
+              {testing.pending === address.toLowerCase() ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              {__("Test", "pressedmail")}
+            </Button>
+          ) : null}
+        </div>
+
+        {test?.state === "testing" ? (
+          <p
+            role="status"
+            data-test={resultTestId}
+            data-testid={resultTestId}
+            className={`flex items-center gap-1.5 text-xs ${SENDER_TONE.info}`}>
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            {__("Testing...", "pressedmail")}
+          </p>
+        ) : null}
+
+        {report ? (
+          <div
+            role="status"
+            data-test={resultTestId}
+            data-testid={resultTestId}
+            data-tone={report.tone}
+            className={`text-xs ${SENDER_TONE[report.tone]}`}>
+            <p className="flex items-center gap-1.5 font-medium">
+              {report.tone === "success" ? (
+                <CheckCircle2
+                  className="h-3.5 w-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+              ) : report.tone === "destructive" ? (
+                <AlertCircle
+                  className="h-3.5 w-3.5 shrink-0"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              )}
+              {report.label}
+            </p>
+            <p className="text-muted-foreground">{report.message}</p>
+            {report.detail ? (
+              <p className="break-words font-mono text-muted-foreground">
+                {report.detail}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {test?.state === "error" ? (
+          <p
+            role="status"
+            data-test={resultTestId}
+            data-testid={resultTestId}
+            className="flex items-start gap-1.5 text-xs text-destructive">
+            <AlertCircle
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            {test.message}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -196,6 +373,55 @@ export function SmtpConnectionForm({
       {value.auth && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <div className="space-y-1">
+            <Label htmlFor={id("auth-type")} className="text-xs font-medium">
+              {__("Login method", "pressedmail")}
+            </Label>
+            <Select
+              value={value.authType === "" ? AUTH_AUTO_VALUE : value.authType}
+              disabled={disabled}
+              onValueChange={(next) =>
+                patch({
+                  authType: (next === AUTH_AUTO_VALUE
+                    ? ""
+                    : next) as SmtpConnectionValue["authType"],
+                })
+              }>
+              <SelectTrigger
+                id={id("auth-type")}
+                data-test={id("auth-type-select")}
+                {...errorAttributes("authType", errors.authType)}
+                className={errors.authType ? "border-destructive" : ""}>
+                <SelectValue />
+              </SelectTrigger>
+              {/* Values are the stored spelling; PHPMailer's names are shown. */}
+              <SelectContent>
+                {SMTP_AUTH_TYPES.map((method) => (
+                  <SelectItem
+                    key={method || AUTH_AUTO_VALUE}
+                    value={method || AUTH_AUTO_VALUE}>
+                    {method === ""
+                      ? __("Automatic", "pressedmail")
+                      : method.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {errors.authType ? (
+              <p
+                id={id("auth-type-error")}
+                className="text-xs text-destructive">
+                {errors.authType}
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {__(
+                  "Leave on Automatic unless the server rejects the login.",
+                  "pressedmail",
+                )}
+              </p>
+            )}
+          </div>
+          <div className="space-y-1">
             <Label htmlFor={id("username")} className="text-xs font-medium">
               {__("Username", "pressedmail")}
             </Label>
@@ -219,28 +445,51 @@ export function SmtpConnectionForm({
             <Label htmlFor={id("password")} className="text-xs font-medium">
               {__("Password", "pressedmail")}
             </Label>
-            <Input
-              id={id("password")}
-              data-test={id("password-input")}
-              type="password"
-              placeholder={
-                hasPassword ? __("•••••••• (saved)", "pressedmail") : undefined
-              }
-              value={value.password}
-              disabled={disabled}
-              {...errorAttributes(
-                "password",
-                errors.password,
-                hasPassword ? [id("password-saved-hint")] : [],
-              )}
-              onChange={(e) => patch({ password: e.target.value })}
-              {...sensitiveInputProps("sending-api-key")}
-            />
+            {!hasPassword || changingPassword || errors.password ? (
+              <Input
+                id={id("password")}
+                name={id("smtp-secret")}
+                data-test={id("password-input")}
+                type="password"
+                autoFocus={changingPassword}
+                value={value.password}
+                disabled={disabled}
+                {...errorAttributes(
+                  "password",
+                  errors.password,
+                  hasPassword ? [id("password-saved-hint")] : [],
+                )}
+                onChange={(e) => {
+                  setChangingPassword(true);
+                  patch({ password: e.target.value });
+                }}
+                {...sensitiveInputProps("sending-api-key")}
+                autoComplete="new-password"
+              />
+            ) : (
+              <Button
+                id={id("password")}
+                type="button"
+                variant="outline"
+                size="sm"
+                data-test={id("change-password")}
+                aria-label={__("Change password", "pressedmail")}
+                aria-describedby={id("password-saved-hint")}
+                disabled={disabled}
+                onClick={() => setChangingPassword(true)}>
+                {__("Change password", "pressedmail")}
+              </Button>
+            )}
             {hasPassword && (
               <p
                 id={id("password-saved-hint")}
                 className="text-xs text-muted-foreground">
-                {__("Leave blank to keep the saved password.", "pressedmail")}
+                {changingPassword || errors.password
+                  ? __("Leave blank to keep the saved password.", "pressedmail")
+                  : __(
+                      "The saved password will be kept unless you change it.",
+                      "pressedmail",
+                    )}
               </p>
             )}
             {errors.password && (
@@ -257,18 +506,7 @@ export function SmtpConnectionForm({
           <Label htmlFor={id("from-email")} className="text-xs font-medium">
             {__("From email", "pressedmail")}
           </Label>
-          <Input
-            autoComplete="off"
-            id={id("from-email")}
-            data-test={id("from-email-input")}
-            type="email"
-            placeholder={__("wordpress@example.com", "pressedmail")}
-            value={value.fromEmail}
-            disabled={disabled}
-            {...errorAttributes("from-email", errors.fromEmail)}
-            onChange={(e) => patch({ fromEmail: e.target.value })}
-            className={errors.fromEmail ? "border-destructive" : ""}
-          />
+          {senderRow(0, value.fromEmail)}
           {errors.fromEmail && (
             <p id={id("from-email-error")} className="text-xs text-destructive">
               {errors.fromEmail}
@@ -319,33 +557,24 @@ export function SmtpConnectionForm({
       )}
 
       {capabilities.routing && (
-        <div className="space-y-1">
-          <Label htmlFor={id("from-addresses")} className="text-xs font-medium">
-            {__("Send these From addresses through this server", "pressedmail")}
-          </Label>
-          <Textarea
-            autoComplete="off"
-            id={id("from-addresses")}
-            data-test={id("from-addresses-input")}
-            rows={3}
-            placeholder={"orders@example.com\nbilling@example.com"}
-            value={(value.fromAddresses ?? []).join("\n")}
+        <div className="space-y-2">
+          <p id={addressesLabelId} className="text-xs font-medium">
+            {__("Also send as", "pressedmail")}
+          </p>
+          {/* An emptied row is a removal: it is dropped when the form saves. */}
+          {alternates.map((address, offset) => senderRow(offset + 1, address))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-test={id("add-sender")}
             disabled={disabled}
-            {...errorAttributes(
-              "from-addresses",
-              errors.fromAddresses,
-              errors.fromAddresses ? [] : [id("from-addresses-help")],
-            )}
-            onChange={(e) =>
-              patch({
-                fromAddresses: e.target.value
-                  .split("\n")
-                  .map((line) => line.trim())
-                  .filter((line) => line !== ""),
-              })
-            }
-            className={errors.fromAddresses ? "border-destructive" : ""}
-          />
+            onClick={() =>
+              patch({ fromAddresses: [...(value.fromAddresses ?? []), ""] })
+            }>
+            <Plus className="mr-1 h-4 w-4" />
+            {__("Add sender", "pressedmail")}
+          </Button>
           {errors.fromAddresses ? (
             <p
               id={id("from-addresses-error")}
@@ -353,15 +582,22 @@ export function SmtpConnectionForm({
               {errors.fromAddresses}
             </p>
           ) : (
-            <p
-              id={id("from-addresses-help")}
-              className="text-xs text-muted-foreground">
+            <p id={addressesHelpId} className="text-xs text-muted-foreground">
               {__(
-                "One address per line. Mail sent from an address listed here uses this connection; everything else uses the default connection.",
+                "Each address here is another sender a template or a system email can choose. Mail sent from one uses this connection; clear an address to remove it.",
                 "pressedmail",
               )}
             </p>
           )}
+          {testing?.disabledReason ? (
+            <p
+              role="status"
+              data-test={id("sender-testing-hint")}
+              data-testid={id("sender-testing-hint")}
+              className="text-xs text-muted-foreground">
+              {testing.disabledReason}
+            </p>
+          ) : null}
         </div>
       )}
     </div>

@@ -7,7 +7,10 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { ImapFolder } from "@/services/interfaces";
 import type { LucideIcon } from "lucide-react";
 import type { ManagedDomainAccountInput } from "./domain-policy";
-import type { ContactListRecipientDescriptor } from "./recipients";
+import type {
+  ContactListRecipientDescriptor,
+  RecipientField,
+} from "./recipients";
 
 // ============== Email & Message Types ==============
 
@@ -33,6 +36,12 @@ export type EmailContentType = "html" | "plain";
 export type EmailImportanceSource = "sender" | "provider" | "override";
 
 export interface DraftDocument {
+  /** Site-local private list intent, never part of MIME. */
+  listDelivery?: boolean;
+  /** Selected list fields, stored locally and never part of message headers. */
+  recipientListFields?: Record<string, RecipientField>;
+  /** Sender metadata for drafts without a rich editor document. */
+  metadataOnly?: boolean;
   version: 1;
   dialect: "markdown" | "rich_text";
   value: import("@kit/plate").Value;
@@ -109,7 +118,7 @@ export interface EmailMessage {
   /** Account display label - present in consolidated inbox view. */
   accountLabel?: string;
   /** Composite unique ID (accountId:uid) for disambiguating messages across accounts. */
-  consolidatedUid?: string;
+  identityKey?: string;
   /** Thread ID - present when threading is enabled. */
   threadId?: string;
   /** Total messages represented by this row when server-side threading is active. */
@@ -208,6 +217,13 @@ export interface ComposeReplySource {
 }
 
 export interface ComposeData {
+  /** Deliver one private personalized message per subscribed list member. */
+  listDelivery?: boolean;
+  senderIdentity?: {
+    accountId: number;
+    aliasId: number | null;
+    email?: string;
+  };
   /** Explicit consent for this message, bound to the current server revision. */
   readReceipt?: { requested: boolean; revision: string };
   /** RFC threading headers preserved through draft and delivery paths. */
@@ -245,6 +261,12 @@ export interface ComposeData {
   draftAttachmentManifestComplete?: boolean;
   /** One-shot: set when a server draft is opened, cleared by the composer once it records the clean state. */
   draftOpened?: boolean;
+  /**
+   * One-shot: the body already carries its own signature (a template that
+   * holds one), so the composer must not add the account's. Cleared once the
+   * composer has read it.
+   */
+  suppressAutoSignature?: boolean;
   scheduledEmailId?: number;
   scheduledAccountId?: number;
   scheduledAt?: string;
@@ -321,12 +343,21 @@ export interface EmailAccount {
   /** Whether this account is the user's default (server-stamped on /accounts/get). */
   is_default?: boolean;
 
-  // Shared Account Properties
-  is_shared?: boolean;
-  permission?: "view_only" | "reply" | "full";
-  owner_name?: string;
-  shared_by?: string | number;
-  shared_at?: string;
+  /**
+   * Present only on a mailbox someone else shared with the current user
+   * (Ultimate). Owned mailboxes never carry it.
+   */
+  share?: {
+    role: "viewer" | "responder" | "manager";
+    owner_id: number;
+    owner_name: string;
+  };
+
+  /**
+   * How many teammates an owned mailbox is shared with, 0 when it is not
+   * shared. Owned mailboxes only, and only where sharing is licensed.
+   */
+  share_count?: number;
 }
 
 export interface AccountFormData {
@@ -457,8 +488,9 @@ export interface AppContextType {
   setEditingAccount: Dispatch<SetStateAction<EmailAccount | null>>;
   selectedAccount: string | null;
   setSelectedAccount: (email: string | null) => void;
-  selectedConsolidatedAccountIds: number[];
-  setSelectedConsolidatedAccountIds: Dispatch<SetStateAction<number[]>>;
+  /** The mailboxes a combined view reads. Absent in a single-mailbox build. */
+  selectedConsolidatedAccountIds?: number[];
+  setSelectedConsolidatedAccountIds?: Dispatch<SetStateAction<number[]>>;
   /** The user's default account id (server source of truth), or null when none. */
   defaultAccountId: number | null;
   /** Set the user's default account; POSTs /accounts/set-default and syncs context. */

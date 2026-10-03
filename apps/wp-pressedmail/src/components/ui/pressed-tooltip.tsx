@@ -38,6 +38,10 @@ interface PressedTooltipProps {
    *  wrapped button keeps its layout sizing). */
   triggerClassName?: string;
   disabled?: boolean;
+  /** Keep the trigger wrapper but never show the tooltip, e.g. while the
+   *  trigger's own popover is open. Unlike `disabled`, the trigger does not
+   *  remount, so it keeps focus. */
+  suppressed?: boolean;
 }
 
 // The pointer position follows the content's resolved `data-side` (Radix sets
@@ -118,6 +122,44 @@ export function PressedTooltipContent({
   );
 }
 
+let quiet: HTMLElement | null = null;
+
+/**
+ * Focus an element without opening its tooltip. For focus a dialog hands
+ * back as it closes: after Escape the browser still counts that focus as
+ * keyboard focus, so the tooltip popped over the row unasked, and on a
+ * phone over the next row too.
+ */
+export function focusQuietly(el: HTMLElement): void {
+  quiet = el;
+  try {
+    el.focus();
+  } finally {
+    quiet = null;
+  }
+}
+
+/**
+ * Radix opens a tooltip on any focus. When a dialog hands focus back to its
+ * opener after a mouse Cancel, that focus is programmatic, not keyboard, and
+ * the tooltip then sat over the row and caught the next click. Only let
+ * focus the browser would ring (:focus-visible) open it; hover still does.
+ * Radix skips its own handler when this one prevents the default.
+ */
+function openOnKeyboardFocusOnly(event: React.FocusEvent<HTMLElement>) {
+  if (quiet && event.target instanceof Node && quiet.contains(event.target)) {
+    event.preventDefault();
+    return;
+  }
+  try {
+    if (!(event.target as Element).matches(":focus-visible")) {
+      event.preventDefault();
+    }
+  } catch {
+    // An engine without :focus-visible keeps the old behaviour.
+  }
+}
+
 export function PressedTooltip({
   content,
   children,
@@ -129,14 +171,18 @@ export function PressedTooltip({
   className,
   triggerClassName,
   disabled = false,
+  suppressed = false,
 }: PressedTooltipProps) {
+  const [open, setOpen] = React.useState(false);
   if (disabled || !content) {
     return <>{children}</>;
   }
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
+    <Tooltip
+      open={open && !suppressed}
+      onOpenChange={(next) => setOpen(next && !suppressed)}>
+      <TooltipTrigger asChild onFocus={openOnKeyboardFocusOnly}>
         <span className={cn("inline-flex", triggerClassName)}>{children}</span>
       </TooltipTrigger>
 

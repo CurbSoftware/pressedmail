@@ -101,23 +101,27 @@ const FormControl: React.FC<
     className?: string;
     render?: React.ReactElement;
   }
-> = ({ ...props }) => {
+> = ({ children, className, render }) => {
   const { error, formItemId, formDescriptionId, formMessageId } =
     useFormField();
 
+  // A lone element is the control itself, so it takes the label's id (the
+  // label's htmlFor names it). Wrapping it in a div gave the div the id and
+  // left the input unnamed. No aria-labelledby: pointing at itself would
+  // override the label.
+  const control = render ?? (React.isValidElement(children) ? children : undefined);
+
   return useRender({
     defaultTagName: 'div',
-    render: props.render,
+    render: control,
     props: {
-      ...props,
       id: formItemId,
-      'aria-labelledby': formItemId,
       'aria-describedby': !error
         ? `${formDescriptionId}`
         : `${formDescriptionId} ${formMessageId}`,
       'aria-invalid': !!error,
-      className: cn(props.className),
-      children: props.children,
+      className: cn(className),
+      ...(control ? {} : { children }),
     },
   });
 };

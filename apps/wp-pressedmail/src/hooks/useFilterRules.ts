@@ -7,11 +7,12 @@
 import { useState, useCallback } from "react";
 import type {
   FilterRule,
+  FilterRuleSchema,
   CreateFilterRuleData,
   UpdateFilterRuleData,
 } from "@/types/filter-rules";
 import {
-  fetchFilterRules,
+  fetchFilterRuleList,
   createFilterRule,
   updateFilterRule,
   deleteFilterRule,
@@ -22,12 +23,18 @@ import {
 export interface UseFilterRulesOptions {
   accountId: number | null;
   autoLoad?: boolean;
+  /** Read and write the owner's rules of a mailbox shared with this user. */
+  sharedAccountId?: number | null;
 }
 
 export interface UseFilterRulesReturn {
   rules: FilterRule[];
+  /** What this site can build rules from; null until the first load. */
+  schema: FilterRuleSchema | null;
   loading: boolean;
   error: string | null;
+  /** The server's code for the last failed save, when it sent one. */
+  errorCode: string | null;
   loadRules: () => Promise<void>;
   addRule: (data: CreateFilterRuleData) => Promise<FilterRule | null>;
   editRule: (
@@ -44,18 +51,23 @@ export function useFilterRules(
   options: UseFilterRulesOptions,
 ): UseFilterRulesReturn {
   const { accountId } = options;
+  // Shared-inbox rules are Pro. Free reads and writes only its own rules.
+  const sharedAccountId = __IS_FREE__ ? null : (options.sharedAccountId ?? null);
 
   const [rules, setRules] = useState<FilterRule[]>([]);
+  const [schema, setSchema] = useState<FilterRuleSchema | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
 
   const loadRules = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const fetchedRules = await fetchFilterRules(accountId);
-      setRules(fetchedRules);
+      const fetched = await fetchFilterRuleList(accountId, sharedAccountId);
+      setRules(fetched.rules);
+      setSchema(fetched.schema);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load filter rules",
@@ -63,28 +75,32 @@ export function useFilterRules(
     } finally {
       setLoading(false);
     }
-  }, [accountId]);
+  }, [accountId, sharedAccountId]);
 
   const addRule = useCallback(
     async (data: CreateFilterRuleData): Promise<FilterRule | null> => {
       setError(null);
 
-      const result = await createFilterRule({
-        ...data,
-        accountId:
-          typeof data.accountId === "number"
-            ? data.accountId
-            : (accountId ?? 0),
-      });
+      const result = await createFilterRule(
+        {
+          ...data,
+          accountId:
+            typeof data.accountId === "number"
+              ? data.accountId
+              : (accountId ?? 0),
+        },
+        sharedAccountId,
+      );
       if (result.success && result.rule) {
         setRules((prev) => [...prev, result.rule!]);
         return result.rule;
       }
 
       setError(result.error || "Failed to create filter rule");
+      setErrorCode(result.errorCode ?? null);
       return null;
     },
-    [accountId],
+    [accountId, sharedAccountId],
   );
 
   const editRule = useCallback(
@@ -94,7 +110,7 @@ export function useFilterRules(
     ): Promise<FilterRule | null> => {
       setError(null);
 
-      const result = await updateFilterRule(ruleId, data);
+      const result = await updateFilterRule(ruleId, data, sharedAccountId);
       if (result.success && result.rule) {
         setRules((prev) =>
           prev.map((r) => (r.id === ruleId ? result.rule! : r)),
@@ -103,15 +119,16 @@ export function useFilterRules(
       }
 
       setError(result.error || "Failed to update filter rule");
+      setErrorCode(result.errorCode ?? null);
       return null;
     },
-    [],
+    [sharedAccountId],
   );
 
   const removeRule = useCallback(async (ruleId: string): Promise<boolean> => {
     setError(null);
 
-    const result = await deleteFilterRule(ruleId);
+    const result = await deleteFilterRule(ruleId, sharedAccountId);
     if (result.success) {
       setRules((prev) => prev.filter((r) => r.id !== ruleId));
       return true;
@@ -119,13 +136,13 @@ export function useFilterRules(
 
     setError(result.error || "Failed to delete filter rule");
     return false;
-  }, []);
+  }, [sharedAccountId]);
 
   const toggleRuleEnabled = useCallback(
     async (ruleId: string, enabled: boolean): Promise<boolean> => {
       setError(null);
 
-      const result = await toggleFilterRule(ruleId, enabled);
+      const result = await toggleFilterRule(ruleId, enabled, sharedAccountId);
       if (result.success && result.rule) {
         setRules((prev) =>
           prev.map((r) => (r.id === ruleId ? result.rule! : r)),
@@ -136,14 +153,14 @@ export function useFilterRules(
       setError(result.error || "Failed to toggle filter rule");
       return false;
     },
-    [],
+    [sharedAccountId],
   );
 
   const reorderRulesHandler = useCallback(
     async (ruleIds: string[]): Promise<boolean> => {
       setError(null);
 
-      const result = await reorderFilterRules(ruleIds);
+      const result = await reorderFilterRules(ruleIds, sharedAccountId);
       if (result.success) {
         // Reorder locally
         const orderedRules = ruleIds
@@ -156,17 +173,20 @@ export function useFilterRules(
       setError(result.error || "Failed to reorder filter rules");
       return false;
     },
-    [accountId, rules],
+    [rules, sharedAccountId],
   );
 
   const clearError = useCallback(() => {
     setError(null);
+    setErrorCode(null);
   }, []);
 
   return {
     rules,
+    schema,
     loading,
     error,
+    errorCode,
     loadRules,
     addRule,
     editRule,

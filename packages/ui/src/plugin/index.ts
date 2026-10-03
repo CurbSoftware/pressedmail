@@ -248,6 +248,29 @@ export {
   CommandShortcut,
 } from '../shadcn/command';
 
+// Combobox
+// Base UI's chips combobox. Reach for it when a control picks from a known set:
+// it owns the filtering, the removable chips and the whole keyboard model
+// (ArrowLeft/ArrowRight between chips, Backspace and Delete to remove one).
+export {
+  Combobox,
+  ComboboxInput,
+  ComboboxContent,
+  ComboboxList,
+  ComboboxItem,
+  ComboboxGroup,
+  ComboboxLabel,
+  ComboboxCollection,
+  ComboboxEmpty,
+  ComboboxSeparator,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxTrigger,
+  ComboboxValue,
+  useComboboxAnchor,
+} from '../shadcn/combobox';
+
 // Calendar
 export { Calendar } from '../shadcn/calendar';
 

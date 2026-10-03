@@ -849,12 +849,18 @@ export interface SharedLayoutParts {
 export interface LayoutRegistryEntry {
   /** Inbox component parts */
   inbox: InboxLayoutParts;
+  /** Shared component parts */
+  shared?: SharedLayoutParts;
+}
+
+/**
+ * A registry entry for a build that also ships contacts and a calendar.
+ */
+export interface FullLayoutRegistryEntry extends LayoutRegistryEntry {
   /** Contacts component parts */
   contacts: ContactsLayoutParts;
   /** Calendar component parts */
   calendar: CalendarLayoutParts;
-  /** Shared component parts */
-  shared?: SharedLayoutParts;
 }
 
 // ============================================================================
@@ -937,8 +943,6 @@ export interface AccountWithBadge {
   unreadCount: number;
   /** Sync status indicator */
   syncStatus?: "synced" | "syncing" | "error" | "unknown";
-  /** Whether this is a shared mailbox */
-  isShared?: boolean;
 }
 
 /**

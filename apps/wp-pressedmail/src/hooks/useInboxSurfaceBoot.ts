@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAppContext } from "@/context/AppProvider";
 import { useInbox, useFolderOperations } from "@/context/InboxContext";
-import { getInboxService, getSyncService } from "@/services/implementations";
+import {
+  getFolderService,
+  getInboxService,
+  getSyncService,
+} from "@/services/implementations";
 import {
   getSelectedFolder,
   saveSelectedFolder,
@@ -20,6 +24,7 @@ import {
   getPersistedPaneState,
 } from "@/lib/open-pane-persistence";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
+import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useLayout } from "@/components/layouts";
 import {
   buildConsolidatedAccountScopeKey,
@@ -32,9 +37,30 @@ import { getEffectiveEmailListGrouping } from "@/lib/effective-email-list-groupi
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { isMailboxSettlePending } from "@/hooks/useMailboxSyncProgress";
 import { useAccountNotifications } from "@/layouts/shared/hooks/useAccountNotifications";
-import { useNotificationFeed } from "@/layouts/shared/hooks/useNotificationFeed";
-import { dispatchNewMailAlerts } from "@/lib/inbox-alert-dispatch";
+import {
+  getNotificationTargetPath,
+  useNotificationFeed,
+} from "@/layouts/shared/hooks/useNotificationFeed";
+import {
+  dispatchFreshMailAlerts,
+  dispatchNewMailAlerts,
+} from "@/lib/inbox-alert-dispatch";
 import { isProBuild } from "@/lib/build-variant";
+import {
+  isCoveredByLeader,
+  isFollowingLeader,
+  isTabLeader,
+  parseTabMessage,
+  publishTabMessage,
+  setTabView,
+  subscribeTabMessages,
+  touchesAccounts,
+  type TabMessage,
+} from "@/lib/tab-channel";
+import type {
+  FolderListResult,
+  ImapFolder,
+} from "@/services/interfaces/folder.interface";
 import {
   useAutoSyncDisabled,
   useSyncIntervalMinutes,
@@ -60,6 +86,70 @@ const BOOT_READINESS_MAX_POLLS = 5;
 // boot hook (never the app root) so it can't cause a render storm.
 const FOLDER_SETTLE_INTERVAL_MS = 8_000;
 const FOLDER_SETTLE_MAX_POLLS = 150;
+
+// A follower tab refreshes when the leader tab says mail changed. A burst of messages
+// (a backfill advancing every few seconds) collapses into one refresh, and refreshes
+// stay at least a settle interval apart so a follower never costs more than it did
+// polling on its own.
+const TAB_REFRESH_DEBOUNCE_MS = 1_000;
+const TAB_REFRESH_MIN_GAP_MS = 10_000;
+
+/** What a folder list shows; a change here is worth telling the other tabs about. */
+function folderStateSignature(
+  folders: readonly {
+    path: string;
+    count?: number;
+    unseen?: number;
+    syncPhase?: unknown;
+  }[],
+): string {
+  return folders
+    .map(
+      (f) =>
+        `${f.path}|${f.count ?? ""}|${f.unseen ?? ""}|${String(f.syncPhase ?? "")}`,
+    )
+    .join("\n");
+}
+
+/** Whether a relayed folder list is the one this view loads (same account or same combined set). */
+function isSameFolderScope(
+  scope: number | number[],
+  ctx: {
+    consolidated?: boolean;
+    primaryAccountId: number;
+    accountIds?: number[];
+  },
+): boolean {
+  if (__SINGLE_MAILBOX__ || !ctx.consolidated) {
+    return scope === ctx.primaryAccountId;
+  }
+  if (!Array.isArray(scope)) return false;
+  const mine = [...(ctx.accountIds ?? [])].sort((a, b) => a - b);
+  const theirs = [...scope].sort((a, b) => a - b);
+  return (
+    mine.length === theirs.length && mine.every((id, i) => id === theirs[i])
+  );
+}
+
+/** Whether a view context reads several mailboxes as one. */
+function isCombinedContext(ctx: { consolidated?: boolean }): boolean {
+  return !__SINGLE_MAILBOX__ && ctx.consolidated === true;
+}
+
+/**
+ * Load options that repeat a combined view's scope. None in a single-mailbox
+ * build, which names neither.
+ */
+function combinedLoadOptions(ctx: {
+  consolidated?: boolean;
+  accountIds?: number[];
+}): { consolidated?: boolean; accountIds?: number[] } {
+  if (__SINGLE_MAILBOX__) return {};
+  return {
+    consolidated: ctx.consolidated === true,
+    accountIds: ctx.consolidated === true ? ctx.accountIds : undefined,
+  };
+}
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -178,6 +268,41 @@ function resolveBootFolder(
   return match.path;
 }
 
+/**
+ * Re-read the folder snapshot for a scope. Invalidates the cached snapshot BEFORE
+ * reloading so the read hits the freshly-warmed mirror rather than the stale cache,
+ * which is what lets the footer/pagination counts climb as the mirror fills.
+ */
+function reloadScopeFolders(
+  ctx: {
+    consolidated?: boolean;
+    accountId: number | string;
+    primaryAccountId: number;
+    accountIds?: number[];
+  },
+  cache: { invalidateFolders: (accountId: string) => void } | null | undefined,
+  load: (
+    accountId: number,
+    forceRefresh?: boolean,
+  ) => Promise<FolderListResult>,
+  loadConsolidated:
+    | ((
+        accountIds: number[],
+        forceRefresh?: boolean,
+      ) => Promise<FolderListResult>)
+    | undefined,
+): Promise<FolderListResult> {
+  if (!__SINGLE_MAILBOX__ && ctx.consolidated && loadConsolidated) {
+    for (const accountId of ctx.accountIds ?? []) {
+      cache?.invalidateFolders(String(accountId));
+    }
+    cache?.invalidateFolders(String(ctx.accountId));
+    return loadConsolidated(ctx.accountIds ?? [], false);
+  }
+  cache?.invalidateFolders(String(ctx.primaryAccountId));
+  return load(ctx.primaryAccountId, false);
+}
+
 export function useInboxSurfaceBoot({
   enabled = true,
   initialFolder,
@@ -186,16 +311,29 @@ export function useInboxSurfaceBoot({
   const {
     accounts,
     selectedAccount,
-    selectedConsolidatedAccountIds,
     defaultAccountId,
     setNumberOfMessages,
   } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
   const { currentLayout } = useLayout();
   const inbox = useInbox();
-  const { folders, selectFolder, loadFolders, loadConsolidatedFolders } =
-    useFolderOperations();
+  const folderOperations = useFolderOperations();
+  const { folders, selectFolder, loadFolders } = folderOperations;
+  const loadConsolidatedFolders = __SINGLE_MAILBOX__
+    ? undefined
+    : folderOperations.loadConsolidatedFolders;
+  // Read by syncNow at call time. As a dependency it gave syncNow a new identity on
+  // every folder load, which reset the sync interval each settle poll (8 s) so a
+  // backfilling leader never ran its own sync or told followers about new mail.
+  const foldersRef = useRef(folders);
+  foldersRef.current = folders;
   const loadMessages = inbox.loadMessages;
   const selectInboxMessage = inbox.selectMessage;
+  // syncNow depends on these stable members, never on `inbox` itself: the context
+  // value changes on every inbox update, so depending on it re-created syncNow,
+  // restarted the polling effect and aborted the sync still in flight. A follower
+  // tab's refresh then dropped its own diff and never showed the leader's change.
+  const inboxCache = inbox.cache;
   const { preferences } = useUserPreferences();
   const {
     markAllSeen,
@@ -245,7 +383,11 @@ export function useInboxSurfaceBoot({
   const [isEntrySyncPending, setIsEntrySyncPending] = useState(false);
   const [entrySyncError, setEntrySyncError] = useState<string | null>(null);
   const previousNewCountRef = useRef(0);
-  const seenNotificationIdsRef = useRef<Set<number> | null>(null);
+  // The newest new-mail notification id this tab has seen. Ids only grow, so a
+  // row above it is mail that arrived since. A set of the ids seen would not do:
+  // it holds the first page only, and dismissing a row on that page slides an
+  // older unread row into it, which must not sound like new mail.
+  const newestNotificationIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (notificationFeedLoading || notificationFeedError) {
@@ -256,39 +398,39 @@ export function useInboxSurfaceBoot({
       (item) =>
         item.type === "email_received" && item.targetKind === "inbox_message",
     );
-    const seenIds = seenNotificationIdsRef.current;
-    if (seenIds === null) {
-      seenNotificationIdsRef.current = new Set(
-        incomingItems.map((item) => item.id),
-      );
+    const newestSeenId = newestNotificationIdRef.current;
+    const newestIncomingId = incomingItems.reduce(
+      (newest, item) => Math.max(newest, item.id),
+      newestSeenId ?? 0,
+    );
+    newestNotificationIdRef.current = newestIncomingId;
+    if (newestSeenId === null) {
       return;
     }
 
-    const freshItems = incomingItems.filter((item) => !seenIds.has(item.id));
-    for (const item of incomingItems) {
-      seenIds.add(item.id);
-    }
+    const freshItems = incomingItems.filter((item) => item.id > newestSeenId);
 
     if (!isProBuild() || preferences.notification_scope !== "all") {
       return;
     }
 
-    for (const item of freshItems.reverse()) {
-      if (item.readAt) continue;
-      const folder =
-        typeof item.targetMetadata.folder === "string"
-          ? item.targetMetadata.folder
-          : "INBOX";
-      dispatchNewMailAlerts({
-        preferences,
-        previousCount: 0,
-        nextCount: 1,
-        folder,
-        unread: true,
-        previewTitle: item.title,
-        previewBody: item.summary,
-      });
-    }
+    // One pass, one alert: a tab that was out of sight can find many rows here.
+    dispatchFreshMailAlerts(
+      preferences,
+      freshItems
+        .filter((item) => !item.readAt)
+        .reverse()
+        .map((item) => ({
+          id: item.id,
+          folder:
+            typeof item.targetMetadata.folder === "string"
+              ? item.targetMetadata.folder
+              : "INBOX",
+          title: item.title,
+          summary: item.summary,
+          path: getNotificationTargetPath(item),
+        })),
+    );
   }, [
     notificationFeedError,
     notificationFeedLoading,
@@ -317,6 +459,8 @@ export function useInboxSurfaceBoot({
         folder: "INBOX",
         unread: true,
         priority: hasPriorityNewMail,
+        // Only a count arrived, so a click on the pop-up opens the inbox.
+        path: "/inbox",
       });
     }
     previousNewCountRef.current = totalNewCount;
@@ -334,7 +478,8 @@ export function useInboxSurfaceBoot({
       return null;
     }
 
-    const consolidated = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+    const consolidated =
+      !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE;
     if (consolidated) {
       const accountIds = getEffectiveConsolidatedAccountIdsForLayout(
         accounts,
@@ -354,9 +499,9 @@ export function useInboxSurfaceBoot({
       const scopeKey = buildConsolidatedAccountScopeKey(accountIds);
 
       return {
-        accountId: scopeKey,
+        accountId: scopeKey as string | number,
         primaryAccountId: primaryId,
-        accountIds,
+        accountIds: accountIds as number[] | undefined,
         consolidated,
         accountEmail: primaryAccount.email,
         persistenceKey: scopeKey,
@@ -377,10 +522,10 @@ export function useInboxSurfaceBoot({
     }
 
     return {
-      accountId,
+      accountId: accountId as string | number,
       primaryAccountId: accountId,
-      accountIds: undefined,
-      consolidated,
+      accountIds: undefined as number[] | undefined,
+      ...(__SINGLE_MAILBOX__ ? null : { consolidated }),
       accountEmail: account.email,
       persistenceKey: account.email,
     };
@@ -393,6 +538,21 @@ export function useInboxSurfaceBoot({
     selectedConsolidatedAccountIds,
   ]);
   const accountIdsKey = accountContext?.accountIds?.join(",") ?? "";
+  // The accounts and folder this tab polls, for the other tabs: a leader polling
+  // the same folder of them lets this tab skip its own idle polls.
+  const viewAccountsKey = accountContext
+    ? isCombinedContext(accountContext)
+      ? accountIdsKey
+      : String(accountContext.accountId)
+    : "";
+  const viewAccountsRef = useRef<number[] | null>(null);
+  viewAccountsRef.current = viewAccountsKey
+    ? viewAccountsKey.split(",").map(Number)
+    : null;
+  useEffect(() => {
+    setTabView(viewAccountsRef.current, activeFolder);
+    return () => setTabView(null, activeFolder);
+  }, [viewAccountsKey, activeFolder]);
   const entryBootstrapKey = useMemo(
     () =>
       getAvailableAccountIds(accounts)
@@ -440,7 +600,7 @@ export function useInboxSurfaceBoot({
         inbox.cache?.invalidateMessages({ accountId: String(accountId) });
       }
 
-      if (accountContext.consolidated) {
+      if (isCombinedContext(accountContext)) {
         inbox.cache?.invalidateFolders(String(accountContext.accountId));
         inbox.cache?.invalidateMessages({
           accountId: String(accountContext.accountId),
@@ -540,7 +700,7 @@ export function useInboxSurfaceBoot({
 
     const bootInitialSurface = async (): Promise<{ serviceable: boolean }> => {
       let resolvedFolders = folders;
-      if (accountContext.consolidated) {
+      if (isCombinedContext(accountContext) && loadConsolidatedFolders) {
         const folderResult = await loadConsolidatedFolders(
           accountContext.accountIds ?? [],
           false,
@@ -594,10 +754,7 @@ export function useInboxSurfaceBoot({
         loadMessages({
           accountId: accountContext.accountId,
           folder: bootFolder,
-          consolidated: accountContext.consolidated,
-          accountIds: accountContext.consolidated
-            ? accountContext.accountIds
-            : undefined,
+          ...combinedLoadOptions(accountContext),
           limit,
           timeoutMs: DEFAULT_BOOT_TIMEOUT_MS,
           grouping,
@@ -693,7 +850,7 @@ export function useInboxSurfaceBoot({
   }, [
     accountContext?.accountEmail,
     accountContext?.accountId,
-    accountContext?.consolidated,
+    (accountContext ? isCombinedContext(accountContext) : false),
     accountContext?.persistenceKey,
     accountContext?.primaryAccountId,
     accountIdsKey,
@@ -713,188 +870,236 @@ export function useInboxSurfaceBoot({
     syncService,
   ]);
 
-  const syncNow = useCallback(async () => {
-    // Cancel any previous in-flight sync so stale results don't overwrite the
-    // current folder's state after a folder/account switch.
-    syncAbortRef.current?.abort();
-    const controller = new AbortController();
-    syncAbortRef.current = controller;
-    const isAborted = () => controller.signal.aborted;
+  const syncNow = useCallback(
+    async (options?: { fromTab?: boolean }) => {
+      // Cancel any previous in-flight sync so stale results don't overwrite the
+      // current folder's state after a folder/account switch.
+      syncAbortRef.current?.abort();
+      const controller = new AbortController();
+      syncAbortRef.current = controller;
+      const isAborted = () => controller.signal.aborted;
 
-    if (!accountContext) {
-      return;
-    }
-
-    if (typeof document !== "undefined" && document.hidden) {
-      return;
-    }
-
-    // After a background message sync, mark the cached folder snapshot stale so
-    // the footer/pagination counts recompute on the next folder read instead of
-    // showing the pre-sync totals.
-    const refreshScopeFolders = () => {
-      if (accountContext.consolidated) {
-        for (const accountId of accountContext.accountIds ?? []) {
-          inbox.cache?.invalidateFolders(String(accountId));
-        }
-        inbox.cache?.invalidateFolders(String(accountContext.accountId));
-      } else {
-        inbox.cache?.invalidateFolders(String(accountContext.accountId));
-      }
-    };
-    const completeSuccessfulSync = async (total: number) => {
-      setNumberOfMessages(total);
-      refreshScopeFolders();
-      await Promise.all([
-        refreshCountsRef.current(),
-        refreshNotificationFeedRef.current(),
-      ]);
-    };
-
-    const folder = activeFolderRef.current;
-    const folderMap = accountContext.consolidated
-      ? getConsolidatedFolderMapForPath(folders, folder)
-      : undefined;
-
-    // On a deep page (offset > 0), the background poll must refresh THAT page,
-    // not reset to page 1, otherwise the visible deep page gets silently
-    // overwritten with page-1 emails a minute later.
-    const currentOffset = inboxService.getCurrentOffsetStart();
-    if (currentOffset > 0) {
-      const reloadResult = await inbox.loadMessages({
-        accountId: accountContext.accountId,
-        folder,
-        consolidated: accountContext.consolidated,
-        accountIds: accountContext.consolidated
-          ? accountContext.accountIds
-          : undefined,
-        folderMap,
-        offset: currentOffset,
-        limit,
-        forceRefresh: false,
-        silent: true,
-        grouping,
-        sort,
-      });
-      if (!isAborted() && reloadResult.success) {
-        await completeSuccessfulSync(reloadResult.total);
-      }
-      return;
-    }
-
-    if (grouping === "threads") {
-      const reloadResult = await inbox.loadMessages({
-        accountId: accountContext.accountId,
-        folder,
-        consolidated: accountContext.consolidated,
-        accountIds: accountContext.consolidated
-          ? accountContext.accountIds
-          : undefined,
-        folderMap,
-        limit,
-        forceRefresh: false,
-        silent: true,
-        grouping,
-        sort,
-      });
-
-      if (!isAborted() && reloadResult.success) {
-        await completeSuccessfulSync(reloadResult.total);
-      }
-      return;
-    }
-
-    const syncToken =
-      inboxService.getCurrentSyncToken() ??
-      syncService.getSyncToken(accountContext.accountId, folder);
-
-    if (!syncToken) {
-      const reloadResult = await inbox.loadMessages({
-        accountId: accountContext.accountId,
-        folder,
-        consolidated: accountContext.consolidated,
-        accountIds: accountContext.consolidated
-          ? accountContext.accountIds
-          : undefined,
-        folderMap,
-        limit,
-        forceRefresh: false,
-        silent: true,
-        grouping,
-        sort,
-      });
-
-      if (!isAborted() && reloadResult.success) {
-        await completeSuccessfulSync(reloadResult.total);
-      }
-      return;
-    }
-
-    const generation = inboxService.getRequestGeneration();
-    // Capture the consolidated account IDs at the moment the request is fired.
-    // After the await, the user may have changed the consolidated selection, so
-    // we tag the returned delta with the IDs that were in scope at call time.
-    // applyDiff uses these to reject the delta if the scope has since changed.
-    const syncRequestAccountIds = accountContext.consolidated
-      ? accountContext.accountIds
-      : undefined;
-
-    const syncResult = await syncService.incrementalSync(
-      accountContext.accountId,
-      folder,
-      syncToken,
-      {
-        folder,
-        consolidated: accountContext.consolidated,
-        accountIds: accountContext.consolidated
-          ? accountContext.accountIds
-          : undefined,
-        folderMap,
-      },
-    );
-
-    if (!isAborted() && syncResult.success && syncResult.delta) {
-      const delta = syncRequestAccountIds
-        ? { ...syncResult.delta, consolidatedAccountIds: syncRequestAccountIds }
-        : syncResult.delta;
-      if (inboxService.applyDiff(delta, generation)) {
-        await completeSuccessfulSync(syncResult.delta.total);
+      if (!accountContext) {
         return;
       }
-      syncResult.requiresFullSync = true;
-    }
 
-    if (!isAborted() && syncResult.requiresFullSync) {
-      const reloadResult = await inbox.loadMessages({
-        accountId: accountContext.accountId,
-        folder,
-        consolidated: accountContext.consolidated,
-        accountIds: accountContext.consolidated
-          ? accountContext.accountIds
-          : undefined,
-        folderMap,
-        limit,
-        forceRefresh: false,
-        silent: true,
-        grouping,
-        sort,
-      });
-
-      if (!isAborted() && reloadResult.success) {
-        await completeSuccessfulSync(reloadResult.total);
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
       }
-    }
-  }, [
-    accountContext,
-    inbox,
-    inboxService,
-    folders,
-    grouping,
-    sort,
-    limit,
-    setNumberOfMessages,
-    syncService,
-  ]);
+
+      // After a background message sync, mark the cached folder snapshot stale so
+      // the footer/pagination counts recompute on the next folder read instead of
+      // showing the pre-sync totals.
+      const refreshScopeFolders = () => {
+        if (isCombinedContext(accountContext)) {
+          for (const accountId of accountContext.accountIds ?? []) {
+            inboxCache?.invalidateFolders(String(accountId));
+          }
+          inboxCache?.invalidateFolders(String(accountContext.accountId));
+        } else {
+          inboxCache?.invalidateFolders(String(accountContext.accountId));
+        }
+      };
+      const completeSuccessfulSync = async (total: number) => {
+        setNumberOfMessages(total);
+        refreshScopeFolders();
+        const fromTab = options?.fromTab === true;
+        await Promise.all([
+          refreshCountsRef.current(),
+          // Forced: new mail just landed, so a feed GET shared from before the
+          // sync would hide its notifications until the next poll. Not when another
+          // tab's message caused this run: a live leader relays every feed it loads,
+          // and without one a feed shared in the last few seconds is still current.
+          fromTab && isFollowingLeader()
+            ? undefined
+            : refreshNotificationFeedRef.current(!fromTab),
+        ]);
+      };
+      // A full reload cannot tell whether anything changed, yet followers covered by
+      // this leader skip their own polls, so the leader must hand every reload on.
+      // Not when another tab's message caused this run: that tab already told the rest.
+      const completeReload = async (total: number) => {
+        if (isTabLeader() && options?.fromTab !== true) {
+          publishTabMessage({
+            type: "mail-changed",
+            accounts: viewAccountsRef.current ?? "all",
+          });
+        }
+        await completeSuccessfulSync(total);
+      };
+
+      const folder = activeFolderRef.current;
+      // Every reload below exists because the list may have changed (a deep page or
+      // thread view the diff cannot patch, a missing token, or requiresFullSync).
+      // Without dropping the cached page first, `loadMessages` re-renders it from
+      // the cache (10 min TTL) and never asks the server: a follower told by the
+      // leader that mail changed showed its boot-time read state until reload.
+      // Cheaper than `forceRefresh`, which makes the server bypass its mirror.
+      const reloadList = (request: Parameters<typeof loadMessages>[0]) => {
+        inboxCache?.invalidateMessages({
+          accountId: String(
+            isCombinedContext(accountContext) &&
+              (accountContext.accountIds?.length ?? 0) > 0
+              ? buildConsolidatedAccountScopeKey(accountContext.accountIds)
+              : accountContext.accountId,
+          ),
+          folder,
+        });
+        return loadMessages(request);
+      };
+      const folderMap = isCombinedContext(accountContext)
+        ? getConsolidatedFolderMapForPath(foldersRef.current, folder)
+        : undefined;
+
+      // On a deep page (offset > 0), the background poll must refresh THAT page,
+      // not reset to page 1, otherwise the visible deep page gets silently
+      // overwritten with page-1 emails a minute later.
+      const currentOffset = inboxService.getCurrentOffsetStart();
+      if (currentOffset > 0) {
+        const reloadResult = await reloadList({
+          accountId: accountContext.accountId,
+          folder,
+          ...combinedLoadOptions(accountContext),
+          folderMap,
+          offset: currentOffset,
+          limit,
+          forceRefresh: false,
+          silent: true,
+          grouping,
+          sort,
+        });
+        if (!isAborted() && reloadResult.success) {
+          await completeReload(reloadResult.total);
+        }
+        return;
+      }
+
+      if (grouping === "threads") {
+        const reloadResult = await reloadList({
+          accountId: accountContext.accountId,
+          folder,
+          ...combinedLoadOptions(accountContext),
+          folderMap,
+          limit,
+          forceRefresh: false,
+          silent: true,
+          grouping,
+          sort,
+        });
+
+        if (!isAborted() && reloadResult.success) {
+          await completeReload(reloadResult.total);
+        }
+        return;
+      }
+
+      const syncToken =
+        inboxService.getCurrentSyncToken() ??
+        syncService.getSyncToken(accountContext.accountId, folder);
+
+      if (!syncToken) {
+        const reloadResult = await reloadList({
+          accountId: accountContext.accountId,
+          folder,
+          ...combinedLoadOptions(accountContext),
+          folderMap,
+          limit,
+          forceRefresh: false,
+          silent: true,
+          grouping,
+          sort,
+        });
+
+        if (!isAborted() && reloadResult.success) {
+          await completeReload(reloadResult.total);
+        }
+        return;
+      }
+
+      const generation = inboxService.getRequestGeneration();
+      // Capture the consolidated account IDs at the moment the request is fired.
+      // After the await, the user may have changed the consolidated selection, so
+      // we tag the returned delta with the IDs that were in scope at call time.
+      // applyDiff uses these to reject the delta if the scope has since changed.
+      const syncRequestAccountIds = isCombinedContext(accountContext)
+        ? accountContext.accountIds
+        : undefined;
+
+      const syncStartedAt = Date.now();
+      const syncResult = await syncService.incrementalSync(
+        accountContext.accountId,
+        folder,
+        syncToken,
+        {
+          folder,
+          ...combinedLoadOptions(accountContext),
+          folderMap,
+        },
+      );
+
+      if (!isAborted() && syncResult.success && syncResult.delta) {
+        const delta = syncRequestAccountIds
+          ? {
+              ...syncResult.delta,
+              consolidatedAccountIds: syncRequestAccountIds,
+            }
+          : syncResult.delta;
+        if (inboxService.applyDiff(delta, generation, syncStartedAt)) {
+          // A run another tab's action caused finds that action's own flag writes,
+          // moves and deletes in `updated`/`deleted`; handing those on would echo the
+          // change back to the tab that made it. Every other tab already refreshed on
+          // the action itself, so only new mail is news here.
+          // ponytail: an unrelated server-side update landing in the same diff reaches
+          // the acting tab on the leader's next change instead; add a change id to the
+          // action if that lag matters.
+          const handOn =
+            options?.fromTab === true
+              ? delta.added.length
+              : delta.added.length +
+                delta.updated.length +
+                delta.deleted.length;
+          if (isTabLeader() && handOn > 0) {
+            publishTabMessage({
+              type: "mail-changed",
+              accounts: viewAccountsRef.current ?? "all",
+            });
+          }
+          await completeSuccessfulSync(syncResult.delta.total);
+          return;
+        }
+        syncResult.requiresFullSync = true;
+      }
+
+      if (!isAborted() && syncResult.requiresFullSync) {
+        const reloadResult = await reloadList({
+          accountId: accountContext.accountId,
+          folder,
+          ...combinedLoadOptions(accountContext),
+          folderMap,
+          limit,
+          forceRefresh: false,
+          silent: true,
+          grouping,
+          sort,
+        });
+
+        if (!isAborted() && reloadResult.success) {
+          await completeReload(reloadResult.total);
+        }
+      }
+    },
+    [
+      accountContext,
+      inboxCache,
+      loadMessages,
+      inboxService,
+      grouping,
+      sort,
+      limit,
+      setNumberOfMessages,
+      syncService,
+    ],
+  );
 
   useEffect(() => {
     if (!accountContext || autoSyncDisabled || automaticSyncIntervalMs <= 0) {
@@ -919,10 +1124,14 @@ export function useInboxSurfaceBoot({
       if (intervalId !== null) {
         return;
       }
-      intervalId = window.setInterval(
-        () => void syncNow(),
-        automaticSyncIntervalMs,
-      );
+      intervalId = window.setInterval(() => {
+        // The leader tab polls this view and says when mail changes.
+        if (
+          !isCoveredByLeader(viewAccountsRef.current, activeFolderRef.current)
+        ) {
+          void syncNow();
+        }
+      }, automaticSyncIntervalMs);
     };
 
     const stopPolling = () => {
@@ -949,26 +1158,30 @@ export function useInboxSurfaceBoot({
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopPolling();
-      syncAbortRef.current?.abort();
     };
   }, [accountContext, autoSyncDisabled, automaticSyncIntervalMs, syncNow]);
+
+  // An account switch or unmount cancels the sync in flight. Only those: a
+  // re-render must never throw away a diff that is already on its way back.
+  useEffect(() => () => syncAbortRef.current?.abort(), [accountContext]);
 
   // Keep the latest folders + load callbacks in a ref so the settling interval
   // reads current values WITHOUT being in its dependency array (which would make
   // it tear down + re-subscribe on every folder refresh, the exact pattern that
   // caused the earlier render storm).
-  const settleRef = useRef({
+  // [folders, loadFolders, the combined loader, accountContext]
+  const settleRef = useRef([
     folders,
     loadFolders,
     loadConsolidatedFolders,
     accountContext,
-  });
-  settleRef.current = {
+  ] as const);
+  settleRef.current = [
     folders,
     loadFolders,
     loadConsolidatedFolders,
     accountContext,
-  };
+  ] as const;
 
   useEffect(() => {
     // Manual-sync-only (admin interval 0) disables ALL background polling,
@@ -987,6 +1200,10 @@ export function useInboxSurfaceBoot({
       if (typeof document !== "undefined" && document.hidden) {
         return;
       }
+      // A leader tab covering this view runs the settle poll for both.
+      if (isCoveredByLeader(viewAccountsRef.current, activeFolderRef.current)) {
+        return;
+      }
       // Skip if boot folder load just happened (within 1 settle interval)
       if (
         Date.now() - bootFolderLoadedAtRef.current <
@@ -994,12 +1211,7 @@ export function useInboxSurfaceBoot({
       ) {
         return;
       }
-      const {
-        folders: currentFolders,
-        loadFolders: load,
-        loadConsolidatedFolders: loadConsolidated,
-        accountContext: ctx,
-      } = settleRef.current;
+      const [currentFolders, load, loadConsolidated, ctx] = settleRef.current;
       if (!ctx) {
         return;
       }
@@ -1013,19 +1225,41 @@ export function useInboxSurfaceBoot({
         return;
       }
       polls += 1;
-      // Invalidate the cached folder snapshot BEFORE reloading so the read hits
-      // the freshly-warmed mirror rather than the stale cache. This is what lets
-      // the footer/pagination counts actually climb as the mirror fills.
-      if (ctx.consolidated) {
-        for (const accountId of ctx.accountIds ?? []) {
-          inbox.cache?.invalidateFolders(String(accountId));
+      const before = folderStateSignature(currentFolders ?? []);
+      // Covered followers skip this poll, so the leader hands them the list it
+      // loaded (progress included). Only real message changes are worth a
+      // follower's own refresh.
+      const announceChange = (result: FolderListResult) => {
+        if (
+          !isTabLeader() ||
+          !result.success ||
+          settleRef.current[3]?.accountId !== ctx.accountId
+        ) {
+          return;
         }
-        inbox.cache?.invalidateFolders(String(ctx.accountId));
-        void loadConsolidated(ctx.accountIds ?? [], false).catch(() => {});
-      } else {
-        inbox.cache?.invalidateFolders(String(ctx.primaryAccountId));
-        void load(ctx.primaryAccountId, false).catch(() => {});
-      }
+        const scope = isCombinedContext(ctx)
+          ? (ctx.accountIds ?? [])
+          : ctx.primaryAccountId;
+        const snapshot = getFolderService().relaySnapshot(
+          Array.isArray(scope) ? scope : [scope],
+        );
+        const message: TabMessage = { type: "folders", scope, ...snapshot };
+        const relayed = parseTabMessage(message) !== null;
+        if (relayed) publishTabMessage(message);
+        if (folderStateSignature(result.folders) !== before) {
+          // Too big or odd to relay: tell followers to reload it themselves.
+          // Relayed: still say so, marked, because a tab on the previous build
+          // cannot read `folders` and would otherwise sit on stale counts.
+          publishTabMessage({
+            type: "mail-changed",
+            accounts: viewAccountsRef.current ?? "all",
+            ...(relayed ? { relayed: true as const } : {}),
+          });
+        }
+      };
+      void reloadScopeFolders(ctx, inbox.cache, load, loadConsolidated)
+        .then(announceChange)
+        .catch(() => {});
     }, FOLDER_SETTLE_INTERVAL_MS);
 
     return () => {
@@ -1035,6 +1269,96 @@ export function useInboxSurfaceBoot({
     // Re-subscribe (and reset the poll budget) only when the active scope or the
     // auto-sync enablement changes.
   }, [accountContext?.accountId, autoSyncDisabled]);
+
+  const syncNowRef = useRef(syncNow);
+  syncNowRef.current = syncNow;
+  const autoSyncDisabledRef = useRef(autoSyncDisabled);
+  autoSyncDisabledRef.current = autoSyncDisabled;
+
+  // Another tab changed mail this tab shows (the leader's poll saw it, or the user
+  // acted there): refresh once, instead of waiting for a poll this tab may be skipping.
+  useEffect(() => {
+    let timer: number | null = null;
+    let lastRun = 0;
+    let lastRelayed = "";
+    const refresh = () => {
+      timer = null;
+      lastRun = Date.now();
+      const [, load, loadConsolidated, ctx] = settleRef.current;
+      if (!ctx || (typeof document !== "undefined" && document.hidden)) {
+        return;
+      }
+      void syncNowRef.current({ fromTab: true });
+      void reloadScopeFolders(ctx, inbox.cache, load, loadConsolidated).catch(
+        () => {},
+      );
+    };
+    const schedule = () => {
+      if (timer !== null) return;
+      const wait = Math.max(
+        TAB_REFRESH_DEBOUNCE_MS,
+        lastRun + TAB_REFRESH_MIN_GAP_MS - Date.now(),
+      );
+      timer = window.setTimeout(refresh, wait);
+    };
+    const unsubscribe = subscribeTabMessages((message) => {
+      if (
+        (message.type !== "mail-changed" && message.type !== "folders") ||
+        // The `folders` message beside it already carries the list.
+        (message.type === "mail-changed" && message.relayed) ||
+        autoSyncDisabledRef.current
+      ) {
+        return;
+      }
+      const view = viewAccountsRef.current;
+      const covered = isCoveredByLeader(view, activeFolderRef.current);
+      if (message.type === "folders") {
+        const scope = message.scope;
+        const ctx = settleRef.current[3];
+        // A tab the leader does not cover runs its own settle poll.
+        if (
+          !ctx ||
+          !covered ||
+          !touchesAccounts(Array.isArray(scope) ? scope : [scope], view)
+        ) {
+          return;
+        }
+        if (isSameFolderScope(scope, ctx)) {
+          getFolderService().applyRelayedFolders(
+            scope,
+            message.folders as ImapFolder[],
+            message.virtualCounts,
+            message.loadedFrom,
+          );
+          return;
+        }
+        // The leader lists another scope (one account against the combined
+        // inbox), so this tab reloads its own list, but only when the relayed
+        // list moved: the leader relays every settle poll, changed or not.
+        const relayed = `${JSON.stringify(scope)}\n${folderStateSignature(
+          message.folders as ImapFolder[],
+        )}`;
+        if (relayed !== lastRelayed) {
+          lastRelayed = relayed;
+          schedule();
+        }
+        return;
+      }
+      if (
+        !touchesAccounts(message.accounts, view) ||
+        // A tab the leader does not cover runs its own polls, which find anything
+        // another tab's poll found. Only a user's action elsewhere is news to it.
+        (!message.action && !covered)
+      ) {
+        return;
+      }
+      schedule();
+    });
+    return () => {
+      unsubscribe();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
 
   // True only on the FIRST-EVER visit to an account/scope, until its initial
   // load resolves. Read synchronously (ref + localStorage) so a returning user

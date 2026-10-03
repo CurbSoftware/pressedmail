@@ -6,6 +6,7 @@ import {
   settingsInfoTooltips,
 } from "@/components/settings-ui";
 import { ComposerToolbarCustomizeDialog } from "@/components/inbox/compose/ComposerToolbarCustomizeDialog";
+import { useContentBlocksEnabled } from "@/components/inbox/compose/use-content-blocks-enabled";
 import {
   PREFERENCE_ALLOWED_VALUES,
   type ComposerToolbarPreset,
@@ -44,6 +45,9 @@ export function ComposerBehaviorSection({
     COMPOSER_BEHAVIOR_KEYS,
     registerDraft,
   );
+  // The dialog lists and keeps only what the composer can render. Without this
+  // it never saw Insert block, so any change made here saved the list without it.
+  const contentBlocksEnabled = useContentBlocksEnabled("email");
 
   return (
     <SettingsSectionCard
@@ -106,6 +110,7 @@ export function ComposerBehaviorSection({
         <ComposerToolbarCustomizeDialog
           surface="email"
           aiInteractive
+          contentBlocksEnabled={contentBlocksEnabled}
           triggerClassName="h-11 w-11 @3xl/preferences-nav:h-8 @3xl/preferences-nav:w-8"
           toolbarPreferences={draft}
           onToolbarPreferencesChange={patchDraft}

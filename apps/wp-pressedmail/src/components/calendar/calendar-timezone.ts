@@ -276,6 +276,18 @@ export function getLocalEventDate(
     : new Date(event[field]);
 }
 
+/**
+ * The calendar day an event starts on, as YYYY-MM-DD in the event's own zone.
+ * A link to an event names its day this way, whoever builds the link, so a late
+ * evening event in a far zone keeps the day it was planned for.
+ */
+export function getLocalEventDay(event: LocalCalendarEvent): string {
+  return utcIsoToZonedInput(
+    event.start_datetime,
+    getLocalEventTimezone(event),
+  ).slice(0, 10);
+}
+
 /** Inclusive display end; RFC 5545 midnight DTEND remains exclusive in storage. */
 export function getAllDayDisplayEnd(start: Date, end: Date): Date {
   if (

@@ -142,8 +142,6 @@ export interface UseWhitelabelThemeReturn {
   documentationUrl: string | null;
 
   // Theme restrictions
-  /** Whether pro color palettes are disabled */
-  areProPalettesDisabled: boolean;
   /** Whether users can switch layouts */
   allowLayoutSwitching: boolean;
   /** Whether users can switch themes */
@@ -166,4 +164,53 @@ export interface UseWhitelabelThemeReturn {
   getCSSVariablesString: (mode: "light" | "dark") => string;
   /** Apply CSS variables to a target element */
   applyCSSVariables: (element: HTMLElement, mode: "light" | "dark") => void;
+}
+
+/** The admin's whitelabel appearance defaults and user-switching locks. Pro only. */
+export interface WhitelabelAppearanceDefaults {
+  defaultLayout: "pressedm" | "pressedg" | "pressedout";
+  defaultTheme: string;
+  allowUserLayoutSwitching: boolean;
+  allowUserThemeSwitching: boolean;
+  defaultMode: AppearanceMode;
+  allowUserModeSwitching: boolean;
+}
+
+/** The localized whitelabel runtime and the defaults read from it. Pro only. */
+export interface WhitelabelRuntimeState {
+  runtime: EffectiveWhitelabelRuntime | null;
+  defaults: WhitelabelAppearanceDefaults;
+}
+
+/**
+ * The administrator's palette allow-list, as a set, or `null` for "no
+ * restriction".
+ *
+ * Two readers ask this one question: `ThemeProvider` decides which palettes it
+ * will offer, and the theme picker decides which it will draw. They ask it here
+ * so they cannot drift into two different answers, which is how a disabled
+ * palette stayed selectable in the picker while the provider refused it.
+ *
+ * A disabled workspace and a missing or empty list both narrow nothing. Locking
+ * a user out of every palette is worse than honouring a list we never received,
+ * and the server refuses to store an empty one anyway.
+ */
+export function resolveEnabledThemeIds(
+  settings:
+    | {
+        enabled?: boolean | null;
+        appearance?: { enabled_themes?: unknown } | null;
+      }
+    | null
+    | undefined,
+): Set<string> | null {
+  if (!settings?.enabled) {
+    return null;
+  }
+
+  const list = settings.appearance?.enabled_themes;
+
+  return Array.isArray(list) && list.length > 0
+    ? new Set(list as string[])
+    : null;
 }

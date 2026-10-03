@@ -41,7 +41,6 @@ import {
 } from "@/context/InboxContext";
 import { useComposer } from "@/context/composer";
 import type { EmailMessage, EmailMessageTag } from "@/types";
-import { InlineTagSelector } from "@/components/tags/TagSelector";
 
 import { decodeMimeWords } from "./mail-display";
 import { areMessageRowsEqual } from "./mail-list-item-equal";
@@ -62,12 +61,10 @@ import {
   useDraggableEmail,
   useDragDropContext,
 } from "@/components/shared/drag-drop";
-import { useFeatureEnabled } from "@/context/features";
 import {
   useMailOperations,
   type MailOperationResult,
 } from "@/layouts/shared/hooks/useMailOperations";
-import { isImportantActionAvailable } from "@/lib/inbox-action-visibility";
 
 import { Badge, toast } from "@kit/ui/plugin";
 interface MailListProps {
@@ -169,7 +166,6 @@ interface MailListItemProps {
   showAccountBadge: boolean;
   showAttachmentIcon: boolean;
   unreadIndicator: "dot_and_bold" | "dot" | "bold";
-  tagAccountId?: number;
   currentFolder?: string;
   onTagClick: (tag: EmailMessageTag) => void;
   onTagRemove: (message: EmailMessage, tag: EmailMessageTag) => void;
@@ -214,7 +210,6 @@ const MailListItem = memo(
     showAccountBadge,
     showAttachmentIcon,
     unreadIndicator,
-    tagAccountId,
     currentFolder,
     onTagClick,
     onTagRemove,
@@ -293,18 +288,6 @@ const MailListItem = memo(
         rightRailSlot={
           <EmailListStatusSlots message={item} threadCount={threadCount} />
         }
-        showHoverActions={Boolean(tagAccountId)}
-        extraHoverActionsSlot={
-          tagAccountId ? (
-            <InlineTagSelector
-              accountId={tagAccountId}
-              messageUid={String(item.uid ?? "")}
-              uidValidity={String(item.uidValidity ?? "")}
-              folder={item.folder ?? ""}
-              messageTags={item.tags}
-            />
-          ) : null
-        }
         actions={{
           // The mutation identity is the mailbox tuple, never the row id: the
           // server sends the bare IMAP UID as `id`, which no operation can
@@ -337,7 +320,6 @@ const MailListItem = memo(
       prev.showAccountBadge === next.showAccountBadge &&
       prev.showAttachmentIcon === next.showAttachmentIcon &&
       prev.unreadIndicator === next.unreadIndicator &&
-      prev.tagAccountId === next.tagAccountId &&
       prev.currentFolder === next.currentFolder &&
       prev.onTagClick === next.onTagClick &&
       prev.onTagRemove === next.onTagRemove &&
@@ -367,12 +349,6 @@ export function MailList({
   const { preferences } = useUserPreferences();
   const { filterByTag, removeMessageTag } = useEmailMessageTagActions();
   const { toggleImportant } = useMailOperations();
-  // Importance is persisted by the Pro smart-inbox route only, so Free renders
-  // the marker without the control rather than a button that always 404s.
-  const importantAvailable = isImportantActionAvailable({
-    isFreeBuild: __IS_FREE__,
-    smartInboxEnabled: useFeatureEnabled("smart_inbox"),
-  });
 
   const handleStarClick = useCallback(
     (e: React.MouseEvent, messageId: string) => {
@@ -527,16 +503,13 @@ export function MailList({
               enableSelection={enableSelection}
               onSelect={guardedSelect}
               onStarClick={handleStarClick}
-              onImportantClick={
-                importantAvailable ? handleImportantClick : undefined
-              }
+              onImportantClick={handleImportantClick}
               showDetails={showDetails}
               density={density}
               showPreview={showPreview}
               showAccountBadge={showAccountBadge}
               showAttachmentIcon={showAttachmentIcon}
               unreadIndicator={unreadIndicator}
-              tagAccountId={resolveTagAccountId(item, selectedAccountId)}
               currentFolder={selectedFolder}
               onTagClick={filterByTag}
               onTagRemove={handleTagRemove}

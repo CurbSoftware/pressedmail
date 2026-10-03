@@ -93,7 +93,6 @@ export function MobileComposeScreen({
   const { selectedMessage } = useInboxState();
   const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
   const { preferences } = useUserPreferences();
-  const undoSendAvailable = useFeatureAvailable("undo_send");
 
   const routeFields = React.useMemo(
     () =>
@@ -184,16 +183,15 @@ export function MobileComposeScreen({
       composerDefaultFormatToContentType(preferences.composer_default_format),
     editorRef,
     autoSaveOnClose: preferences.auto_save_drafts,
-    undoSendEnabled:
-      __IS_PRO__ && undoSendAvailable && preferences.undo_send_enabled,
-    undoSendDelaySeconds: preferences.undo_send_delay_seconds,
+    extras: __IS_FREE__
+      ? undefined
+      : { undoSend: true, onScheduledChanged: refreshScheduledEmails },
     onClose: closeCompose,
     onSendSuccess: handleSendSuccess,
     // Route the global navigation guard (route changes, wp-admin links)
     // through this compose instance so leaving a dirty mobile draft prompts.
     gateNavigation: true,
     composerContext: composerCtx,
-    onScheduledChanged: refreshScheduledEmails,
   });
 
   // useComposeForm registers its navigation guard before this effect runs.
@@ -233,8 +231,8 @@ export function MobileComposeScreen({
 
   const isDeliveryPending =
     form.isSending ||
-    form.readReceipt?.pending ||
-    form.isScheduling ||
+    (__ENABLE_EMAIL_TRACKING__ && form.readReceipt?.pending) ||
+    (!__IS_FREE__ && form.isScheduling) ||
     form.isDiscarding ||
     form.pendingInlineImageUploads > 0;
 

@@ -23,7 +23,13 @@ export function BrandedProductMark({
   testId = "branded-product-mark",
 }: BrandedProductMarkProps) {
   const { resolvedTheme } = useTheme();
-  const { logo, logoLight, pluginName, squareMark } = useWhitelabelTheme();
+  // The branding hook answers nothing in the Free build, which always shows
+  // the PressedMail name and mark.
+  const branding = useWhitelabelTheme();
+  const logo = __IS_FREE__ ? null : branding.logo;
+  const logoLight = __IS_FREE__ ? null : branding.logoLight;
+  const pluginName = __IS_FREE__ ? "PressedMail" : branding.pluginName;
+  const squareMark = __IS_FREE__ ? null : branding.squareMark;
   const surfaceLogo =
     resolvedTheme === "dark" ? logo || logoLight : logoLight || logo;
   const assetUrl = variant === "square" ? squareMark : surfaceLogo;

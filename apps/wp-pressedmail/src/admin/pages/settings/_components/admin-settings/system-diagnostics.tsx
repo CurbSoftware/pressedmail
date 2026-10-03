@@ -1,11 +1,7 @@
 import { __, sprintf } from "@wordpress/i18n";
 import { useState } from "react";
 import { CheckCircle, AlertTriangle, Info } from "lucide-react";
-import {
-  Alert,
-  AlertDescription,
-  Badge,
-} from "@kit/ui/plugin";
+import { Alert, AlertDescription, Badge } from "@kit/ui/plugin";
 import {
   SettingsEmptyState,
   SettingsSectionCard,
@@ -107,12 +103,14 @@ export function SystemDiagnostics() {
     ? __("Unknown", "pressedmail")
     : syncSchedule.mode === "manual"
       ? __("Manual only", "pressedmail")
-      : syncOverdue
-        ? __("Overdue", "pressedmail")
-        : sprintf(
-            __("Scheduled · every %d min", "pressedmail"),
-            String(syncSchedule.intervalMinutes ?? 0),
-          );
+      : syncSchedule.mode === "visits"
+        ? __("On visits", "pressedmail")
+        : syncOverdue
+          ? __("Overdue", "pressedmail")
+          : sprintf(
+              __("Scheduled · every %d min", "pressedmail"),
+              String(syncSchedule.intervalMinutes ?? 0),
+            );
   const siteHealthUrl = window.pressedmailPlugin?.adminAjaxUrl
     ? new URL(
         "site-health.php",
@@ -254,23 +252,71 @@ export function SystemDiagnostics() {
             )}
           </p>
         ) : null}
-        {syncSchedule && syncSchedule.mode === "scheduled" ? (
+        {syncSchedule && syncSchedule.mode === "visits" ? (
+          <div
+            className="text-xs text-muted-foreground"
+            data-test="sync-schedule-detail"
+            data-testid="sync-schedule-detail">
+            {__(
+              "PressedMail checks for new mail while it is open and when someone visits WordPress admin, at most once per sync interval. Nothing runs on a timer.",
+              "pressedmail",
+            )}
+            {syncSchedule.lastRun
+              ? ` ${sprintf(
+                  /* translators: %s: date and time of the last mail check, in the viewer's locale. */
+                  __("Last check: %s", "pressedmail"),
+                  new Date(syncSchedule.lastRun * 1000).toLocaleString(),
+                )}`
+              : ""}
+          </div>
+        ) : null}
+        {/* A sync timer is Pro; Free syncs on visits and has no schedule. */}
+        {!__IS_FREE__ && syncSchedule && syncSchedule.mode === "scheduled" ? (
           <div
             className="text-xs text-muted-foreground"
             data-test="sync-schedule-detail"
             data-testid="sync-schedule-detail">
             {syncSchedule.lastRun
               ? sprintf(
+                  /* translators: %s: date and time of the last sync run, in the viewer's locale. */
                   __("Last sync run: %s", "pressedmail"),
                   new Date(syncSchedule.lastRun * 1000).toLocaleString(),
                 )
               : __("Last sync run: not yet", "pressedmail")}
             {syncSchedule.nextRun
               ? ` · ${sprintf(
+                  /* translators: %s: date and time of the next scheduled sync run, in the viewer's locale. */
                   __("Next run: %s", "pressedmail"),
                   new Date(syncSchedule.nextRun * 1000).toLocaleString(),
                 )}`
               : ""}
+            {/* Pro-only: __IS_PRO__ folds the literal out of the Free bundle.
+                A runtime check alone leaves it there as a dead branch. */}
+            {__IS_PRO__ && syncSchedule.timedWake?.lastWake ? (
+              <p
+                className="mt-1"
+                data-test="sync-last-wake"
+                data-testid="sync-last-wake">
+                {sprintf(
+                  /* translators: %s: date and time CurbSoftware last woke this site's scheduler, in the viewer's locale. */
+                  __("Last wake from CurbSoftware: %s", "pressedmail"),
+                  new Date(
+                    syncSchedule.timedWake.lastWake * 1000,
+                  ).toLocaleString(),
+                )}
+              </p>
+            ) : null}
+            {syncOverdue ? (
+              <p
+                className="mt-1"
+                data-test="sync-overdue-hint"
+                data-testid="sync-overdue-hint">
+                {__(
+                  'WordPress runs background jobs only when your site gets a visit, so a quiet site falls behind. PressedMail catches up while it is open. For steady syncing, have your host run "wp pressedmail cron run-due" every minute.',
+                  "pressedmail",
+                )}
+              </p>
+            ) : null}
           </div>
         ) : null}
 
@@ -309,7 +355,6 @@ export function SystemDiagnostics() {
           </div>
         ) : null}
       </SettingsSectionCard>
-
 
       <div className="grid gap-4">
         <SettingsSectionCard

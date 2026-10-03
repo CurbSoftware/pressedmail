@@ -10,7 +10,9 @@ import {
   type ReactNode,
 } from "react";
 import * as ReactRouter from "react-router-dom";
+import { Button } from "@kit/ui/plugin";
 
+import { notifyAutosaveError } from "@/hooks/useAutosaveSetting";
 import { useWarnIfBusy } from "@/hooks/useWarnIfBusy";
 import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 
@@ -22,8 +24,14 @@ type PendingBlocker = {
   reset?: () => void;
 };
 
+type BlockedNavigation = {
+  currentLocation: ReactRouter.Location;
+  nextLocation: ReactRouter.Location;
+  historyAction?: "POP" | "PUSH" | "REPLACE";
+};
+
 interface UnsavedRouteBlockerProps {
-  shouldBlock: () => boolean;
+  shouldBlock: (navigation: BlockedNavigation) => boolean;
   onBlocked: (blocker: PendingBlocker) => void;
 }
 
@@ -56,23 +64,128 @@ function UnsavedDataRouteBlocker({
   shouldBlock,
   onBlocked,
 }: UnsavedRouteBlockerProps) {
-  const blocker = ReactRouter.useBlocker(shouldBlock);
+  const navigate = ReactRouter.useNavigate();
+  const historyActionRef =
+    useRef<BlockedNavigation["historyAction"]>(undefined);
+  // Browser routers index native history entries; memory routers do not.
+  const readHistoryIndex = () => {
+    const index: unknown = window.history.state?.idx;
+    return typeof index === "number" && Number.isInteger(index) ? index : null;
+  };
+  const popTargetIndexRef = useRef<number | null>(null);
+  const replayTargetRef = useRef<ReactRouter.Location | null>(null);
+  const blocker = ReactRouter.useBlocker((navigation) => {
+    const replay = replayTargetRef.current;
+    if (
+      replay &&
+      replay.pathname === navigation.nextLocation.pathname &&
+      replay.search === navigation.nextLocation.search &&
+      replay.hash === navigation.nextLocation.hash
+    ) {
+      replayTargetRef.current = null;
+      return false;
+    }
+    const blocked = shouldBlock(navigation);
+    if (blocked) {
+      historyActionRef.current = navigation.historyAction;
+      const nextIndex = readHistoryIndex();
+      popTargetIndexRef.current =
+        navigation.historyAction === "POP" ? nextIndex : null;
+    }
+    return blocked;
+  });
+  const currentBlockerRef = useRef(blocker);
+  currentBlockerRef.current = blocker;
 
   useEffect(() => {
     if (blocker.state === "blocked") {
-      onBlocked(blocker);
+      const target = blocker.location;
+      const historyAction = historyActionRef.current;
+      const popTargetIndex = popTargetIndexRef.current;
+      onBlocked({
+        state: blocker.state,
+        reset: () => {
+          if (currentBlockerRef.current.state === "blocked") {
+            currentBlockerRef.current.reset();
+          }
+        },
+        proceed: () => {
+          const current = currentBlockerRef.current;
+          if (
+            current.state === "blocked" &&
+            current.location.key === target.key
+          ) {
+            current.proceed();
+          } else {
+            // An allowed view-only navigation releases React Router's blocker.
+            // Keep the refused-save destination usable without calling a stale
+            // proceed function (an invalid unblocked -> proceeding transition).
+            replayTargetRef.current = target;
+            const currentIndex = readHistoryIndex();
+            if (
+              historyAction === "POP" &&
+              popTargetIndex !== null &&
+              currentIndex !== null
+            ) {
+              const delta = popTargetIndex - currentIndex;
+              if (delta !== 0) navigate(delta);
+              else navigate(target, { state: target.state, replace: true });
+            } else
+              navigate(target, {
+                state: target.state,
+                replace: historyAction === "REPLACE",
+              });
+          }
+        },
+      });
     }
-  }, [blocker, onBlocked]);
+  }, [blocker, navigate, onBlocked]);
 
   return null;
+}
+
+const NO_VIEW_PARAMS: readonly string[] = [];
+
+/**
+ * Whether a navigation only changes which view of the same page shows: the
+ * path is the same and so is every search parameter but the view ones.
+ */
+function changesOnlyView(
+  { currentLocation, nextLocation }: BlockedNavigation,
+  viewParams: readonly string[],
+): boolean {
+  if (
+    viewParams.length === 0 ||
+    currentLocation.pathname !== nextLocation.pathname
+  ) {
+    return false;
+  }
+
+  const rest = (search: string) => {
+    const params = new URLSearchParams(search);
+    viewParams.forEach((name) => params.delete(name));
+    params.sort();
+    return params.toString();
+  };
+
+  return rest(currentLocation.search) === rest(nextLocation.search);
 }
 
 interface UseUnsavedChangesGuardOptions {
   dirty: boolean;
   saving?: boolean;
   blockRouterNavigation?: boolean;
+  /**
+   * Search parameters that only choose which view of the page shows, such as an
+   * inner tab. Changing nothing but these keeps the page and everything
+   * staged on it, so the router is not stopped for it. Pass a list that does
+   * not change between renders.
+   */
+  viewParams?: readonly string[];
   onDiscard?: () => void;
   onSave?: () => Promise<boolean | void> | boolean | void;
+  /** Keep the route/action for a visible retry after returning to the save errors. */
+  retainPendingOnSaveFailure?: boolean;
 }
 
 interface UseUnsavedChangesGuardResult {
@@ -84,11 +197,14 @@ export function useUnsavedChangesGuard({
   dirty,
   saving = false,
   blockRouterNavigation = true,
+  viewParams = NO_VIEW_PARAMS,
   onDiscard,
   onSave,
+  retainPendingOnSaveFailure = false,
 }: UseUnsavedChangesGuardOptions): UseUnsavedChangesGuardResult {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [savingInternally, setSavingInternally] = useState(false);
+  const [pendingRecovery, setPendingRecovery] = useState(false);
   const pendingActionRef = useRef<(() => void) | null>(null);
   const pendingBlockerRef = useRef<PendingBlocker | null>(null);
   const replayingActionRef = useRef(false);
@@ -118,6 +234,7 @@ export function useUnsavedChangesGuard({
     pendingBlockerRef.current?.reset?.();
     clearPending();
     setDialogOpen(false);
+    setPendingRecovery(false);
   }, [clearPending]);
 
   const replayPending = useCallback(() => {
@@ -126,16 +243,13 @@ export function useUnsavedChangesGuard({
 
     clearPending();
     setDialogOpen(false);
+    setPendingRecovery(false);
 
-    if (blocker?.proceed) {
-      blocker.proceed();
-      return;
-    }
-
-    if (action) {
+    if (blocker?.proceed || action) {
       replayingActionRef.current = true;
       try {
-        action();
+        if (blocker?.proceed) blocker.proceed();
+        else action?.();
       } finally {
         replayingActionRef.current = false;
       }
@@ -158,12 +272,16 @@ export function useUnsavedChangesGuard({
     const isCurrentSave = () =>
       mountedRef.current && saveGenerationRef.current === saveGeneration;
 
-    let shouldReplay: boolean;
+    let saved: boolean;
     try {
-      const result = await onSave();
-      shouldReplay = result !== false;
-    } catch {
-      return;
+      saved = (await onSave()) !== false;
+    } catch (error) {
+      // A save that answered "no" has put its reasons on the page. One that threw
+      // has not, and the dialog is about to close, so this is the only word the
+      // admin gets that their changes did not go.
+      console.error("Saving from the unsaved changes dialog failed:", error);
+      notifyAutosaveError(__("Could not save your changes", "pressedmail"));
+      saved = false;
     } finally {
       if (isCurrentSave()) {
         saveInFlightRef.current = false;
@@ -171,10 +289,27 @@ export function useUnsavedChangesGuard({
       }
     }
 
-    if (shouldReplay && isCurrentSave()) {
-      replayPending();
+    if (!isCurrentSave()) {
+      return;
     }
-  }, [onSave, replayPending, saving]);
+
+    if (saved) {
+      replayPending();
+    } else {
+      // A refused save has its reasons on the page, behind this dialog, and a
+      // modal would keep them out of reach. Nothing is discarded and nothing
+      // navigates: the admin is back where they were, with the draft and the
+      // reasons in front of them.
+      if (retainPendingOnSaveFailure) {
+        // Let the writer reach the field/error behind the modal without losing
+        // the blocked destination. Only an explicit Stay cancels that intent.
+        setDialogOpen(false);
+        setPendingRecovery(true);
+      } else {
+        handleStay();
+      }
+    }
+  }, [handleStay, onSave, replayPending, retainPendingOnSaveFailure, saving]);
 
   const guardedAction = useCallback(
     (action: () => void) => {
@@ -183,20 +318,28 @@ export function useUnsavedChangesGuard({
         return;
       }
 
+      pendingBlockerRef.current?.reset?.();
+      pendingBlockerRef.current = null;
       pendingActionRef.current = action;
+      setPendingRecovery(false);
       setDialogOpen(true);
     },
     [dirty],
   );
 
   const handleBlocked = useCallback((blocker: PendingBlocker) => {
+    pendingActionRef.current = null;
     pendingBlockerRef.current = blocker;
+    setPendingRecovery(false);
     setDialogOpen(true);
   }, []);
 
   const shouldBlockRouterNavigation = useCallback(
-    () => dirty && !replayingActionRef.current,
-    [dirty],
+    (navigation: BlockedNavigation) =>
+      dirty &&
+      !replayingActionRef.current &&
+      !changesOnlyView(navigation, viewParams),
+    [dirty, viewParams],
   );
 
   const guardDialog = useMemo(
@@ -215,6 +358,48 @@ export function useUnsavedChangesGuard({
           onDiscard={handleDiscard}
           onSave={onSave ? handleSave : undefined}
         />
+        {pendingRecovery ? (
+          <div
+            role="status"
+            className="space-y-2 border-b border-border p-3 text-sm">
+            <p>
+              {__(
+                "Navigation is paused. Save your changes to leave, or stay to keep editing.",
+                "pressedmail",
+              )}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="pointer-coarse:min-h-11"
+                onClick={handleStay}
+                disabled={saving || savingInternally}
+                data-testid="unsaved-changes-stay">
+                {__("Stay", "pressedmail")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="pointer-coarse:min-h-11"
+                onClick={handleDiscard}
+                disabled={saving || savingInternally}
+                data-testid="unsaved-changes-discard">
+                {__("Discard changes", "pressedmail")}
+              </Button>
+              {onSave ? (
+                <Button
+                  type="button"
+                  className="pointer-coarse:min-h-11"
+                  onClick={() => void handleSave()}
+                  disabled={saving || savingInternally}
+                  data-testid="unsaved-changes-save">
+                  {__("Save changes and leave", "pressedmail")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
       </>
     ),
     [
@@ -226,6 +411,7 @@ export function useUnsavedChangesGuard({
       handleSave,
       handleStay,
       onSave,
+      pendingRecovery,
       saving,
       savingInternally,
       shouldBlockRouterNavigation,

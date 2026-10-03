@@ -46,6 +46,9 @@ const WARM_BATCH_SIZE = 5;
  * holding it for the default 20s and then another.
  */
 const WARM_REQUEST_TIMEOUT_MS = 30_000;
+/** Bulk warm requests carry up to 50 UIDs under a ~30s server budget. */
+const WARM_BULK_CHUNK_SIZE = 50;
+const WARM_BULK_REQUEST_TIMEOUT_MS = 45_000;
 
 /**
  * Internal queue item.
@@ -165,6 +168,7 @@ export class PrefetchService implements IPrefetchService {
     // (reading 'destroyed')".
     this.fetchDetail = this.fetchDetail.bind(this);
     this.warmBatch = this.warmBatch.bind(this);
+    this.warmBulk = this.warmBulk.bind(this);
     this.hasUserSelectedPending = this.hasUserSelectedPending.bind(this);
     this.hasDetail = this.hasDetail.bind(this);
     this.cancelBackground = this.cancelBackground.bind(this);
@@ -295,26 +299,7 @@ export class PrefetchService implements IPrefetchService {
     );
 
     try {
-      const response = await apiFetch(
-        buildApiUrl(
-          `${messageWarmRouteApi}${accountId}`,
-          getMailboxSourceRequestParams(),
-        ),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            folder,
-            uid_validity: first.uidValidity,
-            uids,
-            ...getMailboxSourceRequestParams(),
-          }),
-        },
-        { timeoutMs: WARM_REQUEST_TIMEOUT_MS },
-      );
-
+      const response = await this.postWarmRequest(accountId, folder, first.uidValidity, uids, false);
       if (!response.ok) {
         console.warn(
           `[PrefetchService] warm batch HTTP ${response.status} for ${uids.length} UIDs`,
@@ -359,6 +344,113 @@ export class PrefetchService implements IPrefetchService {
       console.warn("[PrefetchService] warm batch failed:", err);
       return nothing;
     }
+  }
+
+  /** The one POST shape both warm forms share; only `bulk` and the uids differ. */
+  private async postWarmRequest(
+    accountId: string | number,
+    folder: string,
+    uidValidity: string | number,
+    uids: Array<string | number>,
+    bulk: boolean,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return apiFetch(
+      buildApiUrl(
+        `${messageWarmRouteApi}${accountId}`,
+        getMailboxSourceRequestParams(),
+      ),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          folder,
+          uid_validity: uidValidity,
+          uids,
+          ...(bulk ? { bulk: true } : {}),
+          ...getMailboxSourceRequestParams(),
+        }),
+        ...(signal ? { signal } : {}),
+      },
+      { timeoutMs: bulk ? WARM_BULK_REQUEST_TIMEOUT_MS : WARM_REQUEST_TIMEOUT_MS },
+    );
+  }
+
+  async warmBulk(
+    accountId: string | number,
+    folder: string,
+    messages: Array<{
+      uid?: string | number;
+      uidValidity?: string | number;
+    }>,
+    signal?: AbortSignal,
+  ): Promise<WarmBatchOutcome> {
+    const nothing: WarmBatchOutcome = { warmed: 0, deferred: [], skipped: 0 };
+    if (this.destroyed || messages.length === 0) return nothing;
+
+    // One mailbox generation per request, as in warmBatch. Unlike it, nothing
+    // is filtered against the client cache: the server mirror is what the
+    // following bulk operation reads, and it answers already-mirrored UIDs
+    // from the database without touching IMAP.
+    const byGeneration = new Map<string, Array<string | number>>();
+    for (const message of messages) {
+      const uid = Number(message.uid);
+      if (!Number.isInteger(uid) || uid <= 0) continue;
+      const generation = String(message.uidValidity ?? "");
+      if (!generation) continue;
+      const uids = byGeneration.get(generation) ?? [];
+      uids.push(uid);
+      byGeneration.set(generation, uids);
+    }
+
+    let warmed = 0;
+    let skipped = 0;
+    const deferred: Array<string | number> = [];
+
+    for (const [generation, uids] of byGeneration) {
+      for (
+        let offset = 0;
+        offset < uids.length;
+        offset += WARM_BULK_CHUNK_SIZE
+      ) {
+        if (signal?.aborted) return { warmed, deferred, skipped };
+        const chunk = uids.slice(offset, offset + WARM_BULK_CHUNK_SIZE);
+        try {
+          const response = await this.postWarmRequest(
+            accountId,
+            folder,
+            generation,
+            chunk,
+            true,
+            signal,
+          );
+          if (!response.ok) {
+            skipped += chunk.length;
+            continue;
+          }
+          const data = await response.json();
+          if (this.destroyed) return { warmed, deferred, skipped };
+          if (data?.status !== "success") {
+            skipped += chunk.length;
+            continue;
+          }
+          const served = data?.data as Record<string, unknown> | undefined;
+          warmed += served ? Object.keys(served).length : 0;
+          if (Array.isArray(data?.deferred)) deferred.push(...data.deferred);
+          if (data?.skipped && typeof data.skipped === "object") {
+            skipped += Object.keys(data.skipped).length;
+          }
+        } catch (err) {
+          if (signal?.aborted) return { warmed, deferred, skipped };
+          console.warn("[PrefetchService] warm bulk failed:", err);
+          skipped += chunk.length;
+        }
+      }
+    }
+
+    return { warmed, deferred, skipped };
   }
 
   hasUserSelectedPending(): boolean {
@@ -508,14 +600,17 @@ export class PrefetchService implements IPrefetchService {
       );
 
       if (!response.ok) {
+        // 409: the message's generation moved, or the server found nothing at its
+        // UID. 404: the mailbox it was in is gone. Either way it is not there to
+        // open, and asking again cannot bring it back.
+        const gone = response.status === 409 || response.status === 404;
         return isUserSelected
           ? {
               failed: true,
-              requiresRefresh: response.status === 409,
-              reason:
-                response.status === 409
-                  ? "The mailbox changed. Reload it before opening the message."
-                  : `HTTP error! status: ${response.status}`,
+              requiresRefresh: gone,
+              reason: gone
+                ? "The mailbox changed. Reload it before opening the message."
+                : `HTTP error! status: ${response.status}`,
             }
           : null;
       }
@@ -526,7 +621,20 @@ export class PrefetchService implements IPrefetchService {
       // The server still assembling the body reports bodyState:'pending' with only a header
       // stub. Surface it as pending and NEVER cache (a re-poll must re-fetch to complete it).
       if (data?.bodyState === "pending") {
-        return { pending: true };
+        // The stub is what a caller with no list row to show the message from
+        // opens it with. It is only trusted when it names the message asked for.
+        const stub =
+          data?.data && typeof data.data === "object"
+            ? normalizeDetail({
+                ...(data.data as EmailMessage),
+                bodyState: "pending",
+              })
+            : null;
+        return stub &&
+          getMessageIdentityKey(stub) ===
+            getMessageIdentityKey(ref as EmailMessage)
+          ? { pending: true, stub }
+          : { pending: true };
       }
 
       if (data?.status !== "success" || !data?.data) {

@@ -87,7 +87,7 @@ function getSearchableMessageText(msg: EmailMessage): string {
     msg.uid,
     msg.msg_no,
     msg.messageId,
-    msg.consolidatedUid,
+    msg.identityKey,
     msg.subject,
     msg.from,
     msg.email,

@@ -8,7 +8,7 @@ export type MutationTarget = string | FolderTarget | DestinationMutationTarget;
 export function folderMutationTarget(folder: ImapFolder): MutationTarget {
   // Consolidated union entries carry an account-agnostic destination the
   // server resolves (and creates when missing) per account.
-  if (folder.consolidatedDestination) {
+  if (!__SINGLE_MAILBOX__ && folder.consolidatedDestination) {
     return {
       kind: "destination",
       destination: folder.consolidatedDestination,
@@ -22,7 +22,7 @@ export function folderMutationTarget(folder: ImapFolder): MutationTarget {
 }
 
 export function folderTargetKey(folder: ImapFolder): string {
-  if (folder.consolidatedDestination) {
+  if (!__SINGLE_MAILBOX__ && folder.consolidatedDestination) {
     return `destination:${folder.path}`;
   }
   return typeof folder.accountId === "number" && typeof folder.id === "number"

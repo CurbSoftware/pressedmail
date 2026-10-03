@@ -9,7 +9,6 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ImpersonationGate } from "@/components/security/ImpersonationGate";
 import { LockGate } from "@/components/security/LockGate";
 import { LocaleProvider } from "@/context/i18n/LocaleProvider";
-import { MediaLibraryPickerProvider } from "@/components/inbox/compose/media-library/MediaLibraryPickerProvider";
 import { PressedMailToaster } from "@/components/ui/pressedmail-toaster";
 import { queryClient } from "@/lib/query-client";
 
@@ -21,19 +20,17 @@ export function EditionApp() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
         <AdminSettingsProvider>
-          <UIThemeProvider initialTheme="pressedm" isPro={false}>
+          <UIThemeProvider initialTheme="pressedm">
             <LayoutProvider>
               <StrictMode>
                 <ImpersonationGate>
                   <LockGate>
                     <FreeProviders>
                       <LocaleProvider>
-                        <MediaLibraryPickerProvider>
-                          <RouterProvider
-                            router={router}
-                            future={{ v7_startTransition: true }}
-                          />
-                        </MediaLibraryPickerProvider>
+                        <RouterProvider
+                          router={router}
+                          future={{ v7_startTransition: true }}
+                        />
                       </LocaleProvider>
                       <PressedMailToaster />
                     </FreeProviders>

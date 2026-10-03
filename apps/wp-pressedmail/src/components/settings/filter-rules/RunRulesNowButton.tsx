@@ -290,6 +290,7 @@ export function RunRulesNowButton({
         type="button"
         variant="outline"
         size="sm"
+        className="max-sm:min-h-11"
         onClick={() => {
           void openPicker();
         }}

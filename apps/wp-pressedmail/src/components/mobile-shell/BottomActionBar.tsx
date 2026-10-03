@@ -14,6 +14,8 @@ export interface BottomActionBarAction {
   disabled?: boolean;
   loading?: boolean;
   destructive?: boolean;
+  /** The `data-test` id tests and specs find the button by. */
+  dataTest?: string;
 }
 
 export interface BottomActionBarProps {
@@ -56,6 +58,8 @@ export function BottomActionBar({
               aria-label={action.ariaLabel ?? action.label}
               disabled={action.disabled}
               onClick={action.onAction}
+              data-test={action.dataTest}
+              data-testid={action.dataTest}
               className={cn(
                 "pm-touch-target pm-no-tap-highlight flex flex-1 flex-col items-center justify-center gap-1 py-2 active:bg-muted",
                 action.destructive ? "text-destructive" : "text-foreground",

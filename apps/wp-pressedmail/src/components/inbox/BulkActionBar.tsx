@@ -13,13 +13,14 @@
  * @since 3.0.0
  */
 
+import { useProAiBulkLimits, useProFeatureAvailable, useProFeatureEnabled } from "@/context/features/pro-feature.active";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { __, _x, sprintf } from "@wordpress/i18n";
+import { __, _n, _x, sprintf } from "@wordpress/i18n";
 import {
   ChevronLeft,
   ChevronRight,
   FolderInput,
-  ListChecks,
+  ListFilter,
   Loader2,
   Play,
   Tags,
@@ -56,17 +57,28 @@ import {
   buildMessageTagUpdate,
   getFolderRole,
   getBulkMoveTargetFolders,
+  getBulkTagState,
   getMessageTagList,
-  hasMessageTag,
   resolveArchiveMoveTarget,
   resolveJunkMoveTarget,
   resolveTrashMoveTarget,
 } from "@/lib/bulk-mail-actions";
 import { resolveMessageAccountId } from "@/lib/message-identity";
 import { toPhishingEmailData } from "@/lib/phishing-email";
-import { usePhishing } from "@/context/phishing/PhishingContext";
+import { bulkAiFailureMessage } from "@/lib/account-chunks";
+import { bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
-import { useEmailSummaries } from "@/context/email-summary";
+import {
+  SpamBulkButtons,
+  SpamBulkMenuItems,
+  useBulkSecurityCheck,
+} from "@/components/spam";
+import { useSecurity } from "@/context/security";
+import {
+  useOptionalAutoTagger,
+  useOptionalEmailSummaries,
+  useOptionalPhishing,
+} from "@/hooks/useOptionalProContexts";
 import {
   useAiBulkLimits,
   useFeatureAvailable,
@@ -74,8 +86,11 @@ import {
 } from "@/context/features/FeaturesContext";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { getCacheService, getInboxService } from "@/services/implementations";
+import { warmMessageBodies } from "@/lib/bulk-body-warm";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
+import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { getEffectiveConsolidatedAccountIdsForLayout } from "@/lib/consolidated-account-scope";
+import { useSharedMailboxRole } from "@/components/sharing";
 import { useLayout } from "@/components/layouts";
 import { getConsolidatedFolderMapForPath } from "@/lib/consolidated-folder-map";
 import {
@@ -83,6 +98,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
   AlertDialog,
   AlertDialogCancel,
@@ -99,10 +116,7 @@ import {
 import { useAppContext } from "@/context/AppProvider";
 import { useOptionalScheduledEmails } from "@/context/scheduled/ScheduledEmailsContext";
 import { EmailSweep, type EmailSweepSelection } from "./EmailSweep";
-import {
-  useAutoTagger,
-  useAutoTaggerToolAvailable,
-} from "@/context/auto-tagger/AutoTaggerContext";
+import { useAutoTaggerToolAvailable } from "@/context/auto-tagger/AutoTaggerContext";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import {
   PressedAlertDialogContent,
@@ -126,7 +140,11 @@ import {
   parseSnoozeTarget,
 } from "@/components/snooze/snooze-target";
 import { SnoozeClockIcon } from "@/components/icons/FolderIcons";
-import { MailTagActionDropdown } from "./MailTagActionDropdown";
+import {
+  MailTagActionPopover,
+  tagApplyStoppedMessage,
+  type MailTagChange,
+} from "./MailTagActionPopover";
 import {
   PRESSED_OUT_RIBBON_ICON_CLASS,
   PressedOutRibbonButton,
@@ -147,8 +165,15 @@ import {
 } from "@/lib/bulk-activity";
 import { refreshProcessQueue } from "@/hooks/useProcessQueue";
 import type { EmailMessage, EmailMessageTag } from "@/types";
+import {
+  applyDeferredRemoval,
+  drainBulkActionRemovals,
+  markBulkActionStatuses,
+  type BulkActionKind,
+} from "@/context/bulk-action/bulk-action-status-store";
 import type {
   BatchOperationResult,
+  BatchRemovalOptions,
   FolderTarget,
   ImapFolder,
 } from "@/services/interfaces";
@@ -279,20 +304,22 @@ export function BulkActionBar({
   const scheduledEmails = useOptionalScheduledEmails();
   const { folders, selectedFolder, getMoveTargetFolders } =
     useFolderOperations();
-  const { accounts, selectedAccount, selectedConsolidatedAccountIds } =
-    useAppContext();
+  const { accounts, selectedAccount } = useAppContext();
+  const selectedConsolidatedAccountIds = useCombinedAccountIds();
   const { currentLayout } = useLayout();
-  const {
-    analyzeEmail,
-    getAnalysisResult,
-    isEnabled: phishingEnabled,
-  } = usePhishing();
-  const { summarizeMessages, getSummary, isSummarizing } = useEmailSummaries();
-  const aiSummarizeAvailable = useFeatureAvailable("ai_summarize");
-  const snoozeEnabled = useFeatureEnabled("snooze");
-  const { classifyEmails } = useAutoTagger();
+  // Phishing checks, AI summaries and auto-tagging are Pro: in Free each hook
+  // is null and every field read behind its define compiles out.
+  const phishing = useOptionalPhishing();
+  const phishingEnabled =
+    __ENABLE_PHISHING_DETECTION__ && phishing ? phishing.isEnabled : false;
+  const summaries = useOptionalEmailSummaries();
+  const isSummarizing =
+    __ENABLE_AI_SUMMARIZE__ && summaries ? summaries.isSummarizing : false;
+  const aiSummarizeAvailable = useProFeatureAvailable("ai_summarize");
+  const snoozeEnabled = useProFeatureEnabled("snooze");
+  const autoTagger = useOptionalAutoTagger();
   const autoTaggerAvailable = useAutoTaggerToolAvailable();
-  const aiBulkLimits = useAiBulkLimits();
+  const aiBulkLimits = useProAiBulkLimits();
   const { tags, batchAssignTag, batchRemoveTag } = useTags();
   const { activeFilters, applyFilters } = useFilterOperations();
   const [isTagging, setIsTagging] = useState(false);
@@ -318,7 +345,8 @@ export function BulkActionBar({
   const bulkAiAbortRef = useRef<AbortController | null>(null);
   bulkAiAbortRef.current = bulkAiAbortController;
   useEffect(() => {
-    if (variant !== "pressedout-command" || hasBulkSelection) return;
+    if (__IS_FREE__ || variant !== "pressedout-command" || hasBulkSelection)
+      return;
     stopAiQueueRequestedRef.current = true;
     bulkAiAbortRef.current?.abort();
   }, [hasBulkSelection, variant]);
@@ -343,6 +371,8 @@ export function BulkActionBar({
   const trashPath = useMemo(() => resolveTrashMoveTarget(folders), [folders]);
   const currentFolderRole = useMemo(() => {
     const folderRole = resolveCurrentFolderRole(folders, selectedFolder);
+    // Scheduled sends are Pro: Free never treats Drafts as a scheduled view.
+    if (__IS_FREE__) return folderRole;
     const isScheduledView =
       folderRole === "drafts" &&
       messages.length > 0 &&
@@ -350,7 +380,8 @@ export function BulkActionBar({
     return isScheduledView ? "scheduled" : folderRole;
   }, [folders, messages, selectedFolder]);
   const isDraftLikeFolder =
-    currentFolderRole === "drafts" || currentFolderRole === "scheduled";
+    currentFolderRole === "drafts" ||
+    (!__IS_FREE__ && currentFolderRole === "scheduled");
 
   // Inline horizontal slide: when the action row is too wide for the (often
   // narrowed) list panel, chevrons appear to page the single row sideways.
@@ -372,7 +403,7 @@ export function BulkActionBar({
   const selectionScopeKey = JSON.stringify([
     selectedAccount,
     currentLayout,
-    selectedAccount === CONSOLIDATED_INBOX_VALUE
+    !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE
       ? accounts.map((account) => String(account.id)).sort()
       : [],
     [...selectedConsolidatedAccountIds].sort((a, b) => a - b),
@@ -485,6 +516,7 @@ export function BulkActionBar({
       let firstError: string | undefined;
       let firstWarning: string | undefined;
       const failedIds: (string | number)[] = [];
+      const removableLocalIds: string[] = [];
       const processedIds = new Set(snapshot.excludedIds);
 
       while (attemptedCount < targetCount) {
@@ -504,6 +536,7 @@ export function BulkActionBar({
             error:
               page.error ||
               __("Failed to load selected messages", "pressedmail"),
+            ...(removableLocalIds.length > 0 ? { removableLocalIds } : {}),
           };
         }
 
@@ -529,6 +562,7 @@ export function BulkActionBar({
         successCount +=
           result.successCount ?? (result.success ? candidates.length : 0);
         failedIds.push(...(result.failedIds ?? []));
+        removableLocalIds.push(...(result.removableLocalIds ?? []));
         firstWarning ??= result.warning;
         if (!result.success && !firstError) {
           firstError = result.error;
@@ -548,6 +582,7 @@ export function BulkActionBar({
         totalCount: targetCount,
         error: firstError,
         warning: firstWarning,
+        ...(removableLocalIds.length > 0 ? { removableLocalIds } : {}),
       };
     },
     [getSelectionSnapshot, loadMessagesSnapshot],
@@ -561,8 +596,11 @@ export function BulkActionBar({
         messageOp?: (messages: EmailMessage[]) => Promise<BatchOperationResult>;
         failureMsg?: string;
         refetchFromStart?: boolean;
+        /** Names the per-row indicator action, when this op has one. */
+        bulkAction?: BulkActionKind;
       } = {},
     ) => {
+      const bulkAction = options.bulkAction;
       const snapshot = getSelectionSnapshot();
       if (snapshot.mode === "explicit" && snapshot.selectedIds.size === 0) {
         return;
@@ -577,30 +615,98 @@ export function BulkActionBar({
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
       setIsLoading(true);
+      // Deferred removal means rows stay listed (with their indicator) until
+      // the whole operation finishes. Apply them on every exit path past the
+      // first request: the messages really moved server-side.
+      const applyRemovals = (result?: BatchOperationResult) => {
+        if (result?.removableLocalIds?.length) {
+          applyDeferredRemoval(result.removableLocalIds);
+        }
+      };
+      const markRunning = (keys: string[]) => {
+        if (bulkAction) {
+          markBulkActionStatuses(keys, { action: bulkAction, phase: "running" });
+        }
+      };
+      const markFailed = (keys: string[]) => {
+        if (!bulkAction) return;
+        // Rows already removed by a deferred removal (this runner's or the
+        // context's internal throw path) must not get a stale failed status.
+        const removed = new Set(drainBulkActionRemovals());
+        markBulkActionStatuses(
+          keys.filter((key) => key !== "" && !removed.has(key)),
+          { action: bulkAction, phase: "failed" },
+        );
+      };
+      const settleFromResult = (
+        keys: string[],
+        result: BatchOperationResult,
+      ) => {
+        if (!bulkAction) return;
+        const failedKeys = new Set((result.failedIds ?? []).map(String));
+        markBulkActionStatuses(
+          keys.filter((key) => failedKeys.has(key)),
+          { action: bulkAction, phase: "failed" },
+        );
+        markBulkActionStatuses(
+          keys.filter((key) => key !== "" && !failedKeys.has(key)),
+          { action: bulkAction, phase: "done" },
+        );
+      };
       try {
-        const result =
-          snapshot.mode === "current-view"
-            ? options.messageOp
-              ? await runCurrentViewMessageBatches(
-                  snapshot,
-                  options.messageOp,
-                  {
-                    refetchFromStart: options.refetchFromStart,
-                    isCurrent: captured.isCurrent,
-                  },
-                )
-              : {
-                  success: false,
-                  error: __(
-                    "Operation is not available for all emails",
-                    "pressedmail",
-                  ),
-                  successCount: 0,
-                  failedIds: [],
-                  totalCount: 0,
-                }
-            : await op(Array.from(snapshot.selectedIds));
-        if (!captured.isCurrent()) return;
+        let result: BatchOperationResult;
+        if (snapshot.mode === "current-view") {
+          const rawMessageOp = options.messageOp;
+          if (!rawMessageOp) {
+            result = {
+              success: false,
+              error: __("Operation is not available for all emails", "pressedmail"),
+              successCount: 0,
+              failedIds: [],
+              totalCount: 0,
+            };
+          } else {
+            // Mark each page's rows around its own request, so the
+            // indicator appears page by page as the sweep progresses.
+            const wrappedMessageOp = async (messages: EmailMessage[]) => {
+              const keys = messages
+                .map(getMessageIdentityKey)
+                .filter((key) => key !== "");
+              markRunning(keys);
+              try {
+                const pageResult = await rawMessageOp(messages);
+                settleFromResult(keys, pageResult);
+                return pageResult;
+              } catch (error) {
+                markFailed(keys);
+                throw error;
+              }
+            };
+            result = await runCurrentViewMessageBatches(
+              snapshot,
+              wrappedMessageOp,
+              {
+                refetchFromStart: options.refetchFromStart,
+                isCurrent: captured.isCurrent,
+              },
+            );
+          }
+        } else {
+          const keys = Array.from(snapshot.selectedIds);
+          markRunning(keys);
+          try {
+            result = await op(Array.from(snapshot.selectedIds));
+            settleFromResult(keys, result);
+          } catch (error) {
+            markFailed(keys);
+            throw error;
+          }
+        }
+        if (!captured.isCurrent()) {
+          applyRemovals(result);
+          return;
+        }
+        applyRemovals(result);
         if (result.success) {
           toast.success(successMsg);
           clearSelection();
@@ -661,9 +767,13 @@ export function BulkActionBar({
   );
 
   const deleteScheduledMessages = useCallback(
-    async (sourceMessages: EmailMessage[]): Promise<BatchOperationResult> => {
+    async (
+      sourceMessages: EmailMessage[],
+      options?: BatchRemovalOptions,
+    ): Promise<BatchOperationResult> => {
       const captured = captureBulkScope();
       const failedIds: (string | number)[] = [];
+      const removableLocalIds: string[] = [];
       let successCount = 0;
       let firstError: string | undefined;
 
@@ -688,7 +798,11 @@ export function BulkActionBar({
         if (!captured.isPrincipalCurrent()) break;
         if (result.status === "success") {
           successCount += 1;
-          getInboxService().removeMessage(localId);
+          if (options?.deferRemoval) {
+            removableLocalIds.push(localId);
+          } else {
+            getInboxService().removeMessage(localId);
+          }
         } else {
           failedIds.push(localId);
           firstError ??= result.message;
@@ -701,42 +815,55 @@ export function BulkActionBar({
         failedIds,
         totalCount: sourceMessages.length,
         error: firstError,
+        ...(removableLocalIds.length > 0 ? { removableLocalIds } : {}),
       };
     },
     [scheduledEmails, captureBulkScope],
   );
 
   const handleDelete = useCallback(() => {
-    if (currentFolderRole === "scheduled") {
+    if (!__IS_FREE__ && currentFolderRole === "scheduled") {
       return handleBatchOp(
         (ids) =>
           deleteScheduledMessages(
             selectedMessages.filter((message) =>
               ids.map(String).includes(getMessageIdentityKey(message)),
             ),
+            { deferRemoval: true },
           ),
         __("Messages deleted", "pressedmail"),
         {
-          messageOp: deleteScheduledMessages,
+          messageOp: (messages) =>
+            deleteScheduledMessages(messages, { deferRemoval: true }),
           refetchFromStart: true,
+          bulkAction: "delete",
         },
       );
     }
 
     if (currentFolderRole === "drafts") {
-      return handleBatchOp(batchDelete, __("Messages deleted", "pressedmail"), {
-        messageOp: batchDeleteMessages,
-        refetchFromStart: true,
-      });
+      return handleBatchOp(
+        (ids) => batchDelete(ids, false, { deferRemoval: true }),
+        __("Messages deleted", "pressedmail"),
+        {
+          messageOp: (messages) =>
+            batchDeleteMessages(messages, false, { deferRemoval: true }),
+          refetchFromStart: true,
+          bulkAction: "delete",
+        },
+      );
     }
 
     return handleBatchOp(
-      (ids) => batchMove(ids, trashPath),
+      (ids) => batchMove(ids, trashPath, { deferRemoval: true }),
       __("Messages deleted", "pressedmail"),
       {
         messageOp: (selectedMessages) =>
-          batchMoveMessages(selectedMessages, trashPath),
+          batchMoveMessages(selectedMessages, trashPath, {
+            deferRemoval: true,
+          }),
         refetchFromStart: true,
+        bulkAction: "delete",
       },
     );
   }, [
@@ -784,7 +911,9 @@ export function BulkActionBar({
     const acc = accounts.find((a) => a.email === selectedAccount);
     return acc?.id ? Number(acc.id) : null;
   }, [accounts, selectedAccount]);
-  const isConsolidatedRuleScope = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+  const mailboxRole = useSharedMailboxRole(accountIdForCreate);
+  const isConsolidatedRuleScope =
+    !__SINGLE_MAILBOX__ && selectedAccount === CONSOLIDATED_INBOX_VALUE;
   const consolidatedRuleAccountIds = useMemo(
     () =>
       isConsolidatedRuleScope
@@ -815,7 +944,7 @@ export function BulkActionBar({
       buildSweepScope({
         accounts,
         selectedAccount,
-        selectedConsolidatedAccountIds,
+        ...(__SINGLE_MAILBOX__ ? null : { selectedConsolidatedAccountIds }),
         selectedFolder,
         currentFolderRole,
         folders,
@@ -1073,6 +1202,7 @@ export function BulkActionBar({
 
   const handleSnoozed = useCallback(
     (succeeded: SnoozeTarget[]) => {
+      if (__IS_FREE__) return;
       const principal = captureRequestPrincipal();
       if (!isRequestPrincipalCurrent(principal)) return;
       // Remove ONLY the rows whose snooze actually succeeded.
@@ -1108,13 +1238,16 @@ export function BulkActionBar({
     setIsMovingJunk(true);
     try {
       await handleBatchOp(
-        (ids) => batchMove(ids, target),
+        (ids) => batchMove(ids, target, { deferRemoval: true }),
         __("Messages moved to junk", "pressedmail"),
         {
           messageOp: (selectedMessages) =>
-            batchMoveMessages(selectedMessages, target),
+            batchMoveMessages(selectedMessages, target, {
+              deferRemoval: true,
+            }),
           failureMsg: __("Failed to move messages to junk", "pressedmail"),
           refetchFromStart: true,
+          bulkAction: "mark-spam",
         },
       );
     } catch {
@@ -1125,13 +1258,24 @@ export function BulkActionBar({
   }, [batchMove, batchMoveMessages, folders, handleBatchOp]);
 
   const handleMoveSelectionToInbox = useCallback(
-    async (successMessage: string, failureMessage: string) => {
-      await handleBatchOp((ids) => batchMove(ids, "INBOX"), successMessage, {
-        messageOp: (selectedMessages) =>
-          batchMoveMessages(selectedMessages, "INBOX"),
-        failureMsg: failureMessage,
-        refetchFromStart: true,
-      });
+    async (
+      successMessage: string,
+      failureMessage: string,
+      bulkAction: BulkActionKind,
+    ) => {
+      await handleBatchOp(
+        (ids) => batchMove(ids, "INBOX", { deferRemoval: true }),
+        successMessage,
+        {
+          messageOp: (selectedMessages) =>
+            batchMoveMessages(selectedMessages, "INBOX", {
+              deferRemoval: true,
+            }),
+          failureMsg: failureMessage,
+          refetchFromStart: true,
+          bulkAction,
+        },
+      );
     },
     [batchMove, batchMoveMessages, handleBatchOp],
   );
@@ -1141,6 +1285,7 @@ export function BulkActionBar({
       handleMoveSelectionToInbox(
         __("Messages restored", "pressedmail"),
         __("Failed to restore messages", "pressedmail"),
+        "restore",
       ),
     [handleMoveSelectionToInbox],
   );
@@ -1150,11 +1295,13 @@ export function BulkActionBar({
       handleMoveSelectionToInbox(
         __("Messages moved to inbox", "pressedmail"),
         __("Failed to move messages to inbox", "pressedmail"),
+        "not-spam",
       ),
     [handleMoveSelectionToInbox],
   );
 
   const handleStopAiQueue = useCallback(() => {
+    if (__IS_FREE__) return;
     stopAiQueueRequestedRef.current = true;
     bulkAiAbortController?.abort();
     toast.info(__("Stopping AI queue", "pressedmail"));
@@ -1167,6 +1314,8 @@ export function BulkActionBar({
   // captured selection is used unchanged.
   const revalidateSelectionAfterWait = useCallback(
     async (captured: EmailMessage[]): Promise<EmailMessage[]> => {
+      // Only the Pro bulk AI queue waits behind a sweep.
+      if (__IS_FREE__) return captured;
       try {
         const page = await loadMessagesSnapshot({
           offset: 0,
@@ -1199,7 +1348,7 @@ export function BulkActionBar({
       captured: EmailMessage[],
       isCurrent: () => boolean,
     ): Promise<EmailMessage[] | null> => {
-      if (!isCurrent()) return null;
+      if (__IS_FREE__ || !isCurrent()) return null;
       const gate = await activity.waitUntilRunning(controller.signal);
       if (!isCurrent()) return null;
       if (gate === "cancelled") {
@@ -1226,11 +1375,27 @@ export function BulkActionBar({
     [revalidateSelectionAfterWait],
   );
 
-  // Bulk phishing: process selected emails one at a time so long LLM work can
-  // be stopped from the toolbar and each returned result updates its row icon.
+  // Bulk phishing: process selected emails one at a time (25 per request on
+  // PressedMail AI) so long AI work can be stopped from the toolbar and each
+  // returned result updates its row icon.
+  // Group targets per account and folder and warm each group's bodies in the
+  // server mirror before the analysis requests go out.
+  const warmBulkTargets = useCallback(
+    async (targets: EmailMessage[], signal: AbortSignal): Promise<void> => {
+      await warmMessageBodies(
+        targets,
+        (message) => resolveMessageAccountId(message, accounts, selectedAccount),
+        (message) => message.folder || selectedFolder || "INBOX",
+        signal,
+      );
+    },
+    [accounts, selectedAccount, selectedFolder],
+  );
+
   const handleBulkPhishingCheck = useCallback(
     async (force = false) => {
-      if (bulkAiJob || !validateSelectedMessages()) return;
+      if (__IS_FREE__ || !phishing || bulkAiJob || !validateSelectedMessages())
+        return;
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
 
@@ -1242,6 +1407,8 @@ export function BulkActionBar({
       setIsPhishingChecking(true);
       let analyzed = 0;
       let suspicious = 0;
+      let failed = 0;
+      let firstFailure = "";
       let activity: BulkActivityReporter | null = null;
       let activityError: string | undefined;
       try {
@@ -1265,7 +1432,75 @@ export function BulkActionBar({
         if (!captured.isCurrent() || !targets) {
           return;
         }
-        for (const msg of targets) {
+        // PressedMail AI checks up to 25 emails per request; a customer's own
+        // provider keeps one email per request.
+        const phishingChunkSize = bulkAiChunkSize(
+          phishing.userSettings?.engine,
+        );
+        for (const chunk of phishingChunkSize > 1
+          ? chunkByAccount(
+              targets,
+              (msg) => {
+                const accountId = resolveMessageAccountId(
+                  msg,
+                  accounts,
+                  selectedAccount,
+                );
+                if (!accountId || !Number.isFinite(accountId)) {
+                  throw new Error(
+                    __(
+                      "Could not resolve the email account for a selected message",
+                      "pressedmail",
+                    ),
+                  );
+                }
+                return accountId;
+              },
+              phishingChunkSize,
+            )
+          : []) {
+          if (!captured.isCurrent()) return;
+          if (
+            stopAiQueueRequestedRef.current ||
+            controller.signal.aborted ||
+            activity.cancelled()
+          ) {
+            if (activity.cancelled()) stopAiQueueRequestedRef.current = true;
+            break;
+          }
+
+          const batch = await phishing.batchAnalyze(
+            chunk.accountId,
+            chunk.items.map((msg) => ({
+              ...toPhishingEmailData(msg),
+              folder: msg.folder || selectedFolder || "INBOX",
+            })),
+            undefined,
+            { signal: controller.signal, force },
+          );
+
+          if (!captured.isCurrent()) return;
+          if (stopAiQueueRequestedRef.current || controller.signal.aborted) {
+            break;
+          }
+          if (!batch) {
+            throw new Error(
+              __("Phishing analysis returned no result", "pressedmail"),
+            );
+          }
+
+          analyzed += batch.total;
+          suspicious += batch.suspicious;
+          void activity.advance(analyzed);
+          // One email failing is not the run failing: keep going and report
+          // the count. An account-wide refusal (out of credits, licence)
+          // fails every email, which batchAnalyze already throws for.
+          const chunkErrors = Object.values(batch.errors ?? {});
+          failed += chunkErrors.length;
+          firstFailure ||= chunkErrors[0] ?? "";
+        }
+
+        for (const msg of phishingChunkSize > 1 ? [] : targets) {
           if (!captured.isCurrent()) return;
           if (
             stopAiQueueRequestedRef.current ||
@@ -1290,7 +1525,7 @@ export function BulkActionBar({
             );
           }
 
-          const result = await analyzeEmail(
+          const result = await phishing.analyzeEmail(
             accountId,
             toPhishingEmailData(msg),
             msg.folder || selectedFolder || "INBOX",
@@ -1333,6 +1568,9 @@ export function BulkActionBar({
             suspicious,
           ),
         );
+        if (failed > 0) {
+          toast.error(bulkAiFailureMessage(failed, firstFailure));
+        }
         clearSelection();
       } catch (err) {
         if (!captured.isCurrent()) return;
@@ -1373,7 +1611,7 @@ export function BulkActionBar({
       accounts,
       selectedAccount,
       selectedFolder,
-      analyzeEmail,
+      phishing,
       awaitBulkAiTurn,
       bulkAiJob,
       clearSelection,
@@ -1384,7 +1622,8 @@ export function BulkActionBar({
   // interruptible while persisted results light up each card as they return.
   const handleBulkSummarize = useCallback(
     async (force = false) => {
-      if (bulkAiJob || !validateSelectedMessages()) return;
+      if (__IS_FREE__ || !summaries || bulkAiJob || !validateSelectedMessages())
+        return;
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
 
@@ -1429,7 +1668,7 @@ export function BulkActionBar({
             break;
           }
 
-          const result = await summarizeMessages([message], {
+          const result = await summaries.summarizeMessages([message], {
             signal: controller.signal,
             force,
           });
@@ -1514,17 +1753,19 @@ export function BulkActionBar({
       selectedMessages,
       validateSelectedMessages,
       captureBulkScope,
-      summarizeMessages,
+      summaries,
       awaitBulkAiTurn,
       bulkAiJob,
       clearSelection,
     ],
   );
 
-  // Bulk auto-tag: classify one email per request so the long LLM work can be
-  // stopped from the toolbar and never runs as one unbounded server-side loop.
+  // Bulk auto-tag: classify one email per request (25 on PressedMail AI) so the
+  // long AI work can be stopped from the toolbar and never runs as one unbounded
+  // server-side loop.
   const handleBulkAutoTag = useCallback(async () => {
-    if (bulkAiJob || !validateSelectedMessages()) return;
+    if (__IS_FREE__ || !autoTagger || bulkAiJob || !validateSelectedMessages())
+      return;
     const captured = captureBulkScope();
     if (!captured.isCurrent()) return;
     if (!autoTaggerAvailable) {
@@ -1568,7 +1809,22 @@ export function BulkActionBar({
       if (!captured.isCurrent() || !targets) {
         return;
       }
-      for (const msg of targets) {
+      // Ensure-fetched gate: fill the server mirror first, so classification
+      // reads the database instead of falling back to live IMAP for cold
+      // bodies. Classification reads the mirror's copy by design; the
+      // security checks do not (their analysis needs the raw message), which
+      // is why only this bulk run warms.
+      await warmBulkTargets(targets, controller.signal);
+      if (!captured.isCurrent()) {
+        return;
+      }
+      // PressedMail AI tags up to 25 emails per request; a customer's own
+      // provider keeps one email per request.
+      for (const chunk of chunkByAccount(
+        targets,
+        (msg) => resolveMessageAccountId(msg, accounts, selectedAccount),
+        bulkAiChunkSize(autoTagger.settings?.engine),
+      )) {
         if (!captured.isCurrent()) return;
         if (
           stopAiQueueRequestedRef.current ||
@@ -1579,27 +1835,18 @@ export function BulkActionBar({
           break;
         }
 
-        const accountId = resolveMessageAccountId(
-          msg,
-          accounts,
-          selectedAccount,
-        );
-        if (!accountId) continue;
+        const result = await autoTagger.classifyEmails(
+          chunk.accountId,
+          chunk.items.map((msg) => ({
+            uid: msg.uid,
 
-        const result = await classifyEmails(
-          accountId,
-          [
-            {
-              uid: msg.uid,
-
-              uidValidity: msg.uidValidity ?? msg.uid_validity,
-              folder: msg.folder || "",
-              subject: msg.subject ?? "",
-              from: msg.from ?? "",
-              date: msg.date ?? "",
-              body: getBulkAiMessageBody(msg),
-            },
-          ],
+            uidValidity: msg.uidValidity ?? msg.uid_validity,
+            folder: msg.folder || "",
+            subject: msg.subject ?? "",
+            from: msg.from ?? "",
+            date: msg.date ?? "",
+            body: getBulkAiMessageBody(msg),
+          })),
           { signal: controller.signal },
         );
 
@@ -1617,16 +1864,26 @@ export function BulkActionBar({
           return;
         }
 
-        processed += 1;
+        processed += chunk.items.length;
         applied += Number(result.tags_applied ?? 0);
 
-        const returnedTags = result.results?.flatMap((item) => item.tags) ?? [];
-        if (returnedTags.length > 0) {
-          const nextTags = mergeAiReturnedTags(msg, returnedTags, tags);
-          if (nextTags.length !== getMessageTagList(msg).length) {
-            getInboxService().updateMessage(getMessageIdentityKey(msg), {
-              tags: nextTags,
-            });
+        for (const msg of chunk.items) {
+          const returnedTags =
+            result.results
+              ?.filter(
+                (item) =>
+                  chunk.items.length === 1 ||
+                  (String(item.email_uid) === String(msg.uid) &&
+                    item.folder === (msg.folder || "")),
+              )
+              .flatMap((item) => item.tags) ?? [];
+          if (returnedTags.length > 0) {
+            const nextTags = mergeAiReturnedTags(msg, returnedTags, tags);
+            if (nextTags.length !== getMessageTagList(msg).length) {
+              getInboxService().updateMessage(getMessageIdentityKey(msg), {
+                tags: nextTags,
+              });
+            }
           }
         }
         if (!captured.isCurrent()) return;
@@ -1711,7 +1968,7 @@ export function BulkActionBar({
     accounts,
     selectedAccount,
     selectedFolder,
-    classifyEmails,
+    autoTagger,
     awaitBulkAiTurn,
     bulkAiJob,
     clearSelection,
@@ -1725,6 +1982,7 @@ export function BulkActionBar({
   // the warn threshold before dispatching to the per-email loop.
   const runBulkAi = useCallback(
     (op: BulkAiOperation, options: { force?: boolean } = {}) => {
+      if (__IS_FREE__) return;
       if (op === "phishing") {
         void handleBulkPhishingCheck(Boolean(options.force));
       } else if (op === "summary") {
@@ -1738,9 +1996,10 @@ export function BulkActionBar({
 
   const requestBulkAi = useCallback(
     (op: BulkAiOperation) => {
-      if (bulkAiJob || !validateSelectedMessages()) return;
+      if (__IS_FREE__ || bulkAiJob || !validateSelectedMessages()) return;
       const count = selectedMessages.length;
 
+      if (!aiBulkLimits) return;
       const cap =
         op === "phishing"
           ? aiBulkLimits.phishing
@@ -1765,11 +2024,14 @@ export function BulkActionBar({
       const existingCount =
         op === "summary"
           ? selectedMessages.filter(
-              (message) => getSummary(message)?.status === "success",
+              (message) =>
+                summaries?.getSummary(message)?.status === "success",
             ).length
           : op === "phishing"
             ? selectedMessages.filter((message) =>
-                Boolean(getAnalysisResult(getMessageIdentityKey(message))),
+                Boolean(
+                  phishing?.getAnalysisResult(getMessageIdentityKey(message)),
+                ),
               ).length
             : 0;
       const longRun = count > aiBulkLimits.warnThreshold;
@@ -1790,47 +2052,59 @@ export function BulkActionBar({
       validateSelectedMessages,
       bulkAiJob,
       aiBulkLimits,
-      getSummary,
-      getAnalysisResult,
+      summaries,
+      phishing,
       runBulkAi,
     ],
   );
 
-  const bulkSelectedTagIds = useMemo(
-    () =>
-      tags
-        .filter(
-          (tag) =>
-            selectedMessages.length > 0 &&
-            selectedMessages.every((message) => hasMessageTag(message, tag.id)),
-        )
-        .map((tag) => tag.id),
+  // Spam checks run their own loop (Pro only; the Free hook is inert). The
+  // hook lives here, outside the menus, so its dialogs outlive a menu closing.
+  const { spamEnabled } = useSecurity();
+  const [spamRunning, setSpamRunning] = useState(false);
+  const spamBulk = useBulkSecurityCheck({
+    selectedMessages,
+    accountOf: (message: EmailMessage) =>
+      resolveMessageAccountId(message, accounts, selectedAccount),
+    folder: selectedFolder || "INBOX",
+    busy: bulkAiJob !== null,
+    onRunningChange: setSpamRunning,
+    onFinished: clearSelection,
+  });
+
+  const bulkTagState = useMemo(
+    () => getBulkTagState(selectedMessages, tags),
     [selectedMessages, tags],
   );
 
-  // Manual bulk tagging: apply the dropdown's final tag selection to every
-  // selected message. Available in all builds (manual tagging is Free).
+  // Select-all can reach emails the list has not loaded, and tags can only be
+  // written to loaded ones. Say so up front instead of failing on Apply.
+  const tagSelectionBlocked =
+    (selectionSnapshot.mode === "explicit"
+      ? selectionSnapshot.selectedIds.size
+      : selectionSnapshot.totalCount - selectionSnapshot.excludedIds.size) !==
+    selectedMessages.length
+      ? __(
+          "Some selected emails aren't loaded. Scroll to load them, or reload the mailbox.",
+          "pressedmail",
+        )
+      : undefined;
+
+  // Manual bulk tagging: add and remove the popover's tags on every selected
+  // message. Available in all builds (manual tagging is Free).
   const handleBulkApplyTags = useCallback(
-    async (nextTagIds: number[]) => {
+    async ({ add: addedTagIds, remove: removedTagIds }: MailTagChange) => {
       const snapshot = getSelectionSnapshot();
       const expectedCount =
         snapshot.mode === "explicit"
           ? snapshot.selectedIds.size
           : snapshot.totalCount - snapshot.excludedIds.size;
       if (expectedCount !== selectedMessages.length) {
-        toast.error(
+        throw new Error(
           __("Reload the mailbox before changing tags.", "pressedmail"),
         );
-        return;
       }
       if (selectedMessages.length === 0) return;
-
-      const previousTagIds = new Set(bulkSelectedTagIds);
-      const nextTagIdSet = new Set(nextTagIds);
-      const addedTagIds = nextTagIds.filter((id) => !previousTagIds.has(id));
-      const removedTagIds = Array.from(previousTagIds).filter(
-        (id) => !nextTagIdSet.has(id),
-      );
 
       if (addedTagIds.length === 0 && removedTagIds.length === 0) return;
 
@@ -1841,10 +2115,9 @@ export function BulkActionBar({
         getMessageIdentityRef(message),
       );
       if (!principal || identities.some((ref) => !ref)) {
-        toast.error(
+        throw new Error(
           __("Reload the mailbox before changing tags.", "pressedmail"),
         );
-        return;
       }
       const validRefs = identities.flatMap((ref) =>
         ref
@@ -1874,31 +2147,45 @@ export function BulkActionBar({
             }),
           );
       };
+      // The scope changed mid-apply (the selection or folder moved): earlier
+      // steps may have landed, so drop the cached tags and redraw the list
+      // from the server rather than leave it showing the old tags. The
+      // popover closes, so a toast says the save stopped partway.
+      const redraw = () => {
+        if (!captured.isPrincipalCurrent()) return;
+        invalidateTagCaches();
+        void getInboxService().refresh();
+        toast.info(tagApplyStoppedMessage());
+      };
+      // Another mailbox or user took over mid-apply: its list is not ours to
+      // redraw, but the popover closes, so still say the save stopped.
+      const stopped = () => {
+        toast.info(tagApplyStoppedMessage());
+      };
+      const failedMessage = (failed: number) =>
+        sprintf(
+          /* translators: %d: number of emails whose tags were not saved. */
+          _n(
+            "%d email wasn't updated. Your choices are kept. Try again.",
+            "%d emails weren't updated. Your choices are kept. Try again.",
+            failed,
+            "pressedmail",
+          ),
+          failed,
+        );
       setIsTagging(true);
       try {
         for (const tagId of addedTagIds) {
-          if (!captured.isCurrent()) return;
+          if (!captured.isCurrent()) return redraw();
           const result = await batchAssignTag(tagId, validRefs);
-          if (!isRequestPrincipalCurrent(principal)) return;
-          if (result.failed > 0)
-            throw new Error(
-              __(
-                "Some tags could not be saved. Refresh the mailbox and retry.",
-                "pressedmail",
-              ),
-            );
+          if (!isRequestPrincipalCurrent(principal)) return stopped();
+          if (result.failed > 0) throw new Error(failedMessage(result.failed));
         }
         for (const tagId of removedTagIds) {
-          if (!captured.isCurrent()) return;
+          if (!captured.isCurrent()) return redraw();
           const result = await batchRemoveTag(tagId, validRefs);
-          if (!isRequestPrincipalCurrent(principal)) return;
-          if (result.failed > 0)
-            throw new Error(
-              __(
-                "Some tags could not be removed. Refresh the mailbox and retry.",
-                "pressedmail",
-              ),
-            );
+          if (!isRequestPrincipalCurrent(principal)) return stopped();
+          if (result.failed > 0) throw new Error(failedMessage(result.failed));
         }
 
         const inboxService = getInboxService();
@@ -1931,7 +2218,7 @@ export function BulkActionBar({
           }
         });
 
-        if (!captured.isCurrent()) return;
+        if (!captured.isCurrent()) return redraw();
         const filteredByTag =
           Array.isArray(activeFilters.tags) && activeFilters.tags.length > 0;
         if (filteredByTag) {
@@ -1941,7 +2228,12 @@ export function BulkActionBar({
         toast.success(
           sprintf(
             /* translators: %d: number of emails tagged. */
-            __("Updated tags for %d emails", "pressedmail"),
+            _n(
+              "Updated tags for %d email",
+              "Updated tags for %d emails",
+              validRefs.length,
+              "pressedmail",
+            ),
             validRefs.length,
           ),
         );
@@ -1949,25 +2241,25 @@ export function BulkActionBar({
       } catch (err) {
         if (!isRequestPrincipalCurrent(principal)) return;
         invalidateTagCaches();
+        // Earlier steps may have landed, whether or not the scope moved on
+        // meanwhile. applyFilters with the same filters only re-filters what
+        // is loaded, so ask the server for the rows.
+        void getInboxService().refresh();
         if (!captured.isCurrent()) return;
-        applyFilters(activeFilters);
-        toast.error(
-          err instanceof Error
-            ? err.message
-            : __("Failed to tag emails", "pressedmail"),
-        );
+        // The popover shows this above Apply and keeps the ticks for a retry.
+        throw err instanceof Error
+          ? err
+          : new Error(__("Failed to tag emails", "pressedmail"));
       } finally {
-        if (captured.isPrincipalCurrent()) {
-          if (!captured.isCurrent()) invalidateTagCaches();
-          if (mountedRef.current) setIsTagging(false);
-        }
+        // A scope change already redrew the list on its way out.
+        if (captured.isPrincipalCurrent() && mountedRef.current)
+          setIsTagging(false);
       }
     },
     [
       selectedMessages,
       captureBulkScope,
       tags,
-      bulkSelectedTagIds,
       getSelectionSnapshot,
       batchAssignTag,
       batchRemoveTag,
@@ -1977,32 +2269,50 @@ export function BulkActionBar({
     ],
   );
 
-  if (!hasBulkSelection && variant !== "pressedout-command") return null;
+  // A Viewer of a shared mailbox has no bulk actions at all.
+  if (!mailboxRole.canWrite) return null;
+  if (
+    !hasBulkSelection &&
+    (__IS_FREE__ || variant !== "pressedout-command")
+  )
+    return null;
 
   const moveTargets = getBulkMoveTargetFolders(
     getMoveTargetFolders(),
     selectedFolder,
   );
-  const isBulkAiRunning = bulkAiJob !== null;
+  const isBulkAiRunning = bulkAiJob !== null || spamRunning;
   // Phishing is admin-policy gated: respect the live `isEnabled`, not just the
   // compile flag. Stripped entirely from the Free build.
-  const {
-    showSnooze: bulkSnoozeAvailable,
-    showPhishing: bulkPhishingAvailable,
-    showSummarize: bulkSummarizeAvailable,
-    showAutoTag: bulkAutoTagAvailable,
-  } = resolveInboxActionVisibility({
-    isFreeBuild: __IS_FREE__,
-    snoozeBuildEnabled: __ENABLE_SNOOZE__,
-    snoozeEnabled,
-    phishingBuildEnabled: __ENABLE_PHISHING_DETECTION__,
-    phishingEnabled,
-    aiSummarizeAvailable,
-    autoTaggerBuildEnabled: __ENABLE_AUTO_TAGGER__,
-    aiAutoTaggerBuildEnabled: __ENABLE_AI_AUTO_TAGGER__,
-    autoTaggerToolAvailable: autoTaggerAvailable,
-  });
-  const pendingBulkAiTitle = pendingBulkAi?.force
+  // Tags, rules, sweep, snooze and the AI tools are owner-only, as in
+  // EmailActionBar: their routes refuse a teammate on a shared mailbox.
+  const ownerTools = mailboxRole.isOwner;
+  // Free has none of these actions, so it never computes their visibility.
+  const visibility = __IS_FREE__
+    ? null
+    : resolveInboxActionVisibility({
+        isMailboxOwner: ownerTools,
+        isFreeBuild: __IS_FREE__,
+        snoozeBuildEnabled: __ENABLE_SNOOZE__,
+        snoozeEnabled,
+        phishingBuildEnabled: __ENABLE_PHISHING_DETECTION__,
+        phishingEnabled,
+        spamBuildEnabled: __ENABLE_SPAM_DETECTION__,
+        spamEnabled,
+        aiSummarizeAvailable,
+        autoTaggerBuildEnabled: __ENABLE_AUTO_TAGGER__,
+        aiAutoTaggerBuildEnabled: __ENABLE_AI_AUTO_TAGGER__,
+        autoTaggerToolAvailable: autoTaggerAvailable,
+      });
+  const bulkSnoozeAvailable = !__IS_FREE__ && visibility!.showSnooze;
+  const bulkPhishingAvailable = !__IS_FREE__ && visibility!.showPhishing;
+  const bulkSpamAvailable = !__IS_FREE__ && visibility!.showSpam;
+  const bulkSummarizeAvailable = !__IS_FREE__ && visibility!.showSummarize;
+  const bulkAutoTagAvailable = !__IS_FREE__ && visibility!.showAutoTag;
+  // Bulk AI is Pro: the Free build compiles none of its copy.
+  const pendingBulkAiTitle = __IS_FREE__
+    ? ""
+    : pendingBulkAi?.force
     ? pendingBulkAi.op === "summary"
       ? sprintf(
           /* translators: %d: number of selected emails with summaries. */
@@ -2019,7 +2329,9 @@ export function BulkActionBar({
         __("Run AI on %d emails?", "pressedmail"),
         selectedMessages.length,
       );
-  const pendingBulkAiDescription = pendingBulkAi?.force
+  const pendingBulkAiDescription = __IS_FREE__
+    ? ""
+    : pendingBulkAi?.force
     ? pendingBulkAi.op === "summary"
       ? __(
           "Some selected emails already have summaries. Re-summarizing will replace those saved summaries.",
@@ -2038,7 +2350,7 @@ export function BulkActionBar({
     : __("Proceed", "pressedmail");
 
   if (isDraftLikeFolder) {
-    if (variant === "pressedout-command") {
+    if (!__IS_FREE__ && variant === "pressedout-command") {
       return (
         <div
           data-test="pressedout-bulk-action-bar"
@@ -2077,7 +2389,7 @@ export function BulkActionBar({
     );
   }
 
-  if (variant === "pressedout-command") {
+  if (!__IS_FREE__ && variant === "pressedout-command") {
     const pressedOutBulkDisabled = !hasBulkSelection || isLoading;
     const pressedOutMoveDisabled =
       pressedOutBulkDisabled || moveTargets.length === 0;
@@ -2184,28 +2496,40 @@ export function BulkActionBar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <MailTagActionDropdown
-            availableTags={tags}
-            selectedTagIds={bulkSelectedTagIds}
-            onApplyTags={handleBulkApplyTags}
-            onAutoTag={() => requestBulkAi("autotag")}
-            aiEnabled={bulkAutoTagAvailable}
-            aiDisabled={
-              pressedOutBulkDisabled || isAutoTagging || isBulkAiRunning
-            }
-            isApplying={isTagging}
-            isAutoTagging={isAutoTagging}
-            disabled={pressedOutBulkDisabled || isTagging}
-            trigger={
-              <PressedOutRibbonButton
-                label={__("Tag", "pressedmail")}
-                disabled={pressedOutBulkDisabled || isTagging}
-                dataTest="bulk-apply-tag"
-                ariaLabel={__("Apply a tag", "pressedmail")}
-                icon={<Tags className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
-              />
-            }
-          />
+          {ownerTools && (
+            <MailTagActionPopover
+              availableTags={tags}
+              selectedTagIds={bulkTagState.selectedTagIds}
+              partialTagIds={bulkTagState.partialTagIds}
+              tagCounts={bulkTagState.tagCounts}
+              targetCount={selectedMessages.length}
+              blockedReason={tagSelectionBlocked}
+              onApplyTags={handleBulkApplyTags}
+              extraAction={
+                !__IS_FREE__ && bulkAutoTagAvailable
+                  ? {
+                      run: () => requestBulkAi("autotag"),
+                      running: isAutoTagging,
+                      disabled:
+                        pressedOutBulkDisabled ||
+                        isAutoTagging ||
+                        isBulkAiRunning,
+                    }
+                  : undefined
+              }
+              isApplying={isTagging}
+              disabled={pressedOutBulkDisabled}
+              trigger={
+                <PressedOutRibbonButton
+                  label={__("Tag", "pressedmail")}
+                  disabled={pressedOutBulkDisabled || isTagging}
+                  dataTest="bulk-apply-tag"
+                  ariaLabel={__("Edit tags", "pressedmail")}
+                  icon={<Tags className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
+                />
+              }
+            />
+          )}
         </div>
 
         <div
@@ -2229,7 +2553,7 @@ export function BulkActionBar({
             />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-56">
-            {bulkSummarizeAvailable && (
+            {!__IS_FREE__ && bulkSummarizeAvailable && (
               <DropdownMenuItem
                 data-test="bulk-summarize"
                 data-testid="bulk-summarize"
@@ -2247,7 +2571,7 @@ export function BulkActionBar({
               </DropdownMenuItem>
             )}
 
-            {bulkPhishingAvailable && (
+            {!__IS_FREE__ && bulkPhishingAvailable && (
               <DropdownMenuItem
                 data-test="bulk-phishing-check"
                 data-testid="bulk-phishing-check"
@@ -2270,15 +2594,24 @@ export function BulkActionBar({
               </DropdownMenuItem>
             )}
 
-            <DropdownMenuItem
-              data-test="bulk-sweep-trigger"
-              data-testid="bulk-sweep-trigger"
-              aria-label={__("Sweep selected messages", "pressedmail")}
-              disabled={pressedOutBulkDisabled || !sweepScope}
-              onSelect={() => setSweepOpen(true)}>
-              <EmailSweepIcon className="mr-2 size-4" />
-              {__("Sweep", "pressedmail")}
-            </DropdownMenuItem>
+            {bulkSpamAvailable && (
+              <SpamBulkMenuItems
+                bulk={spamBulk}
+                disabled={pressedOutBulkDisabled || isBulkAiRunning}
+              />
+            )}
+
+            {ownerTools && (
+              <DropdownMenuItem
+                data-test="bulk-sweep-trigger"
+                data-testid="bulk-sweep-trigger"
+                aria-label={__("Sweep selected messages", "pressedmail")}
+                disabled={pressedOutBulkDisabled || !sweepScope}
+                onSelect={() => setSweepOpen(true)}>
+                <EmailSweepIcon className="mr-2 size-4" />
+                {__("Sweep", "pressedmail")}
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -2356,6 +2689,7 @@ export function BulkActionBar({
             }
           }}
         />
+        {spamBulk.dialogs}
       </div>
     );
   }
@@ -2503,23 +2837,25 @@ export function BulkActionBar({
             </PressedTooltip>
           )}
 
-          <PressedTooltip
-            content={__("Sweep selected messages", "pressedmail")}
-            side="top">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              disabled={isLoading || !sweepScope}
-              onClick={() => setSweepOpen(true)}
-              aria-label={__("Sweep selected messages", "pressedmail")}
-              data-test="bulk-sweep-trigger"
-              data-testid="bulk-sweep-trigger">
-              <EmailSweepIcon className={MAIL_ACTION_ICON_CLASS} />
-            </Button>
-          </PressedTooltip>
+          {ownerTools && (
+            <PressedTooltip
+              content={__("Sweep selected messages", "pressedmail")}
+              side="top">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                disabled={isLoading || !sweepScope}
+                onClick={() => setSweepOpen(true)}
+                aria-label={__("Sweep selected messages", "pressedmail")}
+                data-test="bulk-sweep-trigger"
+                data-testid="bulk-sweep-trigger">
+                <EmailSweepIcon className={MAIL_ACTION_ICON_CLASS} />
+              </Button>
+            </PressedTooltip>
+          )}
 
-          {isBulkAiRunning && (
+          {!__IS_FREE__ && isBulkAiRunning && (
             <PressedTooltip
               content={__("Stop AI queue", "pressedmail")}
               side="top">
@@ -2560,82 +2896,116 @@ export function BulkActionBar({
             </PressedTooltip>
           )}
 
-          <PressedTooltip
-            content={__("Organize with a rule", "pressedmail")}
-            side="top">
-            <span className="inline-flex">
-              <DropdownMenu
-                open={organizeOpen}
-                onOpenChange={handleOrganizeOpenChange}>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    disabled={isLoading}
-                    data-test="bulk-organize"
-                    aria-label={__("Organize with a rule", "pressedmail")}>
+          {ownerTools && (
+            <PressedTooltip
+              content={__("Organize with a rule", "pressedmail")}
+              side="top"
+              suppressed={organizeOpen}>
+              <span className="inline-flex">
+                <DropdownMenu
+                  open={organizeOpen}
+                  onOpenChange={handleOrganizeOpenChange}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={isLoading}
+                      data-test="bulk-organize"
+                      aria-label={__("Organize with a rule", "pressedmail")}>
+                      {organizeLoading ? (
+                        <Loader2
+                          className={cn(MAIL_ACTION_ICON_CLASS, "animate-spin")}
+                        />
+                      ) : (
+                        <ListFilter className={MAIL_ACTION_ICON_CLASS} />
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel className="text-xs font-semibold text-foreground">
+                      {/* Same words as the phone sheet. */}
+                      {__("Run a rule on the selection", "pressedmail")}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
                     {organizeLoading ? (
-                      <Loader2
-                        className={cn(MAIL_ACTION_ICON_CLASS, "animate-spin")}
-                      />
-                    ) : (
-                      <ListChecks className={MAIL_ACTION_ICON_CLASS} />
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {organizeLoading ? (
-                    <DropdownMenuItem disabled>
-                      {__("Loading rules…", "pressedmail")}
-                    </DropdownMenuItem>
-                  ) : organizeRules.length === 0 ? (
-                    <DropdownMenuItem disabled>
-                      {__("No rules available", "pressedmail")}
-                    </DropdownMenuItem>
-                  ) : (
-                    organizeRules.map((rule) => (
-                      <DropdownMenuItem
-                        key={rule.id}
-                        data-test="bulk-organize-option"
-                        onClick={() => handleRunRule(rule)}>
-                        {rule.name}
+                      <DropdownMenuItem disabled>
+                        {__("Loading rules...", "pressedmail")}
                       </DropdownMenuItem>
-                    ))
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </span>
-          </PressedTooltip>
+                    ) : organizeRules.length === 0 ? (
+                      <DropdownMenuItem disabled>
+                        {__("No rules you can run by hand", "pressedmail")}
+                      </DropdownMenuItem>
+                    ) : (
+                      organizeRules.map((rule) => (
+                        <DropdownMenuItem
+                          key={rule.id}
+                          data-test="bulk-organize-option"
+                          className="gap-2"
+                          onClick={() => handleRunRule(rule)}>
+                          <ListFilter className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="min-w-0 truncate">{rule.name}</span>
+                        </DropdownMenuItem>
+                      ))
+                    )}
+                    {organizeLoading ? null : (
+                      // Say why a rule may be missing rather than drop it silently.
+                      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                        {__("Rules that are off, or only run on their own, are not listed.", "pressedmail")}
+                      </DropdownMenuLabel>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      data-test="bulk-organize-manage"
+                      className="gap-2"
+                      onClick={() => {
+                        window.location.hash = "#/settings?tab=email-rules";
+                      }}>
+                      <ListFilter className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      {__("Manage rules", "pressedmail")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </span>
+            </PressedTooltip>
+          )}
 
-          <PressedTooltip content={__("Apply a tag", "pressedmail")} side="top">
-            <span className="inline-flex">
-              <MailTagActionDropdown
-                availableTags={tags}
-                selectedTagIds={bulkSelectedTagIds}
-                onApplyTags={handleBulkApplyTags}
-                onAutoTag={() => requestBulkAi("autotag")}
-                aiEnabled={bulkAutoTagAvailable}
-                aiDisabled={isLoading || isAutoTagging || isBulkAiRunning}
-                isApplying={isTagging}
-                isAutoTagging={isAutoTagging}
-                disabled={isLoading || isTagging}
-                trigger={
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    disabled={isLoading || isTagging}
-                    data-test="bulk-apply-tag"
-                    aria-label={__("Apply a tag", "pressedmail")}>
-                    <Tags className={MAIL_ACTION_ICON_CLASS} />
-                  </Button>
-                }
-              />
-            </span>
-          </PressedTooltip>
+          {ownerTools && (
+            <MailTagActionPopover
+              tooltip={__("Edit tags", "pressedmail")}
+              availableTags={tags}
+              selectedTagIds={bulkTagState.selectedTagIds}
+              partialTagIds={bulkTagState.partialTagIds}
+              tagCounts={bulkTagState.tagCounts}
+              targetCount={selectedMessages.length}
+              blockedReason={tagSelectionBlocked}
+              onApplyTags={handleBulkApplyTags}
+              extraAction={
+                !__IS_FREE__ && bulkAutoTagAvailable
+                  ? {
+                      run: () => requestBulkAi("autotag"),
+                      running: isAutoTagging,
+                      disabled: isLoading || isAutoTagging || isBulkAiRunning,
+                    }
+                  : undefined
+              }
+              isApplying={isTagging}
+              disabled={isLoading}
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  disabled={isLoading || isTagging}
+                  data-test="bulk-apply-tag"
+                  aria-label={__("Edit tags", "pressedmail")}>
+                  <Tags className={MAIL_ACTION_ICON_CLASS} />
+                </Button>
+              }
+            />
+          )}
 
-          {bulkPhishingAvailable && (
+          {!__IS_FREE__ && bulkPhishingAvailable && (
             <PressedTooltip
               content={
                 isPhishingChecking
@@ -2667,7 +3037,14 @@ export function BulkActionBar({
             </PressedTooltip>
           )}
 
-          {bulkSummarizeAvailable && (
+          {bulkSpamAvailable && (
+            <SpamBulkButtons
+              bulk={spamBulk}
+              disabled={isLoading || isBulkAiRunning}
+            />
+          )}
+
+          {!__IS_FREE__ && bulkSummarizeAvailable && (
             <PressedTooltip
               content={
                 isSummarizing
@@ -2696,7 +3073,7 @@ export function BulkActionBar({
             </PressedTooltip>
           )}
 
-          {bulkSnoozeAvailable && (
+          {!__IS_FREE__ && bulkSnoozeAvailable && (
             <PressedTooltip content={__("Snooze", "pressedmail")} side="top">
               <SnoozePopover targets={snoozeTargets} onSnoozed={handleSnoozed}>
                 <Button
@@ -2782,23 +3159,26 @@ export function BulkActionBar({
           </PressedOverlayFooter>
         </PressedAlertDialogContent>
       </AlertDialog>
-      <ConfirmationPanel
-        open={pendingBulkAi !== null}
-        onOpenChange={(open) => {
-          if (!open) setPendingBulkAi(null);
-        }}
-        title={pendingBulkAiTitle}
-        description={pendingBulkAiDescription}
-        confirmText={pendingBulkAiConfirmText}
-        cancelText={__("Cancel", "pressedmail")}
-        onConfirm={() => {
-          const pending = pendingBulkAi;
-          setPendingBulkAi(null);
-          if (pending) {
-            runBulkAi(pending.op, { force: pending.force });
-          }
-        }}
-      />
+      {!__IS_FREE__ && (
+        <ConfirmationPanel
+          open={pendingBulkAi !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingBulkAi(null);
+          }}
+          title={pendingBulkAiTitle}
+          description={pendingBulkAiDescription}
+          confirmText={pendingBulkAiConfirmText}
+          cancelText={__("Cancel", "pressedmail")}
+          onConfirm={() => {
+            const pending = pendingBulkAi;
+            setPendingBulkAi(null);
+            if (pending) {
+              runBulkAi(pending.op, { force: pending.force });
+            }
+          }}
+        />
+      )}
+      {!__IS_FREE__ && spamBulk.dialogs}
     </div>
   );
 }

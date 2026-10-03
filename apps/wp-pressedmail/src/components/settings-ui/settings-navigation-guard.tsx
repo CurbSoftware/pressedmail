@@ -15,6 +15,14 @@ export interface SettingsNavigationGuardState {
   dirty: boolean;
   saving?: boolean;
   onSave?: () => Promise<boolean | void> | boolean | void;
+  /**
+   * Search parameters that only choose which view of this page shows, such as
+   * an inner tab. A page that keeps everything staged across those views
+   * says so here, and switching them is then not stopped. Pass a list that
+   * does not change between renders. A page that says nothing is guarded for
+   * every navigation, which is right for one whose view parameter drops a draft.
+   */
+  viewParams?: readonly string[];
 }
 
 interface SettingsNavigationGuardContextValue {
@@ -41,6 +49,7 @@ export function SettingsNavigationGuardProvider({
     dirty: activeGuard.dirty,
     saving: activeGuard.saving,
     onSave: activeGuard.onSave,
+    viewParams: activeGuard.viewParams,
   });
 
   const registerGuard = useCallback((guard: SettingsNavigationGuardState) => {
@@ -68,7 +77,7 @@ export function useSettingsNavigationGuard(
   guard: SettingsNavigationGuardState,
 ) {
   const context = useContext(SettingsNavigationGuardContext);
-  const { dirty, onSave, saving } = guard;
+  const { dirty, onSave, saving, viewParams } = guard;
 
   // A save handler almost always closes over the draft, so it is a new function
   // on every keystroke. Registering it directly would re-run this effect that
@@ -94,8 +103,9 @@ export function useSettingsNavigationGuard(
       dirty,
       saving,
       onSave: hasSave ? stableOnSave : undefined,
+      viewParams,
     });
-  }, [context, dirty, saving, stableOnSave, hasSave]);
+  }, [context, dirty, saving, stableOnSave, hasSave, viewParams]);
 }
 
 export function useSettingsGuardedAction() {

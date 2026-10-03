@@ -6,7 +6,59 @@ import { cn } from '#lib/utils';
 import { Select as SelectPrimitive } from '@base-ui/react/select';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
 
-const Select = SelectPrimitive.Root;
+const ItemLabelsContext = React.createContext(false);
+
+/**
+ * Opt-in for an app: inside it, every Select shows the chosen item's label in
+ * its trigger ("AppSumo", not the raw "appsumo"). Base UI learns labels from
+ * `items`; without them they're read off the SelectItems in `children`.
+ * Outside it, Select is the plain Base UI root.
+ */
+function SelectItemLabels({ children }: React.PropsWithChildren) {
+  return <ItemLabelsContext value={true}>{children}</ItemLabelsContext>;
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>(
+  props: SelectPrimitive.Root.Props<Value, Multiple>,
+) {
+  const itemLabels = React.useContext(ItemLabelsContext);
+
+  if (!itemLabels || props.items) {
+    return <SelectPrimitive.Root {...props} />;
+  }
+
+  return (
+    <SelectPrimitive.Root
+      {...props}
+      items={itemsFromChildren(props.children)}
+    />
+  );
+}
+
+function itemsFromChildren(children: React.ReactNode) {
+  const items: { value: unknown; label: React.ReactNode }[] = [];
+
+  const walk = (node: React.ReactNode) =>
+    React.Children.forEach(node, (child) => {
+      if (
+        !React.isValidElement<{ value?: unknown; children?: React.ReactNode }>(
+          child,
+        )
+      ) {
+        return;
+      }
+
+      if (child.type === SelectItem) {
+        items.push({ value: child.props.value, label: child.props.children });
+      } else {
+        walk(child.props.children);
+      }
+    });
+
+  walk(children);
+
+  return items.length > 0 ? items : undefined;
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -193,6 +245,7 @@ export {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectItemLabels,
   SelectLabel,
   SelectScrollDownButton,
   SelectScrollUpButton,

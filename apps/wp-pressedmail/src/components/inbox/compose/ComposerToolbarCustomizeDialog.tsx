@@ -27,11 +27,13 @@ import type {
 import type { ComposerAuthoringSurface } from "./ComposerEditorToolbar";
 import {
   ALL_COMPOSER_TOOLBAR_ITEM_IDS,
+  alwaysShownComposerToolbarItemIds,
   COMPOSER_AI_TOOLBAR_ENABLED,
   DEFAULT_COMPOSER_TOOLBAR_ITEMS,
   DEFAULT_COMPOSER_MOBILE_TOOLBAR_ITEMS,
   getComposerToolbarSettingsGroups,
   resolveComposerToolbarItems,
+  savedComposerToolbarItemIds,
 } from "./composer-toolbar-registry";
 
 /** Toolbar items that open a composer color palette (Ultimate tier). */
@@ -107,7 +109,6 @@ export function ComposerToolbarCustomizeDialog({
   );
   const isMobileTarget = selectedTarget === "mobile";
   const palettesEnabled = useComposerPalettesEnabled();
-
   // List every function this build can render. AI is listed only where the
   // build ships it (never in Free, where a locked Pro switch would breach
   // wp.org guideline 5); in Pro it stays listed and is switched off until AI
@@ -128,7 +129,12 @@ export function ComposerToolbarCustomizeDialog({
           ),
         }))
         .filter((group) => group.items.length > 0),
-    [surface, contentBlocksEnabled, inlineImagesEnabled, palettesEnabled],
+    [
+      surface,
+      contentBlocksEnabled,
+      inlineImagesEnabled,
+      palettesEnabled,
+    ],
   );
   const groupColumns = useMemo(() => {
     const midpoint = Math.ceil(groups.length / 2);
@@ -176,11 +182,47 @@ export function ComposerToolbarCustomizeDialog({
   };
 
   const toggleItem = (itemId: ComposerToolbarItemId, checked: boolean) => {
-    // Preview is non-removable; ignore attempts to turn it off.
-    if (itemId === "preview") return;
+    // Preview and the always-shown items are non-removable.
+    if (
+      itemId === "preview" ||
+      alwaysShownComposerToolbarItemIds(surface).includes(itemId)
+    )
+      return;
 
     const next = new Set(selectedItems);
     next.add("preview");
+    // The dialog edits only what this surface and licence offer. Whatever else
+    // the saved preference holds (Insert block while editing a template, a
+    // colour button after a plan change, AI while it is switched off) is kept
+    // as saved, because the preference is shared with the email composer.
+    const listed = new Set(
+      groups.flatMap((group) => group.items.map((item) => item.id)),
+    );
+    const saved = savedComposerToolbarItemIds(
+      isMobileTarget
+        ? effectivePreferences.composer_mobile_toolbar_preset
+        : effectivePreferences.composer_toolbar_preset,
+      isMobileTarget
+        ? effectivePreferences.composer_mobile_toolbar_items
+        : effectivePreferences.composer_toolbar_items,
+    );
+    for (const id of saved) {
+      if (!listed.has(id) || (id === "ai" && !aiInteractive)) next.add(id);
+    }
+    // An item forced on this surface (Template blocks in the template editor)
+    // is saved only if the user already chose it, or it would leak into the
+    // email composer's toolbar.
+    const savedCustom =
+      (isMobileTarget
+        ? effectivePreferences.composer_mobile_toolbar_preset
+        : effectivePreferences.composer_toolbar_preset) === "custom"
+        ? ((isMobileTarget
+            ? effectivePreferences.composer_mobile_toolbar_items
+            : effectivePreferences.composer_toolbar_items) ?? [])
+        : [];
+    for (const forced of alwaysShownComposerToolbarItemIds(surface)) {
+      if (!savedCustom.includes(forced)) next.delete(forced);
+    }
     if (checked) {
       next.add(itemId);
     } else {
@@ -272,7 +314,11 @@ export function ComposerToolbarCustomizeDialog({
                     </h3>
                     <div className="space-y-1.5">
                       {group.items.map((item) => {
-                        const forced = item.id === "preview";
+                        const forced =
+                          item.id === "preview" ||
+                          alwaysShownComposerToolbarItemIds(surface).includes(
+                            item.id,
+                          );
                         const isAi = item.id === "ai";
                         const disabled =
                           saving || forced || (isAi && !aiInteractive);

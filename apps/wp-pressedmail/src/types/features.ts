@@ -33,20 +33,27 @@ export const EXTENDED_FEATURE_SLUGS = [
   // Ultimate UI features
   "whitelabelling",
   "custom_themes",
+  // Ultimate collaboration
+  "shared_inboxes",
+  "shared_calendars",
+  "shared_contact_lists",
+  "template_sharing",
+  "campaigns",
 ] as const;
 
 export type ExtendedFeatureSlug = (typeof EXTENDED_FEATURE_SLUGS)[number];
 
 /**
- * Features with no backend at all yet. The client refuses these outright, even
+ * Features with no backend of their own. The client refuses these outright, even
  * if a server map were to report them enabled. Ultimate-tier slugs are NOT
  * listed here. Those are gated by the server, not disabled.
+ *
+ * `template_variables` and `template_categories` ship inside `templates` and
+ * have no gate of their own, so they stay refused as separate slugs.
  */
 export const DISABLED_FEATURE_SLUGS = [
-  "templates",
   "template_variables",
   "template_categories",
-  "template_sharing",
 ] as const;
 
 export type DisabledFeatureSlug = (typeof DISABLED_FEATURE_SLUGS)[number];
@@ -82,6 +89,32 @@ export const EXTENDED_FEATURE_DEFINITIONS: Array<{
     label: "White Labelling",
     description:
       "Custom branding with logos and colors for client-facing deployments",
+  },
+  {
+    slug: "shared_inboxes",
+    label: "Shared Inboxes",
+    description: "Let teammates on this site read and answer a connected mailbox",
+  },
+  {
+    slug: "shared_calendars",
+    label: "Shared Calendars",
+    description: "Let teammates on this site see and edit a calendar",
+  },
+  {
+    slug: "shared_contact_lists",
+    label: "Shared Contact Lists",
+    description: "Let teammates on this site see, send to and edit a contact list",
+  },
+  {
+    slug: "template_sharing",
+    label: "Shared Templates",
+    description:
+      "Let teammates on this site use and duplicate your templates and blocks",
+  },
+  {
+    slug: "campaigns",
+    label: "Campaigns",
+    description: "Send an email to a contact list and collect signups with a form",
   },
 ];
 
@@ -246,7 +279,6 @@ export type FeatureId =
   // Email Features
   | "signatures"
   | "composer"
-  | "templates"
   // Settings
   | "user_roles"
   | "support_level"
@@ -273,6 +305,7 @@ export type FeatureId =
   | "contact_custom_fields"
   | "contact_import_export"
   | "contact_lists"
+  | "signup_forms"
   // Pro: Calendar Features
   | "calendar_sync"
   | "multiple_calendars"
@@ -281,6 +314,7 @@ export type FeatureId =
   | "calendar_meeting_detection"
   | "calendars"
   // Pro: Template Features
+  | "templates"
   | "template_categories"
   | "template_variables"
   // Pro: Email Enhancement Features
@@ -294,8 +328,6 @@ export type FeatureId =
   | "email_tracking"
   | "auto_followups"
   | "auto_replies"
-  | "sender_aliases"
-  | "snippets"
   | "content_blocks"
   | "snooze"
   // Security Features
@@ -434,6 +466,7 @@ export interface EnhancedFeatureStatus {
  */
 export interface AiBulkLimits {
   phishing: number;
+  spam: number;
   summary: number;
   autotag: number;
   warnThreshold: number;
@@ -513,7 +546,6 @@ export const FeatureIds = {
   // Email Features
   SIGNATURES: "signatures",
   COMPOSER: "composer",
-  TEMPLATES: "templates",
 
   // Settings
   USER_ROLES: "user_roles",
@@ -543,6 +575,7 @@ export const FeatureIds = {
   CONTACT_CUSTOM_FIELDS: "contact_custom_fields",
   CONTACT_IMPORT_EXPORT: "contact_import_export",
   CONTACT_LISTS: "contact_lists",
+  SIGNUP_FORMS: "signup_forms",
 
   // Pro: Calendar Features
   CALENDAR_SYNC: "calendar_sync",
@@ -553,6 +586,7 @@ export const FeatureIds = {
   CALENDARS: "calendars",
 
   // Pro: Template Features
+  TEMPLATES: "templates",
   TEMPLATE_CATEGORIES: "template_categories",
   TEMPLATE_VARIABLES: "template_variables",
 
@@ -568,8 +602,6 @@ export const FeatureIds = {
   EMAIL_TRACKING: "email_tracking",
   AUTO_FOLLOWUPS: "auto_followups",
   AUTO_REPLIES: "auto_replies",
-  SENDER_ALIASES: "sender_aliases",
-  SNIPPETS: "snippets",
   CONTENT_BLOCKS: "content_blocks",
   SNOOZE: "snooze",
 
@@ -707,7 +739,9 @@ export interface LayoutConfig {
 /**
  * All available layouts for Pro users.
  */
-export const ALL_LAYOUTS: LayoutId[] = ["pressedm", "pressedg", "pressedout"];
+export const ALL_LAYOUTS: LayoutId[] = __IS_FREE__
+  ? ["pressedm"]
+  : ["pressedm", "pressedg", "pressedout"];
 
 /**
  * Layouts available for Free users.
@@ -717,7 +751,7 @@ export const FREE_LAYOUTS: LayoutId[] = ["pressedm"];
 /**
  * Layout configurations with their properties.
  */
-export const LayoutConfigs: Record<LayoutId, LayoutConfig> = {
+export const LayoutConfigs = {
   pressedm: {
     id: "pressedm",
     name: "PressedM",
@@ -730,33 +764,38 @@ export const LayoutConfigs: Record<LayoutId, LayoutConfig> = {
     threadedView: false,
     showStatusBar: false,
   },
-  pressedg: {
-    id: "pressedg",
-    name: "PressedG",
-    description:
-      "Gmail-inspired layout with threaded conversations and floating composer",
-    listVariant: "paginated",
-    composeStyle: "floating",
-    navVariant: "label",
-    showCommandRibbon: false,
-    showTopSearchBar: true,
-    threadedView: true,
-    showStatusBar: false,
-  },
-  pressedout: {
-    id: "pressedout",
-    name: "PressedOut",
-    description:
-      "Outlook-inspired layout with command ribbon and high-density table view",
-    listVariant: "table",
-    composeStyle: "pane",
-    navVariant: "tree",
-    showCommandRibbon: true,
-    showTopSearchBar: false,
-    threadedView: false,
-    showStatusBar: true,
-  },
-};
+  // PressedG and PressedOut are Pro layouts: Free compiles neither config.
+  ...(__IS_FREE__
+    ? {}
+    : {
+      pressedg: {
+        id: "pressedg",
+        name: "PressedG",
+        description:
+          "Gmail-inspired layout with threaded conversations and floating composer",
+        listVariant: "paginated",
+        composeStyle: "floating",
+        navVariant: "label",
+        showCommandRibbon: false,
+        showTopSearchBar: true,
+        threadedView: true,
+        showStatusBar: false,
+      },
+      pressedout: {
+        id: "pressedout",
+        name: "PressedOut",
+        description:
+          "Outlook-inspired layout with command ribbon and high-density table view",
+        listVariant: "table",
+        composeStyle: "pane",
+        navVariant: "tree",
+        showCommandRibbon: true,
+        showTopSearchBar: false,
+        threadedView: false,
+        showStatusBar: true,
+      },
+      }),
+} as Record<LayoutId, LayoutConfig>;
 
 /**
  * Get layout configuration by ID.

@@ -33,8 +33,15 @@ interface InboxEmptyStateProps {
   onRetry?: () => void;
 }
 
-/** Folders PressedMail keeps locally: there is no server to fetch them from. */
-const LOCAL_FOLDERS = new Set(["snoozed", "scheduled"]);
+/**
+ * Folders PressedMail keeps locally: there is no server to fetch them from.
+ * Both are Pro. In Free a Snoozed folder left behind by Pro is an ordinary
+ * IMAP folder, so the set is empty there.
+ */
+const LOCAL_FOLDERS = new Set<string>([
+  ...(__ENABLE_SNOOZE__ ? ["snoozed"] : []),
+  ...(__ENABLE_SCHEDULED_EMAILS__ ? ["scheduled"] : []),
+]);
 
 function isLocalFolder(folder?: string): boolean {
   return LOCAL_FOLDERS.has((folder ?? "").trim().toLowerCase());
@@ -96,7 +103,7 @@ export const InboxEmptyState = memo(function InboxEmptyState({
       };
     }
 
-    if (normalizedFolder === "snoozed") {
+    if (__ENABLE_SNOOZE__ && normalizedFolder === "snoozed") {
       return {
         Icon: Clock,
         title: title ?? __("Nothing snoozed", "pressedmail"),
@@ -109,7 +116,7 @@ export const InboxEmptyState = memo(function InboxEmptyState({
       };
     }
 
-    if (normalizedFolder === "scheduled") {
+    if (__ENABLE_SCHEDULED_EMAILS__ && normalizedFolder === "scheduled") {
       return {
         Icon: SendHorizonal,
         title: title ?? __("Nothing scheduled", "pressedmail"),

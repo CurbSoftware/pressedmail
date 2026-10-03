@@ -36,12 +36,13 @@ export function getInboxParts(layoutId: LayoutId): InboxLayoutParts {
   return getLayoutParts(layoutId).inbox;
 }
 
-export function getContactsParts(layoutId: LayoutId): ContactsLayoutParts {
-  return getLayoutParts(layoutId).contacts;
+// This build ships neither; the functions exist so the export surface matches.
+export function getContactsParts(_layoutId: LayoutId): ContactsLayoutParts {
+  return undefined as never;
 }
 
-export function getCalendarParts(layoutId: LayoutId): CalendarLayoutParts {
-  return getLayoutParts(layoutId).calendar;
+export function getCalendarParts(_layoutId: LayoutId): CalendarLayoutParts {
+  return undefined as never;
 }
 
 export function isValidLayout(layoutId: string): layoutId is LayoutId {

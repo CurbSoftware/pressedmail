@@ -16,14 +16,16 @@ export const STANDARD_FOLDER_ORDER: SystemFolderType[] = [
   "archive",
   "spam",
   "trash",
-  "snoozed",
+  // Snoozed is a Pro workflow view. In Free a leftover Snoozed folder is an
+  // ordinary custom folder.
+  ...(__IS_FREE__ ? [] : (["snoozed"] as SystemFolderType[])),
 ];
 
 /** Virtual views rendered separately from real/provider mailbox folders. */
 export const VIRTUAL_VIEW_ORDER: SystemFolderType[] = [
   "important",
   "starred",
-  "scheduled",
+  ...(__IS_FREE__ ? [] : (["scheduled"] as SystemFolderType[])),
 ];
 
 const ORDER_INDEX = new Map<SystemFolderType, number>(

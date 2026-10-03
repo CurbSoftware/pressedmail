@@ -120,7 +120,7 @@ export function LockGate({ children }: LockGateProps) {
   }
 
   const postLockAction = async (
-    endpoint: "unlock" | "reset",
+    endpoint: "unlock" | "reset" | "setup",
     body: Record<string, string>,
   ) => {
     setSubmitting(true);
@@ -209,10 +209,15 @@ export function LockGate({ children }: LockGateProps) {
                       "Enter your WordPress password to reset PressedMail Lock. The lock will be turned off; no mail or settings are lost.",
                       "pressedmail",
                     )
-                  : __(
-                      "Enter your PressedMail Lock passphrase to open your mailbox in this browser.",
-                      "pressedmail",
-                    )}
+                  : lockState.migrationPrompt
+                    ? __(
+                        "Your previous logout protection needs a replacement. Choose a new passphrase to protect and open your mailbox, or turn off protection using your WordPress password.",
+                        "pressedmail",
+                      )
+                    : __(
+                        "Enter your PressedMail Lock passphrase to open your mailbox in this browser.",
+                        "pressedmail",
+                      )}
               </p>
             </div>
           </div>
@@ -301,7 +306,10 @@ export function LockGate({ children }: LockGateProps) {
               onSubmit={(event) => {
                 event.preventDefault();
                 if (!busy && passphrase !== "") {
-                  void postLockAction("unlock", { passphrase });
+                  void postLockAction(
+                    lockState.migrationPrompt ? "setup" : "unlock",
+                    { passphrase },
+                  );
                 }
               }}>
               <div className="space-y-2">
@@ -349,7 +357,9 @@ export function LockGate({ children }: LockGateProps) {
                 {submitting && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                {__("Unlock", "pressedmail")}
+                {lockState.migrationPrompt
+                  ? __("Set passphrase and unlock", "pressedmail")
+                  : __("Unlock", "pressedmail")}
               </Button>
               <Button
                 type="button"

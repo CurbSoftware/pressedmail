@@ -5,8 +5,9 @@ function getNumericAccountId(account: EmailAccount): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
+/** A mailbox shared with the user belongs to someone else, so it is never their default. */
 function isOwnedAccount(account: EmailAccount): boolean {
-  return account.is_shared !== true;
+  return !account.share;
 }
 
 export function resolveDefaultAccountId(

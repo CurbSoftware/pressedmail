@@ -1,7 +1,8 @@
 import { type ReactNode } from "react";
 import type { AutoTaggerContextValue } from "@/types/auto-tagger";
 
-const DISABLED_MESSAGE = "Auto tagging is not included in this build.";
+// Never shown: Free has no auto-tagging UI to surface it.
+const DISABLED_MESSAGE = "";
 
 const EMPTY_CONTEXT: AutoTaggerContextValue = {
   settings: null,
@@ -48,4 +49,8 @@ export function useAutoTaggerAvailable(): boolean {
 
 export function useAutoTaggerToolAvailable(): boolean {
   return false;
+}
+
+export function tagConfidenceHelp(): string {
+  return "";
 }

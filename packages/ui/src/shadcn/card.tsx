@@ -33,9 +33,14 @@ function CardHeader({ className, ...props }: React.ComponentProps<'div'>) {
   );
 }
 
-function CardTitle({ className, ...props }: React.ComponentProps<'div'>) {
+/** `as` puts the title in the page outline, e.g. `as="h2"` under an h1. */
+function CardTitle({
+  className,
+  as: Tag = 'div',
+  ...props
+}: React.ComponentProps<'div'> & { as?: 'div' | 'h2' | 'h3' }) {
   return (
-    <div
+    <Tag
       data-slot="card-title"
       className={cn(
         'text-base leading-normal font-medium group-data-[size=sm]/card:text-sm',

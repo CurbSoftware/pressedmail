@@ -27,6 +27,7 @@ import {
   routeApiPrefix,
 } from "@/context/Strings";
 import { getMailboxSourceRequestParams } from "@/lib/mailbox-source";
+import { lastLocalActionAt } from "@/lib/tab-channel";
 import {
   apiFetch,
   isAbortError,
@@ -469,13 +470,15 @@ function isProviderVirtualStateFolder(folder: ImapFolder): boolean {
     candidates.has("starred") ||
     candidates.has("[gmail]/starred") ||
     candidates.has("flagged") ||
-    candidates.has("scheduled") ||
-    candidates.has("snoozed") ||
+    // Scheduled and Snoozed are Pro views; in Free a folder with either name
+    // is an ordinary folder.
+    (!__IS_FREE__ && candidates.has("scheduled")) ||
+    (!__IS_FREE__ && candidates.has("snoozed")) ||
     normalizedPath.endsWith("/important") ||
     normalizedPath.endsWith("/starred") ||
     normalizedPath.endsWith("/flagged") ||
-    normalizedPath.endsWith("/scheduled") ||
-    normalizedPath.endsWith("/snoozed")
+    (!__IS_FREE__ && normalizedPath.endsWith("/scheduled")) ||
+    (!__IS_FREE__ && normalizedPath.endsWith("/snoozed"))
   );
 }
 
@@ -746,16 +749,16 @@ async function buildHttpError(response: Response): Promise<Error> {
  * Implements IFolderOperations for IMAP folder management.
  */
 export class FolderService implements IFolderOperations {
-  private cache: ICacheService | null;
-  private connectionState: IConnectionStateService | null;
-  private _folders: ImapFolder[] = [];
+  protected cache: ICacheService | null;
+  protected connectionState: IConnectionStateService | null;
+  protected _folders: ImapFolder[] = [];
   private _selectedFolder = "INBOX";
-  private _isLoading = false;
-  private _flatFolderList: ImapFolder[] = [];
-  private _provider: "gmail" | "outlook" | "generic" = "generic";
+  protected _isLoading = false;
+  protected _flatFolderList: ImapFolder[] = [];
+  protected _provider: "gmail" | "outlook" | "generic" = "generic";
 
   // Request deduplication: track in-flight loads by accountId+forceRefresh
-  private _pendingLoad = new Map<string, Promise<FolderListResult>>();
+  protected _pendingLoad = new Map<string, Promise<FolderListResult>>();
 
   // Bounded retry budget for counts_partial recovery, per account. A folder load
   // that reports partial IMAP STATUS counts schedules ONE follow-up force-refresh
@@ -776,20 +779,24 @@ export class FolderService implements IFolderOperations {
   // account can never clobber the new account's folders after a switch. (The
   // AbortController handles most cases; this closes the resolved-but-not-yet-
   // applied window.)
-  private _loadGeneration = 0;
+  protected _loadGeneration = 0;
 
   // Abort controllers for in-flight folder fetches, so a context reset can
   // cancel work that would otherwise complete and overwrite the new context.
-  private _activeFolderControllers = new Set<AbortController>();
+  protected _activeFolderControllers = new Set<AbortController>();
 
   // Timestamp of last successful folder load (cache hit or API)
-  private _lastLoadedAt = 0;
+  protected _lastLoadedAt = 0;
+
+  // When the request behind the live list started (0 when it came from cache).
+  // A list another tab relays is only newer than ours if its request started later.
+  protected _foldersFrom = 0;
 
   // Folder caches contain only real IMAP folders, so virtual counts are kept as
   // separate authoritative per-account snapshots. Consolidated scopes sum the
   // selected accounts and OR their partial flags.
-  private _accountVirtualFolderCounts = new Map<number, VirtualFolderCounts>();
-  private _virtualFolderCounts: VirtualFolderCounts =
+  protected _accountVirtualFolderCounts = new Map<number, VirtualFolderCounts>();
+  protected _virtualFolderCounts: VirtualFolderCounts =
     emptyVirtualFolderCounts();
 
   // useSyncExternalStore support
@@ -817,7 +824,7 @@ export class FolderService implements IFolderOperations {
     return this._version;
   }
 
-  private notify(): void {
+  protected notify(): void {
     this._version++;
     this._listeners.forEach((l) => l());
   }
@@ -848,7 +855,7 @@ export class FolderService implements IFolderOperations {
     return this._virtualFolderCounts;
   }
 
-  private _publishVirtualFolderCounts(
+  protected _publishVirtualFolderCounts(
     accountIds: Array<string | number>,
     fresh?: Map<number, VirtualFolderCounts>,
   ): void {
@@ -877,7 +884,7 @@ export class FolderService implements IFolderOperations {
     this._virtualFolderCounts = totals;
   }
 
-  private _hasVirtualFolderCountsFor(
+  protected _hasVirtualFolderCountsFor(
     accountIds: Array<string | number>,
   ): boolean {
     return accountIds.every((accountId) =>
@@ -915,48 +922,8 @@ export class FolderService implements IFolderOperations {
     }
   }
 
-  async loadConsolidatedFolders(
-    accountIds: number[],
-    forceRefresh = false,
-  ): Promise<FolderListResult> {
-    const normalizedAccountIds = normalizeConsolidatedAccountIds(accountIds);
-    const scopeKey = buildConsolidatedAccountScopeKey(normalizedAccountIds);
 
-    if (normalizedAccountIds.length === 0) {
-      this._folders = [];
-      this._flatFolderList = [];
-      this._provider = "generic";
-      this._virtualFolderCounts = emptyVirtualFolderCounts();
-      this._lastLoadedAt = Date.now();
-      this.notify();
-      return { success: true, folders: [] };
-    }
-
-    const dedupeKey = `${scopeKey}:${forceRefresh ? "force" : "cached"}`;
-    const existing = this._pendingLoad.get(dedupeKey);
-    if (existing) {
-      return existing;
-    }
-
-    const controller = new AbortController();
-    this._activeFolderControllers.add(controller);
-    const loadPromise = this._doLoadConsolidatedFolders(
-      normalizedAccountIds,
-      scopeKey,
-      forceRefresh,
-      controller.signal,
-    );
-    this._pendingLoad.set(dedupeKey, loadPromise);
-
-    try {
-      return await loadPromise;
-    } finally {
-      this._activeFolderControllers.delete(controller);
-      this._pendingLoad.delete(dedupeKey);
-    }
-  }
-
-  private async _fetchFolderList(
+  protected async _fetchFolderList(
     accountId: string | number,
     forceRefresh: boolean,
     signal?: AbortSignal,
@@ -990,182 +957,6 @@ export class FolderService implements IFolderOperations {
     return response.json();
   }
 
-  private async _doLoadConsolidatedFolders(
-    accountIds: number[],
-    scopeKey: string,
-    forceRefresh: boolean,
-    signal?: AbortSignal,
-  ): Promise<FolderListResult> {
-    const startGeneration = this._loadGeneration;
-    if (
-      !forceRefresh &&
-      this.cache &&
-      this._hasVirtualFolderCountsFor(accountIds)
-    ) {
-      const cachedFolders = this.cache.getFolders(scopeKey);
-      if (cachedFolders && cachedFolders.length > 0) {
-        // Hide the provider's real All Mail folder so it never appears in the
-        // consolidated list. Filtering here keeps cached and returned arrays
-        // in agreement even if a stale cache entry still contains it.
-        const visibleFolders = cachedFolders.filter(
-          (folder) =>
-            !isProviderAllMailFolder(folder) &&
-            !isProviderVirtualStateFolder(folder),
-        );
-        const orderedFolders = sortMailFoldersByWorkflow(visibleFolders);
-        this._folders = orderedFolders;
-        this._flatFolderList = flattenFolders(orderedFolders);
-        this._provider = detectProvider(orderedFolders);
-        this._publishVirtualFolderCounts(accountIds);
-        this._lastLoadedAt = Date.now();
-        this.notify();
-        return {
-          success: true,
-          folders: visibleFolders,
-          fromCache: true,
-        };
-      }
-    }
-
-    const previousFolders = this._folders;
-    this._isLoading = true;
-    this.notify();
-
-    try {
-      const folderLists: ConsolidatedFolderList[] = [];
-      const errors: string[] = [];
-      let allFromCache = true;
-
-      // Load each account's folder list concurrently. Serial per-account awaits
-      // made an N-account combined inbox N sequential round trips; parallel
-      // fetches collapse that to a single round-trip wall-clock. Order is
-      // preserved (results indexed by accountIds) so consolidated merge stays
-      // deterministic, and per-account failures are isolated.
-      const perAccount = await Promise.allSettled(
-        accountIds.map(async (accountId) => {
-          if (
-            !forceRefresh &&
-            this.cache &&
-            this._accountVirtualFolderCounts.has(accountId)
-          ) {
-            const cachedFolders = this.cache.getFolders(String(accountId));
-            if (cachedFolders && cachedFolders.length > 0) {
-              return {
-                folders: sortMailFoldersByWorkflow(cachedFolders),
-                folderTree: buildFolderTreeFromFlat(cachedFolders),
-                fromCache: true,
-                virtualCounts: undefined,
-              };
-            }
-          }
-
-          const data = await this._fetchFolderList(
-            accountId,
-            forceRefresh,
-            signal,
-          );
-
-          if (data?.status === "error") {
-            throw new Error(
-              data.message || __("Failed to fetch folders", "pressedmail"),
-            );
-          }
-
-          const rawFolders = Array.isArray(data?.folders) ? data.folders : [];
-          const provider = detectProvider(rawFolders);
-          const annotatedFolders = sortMailFoldersByWorkflow(
-            annotateSystemFolders(rawFolders, provider),
-          );
-          const rawFolderTree = Array.isArray(data?.folder_tree)
-            ? data.folder_tree
-            : buildFolderTreeFromFlat(rawFolders);
-
-          if (this.cache) {
-            this.cache.setFolders(String(accountId), annotatedFolders);
-          }
-
-          return {
-            folders: annotatedFolders,
-            folderTree: annotateSystemFolders(rawFolderTree, provider),
-            fromCache: false,
-            virtualCounts: normalizeVirtualFolderCounts(data?.virtual_counts),
-          };
-        }),
-      );
-
-      const freshVirtualCounts = new Map<number, VirtualFolderCounts>();
-      perAccount.forEach((result, index) => {
-        const accountId = accountIds[index] as number;
-        if (result.status === "fulfilled") {
-          folderLists.push({
-            accountId,
-            folders: result.value.folders,
-            folderTree: result.value.folderTree,
-          });
-          if (result.value.virtualCounts) {
-            freshVirtualCounts.set(accountId, result.value.virtualCounts);
-          }
-          if (!result.value.fromCache) {
-            allFromCache = false;
-          }
-        } else {
-          allFromCache = false;
-          const errorMsg =
-            result.reason instanceof Error
-              ? result.reason.message
-              : __("Failed to load folders", "pressedmail");
-          if (isAuthError(errorMsg) && this.connectionState) {
-            this.connectionState.markUnhealthy(String(accountId), errorMsg);
-          }
-          errors.push(errorMsg);
-        }
-      });
-
-      if (folderLists.length === 0 && errors.length > 0) {
-        return {
-          success: false,
-          folders: previousFolders,
-          error: errors[0],
-          authError: errors.some(isAuthError),
-        };
-      }
-
-      // Hide the provider's real All Mail folder so it never appears in the
-      // consolidated list. Filtering here keeps the cached and returned arrays
-      // in agreement across every account in the combined inbox.
-      const mergedFolders = mergeConsolidatedFolders(folderLists).filter(
-        (folder) =>
-          !isProviderAllMailFolder(folder) &&
-          !isProviderVirtualStateFolder(folder),
-      );
-      // A newer account/scope switch superseded this load while it was in flight
-      // Return its data to the caller but do NOT publish it as the live folders.
-      if (startGeneration !== this._loadGeneration) {
-        return { success: true, folders: mergedFolders, fromCache: false };
-      }
-      this._folders = mergedFolders;
-      this._flatFolderList = flattenFolders(mergedFolders);
-      this._provider = detectProvider(mergedFolders);
-      this._publishVirtualFolderCounts(accountIds, freshVirtualCounts);
-
-      if (this.cache) {
-        this.cache.setFolders(scopeKey, mergedFolders);
-      }
-
-      this._lastLoadedAt = Date.now();
-      this.notify();
-
-      return {
-        success: true,
-        folders: mergedFolders,
-        fromCache: allFromCache,
-        error: errors.length > 0 ? errors[0] : undefined,
-      };
-    } finally {
-      this._isLoading = false;
-      this.notify();
-    }
-  }
 
   /**
    * Internal load implementation with state preservation and count merging.
@@ -1185,6 +976,7 @@ export class FolderService implements IFolderOperations {
       };
     }
     const startGeneration = this._loadGeneration;
+    const startedAt = Date.now();
     // Check cache first (unless forcing refresh)
     if (
       !forceRefresh &&
@@ -1203,6 +995,7 @@ export class FolderService implements IFolderOperations {
         this._flatFolderList = flattenFolders(orderedFolders);
         this._provider = detectProvider(orderedFolders);
         this._publishVirtualFolderCounts([numericId]);
+        this._foldersFrom = 0;
         if (this._lastLoadedAt === 0) {
           this._lastLoadedAt = Date.now();
         }
@@ -1349,6 +1142,7 @@ export class FolderService implements IFolderOperations {
         this.cache.setFolders(String(accountId), visibleTree);
       }
 
+      this._foldersFrom = startedAt;
       this._lastLoadedAt = Date.now();
       this.notify();
 
@@ -1443,6 +1237,73 @@ export class FolderService implements IFolderOperations {
     };
 
     return freshFolders.map(mergeFolder);
+  }
+
+  // ============== Other tabs ==============
+
+  /**
+   * The live folder list and the Important/Starred counts of `accountIds`, as the
+   * leader tab relays them after a folder load.
+   */
+  relaySnapshot(accountIds: number[]): {
+    folders: ImapFolder[];
+    virtualCounts: Record<string, VirtualFolderCounts>;
+    loadedFrom: number;
+  } {
+    const virtualCounts: Record<string, VirtualFolderCounts> = {};
+    for (const accountId of accountIds) {
+      const counts = this._accountVirtualFolderCounts.get(accountId);
+      if (counts) virtualCounts[String(accountId)] = counts;
+    }
+    return {
+      folders: this._folders,
+      virtualCounts,
+      loadedFrom: this._foldersFrom,
+    };
+  }
+
+  /**
+   * Show a folder list another tab just loaded for the same view, exactly as a
+   * load would (state, per-tab cache, subscribers), without a request. `scope` is
+   * one account id, or the account ids of a combined view. `loadedFrom` is when the
+   * other tab's request started: a list older than this tab's own load, or than a
+   * change the user made here, would put back counts that change already moved,
+   * so it is dropped. Returns whether the list was applied.
+   */
+  applyRelayedFolders(
+    scope: number | number[],
+    folders: ImapFolder[],
+    virtualCounts: Record<string, unknown>,
+    loadedFrom: number,
+  ): boolean {
+    if (loadedFrom <= Math.max(this._foldersFrom, lastLocalActionAt())) {
+      return false;
+    }
+    const combined = !__SINGLE_MAILBOX__ && Array.isArray(scope);
+    const accountIds = combined
+      ? normalizeConsolidatedAccountIds(scope)
+      : [Array.isArray(scope) ? Number(scope[0]) : scope];
+    const fresh = new Map<number, VirtualFolderCounts>();
+    for (const accountId of accountIds) {
+      const counts = normalizeVirtualFolderCounts(
+        virtualCounts[
+          String(accountId)
+        ] as FolderListApiResponse["virtual_counts"],
+      );
+      if (counts) fresh.set(accountId, counts);
+    }
+    this._folders = folders;
+    this._flatFolderList = flattenFolders(folders);
+    this._provider = detectProvider(folders);
+    this._publishVirtualFolderCounts(accountIds, fresh);
+    this.cache?.setFolders(
+      combined ? buildConsolidatedAccountScopeKey(accountIds) : String(accountIds[0]),
+      folders,
+    );
+    this._foldersFrom = loadedFrom;
+    this._lastLoadedAt = Date.now();
+    this.notify();
+    return true;
   }
 
   async selectFolder(folderPath: string): Promise<void> {
@@ -1727,11 +1588,13 @@ export class FolderService implements IFolderOperations {
    * "Account <id>" labels into the menu.
    */
   getMoveTargetFolders(): ImapFolder[] {
-    const accountRoots = this._folders.filter((folder) =>
-      String(folder.path ?? "").startsWith(CONSOLIDATED_ACCOUNT_PATH_PREFIX),
-    );
+    const accountRoots = __SINGLE_MAILBOX__
+      ? []
+      : this._folders.filter((folder) =>
+          String(folder.path ?? "").startsWith(CONSOLIDATED_ACCOUNT_PATH_PREFIX),
+        );
 
-    if (accountRoots.length === 0) {
+    if (__SINGLE_MAILBOX__ || accountRoots.length === 0) {
       const targets: ImapFolder[] = [];
       const visit = (folders: ImapFolder[], ancestors: string[]) => {
         for (const folder of folders) {
@@ -1909,9 +1772,254 @@ export class FolderService implements IFolderOperations {
     this._countsPartialTimers.clear();
     this._countsPartialRetries.clear();
     this._lastLoadedAt = 0;
+    this._foldersFrom = 0;
     this._virtualFolderCounts = emptyVirtualFolderCounts();
     this.notify();
   }
+}
+
+
+/**
+ * The folder list of a combined view: every selected mailbox's folders merged
+ * into one. Only a build with more than one mailbox creates it, so a
+ * single-mailbox build keeps neither the loader nor its merge.
+ */
+export class CombinedFolderService extends FolderService {
+  async loadConsolidatedFolders(
+    accountIds: number[],
+    forceRefresh = false,
+  ): Promise<FolderListResult> {
+    const normalizedAccountIds = normalizeConsolidatedAccountIds(accountIds);
+    const scopeKey = buildConsolidatedAccountScopeKey(normalizedAccountIds);
+
+    if (normalizedAccountIds.length === 0) {
+      this._folders = [];
+      this._flatFolderList = [];
+      this._provider = "generic";
+      this._virtualFolderCounts = emptyVirtualFolderCounts();
+      this._lastLoadedAt = Date.now();
+      this.notify();
+      return { success: true, folders: [] };
+    }
+
+    const dedupeKey = `${scopeKey}:${forceRefresh ? "force" : "cached"}`;
+    const existing = this._pendingLoad.get(dedupeKey);
+    if (existing) {
+      return existing;
+    }
+
+    const controller = new AbortController();
+    this._activeFolderControllers.add(controller);
+    const loadPromise = this._doLoadConsolidatedFolders(
+      normalizedAccountIds,
+      scopeKey,
+      forceRefresh,
+      controller.signal,
+    );
+    this._pendingLoad.set(dedupeKey, loadPromise);
+
+    try {
+      return await loadPromise;
+    } finally {
+      this._activeFolderControllers.delete(controller);
+      this._pendingLoad.delete(dedupeKey);
+    }
+  }
+
+  private async _doLoadConsolidatedFolders(
+    accountIds: number[],
+    scopeKey: string,
+    forceRefresh: boolean,
+    signal?: AbortSignal,
+  ): Promise<FolderListResult> {
+    const startGeneration = this._loadGeneration;
+    const startedAt = Date.now();
+    if (
+      !forceRefresh &&
+      this.cache &&
+      this._hasVirtualFolderCountsFor(accountIds)
+    ) {
+      const cachedFolders = this.cache.getFolders(scopeKey);
+      if (cachedFolders && cachedFolders.length > 0) {
+        // Hide the provider's real All Mail folder so it never appears in the
+        // consolidated list. Filtering here keeps cached and returned arrays
+        // in agreement even if a stale cache entry still contains it.
+        const visibleFolders = cachedFolders.filter(
+          (folder) =>
+            !isProviderAllMailFolder(folder) &&
+            !isProviderVirtualStateFolder(folder),
+        );
+        const orderedFolders = sortMailFoldersByWorkflow(visibleFolders);
+        this._folders = orderedFolders;
+        this._flatFolderList = flattenFolders(orderedFolders);
+        this._provider = detectProvider(orderedFolders);
+        this._publishVirtualFolderCounts(accountIds);
+        this._foldersFrom = 0;
+        this._lastLoadedAt = Date.now();
+        this.notify();
+        return {
+          success: true,
+          folders: visibleFolders,
+          fromCache: true,
+        };
+      }
+    }
+
+    const previousFolders = this._folders;
+    this._isLoading = true;
+    this.notify();
+
+    try {
+      const folderLists: ConsolidatedFolderList[] = [];
+      const errors: string[] = [];
+      let allFromCache = true;
+
+      // Load each account's folder list concurrently. Serial per-account awaits
+      // made an N-account combined inbox N sequential round trips; parallel
+      // fetches collapse that to a single round-trip wall-clock. Order is
+      // preserved (results indexed by accountIds) so consolidated merge stays
+      // deterministic, and per-account failures are isolated.
+      const perAccount = await Promise.allSettled(
+        accountIds.map(async (accountId) => {
+          if (
+            !forceRefresh &&
+            this.cache &&
+            this._accountVirtualFolderCounts.has(accountId)
+          ) {
+            const cachedFolders = this.cache.getFolders(String(accountId));
+            if (cachedFolders && cachedFolders.length > 0) {
+              return {
+                folders: sortMailFoldersByWorkflow(cachedFolders),
+                folderTree: buildFolderTreeFromFlat(cachedFolders),
+                fromCache: true,
+                virtualCounts: undefined,
+              };
+            }
+          }
+
+          const data = await this._fetchFolderList(
+            accountId,
+            forceRefresh,
+            signal,
+          );
+
+          if (data?.status === "error") {
+            throw new Error(
+              data.message || __("Failed to fetch folders", "pressedmail"),
+            );
+          }
+
+          const rawFolders = Array.isArray(data?.folders) ? data.folders : [];
+          const provider = detectProvider(rawFolders);
+          const annotatedFolders = sortMailFoldersByWorkflow(
+            annotateSystemFolders(rawFolders, provider),
+          );
+          const rawFolderTree = Array.isArray(data?.folder_tree)
+            ? data.folder_tree
+            : buildFolderTreeFromFlat(rawFolders);
+
+          if (this.cache) {
+            this.cache.setFolders(String(accountId), annotatedFolders);
+          }
+
+          return {
+            folders: annotatedFolders,
+            folderTree: annotateSystemFolders(rawFolderTree, provider),
+            fromCache: false,
+            virtualCounts: normalizeVirtualFolderCounts(data?.virtual_counts),
+          };
+        }),
+      );
+
+      const freshVirtualCounts = new Map<number, VirtualFolderCounts>();
+      perAccount.forEach((result, index) => {
+        const accountId = accountIds[index] as number;
+        if (result.status === "fulfilled") {
+          folderLists.push({
+            accountId,
+            folders: result.value.folders,
+            folderTree: result.value.folderTree,
+          });
+          if (result.value.virtualCounts) {
+            freshVirtualCounts.set(accountId, result.value.virtualCounts);
+          }
+          if (!result.value.fromCache) {
+            allFromCache = false;
+          }
+        } else {
+          allFromCache = false;
+          const errorMsg =
+            result.reason instanceof Error
+              ? result.reason.message
+              : __("Failed to load folders", "pressedmail");
+          if (isAuthError(errorMsg) && this.connectionState) {
+            this.connectionState.markUnhealthy(String(accountId), errorMsg);
+          }
+          errors.push(errorMsg);
+        }
+      });
+
+      if (folderLists.length === 0 && errors.length > 0) {
+        return {
+          success: false,
+          folders: previousFolders,
+          error: errors[0],
+          authError: errors.some(isAuthError),
+        };
+      }
+
+      // Hide the provider's real All Mail folder so it never appears in the
+      // consolidated list. Filtering here keeps the cached and returned arrays
+      // in agreement across every account in the combined inbox.
+      const mergedFolders = mergeConsolidatedFolders(folderLists).filter(
+        (folder) =>
+          !isProviderAllMailFolder(folder) &&
+          !isProviderVirtualStateFolder(folder),
+      );
+      // A newer account/scope switch superseded this load while it was in flight
+      // Return its data to the caller but do NOT publish it as the live folders.
+      if (startGeneration !== this._loadGeneration) {
+        return { success: true, folders: mergedFolders, fromCache: false };
+      }
+      this._folders = mergedFolders;
+      this._flatFolderList = flattenFolders(mergedFolders);
+      this._provider = detectProvider(mergedFolders);
+      this._publishVirtualFolderCounts(accountIds, freshVirtualCounts);
+
+      if (this.cache) {
+        this.cache.setFolders(scopeKey, mergedFolders);
+      }
+
+      this._foldersFrom = allFromCache ? 0 : startedAt;
+      this._lastLoadedAt = Date.now();
+      this.notify();
+
+      return {
+        success: true,
+        folders: mergedFolders,
+        fromCache: allFromCache,
+        error: errors.length > 0 ? errors[0] : undefined,
+      };
+    } finally {
+      this._isLoading = false;
+      this.notify();
+    }
+  }
+}
+
+/**
+ * Load a combined view's folder list on the shared service. Callers reach it
+ * only behind `__SINGLE_MAILBOX__`, where the service is always combined.
+ */
+export function loadCombinedFolders(
+  service: FolderService,
+  accountIds: number[],
+  forceRefresh = false,
+): Promise<FolderListResult> {
+  return (service as CombinedFolderService).loadConsolidatedFolders(
+    accountIds,
+    forceRefresh,
+  );
 }
 
 /**
@@ -1927,7 +2035,9 @@ export function getFolderService(
   connectionState?: IConnectionStateService,
 ): FolderService {
   if (!folderServiceInstance) {
-    folderServiceInstance = new FolderService(cache, connectionState);
+    folderServiceInstance = __SINGLE_MAILBOX__
+      ? new FolderService(cache, connectionState)
+      : new CombinedFolderService(cache, connectionState);
   }
   return folderServiceInstance;
 }

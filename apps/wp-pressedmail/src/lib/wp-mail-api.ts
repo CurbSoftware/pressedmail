@@ -1,6 +1,11 @@
 import { apiJson, apiPost } from "@/lib/api-client";
 import { getPluginRestBase } from "@/lib/runtime-config";
-import type { SmtpConnectionCapabilities } from "@/components/wp-mail/types";
+import type {
+  SmtpAuthType,
+  SmtpConnectionCapabilities,
+  SmtpSenderProbe,
+  SmtpSenderProbeResult,
+} from "@/components/wp-mail/types";
 
 /**
  * WordPress system-email (wp_mail) SMTP API: administrator endpoints under
@@ -11,6 +16,40 @@ import type { SmtpConnectionCapabilities } from "@/components/wp-mail/types";
  * flag.
  */
 
+/** What a failing SMTP connection is failing at. See SmtpErrorClassifier.php. */
+export type SmtpErrorClass =
+  | "authentication"
+  | "connection"
+  | "tls"
+  | "sender"
+  | "throttled"
+  | "unknown";
+
+/** `attention` is a connection known to be failing; `untested` has no evidence either way. */
+export type SmtpHealthState = "ok" | "attention" | "untested";
+
+/**
+ * What PressedMail knows about whether one connection works.
+ *
+ * Timestamps are MySQL UTC ("2026-09-29 10:00:00") or empty. The server never
+ * sends the fingerprint it keeps to tell an edit from a retest, or a password.
+ */
+export interface WpMailConnectionHealth {
+  state: SmtpHealthState;
+  /** Empty unless the state is `attention`. */
+  errorClass: SmtpErrorClass | "";
+  /** The failure text, already redacted and clipped by the server. */
+  message: string;
+  /** The host for a `connection` failure, the refused address for `sender`. */
+  detail: string;
+  lastSuccessAt: string;
+  lastFailureAt: string;
+  lastTestAt: string;
+  /** Null until the connection has been tested. */
+  lastTestOk: boolean | null;
+  consecutiveFailures: number;
+}
+
 export interface WpMailConnectionView {
   id: string;
   label: string;
@@ -20,6 +59,8 @@ export interface WpMailConnectionView {
   port: number;
   security: "none" | "ssl" | "tls";
   auth: boolean;
+  /** "" is Automatic: the server negotiates the login method. */
+  authType: SmtpAuthType;
   username: string;
   /** A password is stored server-side. It is never sent to the client. */
   hasPassword: boolean;
@@ -32,6 +73,8 @@ export interface WpMailConnectionView {
   isUsable: boolean;
   issues: string[];
   claimedAddresses: string[];
+  /** Absent only from a payload written before health existed. */
+  health?: WpMailConnectionHealth;
 }
 
 export interface WpMailSettingsView {
@@ -48,12 +91,23 @@ export interface WpMailState {
   health: WpMailHealthView[];
 }
 
+/**
+ * One unresolved failure: the shape the settings API has always returned, plus
+ * the class and timestamps. The extra fields are optional so a payload from
+ * before health was classified still reads.
+ */
 export interface WpMailHealthView {
   status: "failed";
   connectionId: string;
   connectionLabel: string;
   message: string;
   updatedAt: string;
+  state?: SmtpHealthState;
+  errorClass?: SmtpErrorClass | "";
+  /** The host for a `connection` failure, the refused address for `sender`. */
+  detail?: string;
+  lastSuccessAt?: string;
+  lastFailureAt?: string;
 }
 
 export interface WpMailConnectionInput {
@@ -63,6 +117,7 @@ export interface WpMailConnectionInput {
   port?: number;
   security?: "none" | "ssl" | "tls";
   auth?: boolean;
+  authType?: SmtpAuthType;
   username?: string;
   /** Empty keeps the stored password. */
   password?: string;
@@ -85,7 +140,20 @@ export interface WpMailMutationResult {
 export interface WpMailTestResult {
   ok: boolean;
   message: string;
+  errors?: Record<string, string>;
+  /** WP_MAIL_TEST_AUTH, WP_MAIL_TEST_CONNECTION and so on. Set on a failure. */
+  code?: string;
+  errorClass?: SmtpErrorClass;
 }
+
+export interface WpMailSenderProbeResult {
+  ok: boolean;
+  probe?: SmtpSenderProbe;
+  message?: string;
+}
+
+/** How a message left the site. Empty for a row written before this was recorded. */
+export type WpMailLogRoute = "smtp" | "native" | "paused" | "ambiguous" | "";
 
 export interface WpMailLogEntry {
   id: number;
@@ -99,6 +167,8 @@ export interface WpMailLogEntry {
   status: "sent" | "failed";
   attempt: number;
   error: string;
+  /** Older payloads and rows have none. */
+  route?: WpMailLogRoute;
 }
 
 export interface WpMailLogPage {
@@ -234,10 +304,67 @@ export async function testWpMailConnection(
     recipientEmail,
   });
 
+  const code = (res as { code?: unknown }).code;
+  const errorClass = (res as { errorClass?: unknown }).errorClass;
+
   return {
     ok: (res as { status?: string }).status === "success",
     message: readMessage(res) ?? "",
+    errors: (res as { errors?: Record<string, string> }).errors,
+    ...(typeof code === "string" ? { code } : {}),
+    ...(typeof errorClass === "string"
+      ? { errorClass: errorClass as SmtpErrorClass }
+      : {}),
   };
+}
+
+/** The four verdicts, validated rather than trusted off the wire. */
+const SENDER_PROBE_RESULTS: SmtpSenderProbeResult[] = [
+  "accepted",
+  "rejected",
+  "inconclusive",
+  "unreachable",
+];
+
+function isSenderProbeResult(value: unknown): value is SmtpSenderProbeResult {
+  return (
+    typeof value === "string" &&
+    (SENDER_PROBE_RESULTS as string[]).includes(value)
+  );
+}
+
+/**
+ * Try one address as the sender on a SAVED connection.
+ *
+ * Only a stored connection can be probed: the server logs in with that
+ * connection's own credentials, and unsaved form input is never assembled into
+ * one. A refusal (403 non-administrator, 422 an address this connection does
+ * not claim) comes back as a message, not a verdict, because the address was
+ * never tested.
+ */
+export async function probeWpMailSender(
+  connectionId: string,
+  address: string,
+): Promise<WpMailSenderProbeResult> {
+  const res = await apiPost(endpoint("/senders/probe"), {
+    connectionId,
+    address,
+  });
+  const probe = (res as { probe?: Partial<SmtpSenderProbe> }).probe;
+
+  if (isSenderProbeResult(probe?.result)) {
+    return {
+      ok: true,
+      probe: {
+        result: probe.result,
+        code: typeof probe.code === "number" ? probe.code : 0,
+        detail: typeof probe.detail === "string" ? probe.detail : "",
+        message: typeof probe.message === "string" ? probe.message : "",
+      },
+    };
+  }
+
+  return { ok: false, message: readMessage(res) };
 }
 
 export async function fetchWpMailLog(

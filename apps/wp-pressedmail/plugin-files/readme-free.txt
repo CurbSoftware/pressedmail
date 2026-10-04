@@ -136,8 +136,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.4.0](https://github.com/CurbSoftware/pressedmail/tree/v1.4.0-source.1)
-* [Build instructions for version 1.4.0](https://github.com/CurbSoftware/pressedmail/blob/v1.4.0-source.1/BUILD.md)
+* [Source for version 1.4.0](https://github.com/CurbSoftware/pressedmail/tree/v1.4.0-source.2)
+* [Build instructions for version 1.4.0](https://github.com/CurbSoftware/pressedmail/blob/v1.4.0-source.2/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then from the repository root run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`. Pro source is excluded.
 
@@ -147,7 +147,7 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.4.0-source.1/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.4.0-source.2/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 

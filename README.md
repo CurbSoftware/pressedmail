@@ -5,7 +5,7 @@ PressedMail WordPress plugin (`assets/admin/dist/`), published to satisfy
 the WordPress.org Plugin Directory's reviewable-source requirement.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.4.0-source.1`
+Public tag: `v1.4.0-source.2`
 
 See [BUILD.md](./BUILD.md) for the toolchain and build steps.
 

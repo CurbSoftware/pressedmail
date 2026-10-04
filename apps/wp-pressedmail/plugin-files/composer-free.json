@@ -1,0 +1,40 @@
+{
+  "name": "pressedmail/pressedmail",
+  "description": "WordPress Plugin for the PressedMail Email Client.",
+  "license": "GPL-2.0-or-later",
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../../../packages/curbsoftware/composer/curb-wp-eloquent",
+      "options": {
+        "symlink": true
+      }
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "PressedMail\\": "includes/",
+      "PressedMail\\Database\\": "database/",
+      "PressedMail\\Libs\\": "libs/"
+    },
+    "files": [
+      "libs/assets.php",
+      "libs/db.php",
+      "includes/functions.php"
+    ]
+  },
+  "require": {
+    "php": ">=8.2",
+    "curbsoftware/wp-eloquent": "1.0.2",
+    "webklex/php-imap": "^6.2",
+    "illuminate/collections": "^12.0",
+    "illuminate/support": "^12.0",
+    "illuminate/pagination": "^12.0",
+    "illuminate/contracts": "^12.0"
+  },
+  "config": {
+    "platform": {
+      "php": "8.2.0"
+    }
+  }
+}

@@ -754,7 +754,7 @@ export default defineConfig({
     react(),
     wordpressScriptExternals,
     enforceFreeReactCompatibility(),
-    emitModuleGraph(),
+
     emitWordPressDependencies(),
     emitThirdPartyNotices(),
   ],

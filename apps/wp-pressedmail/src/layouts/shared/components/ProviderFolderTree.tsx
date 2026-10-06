@@ -1,5 +1,6 @@
 "use client";
 
+import { __ } from "@wordpress/i18n";
 import {
   getPrincipalStorageItem,
   setPrincipalStorageItem,
@@ -567,7 +568,7 @@ export function ProviderFolderTree({
   return (
     <div
       role="tree"
-      aria-label="Provider folders"
+      aria-label={__("Provider folders", "pressedmail")}
       className={cn("min-w-0", mobile && "max-w-full", className)}>
       {renderNodes(tree)}
     </div>

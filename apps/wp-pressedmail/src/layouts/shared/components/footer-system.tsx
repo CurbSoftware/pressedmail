@@ -340,7 +340,7 @@ export function AppStatusBar({
             ) : null}
             <LogoFullLaunchSvg
               role="img"
-              aria-label="PressedMail"
+              aria-label={__("PressedMail", "pressedmail")}
               data-test="status-bar-brand"
               data-testid="status-bar-brand"
               className="h-3.5 w-auto"

@@ -1,5 +1,6 @@
 "use client";
 
+import { __ } from "@wordpress/i18n";
 import { PressedMailLaunchIcon } from "@/components/Icons/PressedMailLaunchIcon";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
@@ -48,7 +49,7 @@ export function BrandedProductMark({
       ) : (
         <PressedMailLaunchIcon
           role="img"
-          aria-label="PressedMail"
+          aria-label={__("PressedMail", "pressedmail")}
           className={cn("shrink-0", imageClassName)}
         />
       )}

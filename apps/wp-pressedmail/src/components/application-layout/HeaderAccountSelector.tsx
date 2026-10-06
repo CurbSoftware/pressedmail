@@ -1,5 +1,6 @@
 "use client";
 
+import { __ } from "@wordpress/i18n";
 import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import { ChevronDown, Plus, Mail, User } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -253,11 +254,11 @@ export function HeaderAccountSelector({
         variant="outline"
         size="sm"
         onClick={handleAddAccount}
-        title="Set up your first email account"
+        title={__("Set up your first email account", "pressedmail")}
         data-test="add-first-account-button"
         className="flex items-center gap-1.5">
         <Mail className="h-4 w-4" aria-hidden="true" />
-        <span className="text-sm">Add an email account</span>
+        <span className="text-sm">{__("Add an email account", "pressedmail")}</span>
       </Button>
     );
   }
@@ -326,7 +327,7 @@ export function HeaderAccountSelector({
                 )}>
                 <CommonInboxIcon className="h-4 w-4 shrink-0" />
                 <div className="flex min-w-0 flex-1 items-center gap-2">
-                  <span className="text-sm font-medium">Combined Inbox</span>
+                  <span className="text-sm font-medium">{__("Combined Inbox", "pressedmail")}</span>
                   <Badge
                     variant="outline"
                     className="text-xs tabular-nums"
@@ -388,8 +389,8 @@ export function HeaderAccountSelector({
                   size="icon"
                   className="h-6 w-6"
                   onClick={handleAddAccount}
-                  aria-label="Add email account"
-                  title="Add email account"
+                  aria-label={__("Add email account", "pressedmail")}
+                  title={__("Add email account", "pressedmail")}
                   data-test="add-account-button">
                   <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>

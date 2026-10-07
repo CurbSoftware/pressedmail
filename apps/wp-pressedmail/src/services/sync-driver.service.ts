@@ -66,6 +66,25 @@ export interface AdvanceSyncResult {
   locked: boolean;
   /** Overdue background-queue depth reported by the server (cron-health signal). */
   overdueJobs: number;
+  /**
+   * The site has not been approved for unattended mailbox work, so the server
+   * withheld everything that writes to a mailbox or leaves the site. Read-only
+   * sync still ran, so new mail keeps arriving. Reported separately because an
+   * advance of 0 on a paused site means something different from an advance of 0
+   * on a mailbox that is simply up to date.
+   */
+  paused: boolean;
+}
+
+export interface RefreshAccountResult {
+  /** The site is paused for unattended work. The queued fetch still runs: it only reads. */
+  paused: boolean;
+  /**
+   * True when the request itself did not complete. Kept apart from "asked and
+   * there is nothing new", because "we could not ask" must not look the same to
+   * the reader.
+   */
+  failed: boolean;
 }
 
 /** Advance the current user's mailbox sync a bounded number of sequential steps. */
@@ -89,7 +108,7 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
   }
 
   const data = (await response.json().catch(() => ({}))) as {
-    data?: Partial<AdvanceSyncResult> & { overdue_jobs?: number };
+    data?: Partial<AdvanceSyncResult> & { overdue_jobs?: number; paused?: boolean };
   };
   // Any other non-2xx is a failure, not an empty success. Counting it as success used to
   // trigger a full drain on top. Only 429 and 5xx (rate limit, busy, gateway page) mean
@@ -106,6 +125,7 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
     remaining: Number(payload.remaining ?? 0),
     locked: Boolean(payload.locked ?? false),
     overdueJobs: Number(payload.overdue_jobs ?? 0),
+    paused: Boolean(payload.paused ?? false),
   };
 }
 
@@ -220,24 +240,52 @@ export async function runBackgroundPassNow(): Promise<{
 }
 
 /**
- * Manual "Refresh": push the given account(s) to the FRONT of the sync queue and start
- * advancing immediately. Pass a single id (single-account view) or the active set
- * (combined inbox). Best-effort, never throws into the UI.
+ * Manual "Refresh": queue a new-mail fetch for the given account(s) and push them
+ * to the FRONT of the sync queue. Pass a single id (single-account view) or the
+ * active set (combined inbox).
+ *
+ * Queued, not fetched. The server endpoint stays non-blocking and the background
+ * worker does the IMAP, so new mail lands within a tick rather than inside this
+ * request. What the button stops being is a NO-OP: on a mailbox that was caught up,
+ * every folder is settled and the old code only reordered work the planner
+ * considered finished, so the button fetched nothing at all.
+ *
+ * Still best-effort, still never throws into the UI: the caller reloads the folder
+ * either way. What changed is that it now RETURNS what happened. The old version
+ * discarded the response and swallowed every error, so a refresh that never reached
+ * the server, one the server refused, and one that simply found nothing new all
+ * looked identical from here, which is a large part of why "the button does nothing"
+ * was unfalsifiable from the UI.
+ *
+ * @returns The site's pause state, with `failed` telling "could not ask" apart
+ *          from "asked and there is nothing new".
  */
-export async function refreshAccountSync(accountIds: number[]): Promise<void> {
+export async function refreshAccountSync(
+  accountIds: number[],
+): Promise<RefreshAccountResult> {
   const ids = accountIds.filter((id) => Number.isFinite(id) && id > 0);
   if (ids.length === 0) {
-    return;
+    return { paused: false, failed: false };
   }
   const body = ids.length === 1 ? { account_id: ids[0] } : { account_ids: ids };
   try {
-    await apiFetch(buildApiUrl(`${routeApiPrefix}/sync/refresh-account`), {
-      method: "POST",
-      credentials: "include",
-      headers: getHeaders(),
-      body: JSON.stringify(body),
-    });
+    const response = await apiFetch(
+      buildApiUrl(`${routeApiPrefix}/sync/refresh-account`),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+      },
+    );
+    if (!response.ok) {
+      return { paused: false, failed: true };
+    }
+    const payload = (await response.json().catch(() => ({}))) as {
+      data?: { paused?: unknown };
+    };
+    return { paused: Boolean(payload.data?.paused), failed: false };
   } catch {
-    // Refresh is best-effort; the folder/message reload still runs.
+    return { paused: false, failed: true };
   }
 }

@@ -62,6 +62,17 @@ interface PressedMailPluginGlobal {
    * exactly one page load.
    */
   purgeBrowserStorage?: boolean;
+  /**
+   * True when WordPress has not approved this site for unattended mailbox work
+   * (a copied or restored site, until an administrator confirms it). Read-only
+   * sync still runs, so mail keeps arriving, but sending, rules and campaigns do
+   * not. Injected by PHP at boot. Before this was read, the pause had exactly one
+   * surface, a notice on the Plugins screen, so a customer whose site was paused
+   * saw an inbox that simply stopped moving and no reason for it.
+   */
+  automationPaused?: boolean;
+  /** Where an administrator confirms the site, empty for a non-administrator. */
+  automationReviewUrl?: string;
   isPro?: boolean | string;
   isLicensed?: boolean;
   /** Pro: a plugin fills `pressedmail_unsubscribe_url` at send time. */

@@ -245,6 +245,47 @@ export function ConnectionErrorBanner() {
     </div>
   ) : null;
 
+  // The site's approval state, injected by PHP at boot. WordPress has not approved
+  // this site for UNATTENDED mailbox work (a copied or restored site, until an
+  // administrator confirms it). Reading mail still runs, so the inbox keeps
+  // updating; sending, rules, scheduled mail and campaigns do not.
+  //
+  // This has to be visible here rather than only on the Plugins screen. It used to
+  // have exactly one surface, an admin notice on plugins.php, so a site that was
+  // paused looked exactly like a site with nothing new in it, and it stayed that
+  // way. The chip is rendered from the server's answer, never inferred.
+  const pluginGlobal =
+    typeof window === "undefined" ? undefined : window.pressedmailPlugin;
+  const automationPaused = pluginGlobal?.automationPaused === true;
+  const automationReviewUrl =
+    typeof pluginGlobal?.automationReviewUrl === "string"
+      ? pluginGlobal.automationReviewUrl
+      : "";
+  const pauseChip = automationPaused ? (
+    <div
+      data-test="automation-paused-chip"
+      className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-xs">
+      <AlertTriangle className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+      <span className="flex-1">
+        {__(
+          "Automatic mailbox work is paused on this site. New mail still arrives, but sending, rules and scheduled mail do not run until an administrator approves it.",
+          "pressedmail",
+        )}
+      </span>
+      {automationReviewUrl ? (
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="h-7 shrink-0 px-2 text-xs">
+          <a href={automationReviewUrl} data-test="automation-paused-review">
+            {__("Review", "pressedmail")}
+          </a>
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
+
   // Server-reported account auth status (auth_failed/config_error), tracked
   // INDEPENDENTLY of the transport circuit breaker. Post-overhaul the DB-mirror
   // read succeeds even for an auth-failed account, so the breaker no longer feeds
@@ -263,9 +304,20 @@ export function ConnectionErrorBanner() {
     ? connectionState.getCredentialsRequired(String(selectedAccountId))
     : null;
 
-  // No error to show, but the info chip may still need to render on its own.
+  // The two info chips render on their own, with no error present at all: the site
+  // pause is a standing state, not a failure, and it is most likely to be seen on a
+  // site where nothing else is reporting trouble. Every return path below has to
+  // carry them, which is why they travel as one node.
+  const chips = (
+    <>
+      {pauseChip}
+      {syncChip}
+    </>
+  );
+
+  // No error to show, but the info chips may still need to render on their own.
   if (!error && !sessionError && !authBlocked && !credentialsRequired)
-    return syncChip;
+    return chips;
 
   // Priority: a concrete per-account inbox error is most actionable, then the
   // credentials conflict, then the account auth status, then the session-wide
@@ -288,7 +340,7 @@ export function ConnectionErrorBanner() {
     resolved.kind !== "credentials" &&
     messages.length > 0
   ) {
-    return syncChip;
+    return chips;
   }
 
   const handleRetry = () => {
@@ -355,7 +407,7 @@ export function ConnectionErrorBanner() {
           </Button>
         </div>
       </Alert>
-      {syncChip}
+      {chips}
     </div>
   );
 }

@@ -69,11 +69,15 @@ import {
   getConnectionStateService,
 } from "@/services/implementations";
 import { applyDeferredRemoval } from "@/context/bulk-action/bulk-action-status-store";
-import { refreshAccountSync } from "@/services/sync-driver.service";
+import {
+  processQueueSync,
+  refreshAccountSync,
+} from "@/services/sync-driver.service";
 import { loadCombinedFolders } from "@/services/implementations/folder.service";
 import { getCombinedReadiness } from "@/services/implementations/inbox.service";
 import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useAppContext } from "./AppProvider";
+import { __ } from "@wordpress/i18n";
 import { appMessage } from "./toast";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { getSelectedFolder } from "@/lib/folder-persistence";
@@ -1449,7 +1453,41 @@ export function InboxProvider({
             (id): id is number => Number.isFinite(id) && id > 0,
           );
       if (sync && refreshAccountIds.length > 0) {
-        await refreshAccountSync(refreshAccountIds);
+        const outcome = await refreshAccountSync(refreshAccountIds);
+        // The explicit "refresh everything" buttons also run the queued fetch now.
+        // The call above only queues it, and left alone it waits for the next cron
+        // pass or the next driver tick, so the button looked like it did nothing for
+        // up to a minute. Every automatic post-mutation reload runs through here
+        // too, and a drain from each of those would be noise, so only the buttons.
+        if (syncAllAccounts && !outcome.failed) {
+          await processQueueSync();
+        }
+        // Say what happened, but only on the explicit buttons, for the same reason.
+        // Before this the button gave no feedback at all, so a refresh that never
+        // started and one that simply found nothing new were indistinguishable.
+        if (syncAllAccounts) {
+          if (outcome.failed) {
+            appMessage(
+              __(
+                "Could not start the refresh. This list may be out of date.",
+                "pressedmail",
+              ),
+              "error",
+            );
+          } else if (outcome.paused) {
+            appMessage(
+              __(
+                "Automatic mailbox work is paused on this site. An administrator can approve it.",
+                "pressedmail",
+              ),
+              "warning",
+            );
+          }
+          // Nothing is said on success. The fetch is queued, not done, so there is
+          // no honest count to report here, and the list itself is the answer: it
+          // refreshes within a tick. Confirming "up to date" would be a claim about
+          // work that had not run yet.
+        }
       }
 
       const currentPageState = inboxService as unknown as {

@@ -10,8 +10,8 @@ const Nothing = (_props: Record<string, unknown>): null => null;
 export const SpamIndicator = Nothing;
 export const SpamResultBadge = Nothing;
 export const SpamProtectActions = Nothing;
-export const SpamBulkButtons = Nothing;
-export const SpamBulkMenuItems = Nothing;
+export const SecurityToolsPopover = Nothing;
+export const SecurityToolsMenuItems = Nothing;
 export const SpamSheetActions = Nothing;
 
 const OFF = {

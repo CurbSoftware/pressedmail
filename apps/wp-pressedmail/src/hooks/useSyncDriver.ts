@@ -2,8 +2,10 @@ import { useEffect } from "react";
 
 import {
   advanceSync,
+  drainBodiesSync,
   processQueueSync,
   ServerBusyError,
+  type BodyLaneResult,
 } from "@/services/sync-driver.service";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 import {
@@ -46,6 +48,14 @@ export { isTabLeader, subscribeLeadership } from "@/lib/tab-channel";
  * backfill is caught up (remaining===0) or every 4th active tick, so folders past the head get
  * their live-IMAP inventory filled on a starved-cron site.
  *
+ * Content lane: message bodies download on a lane of their own. A mail drain gives them what is
+ * left of eight seconds, claimed last, so after the first header sync a mailbox filled for hours.
+ * While the server reports body passes queued (`bodiesPending`) the driver gives content its own
+ * turn each tick, after the mail work, and keeps the brisk cadence until it is done. That is
+ * still one request at a time (pm.max_children=2). A host that can take two sets
+ * `pressedmailPlugin.parallelSync`, and the turn then runs beside the advance. The lane rests
+ * for a while when turns store nothing, or take long enough to say the server is busy.
+ *
  * Failure policy (never silent, never hammering):
  * - Genuine advance failures (network/5xx) back off exponentially: min(ACTIVE·2^n, IDLE).
  * - `SessionExpiredError` / `PermissionError` (auth is gone; retrying can't fix it) drop
@@ -80,6 +90,19 @@ const OVERDUE_HINT_TICKS = 2;
 /** Run the FULL background-queue drain every Nth active tick (in addition to remaining===0). */
 const PROCESS_QUEUE_EVERY = 4;
 
+/** Consecutive content turns that stored nothing before the lane rests (a slow server, a full cache). */
+const BODY_STALL_LIMIT = 3;
+
+/** How long the lane rests after that. */
+const BODY_REST_MS = 300_000;
+
+/**
+ * A content turn slower than this means a busy server: the lane waits as long again before the next. The server's own
+ * lane budget is twelve seconds and a turn that stores bodies ends a little after it, so a healthy turn is 9 to 13
+ * seconds; this sits above that and below the request timeout.
+ */
+const BODY_SLOW_MS = 20_000;
+
 /** Info-level hint reasons (surfaced as a chip, never as a session error). */
 const SLOW_SYNC_HINT = "Mailbox sync is running slowly.";
 const BACKGROUND_DELAYED_HINT = "Background sync delayed. Running in app";
@@ -100,6 +123,18 @@ let overdueStreak = 0;
  */
 let lastDrainOverdue: number | null = null;
 let activeTickCount = 0;
+/** When the last full queue drain ran. */
+let lastDrainAt = 0;
+/** The last tick kept the short interval only because content was queued, not because mail was. */
+let contentDriven = false;
+/** Content turns in a row that stored nothing. */
+let bodyStalls = 0;
+/** The lane takes no turn before this time. */
+let bodyRestUntil = 0;
+/** Body passes the server last said were queued. */
+let bodiesPendingLast = 0;
+/** A content turn started beside the advance, awaited when the tick ends. */
+let parallelBodyTurn: Promise<BodyLaneResult | null> | null = null;
 let releaseLeadership: (() => void) | null = null;
 /** Aborts a lock request still queued behind another tab, so a hidden tab never inherits it. */
 let pendingClaim: AbortController | null = null;
@@ -164,6 +199,31 @@ export function isSyncBusy(): boolean {
   return inFlight;
 }
 
+/** Callers waiting for the current tick to end. */
+const idleWaiters: Array<() => void> = [];
+
+/**
+ * Resolves when the sync driver is not mid-tick, or after `timeoutMs`. A tick can now hold a twelve second content
+ * turn, so background work that must not share the server with it waits for the gap instead of giving up.
+ */
+export function whenSyncIdle(timeoutMs = 20_000): Promise<void> {
+  if (!inFlight || typeof window === "undefined") {
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const timeout = window.setTimeout(() => {
+      const at = idleWaiters.indexOf(wake);
+      if (at >= 0) idleWaiters.splice(at, 1);
+      resolve();
+    }, timeoutMs);
+    const wake = () => {
+      window.clearTimeout(timeout);
+      resolve();
+    };
+    idleWaiters.push(wake);
+  });
+}
+
 function schedule(ms: number): void {
   if (typeof window === "undefined" || mountCount <= 0) {
     return;
@@ -201,7 +261,8 @@ async function tick(): Promise<void> {
     mountCount <= 0 ||
     !isTabLeader()
   ) {
-    schedule(IDLE_INTERVAL_MS);
+    // A tick still running (a content turn beside the advance) is not a tab at rest: look again soon.
+    schedule(inFlight ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
     return;
   }
 
@@ -212,8 +273,41 @@ async function tick(): Promise<void> {
   try {
     await runTick();
   } finally {
+    // A turn started beside the advance must be over before the next tick can start.
+    await parallelBodyTurn;
+    parallelBodyTurn = null;
     inFlight = false;
+    for (const wake of idleWaiters.splice(0)) {
+      wake();
+    }
   }
+}
+
+/** One content turn, and what it says about whether to keep going. Never throws. */
+async function bodyTurn(): Promise<BodyLaneResult | null> {
+  const started = Date.now();
+  const turn = await drainBodiesSync();
+  const took = Date.now() - started;
+  if (turn === null || turn.stored === 0) {
+    bodyStalls += 1;
+    if (bodyStalls >= BODY_STALL_LIMIT) {
+      bodyStalls = 0;
+      bodyRestUntil = Date.now() + BODY_REST_MS;
+    }
+  } else {
+    bodyStalls = 0;
+  }
+  if (took > BODY_SLOW_MS) {
+    bodyRestUntil = Math.max(bodyRestUntil, Date.now() + took);
+  }
+  if (turn) {
+    bodiesPendingLast = turn.pending;
+  }
+  return turn;
+}
+
+function bodyLaneResting(): boolean {
+  return Date.now() < bodyRestUntil;
 }
 
 /**
@@ -222,6 +316,16 @@ async function tick(): Promise<void> {
  */
 async function runTick(): Promise<void> {
   const connectionState = getConnectionStateService();
+
+  // A host that can run two requests at once lets content download beside the advance.
+  if (
+    typeof window !== "undefined" &&
+    window.pressedmailPlugin?.parallelSync === true &&
+    bodiesPendingLast > 0 &&
+    !bodyLaneResting()
+  ) {
+    parallelBodyTurn = bodyTurn();
+  }
 
   let result: Awaited<ReturnType<typeof advanceSync>> | null = null;
   let timedOut = false;
@@ -298,7 +402,13 @@ async function runTick(): Promise<void> {
   // Backfill progress is not announced to other tabs: during an initial sync it advances on
   // every tick for hours, and each announcement would make every follower refetch. The
   // leader's own view poll hands on changes that follower views can actually see.
-  const advance = result ?? { advanced: 0, remaining: 0, locked: false, overdueJobs: 0 };
+  const advance = result ?? {
+    advanced: 0,
+    remaining: 0,
+    bodiesPending: 0,
+    locked: false,
+    overdueJobs: 0,
+  };
   consecutiveFailures = 0;
   consecutiveTimeouts = 0;
   consecutiveBusy = 0;
@@ -344,17 +454,39 @@ async function runTick(): Promise<void> {
   // Alternate the FULL background-queue drain: when the head backfill is caught up
   // (remaining===0, so /sync/advance has nothing to do) or every Nth active tick. Sequential
   // (awaited under the inFlight guard) so it never issues a parallel POST; never throws.
+  // A tick that is here only because content is queued (the previous one kept its short interval for that, with the
+  // mail caught up) drains on the idle cadence, not every few seconds: the content turn below already does the body
+  // work, and a second full drain would run the same work again and wake the rests the drain sets.
+  const contentOnly =
+    contentDriven && advance.remaining === 0 && Date.now() - lastDrainAt < IDLE_INTERVAL_MS;
   const shouldDrain =
-    advance.remaining === 0 ||
-    (active && activeTickCount % PROCESS_QUEUE_EVERY === 0);
+    !contentOnly &&
+    (advance.remaining === 0 ||
+      (active && activeTickCount % PROCESS_QUEUE_EVERY === 0));
   if (shouldDrain) {
+    lastDrainAt = Date.now();
     const drained = await processQueueSync();
     if (drained !== null) {
       lastDrainOverdue = drained;
     }
   }
 
-  schedule(active ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
+  // Message content gets its own turn after the mail work, while the server has passes queued
+  // (or already had it beside the advance). The server's number outlives a turn only until the
+  // next advance reports again.
+  let laneTurn: BodyLaneResult | null = null;
+  if (parallelBodyTurn) {
+    laneTurn = await parallelBodyTurn;
+    parallelBodyTurn = null;
+  } else if (advance.bodiesPending > 0 && !bodyLaneResting()) {
+    laneTurn = await bodyTurn();
+  }
+  const bodiesPending = laneTurn ? laneTurn.pending : advance.bodiesPending;
+  bodiesPendingLast = bodiesPending;
+  const bodiesActive = bodiesPending > 0 && !bodyLaneResting();
+  contentDriven = !active && bodiesActive;
+
+  schedule(active || bodiesActive ? ACTIVE_INTERVAL_MS : IDLE_INTERVAL_MS);
 }
 
 /**

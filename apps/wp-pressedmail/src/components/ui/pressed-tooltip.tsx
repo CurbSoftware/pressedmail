@@ -105,7 +105,11 @@ export function PressedTooltipContent({
       sideOffset={sideOffset}
       collisionPadding={collisionPadding}
       className={cn(
-        "group relative overflow-visible rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium leading-tight text-popover-foreground shadow-lg transition-none animate-none data-[state=closed]:animate-none data-[state=delayed-open]:animate-none",
+        // Radix gives the box `min-width: max-content`, so without a cap a tooltip is one line as wide as its
+        // text and a long domain or file name runs out of it. The cap is 20rem, or the room the viewport leaves
+        // when that is less; `overflow-wrap: anywhere` lets a token with no spaces break (and counts in the
+        // box's min-content). `overflow-visible` stays for the arrow, which sits outside the box.
+        "group relative max-w-[min(20rem,var(--radix-tooltip-content-available-width,20rem))] overflow-visible rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium leading-tight text-popover-foreground shadow-lg [overflow-wrap:anywhere] transition-none animate-none data-[state=closed]:animate-none data-[state=delayed-open]:animate-none",
         className,
       )}
       {...props}>

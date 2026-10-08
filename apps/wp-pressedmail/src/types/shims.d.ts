@@ -34,6 +34,12 @@ declare module "lodash" {
 
 interface PressedMailPluginGlobal {
   emailCacheEnabled?: boolean;
+  /**
+   * True on a host that can run two requests at once: the sync driver then downloads message
+   * content beside the mailbox advance instead of after it. Off unless the site sets it, because
+   * a shared host with two PHP workers needs one free for the page.
+   */
+  parallelSync?: boolean;
   apiUrl?: string;
   adminAjaxUrl?: string;
   restNamespace?: string;

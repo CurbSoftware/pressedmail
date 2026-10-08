@@ -285,15 +285,18 @@ export type SweepRuleActionType =
   | "add_tag"
   | "remove_tag"
   | "run_phishing_check"
+  | "run_spam_check"
+  | "run_security_check"
   | "run_auto_tagger";
 
 /**
  * A one-off sweep carried by a rule run instead of saved rules. The server
- * builds one unsaved rule per match value.
+ * builds one unsaved rule per match value, or one rule for every message when
+ * the match is "all" (scans only: it takes no values).
  */
 export interface FilterRuleRunSweep {
   match: {
-    type: "sender_email" | "sender_domain" | "subject_contains";
+    type: "sender_email" | "sender_domain" | "subject_contains" | "all";
     values: string[];
   };
   actions: Array<{ type: SweepRuleActionType; value?: string }>;

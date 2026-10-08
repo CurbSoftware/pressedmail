@@ -1397,6 +1397,37 @@ body:has([data-pm-overlay-frame]) #adminmenuwrap {
   color: var(--foreground) !important;
 }
 
+/* The open list of a native select is drawn by the browser on a surface of its
+   own, from the select's fill. Dark mode fills a field translucent, so one fill
+   suits a page and a dialog alike, which leaves the list nothing under it but
+   white: light text on a light list, unreadable. Options take the popover's own
+   pair, opaque, which every palette keeps at AA in both modes. macOS and phones
+   draw the list natively and follow color-scheme instead, so none of this is
+   asked of them. A list box (multiple, or a size over 1) is not that: its rows
+   sit on the field itself, so they keep its fill. */
+:is(
+    #pressedmail-plugin,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  select:not([data-no-theme], [multiple], [size]:not([size="1"]))
+  :is(option, optgroup) {
+  background-color: var(--popover);
+  color: var(--popover-foreground);
+}
+
+:is(
+    #pressedmail-plugin,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  select:not([data-no-theme], [multiple], [size]:not([size="1"]))
+  :is(option, optgroup):disabled {
+  color: var(--muted-foreground);
+}
+
 /* Radio and native checkbox inputs. wp-admin forms.css draws them itself
    (appearance: none, a #1e1e1e border on a white box, the admin colour scheme
    when checked, a white SVG tick), so accent-color alone never showed. Repaint
@@ -2291,6 +2322,24 @@ body
 /* Select dropdown custom arrow - dark mode */
 .dark #pressedmail-plugin select {
   background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23a1a1aa' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e") !important;
+}
+
+/* The kit's NativeSelect paints its own chevron, so the arrow drawn into every
+   select above is a second one, a pixel or two off the first: a doubled, heavy
+   stroke. Dialogs already took it back. A list box (multiple, or a size over 1)
+   has no arrow at all, whoever draws it, and the kit's chevron would sit in the
+   middle of its rows. */
+#pressedmail-plugin select[data-slot="native-select"],
+#pressedmail-plugin select[multiple],
+#pressedmail-plugin select[size]:not([size="1"]) {
+  background-image: none !important;
+}
+
+[data-slot="native-select-wrapper"]:has(
+    > select:is([multiple], [size]:not([size="1"]))
+  )
+  > [data-slot="native-select-icon"] {
+  display: none;
 }
 
 /* Dialog/Modal input overrides - ensures inputs in modals also follow theme */

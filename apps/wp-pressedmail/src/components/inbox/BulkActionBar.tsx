@@ -69,8 +69,8 @@ import { bulkAiFailureMessage } from "@/lib/account-chunks";
 import { bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
 import {
-  SpamBulkButtons,
-  SpamBulkMenuItems,
+  SecurityToolsMenuItems,
+  SecurityToolsPopover,
   useBulkSecurityCheck,
 } from "@/components/spam";
 import { useSecurity } from "@/context/security";
@@ -1375,7 +1375,7 @@ export function BulkActionBar({
     [revalidateSelectionAfterWait],
   );
 
-  // Bulk phishing: process selected emails one at a time (25 per request on
+  // Bulk phishing: process selected emails one at a time (six per request on
   // PressedMail AI) so long AI work can be stopped from the toolbar and each
   // returned result updates its row icon.
   // Group targets per account and folder and warm each group's bodies in the
@@ -1432,7 +1432,7 @@ export function BulkActionBar({
         if (!captured.isCurrent() || !targets) {
           return;
         }
-        // PressedMail AI checks up to 25 emails per request; a customer's own
+        // PressedMail AI checks six emails per request; a customer's own
         // provider keeps one email per request.
         const phishingChunkSize = bulkAiChunkSize(
           phishing.userSettings?.engine,
@@ -1760,7 +1760,7 @@ export function BulkActionBar({
     ],
   );
 
-  // Bulk auto-tag: classify one email per request (25 on PressedMail AI) so the
+  // Bulk auto-tag: classify one email per request (six on PressedMail AI) so the
   // long AI work can be stopped from the toolbar and never runs as one unbounded
   // server-side loop.
   const handleBulkAutoTag = useCallback(async () => {
@@ -1818,7 +1818,7 @@ export function BulkActionBar({
       if (!captured.isCurrent()) {
         return;
       }
-      // PressedMail AI tags up to 25 emails per request; a customer's own
+      // PressedMail AI tags six emails per request; a customer's own
       // provider keeps one email per request.
       for (const chunk of chunkByAccount(
         targets,
@@ -2072,6 +2072,14 @@ export function BulkActionBar({
     onFinished: clearSelection,
   });
 
+  // One Stop for every bulk AI run. The spam and combined checks run their own loop, so aborting the bar's controller
+  // alone left them going while the button was shown.
+  const stopSpamBulk = spamBulk.stop;
+  const handleStopAll = useCallback(() => {
+    handleStopAiQueue();
+    stopSpamBulk();
+  }, [handleStopAiQueue, stopSpamBulk]);
+
   const bulkTagState = useMemo(
     () => getBulkTagState(selectedMessages, tags),
     [selectedMessages, tags],
@@ -2309,6 +2317,18 @@ export function BulkActionBar({
   const bulkSpamAvailable = !__IS_FREE__ && visibility!.showSpam;
   const bulkSummarizeAvailable = !__IS_FREE__ && visibility!.showSummarize;
   const bulkAutoTagAvailable = !__IS_FREE__ && visibility!.showAutoTag;
+  // The three security checks share one menu. The spam rows follow the bar's own visibility (owner, build and admin
+  // policy), which the hook's availability does not know about, so the hook is narrowed here.
+  const securityBulk = bulkSpamAvailable
+    ? spamBulk
+    : { ...spamBulk, available: false, bothAvailable: false };
+  const securityToolsAvailable =
+    !__IS_FREE__ && (securityBulk.available || bulkPhishingAvailable);
+  const securityToolsPhishing = {
+    available: bulkPhishingAvailable,
+    running: isPhishingChecking,
+    onRun: () => requestBulkAi("phishing"),
+  };
   // Bulk AI is Pro: the Free build compiles none of its copy.
   const pendingBulkAiTitle = __IS_FREE__
     ? ""
@@ -2571,34 +2591,21 @@ export function BulkActionBar({
               </DropdownMenuItem>
             )}
 
-            {!__IS_FREE__ && bulkPhishingAvailable && (
-              <DropdownMenuItem
-                data-test="bulk-phishing-check"
-                data-testid="bulk-phishing-check"
-                aria-label={__(
-                  "Check selected emails for phishing",
-                  "pressedmail",
+            {securityToolsAvailable && (
+              <>
+                {!__IS_FREE__ && bulkSummarizeAvailable && (
+                  <DropdownMenuSeparator />
                 )}
-                disabled={
-                  pressedOutBulkDisabled ||
-                  isPhishingChecking ||
-                  isBulkAiRunning
-                }
-                onSelect={() => requestBulkAi("phishing")}>
-                {isPhishingChecking ? (
-                  <Loader2 className="mr-2 size-4 animate-spin" />
-                ) : (
-                  <PhishingRodIcon className="mr-2 size-4" />
-                )}
-                {__("Phishing", "pressedmail")}
-              </DropdownMenuItem>
-            )}
-
-            {bulkSpamAvailable && (
-              <SpamBulkMenuItems
-                bulk={spamBulk}
-                disabled={pressedOutBulkDisabled || isBulkAiRunning}
-              />
+                <DropdownMenuLabel className="text-xs font-semibold text-foreground">
+                  {__("Security", "pressedmail")}
+                </DropdownMenuLabel>
+                <SecurityToolsMenuItems
+                  bulk={securityBulk}
+                  phishing={securityToolsPhishing}
+                  disabled={pressedOutBulkDisabled || isBulkAiRunning}
+                />
+                {ownerTools && <DropdownMenuSeparator />}
+              </>
             )}
 
             {ownerTools && (
@@ -2864,7 +2871,7 @@ export function BulkActionBar({
                 size="icon"
                 className="h-8 w-8"
                 data-test="bulk-stop-ai-queue"
-                onClick={handleStopAiQueue}
+                onClick={handleStopAll}
                 aria-label={__("Stop AI queue", "pressedmail")}>
                 <X className={MAIL_ACTION_ICON_CLASS} />
               </Button>
@@ -3005,41 +3012,10 @@ export function BulkActionBar({
             />
           )}
 
-          {!__IS_FREE__ && bulkPhishingAvailable && (
-            <PressedTooltip
-              content={
-                isPhishingChecking
-                  ? __("Checking for phishing…", "pressedmail")
-                  : __("Check selected for phishing", "pressedmail")
-              }
-              side="top">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8"
-                data-test="bulk-phishing-check"
-                disabled={isLoading || isPhishingChecking || isBulkAiRunning}
-                onClick={() => {
-                  requestBulkAi("phishing");
-                }}
-                aria-label={__(
-                  "Check selected emails for phishing",
-                  "pressedmail",
-                )}>
-                {isPhishingChecking ? (
-                  <Loader2
-                    className={cn(MAIL_ACTION_ICON_CLASS, "animate-spin")}
-                  />
-                ) : (
-                  <PhishingRodIcon className={MAIL_ACTION_ICON_CLASS} />
-                )}
-              </Button>
-            </PressedTooltip>
-          )}
-
-          {bulkSpamAvailable && (
-            <SpamBulkButtons
-              bulk={spamBulk}
+          {securityToolsAvailable && (
+            <SecurityToolsPopover
+              bulk={securityBulk}
+              phishing={securityToolsPhishing}
               disabled={isLoading || isBulkAiRunning}
             />
           )}

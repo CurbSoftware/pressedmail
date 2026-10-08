@@ -2024,7 +2024,7 @@ export function MobileInboxScreen() {
           }
           return accountId;
         };
-        // PressedMail AI checks up to 25 emails per request.
+        // PressedMail AI checks six emails per request.
         const chunkSize = bulkAiChunkSize(phishing.userSettings?.engine);
         let failed = 0;
         let firstFailure = "";
@@ -2141,7 +2141,7 @@ export function MobileInboxScreen() {
     const autoTagCap = aiBulkLimits.autotag;
     void runBulkOperation(
       async (captured) => {
-        // PressedMail AI tags up to 25 emails per request, but never more than
+        // PressedMail AI tags six emails per request, but never more than
         // the admin's auto-tag bulk cap: the server drops anything past it.
         for (const chunk of chunkByAccount(
           selectedMessages,

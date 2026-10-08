@@ -29,9 +29,13 @@ export const proActionPicker = (
   choices: Array<{ value: string; label: string }>;
   placeholder: string;
 } | null => null;
-export const proSweepTasks = (): Array<
-  "run_phishing_check" | "run_auto_tagger"
+export const useProSweepTasks = (): Array<
+  | "run_security_check"
+  | "run_spam_check"
+  | "run_phishing_check"
+  | "run_auto_tagger"
 > => [];
+export const proSweepMatchAllLabel = (): string => "";
 export const proSweepImpact = (_task: string, _count: number): string | null =>
   null;
 export const sweepScoreRangeError = (

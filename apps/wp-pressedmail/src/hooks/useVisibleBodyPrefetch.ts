@@ -2,7 +2,7 @@ import { getMessageIdentityKey } from "@/lib/message-identity";
 import { useEffect, useRef } from "react";
 
 import { useInbox, useInboxState } from "@/context/InboxContext";
-import { isSyncBusy } from "@/hooks/useSyncDriver";
+import { isSyncBusy, whenSyncIdle } from "@/hooks/useSyncDriver";
 import {
   isFollowingLeader,
   isOwnViewCoveredByLeader,
@@ -171,7 +171,12 @@ export function useVisibleBodyPrefetch(): void {
           // taking it from the message somebody is waiting for.
           if (prefetch.hasUserSelectedPending()) return;
           if (getConnectionStateService().getSyncDelayed()) return;
-          if (isSyncBusy()) return;
+          // A tick can hold a twelve second content turn, so wait for the gap between ticks once rather than
+          // being skipped for as long as a backlog drains; still busy after that, leave it for the next settle.
+          if (isSyncBusy()) {
+            await whenSyncIdle();
+            if (cancelled || isSyncBusy() || prefetch.hasUserSelectedPending()) return;
+          }
           if (typeof document !== "undefined" && document.hidden) return;
 
           sent += 1;

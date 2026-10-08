@@ -75,8 +75,9 @@ import {
   proActionHint,
   proActionLabel,
   proSweepImpact,
-  proSweepTasks,
+  proSweepMatchAllLabel,
   sweepScoreRangeError,
+  useProSweepTasks,
 } from "@/components/settings/filter-rules/pro-rule-options.active";
 
 /**
@@ -101,10 +102,27 @@ function taskLabel(task: SweepTask): string {
   }
 }
 
-function sweepTasks(): SweepTask[] {
+/**
+ * The scans look at mail instead of changing it. That is why they alone may
+ * take every message in the scope: tagging or moving everything is not a sweep.
+ */
+const SCAN_TASKS: ReadonlySet<SweepTask> = new Set<SweepTask>([
+  "run_security_check",
+  "run_spam_check",
+  "run_phishing_check",
+  "run_auto_tagger",
+]);
+
+function sweepTasks(scans: SweepTask[]): SweepTask[] {
   // The scans are Pro; Free has no engine behind them and lists none.
-  return ["move", "add_tag", "remove_tag", ...proSweepTasks(), "run_rules"];
+  return ["move", "add_tag", "remove_tag", ...scans, "run_rules"];
 }
+
+/** What "every message" means to the rule engine: read or not read. Matches the server's own pair. */
+const EVERY_MESSAGE_CONDITIONS = [
+  { field: "is_read", operator: "is_true", value: "" },
+  { field: "is_read", operator: "is_false", value: "" },
+] as const;
 
 function messageRefs(tokens: string[]): FilterRuleRunRef[] {
   const refs: FilterRuleRunRef[] = [];
@@ -181,7 +199,8 @@ function unique(values: string[]): string[] {
   return Array.from(set);
 }
 
-function matchLabel(type: SweepMatchType): string {
+function matchLabel(type: SweepMatchType | "all"): string {
+  if (type === "all") return proSweepMatchAllLabel();
   if (type === "sender_domain") return __("Sender domain", "pressedmail");
   if (type === "subject_contains") return __("Subject contains", "pressedmail");
   return __("Sender email address", "pressedmail");
@@ -198,6 +217,9 @@ interface SweepFolderOption {
 }
 
 type SelectedValuesByType = Record<SweepMatchType, string[]>;
+
+/** A sender, domain or subject to look for, or "all": every message in the scope (scans only). */
+type SweepMatch = SweepMatchType | "all";
 
 /**
  * Live selection snapshot from the call site. `selectedCount` drives the
@@ -443,7 +465,7 @@ export function EmailSweep({
   }, [folders, scope.accountIds, scope.folderPath]);
 
   const [scopeMode, setScopeMode] = useState<SweepScopeMode>("entire_view");
-  const [matchType, setMatchType] = useState<SweepMatchType>("sender_email");
+  const [matchType, setMatchType] = useState<SweepMatch>("sender_email");
   const [selectedValuesByType, setSelectedValuesByType] =
     useState<SelectedValuesByType>(seed.matchValues);
   const [folderValue, setFolderValue] = useState("");
@@ -463,15 +485,24 @@ export function EmailSweep({
   const [submitting, setSubmitting] = useState(false);
   const [ruleIds, setRuleIds] = useState<string[]>([]);
   const tags = useTagsOptional()?.tags ?? [];
+  const scanTasks = useProSweepTasks();
   const usesTag = task === "add_tag" || task === "remove_tag";
-  // Not for the phishing check itself: a range matches only mail already
-  // scanned, and the queue skips mail it already scanned, so it did nothing.
+  const isScan = SCAN_TASKS.has(task);
+  const matchAll = matchType === "all";
+  // A range matches only mail already checked, and a check skips mail it has
+  // already checked, so a check cannot use the range of its own kind: it would
+  // find nothing. It can use the other's.
+  const rangeTask = task !== "move" && task !== "run_rules";
   const usesScoreRange =
     __ENABLE_PHISHING_DETECTION__ &&
-    task !== "move" &&
-    task !== "run_rules" &&
-    task !== "run_phishing_check";
-  const usesSpamRange = __ENABLE_SPAM_DETECTION__ && usesScoreRange;
+    rangeTask &&
+    task !== "run_phishing_check" &&
+    task !== "run_security_check";
+  const usesSpamRange =
+    __ENABLE_SPAM_DETECTION__ &&
+    rangeTask &&
+    task !== "run_spam_check" &&
+    task !== "run_security_check";
   const scoreRangeError = usesScoreRange
     ? sweepScoreRangeError(scoreMin, scoreMax)
     : null;
@@ -563,12 +594,17 @@ export function EmailSweep({
   }, [open, folderOptions, folderValue]);
 
   const matchValues = seed.matchValues;
-  const availableValues = matchValues[matchType];
+  const availableValues = useMemo(
+    () => (matchType === "all" ? [] : matchValues[matchType]),
+    [matchType, matchValues],
+  );
   const selectedValues = useMemo(
     () =>
-      selectedValuesByType[matchType].filter((value) =>
-        availableValues.includes(value),
-      ),
+      matchType === "all"
+        ? []
+        : selectedValuesByType[matchType].filter((value) =>
+            availableValues.includes(value),
+          ),
     [availableValues, matchType, selectedValuesByType],
   );
   const selectedValueSet = useMemo(
@@ -578,6 +614,7 @@ export function EmailSweep({
 
   const toggleMatchValue = useCallback(
     (value: string, checked: boolean) => {
+      if (matchType === "all") return;
       setSelectedValuesByType((current) => {
         const next = new Set(current[matchType]);
         if (checked) next.add(value);
@@ -594,6 +631,7 @@ export function EmailSweep({
 
   const setAllMatchValues = useCallback(
     (checked: boolean) => {
+      if (matchType === "all") return;
       setSelectedValuesByType((current) => ({
         ...current,
         [matchType]: checked ? [...availableValues] : [],
@@ -629,7 +667,7 @@ export function EmailSweep({
     };
     if (task !== "run_rules" && task !== "move") {
       request.sweep = {
-        match: { type: matchType, values: selectedValues },
+        match: { type: matchType, values: matchAll ? [] : selectedValues },
         actions: [{ type: task, ...(usesTag ? { value: tagId } : {}) }],
         ...(usesScoreRange && scoreMin !== "" ? { scoreMin: Number(scoreMin) } : {}),
         ...(usesScoreRange && scoreMax !== "" ? { scoreMax: Number(scoreMax) } : {}),
@@ -639,7 +677,7 @@ export function EmailSweep({
       };
     }
     return request;
-  }, [matchType, onlyTagId, ruleIds, scope, scopeMode, scoreMax, scoreMin, seed.tokens, selectedValues, selection, spamBand, spamMax, spamMin, tagId, task, usesScoreRange, usesSpamRange, usesTag]);
+  }, [matchAll, matchType, onlyTagId, ruleIds, scope, scopeMode, scoreMax, scoreMin, seed.tokens, selectedValues, selection, spamBand, spamMax, spamMin, tagId, task, usesScoreRange, usesSpamRange, usesTag]);
 
   /** Tag, untag, scan or run saved rules: a rule run over the same scope. */
   const runThroughRules = useCallback(
@@ -650,7 +688,7 @@ export function EmailSweep({
         setError(__("Choose at least one rule", "pressedmail"));
         return;
       }
-      if (task !== "run_rules" && selectedValues.length === 0) {
+      if (task !== "run_rules" && !matchAll && selectedValues.length === 0) {
         setError(__("Choose at least one match value", "pressedmail"));
         return;
       }
@@ -704,27 +742,33 @@ export function EmailSweep({
         toast.success(
           __("Sweep started. Rule activity shows its progress.", "pressedmail"),
         );
-        if (createRule && usesTag) {
+        if (createRule && (usesTag || isScan)) {
           const created = await createFilterRule({
             name: sprintf(
-              /* translators: %s: sweep match values. */
+              /* translators: %s: sweep match values, or the check a sweep runs on every message. */
               __("Sweep: %s", "pressedmail"),
-              selectedValues.slice(0, 3).join(", "),
+              matchAll ? taskLabel(task) : selectedValues.slice(0, 3).join(", "),
             ),
             accountId: accountIds.length === 1 ? (accountIds[0] ?? 0) : 0,
             conditionLogic: "or",
-            conditions: selectedValues.map((value) =>
-              matchType === "subject_contains"
-                ? { field: "subject", operator: "contains", value }
-                : matchType === "sender_domain"
-                  ? {
-                      field: "from",
-                      operator: "ends_with",
-                      value: `@${value.replace(/^@/, "")}`,
-                    }
-                  : { field: "from", operator: "equals", value },
-            ),
-            actions: [{ type: task as "add_tag" | "remove_tag", value: tagId }],
+            conditions: matchAll
+              ? [...EVERY_MESSAGE_CONDITIONS]
+              : selectedValues.map((value) =>
+                  matchType === "subject_contains"
+                    ? { field: "subject", operator: "contains", value }
+                    : matchType === "sender_domain"
+                      ? {
+                          field: "from",
+                          operator: "ends_with",
+                          value: `@${value.replace(/^@/, "")}`,
+                        }
+                      : { field: "from", operator: "equals", value },
+                ),
+            actions: [
+              usesTag
+                ? { type: task as "add_tag" | "remove_tag", value: tagId }
+                : { type: task as SweepRuleActionType },
+            ],
             runTriggers: ["manual", "on_receive"],
           });
           if (created.success) {
@@ -750,6 +794,8 @@ export function EmailSweep({
     [
       buildRuleRequest,
       createRule,
+      isScan,
+      matchAll,
       matchType,
       onOpenChange,
       ruleIds,
@@ -797,7 +843,8 @@ export function EmailSweep({
       void runThroughRules(principal);
       return;
     }
-    if (selectedValues.length === 0) {
+    // Only a scan may take everything in the scope; a move never does.
+    if (matchType === "all" || selectedValues.length === 0) {
       setError(__("Choose at least one match value", "pressedmail"));
       return;
     }
@@ -937,10 +984,11 @@ export function EmailSweep({
         ? __("Your rules didn't load. Try again above.", "pressedmail")
         : task === "run_rules" && ruleIds.length === 0
         ? __("Choose at least one rule.", "pressedmail")
-        : task !== "run_rules" && selectedValues.length === 0
+        : task !== "run_rules" && !matchAll && selectedValues.length === 0
           ? __("Choose at least one value to match.", "pressedmail")
           : task !== "run_rules" &&
               task !== "move" &&
+              !matchAll &&
               selectedValues.length > MAX_SWEEP_VALUES
             ? sprintf(
                 /* translators: 1: most values a sweep can match, 2: values ticked now. */
@@ -1000,7 +1048,9 @@ export function EmailSweep({
       ? null
       : task === "run_rules"
         ? '[data-sweep-field="rules"]'
-        : selectedValues.length === 0 || selectedValues.length > MAX_SWEEP_VALUES
+        : !matchAll &&
+            (selectedValues.length === 0 ||
+              selectedValues.length > MAX_SWEEP_VALUES)
           ? '[data-sweep-field="values"]'
           : task === "move" && !folderValue
             ? "#sweep-folder-select"
@@ -1147,7 +1197,7 @@ export function EmailSweep({
               className="grid gap-2 text-sm sm:grid-cols-2"
               role="radiogroup"
               aria-label={__("What to do", "pressedmail")}>
-              {sweepTasks().map((option) => (
+              {sweepTasks(scanTasks).map((option) => (
                 <label
                   key={option}
                   className={cn(
@@ -1164,6 +1214,18 @@ export function EmailSweep({
                     checked={task === option}
                     onChange={() => {
                       setTask(option);
+                      // A scan starts on everything in the scope; the other
+                      // tasks start on a sender. Moving between the two kinds
+                      // never carries the other's choice over.
+                      setMatchType((current) =>
+                        SCAN_TASKS.has(option)
+                          ? SCAN_TASKS.has(task)
+                            ? current
+                            : "all"
+                          : current === "all"
+                            ? "sender_email"
+                            : current,
+                      );
                       // A tag picked for Add a tag never arrives pre-armed in
                       // Remove a tag, and the same for a destination.
                       setTagId("");
@@ -1325,18 +1387,25 @@ export function EmailSweep({
               <SweepStep
                 step={nextStep()}
                 title={__("Match messages by", "pressedmail")}
-                description={sprintf(
-                  /* translators: %d: selected message count. */
-                  _n(
-                    "The values come from the %d message you selected.",
-                    "The values come from the %d messages you selected.",
-                    seed.sampleCount,
-                    "pressedmail",
-                  ),
-                  seed.sampleCount,
-                )}>
+                description={
+                  matchAll
+                    ? undefined
+                    : sprintf(
+                        /* translators: %d: selected message count. */
+                        _n(
+                          "The values come from the %d message you selected.",
+                          "The values come from the %d messages you selected.",
+                          seed.sampleCount,
+                          "pressedmail",
+                        ),
+                        seed.sampleCount,
+                      )
+                }>
                 <div className="grid gap-2 text-sm">
-                  {MATCH_TYPES.map((type) => (
+                  {(isScan
+                    ? (["all", ...MATCH_TYPES] as SweepMatch[])
+                    : (MATCH_TYPES as SweepMatch[])
+                  ).map((type) => (
                     <label
                       key={type}
                       className={cn(
@@ -1358,108 +1427,112 @@ export function EmailSweep({
                         />
                         <span>{matchLabel(type)}</span>
                       </span>
-                      <span className="text-[12px] text-muted-foreground">
-                        {sprintf(
-                          /* translators: %d: how many values this match type found. */
-                          _n(
-                            "%d value",
-                            "%d values",
+                      {type === "all" ? null : (
+                        <span className="text-[12px] text-muted-foreground">
+                          {sprintf(
+                            /* translators: %d: how many values this match type found. */
+                            _n(
+                              "%d value",
+                              "%d values",
+                              matchValues[type].length,
+                              "pressedmail",
+                            ),
                             matchValues[type].length,
-                            "pressedmail",
-                          ),
-                          matchValues[type].length,
-                        )}
-                      </span>
+                          )}
+                        </span>
+                      )}
                     </label>
                   ))}
                 </div>
 
-                <div
-                  className="rounded-md border border-border bg-muted/20 p-3"
-                  data-sweep-field="values">
-                  <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                    <span className="text-sm font-medium text-foreground">
-                      {__("Values to match", "pressedmail")}
-                    </span>
-                    {availableValues.length > 0 ? (
-                      <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
-                        <span data-test="sweep-match-values-count" data-testid="sweep-match-values-count">
-                          {sprintf(
-                            /* translators: 1: values ticked, 2: values found. */
-                            __("%1$d of %2$d ticked", "pressedmail"),
-                            selectedValues.length,
-                            availableValues.length,
-                          )}
-                        </span>
-                        <button
-                          type="button"
-                          className="rounded-sm font-medium text-foreground underline underline-offset-2 hover:no-underline max-sm:min-h-11"
-                          data-test="sweep-match-values-all"
-                          data-testid="sweep-match-values-all"
-                          onClick={() => setAllMatchValues(true)}>
-                          {__("All", "pressedmail")}
-                        </button>
-                        <button
-                          type="button"
-                          className="rounded-sm font-medium text-foreground underline underline-offset-2 hover:no-underline max-sm:min-h-11"
-                          data-test="sweep-match-values-none"
-                          data-testid="sweep-match-values-none"
-                          onClick={() => setAllMatchValues(false)}>
-                          {__("None", "pressedmail")}
-                        </button>
+                {matchAll ? null : (
+                  <div
+                    className="rounded-md border border-border bg-muted/20 p-3"
+                    data-sweep-field="values">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="text-sm font-medium text-foreground">
+                        {__("Values to match", "pressedmail")}
                       </span>
-                    ) : null}
-                  </div>
-                  {availableValues.length > 0 ? (
-                    <div className="relative">
-                      <div
-                        data-test="sweep-match-values-list"
-                        data-testid="sweep-match-values-list"
-                        className={cn(
-                          "space-y-1 text-sm",
-                          valuesShouldScroll && "max-h-56 overflow-y-scroll pr-2 pb-4",
-                        )}>
-                        {availableValues.map((value) => (
-                          <label
-                            key={value}
-                            data-test={`sweep-match-value-row-${value}`}
-                            data-testid={`sweep-match-value-row-${value}`}
-                            className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-0.5 max-sm:min-h-11">
-                            <Checkbox
-                              checked={selectedValueSet.has(value)}
-                              onCheckedChange={(checked) =>
-                                toggleMatchValue(value, Boolean(checked))
-                              }
-                              aria-label={value}
-                            />
-                            <span className="min-w-0 truncate text-foreground">
-                              {value}
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                      {valuesShouldScroll ? (
-                        // A fade says the list goes on below the fold.
-                        <div
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-muted/60 to-transparent"
-                        />
+                      {availableValues.length > 0 ? (
+                        <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                          <span data-test="sweep-match-values-count" data-testid="sweep-match-values-count">
+                            {sprintf(
+                              /* translators: 1: values ticked, 2: values found. */
+                              __("%1$d of %2$d ticked", "pressedmail"),
+                              selectedValues.length,
+                              availableValues.length,
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded-sm font-medium text-foreground underline underline-offset-2 hover:no-underline max-sm:min-h-11"
+                            data-test="sweep-match-values-all"
+                            data-testid="sweep-match-values-all"
+                            onClick={() => setAllMatchValues(true)}>
+                            {__("All", "pressedmail")}
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-sm font-medium text-foreground underline underline-offset-2 hover:no-underline max-sm:min-h-11"
+                            data-test="sweep-match-values-none"
+                            data-testid="sweep-match-values-none"
+                            onClick={() => setAllMatchValues(false)}>
+                            {__("None", "pressedmail")}
+                          </button>
+                        </span>
                       ) : null}
                     </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {__(
-                        "No usable values found for this match type.",
-                        "pressedmail",
-                      )}
-                    </p>
-                  )}
-                  {valuesShouldScroll ? (
-                    <p className="mt-2 text-[12px] text-muted-foreground">
-                      {__("Scroll the list to see every value.", "pressedmail")}
-                    </p>
-                  ) : null}
-                </div>
+                    {availableValues.length > 0 ? (
+                      <div className="relative">
+                        <div
+                          data-test="sweep-match-values-list"
+                          data-testid="sweep-match-values-list"
+                          className={cn(
+                            "space-y-1 text-sm",
+                            valuesShouldScroll && "max-h-56 overflow-y-scroll pr-2 pb-4",
+                          )}>
+                          {availableValues.map((value) => (
+                            <label
+                              key={value}
+                              data-test={`sweep-match-value-row-${value}`}
+                              data-testid={`sweep-match-value-row-${value}`}
+                              className="flex min-w-0 items-center gap-2 rounded-sm px-1 py-0.5 max-sm:min-h-11">
+                              <Checkbox
+                                checked={selectedValueSet.has(value)}
+                                onCheckedChange={(checked) =>
+                                  toggleMatchValue(value, Boolean(checked))
+                                }
+                                aria-label={value}
+                              />
+                              <span className="min-w-0 truncate text-foreground">
+                                {value}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                        {valuesShouldScroll ? (
+                          // A fade says the list goes on below the fold.
+                          <div
+                            aria-hidden="true"
+                            className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-muted/60 to-transparent"
+                          />
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {__(
+                          "No usable values found for this match type.",
+                          "pressedmail",
+                        )}
+                      </p>
+                    )}
+                    {valuesShouldScroll ? (
+                      <p className="mt-2 text-[12px] text-muted-foreground">
+                        {__("Scroll the list to see every value.", "pressedmail")}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
 
                 {task === "move" ? (
                   <p className="text-[12px] text-muted-foreground">
@@ -1535,7 +1608,7 @@ export function EmailSweep({
             </>
           ) : null}
 
-          {task === "move" || usesTag ? (
+          {task === "move" || usesTag || isScan ? (
             <SweepStep
               step={nextStep()}
               title={__("Automation", "pressedmail")}>

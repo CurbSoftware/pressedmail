@@ -26,6 +26,9 @@ const ADVANCE_TIMEOUT_MS = 45_000;
 /** The FULL background-queue drain endpoint; bounded but can run a live-IMAP job, so give it room. */
 const PROCESS_QUEUE_TIMEOUT_MS = 30_000;
 
+/** A body lane turn: the server stops starting downloads after about 12 s, and the one in flight may run on. */
+const BODY_LANE_TIMEOUT_MS = 30_000;
+
 /**
  * Diagnostics' "Run now" runs a whole dispatcher pass (its own 25-job / 45-second
  * budget), and the administrator is watching a spinner for it, so the client
@@ -63,6 +66,12 @@ function retryAfterMs(response: Response, body: unknown): number {
 export interface AdvanceSyncResult {
   advanced: number;
   remaining: number;
+  /**
+   * Message-content passes the server still has queued. The head backfill reports itself in
+   * `remaining`; content is a separate lane, and the driver keeps asking for it while this is
+   * above zero.
+   */
+  bodiesPending: number;
   locked: boolean;
   /** Overdue background-queue depth reported by the server (cron-health signal). */
   overdueJobs: number;
@@ -108,7 +117,11 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
   }
 
   const data = (await response.json().catch(() => ({}))) as {
-    data?: Partial<AdvanceSyncResult> & { overdue_jobs?: number; paused?: boolean };
+    data?: Partial<AdvanceSyncResult> & {
+      overdue_jobs?: number;
+      paused?: boolean;
+      bodies_pending?: number;
+    };
   };
   // Any other non-2xx is a failure, not an empty success. Counting it as success used to
   // trigger a full drain on top. Only 429 and 5xx (rate limit, busy, gateway page) mean
@@ -123,6 +136,7 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
   return {
     advanced: Number(payload.advanced ?? 0),
     remaining: Number(payload.remaining ?? 0),
+    bodiesPending: Number(payload.bodies_pending ?? 0),
     locked: Boolean(payload.locked ?? false),
     overdueJobs: Number(payload.overdue_jobs ?? 0),
     paused: Boolean(payload.paused ?? false),
@@ -165,6 +179,60 @@ export async function processQueueSync(): Promise<number | null> {
     return Number.isFinite(remaining) ? remaining : null;
   } catch {
     // Swallow: the alternating drain is best-effort and must never break the driver loop.
+    return null;
+  }
+}
+
+export interface BodyLaneResult {
+  /** Body passes the server ran this turn. */
+  processed: number;
+  /** Bodies those passes stored. A pass can run and store nothing (a reader has the folder). */
+  stored: number;
+  /** Body passes still queued after it. */
+  pending: number;
+}
+
+/**
+ * One turn of the body lane: message content, and nothing else, on its own lock.
+ *
+ * A mail drain gives content whatever is left of eight seconds, claimed last, and after the first
+ * header sync that is nothing, so a mailbox filled for hours. This asks for content by name. It is
+ * best-effort like {@link processQueueSync} and never throws into the driver loop.
+ *
+ * @returns What the turn did, or `null` when it could not answer.
+ */
+export async function drainBodiesSync(): Promise<BodyLaneResult | null> {
+  try {
+    const response = await apiFetch(
+      buildApiUrl(`${routeApiPrefix}/sync/process-queue`),
+      {
+        method: "POST",
+        credentials: "include",
+        headers: getHeaders(),
+        body: JSON.stringify({ lane: "bodies" }),
+      },
+      { timeoutMs: BODY_LANE_TIMEOUT_MS },
+    );
+    if (!response.ok) {
+      return null;
+    }
+    const body = (await response.json().catch(() => ({}))) as {
+      data?: {
+        processed?: unknown;
+        bodies_stored?: unknown;
+        bodies_pending?: unknown;
+      };
+    };
+    const processed = Number(body.data?.processed);
+    const pending = Number(body.data?.bodies_pending);
+    // A server that predates the count says how many passes ran, which is the best it can tell.
+    const stored = Number(body.data?.bodies_stored ?? processed);
+    return Number.isFinite(processed) &&
+      Number.isFinite(pending) &&
+      Number.isFinite(stored)
+      ? { processed, stored, pending }
+      : null;
+  } catch {
     return null;
   }
 }

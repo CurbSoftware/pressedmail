@@ -10483,6 +10483,9 @@ packages:
   class-variance-authority@0.7.1:
     resolution:
       integrity: sha512-Ka+9Trutv7G8M6WT6SeiRWz792K5qEqIGEGzXKhAE6xOWAY6pPH8U+9IY3oCMv6kqTmLsv7Xh/2w2RigkePMsg==
+  cldr-annotations-full@48.2.0:
+    resolution:
+      integrity: sha512-DV7A+rEcgUSNTRsVGNGqBZRmAkGfwhGHO5Q1dRwzBoBnVrHWp804JP7/QJdEc66iHmx3+zLWVIMCFLm0lW7PUQ==
   clean-stack@2.2.0:
     resolution:
       integrity: sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==
@@ -27479,6 +27482,7 @@ snapshots:
   class-variance-authority@0.7.1:
     dependencies:
       clsx: 2.1.1
+  cldr-annotations-full@48.2.0: {}
   clean-stack@2.2.0: {}
   cli-cursor@2.1.0:
     dependencies:

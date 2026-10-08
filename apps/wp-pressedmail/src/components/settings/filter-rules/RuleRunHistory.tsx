@@ -11,13 +11,17 @@
 import * as React from "react";
 import { AlertCircle, ChevronRight, RefreshCw } from "lucide-react";
 import { __, _n, sprintf } from "@wordpress/i18n";
-import { Badge, Button, Skeleton } from "@kit/ui/plugin";
+import { Badge, Button, Skeleton, toast } from "@kit/ui/plugin";
 import type {
   FilterRuleRunHistory,
   FilterRuleRunHistoryItem,
 } from "@/types/filter-rules";
 import { runTriggerLabel } from "@/types/filter-rules";
-import { fetchFilterRuleRuns, fetchFilterRules } from "@/services/filter-rules.service";
+import {
+  cancelFilterRuleRun,
+  fetchFilterRuleRuns,
+  fetchFilterRules,
+} from "@/services/filter-rules.service";
 import { getCalendarLocale } from "@/components/calendar/calendar-intl";
 import { proTriggerLabel } from "@/components/settings/filter-rules/pro-rule-options.active";
 
@@ -34,6 +38,15 @@ function statusLabel(status: FilterRuleRunHistoryItem["status"]): string {
     default:
       return __("Running", "pressedmail");
   }
+}
+
+/** A run that has not finished can still be stopped. */
+function canStop(run: FilterRuleRunHistoryItem): boolean {
+  return (
+    run.status === "queued" ||
+    run.status === "syncing" ||
+    run.status === "processing"
+  );
 }
 
 /** Run timestamps are UTC without a zone marker. */
@@ -112,9 +125,13 @@ function statusClass(status: FilterRuleRunHistoryItem["status"]): string {
 function RunRow({
   run,
   names,
+  stopping,
+  onStop,
 }: {
   run: FilterRuleRunHistoryItem;
   names: Map<string, string>;
+  stopping: boolean;
+  onStop: (runId: number) => void;
 }) {
   const date = runDate(run.createdAt);
   return (
@@ -150,6 +167,25 @@ function RunRow({
           data-status={run.status}>
           {statusLabel(run.status)}
         </Badge>
+        {canStop(run) ? (
+          run.cancelRequested || stopping ? (
+            // Asked, and the worker has not answered yet.
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {__("Stopping the rule run", "pressedmail")}
+            </span>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-1 max-sm:min-h-11"
+              onClick={() => onStop(run.id)}
+              data-test={`rule-run-history-stop-${run.id}`}
+              data-testid={`rule-run-history-stop-${run.id}`}>
+              {__("Stop", "pressedmail")}
+            </Button>
+          )
+        ) : null}
       </td>
       <td className={`py-2 text-xs text-muted-foreground max-sm:order-5 max-sm:basis-full ${CELL}`}>
         {sprintf(
@@ -171,10 +207,14 @@ function RunTable({
   runs,
   caption,
   names,
+  stopping,
+  onStop,
 }: {
   runs: FilterRuleRunHistoryItem[];
   caption: string;
   names: Map<string, string>;
+  stopping: ReadonlySet<number>;
+  onStop: (runId: number) => void;
 }) {
   return (
     <table className="mt-2 w-full table-fixed text-left text-sm max-sm:block">
@@ -205,7 +245,13 @@ function RunTable({
       </thead>
       <tbody className="max-sm:block">
         {runs.map((run) => (
-          <RunRow key={run.id} run={run} names={names} />
+          <RunRow
+            key={run.id}
+            run={run}
+            names={names}
+            stopping={stopping.has(run.id)}
+            onStop={onStop}
+          />
         ))}
       </tbody>
     </table>
@@ -219,6 +265,7 @@ export function RuleRunHistory() {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [names, setNames] = React.useState<Map<string, string>>(new Map());
+  const [stopping, setStopping] = React.useState<ReadonlySet<number>>(new Set());
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -240,6 +287,27 @@ export function RuleRunHistory() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  // A sweep over a whole mailbox can run for a long while and spend credits, so it can be stopped from here.
+  const stop = React.useCallback(
+    async (runId: number) => {
+      setStopping((current) => new Set(current).add(runId));
+      try {
+        await cancelFilterRuleRun(runId);
+        await load();
+      } catch {
+        // The server's words are HTTP text here; the user gets a plain sentence.
+        toast.error(__("Could not stop the rule run", "pressedmail"));
+      } finally {
+        setStopping((current) => {
+          const next = new Set(current);
+          next.delete(runId);
+          return next;
+        });
+      }
+    },
+    [load],
+  );
 
   const summary = history?.automaticSummary;
 
@@ -347,6 +415,8 @@ export function RuleRunHistory() {
               <RunTable
                 runs={history.automatic}
                 names={names}
+                stopping={stopping}
+                onStop={stop}
                 caption={__("Automatic rule runs that matched or failed", "pressedmail")}
               />
             ) : null}
@@ -362,6 +432,8 @@ export function RuleRunHistory() {
               <RunTable
                 runs={history.runs}
                 names={names}
+                stopping={stopping}
+                onStop={stop}
                 caption={__("Rule runs you started", "pressedmail")}
               />
             ) : (

@@ -141,7 +141,7 @@ export interface UseFolderOperationsReturn {
   getNormalizedFolders: () => NormalizedFolder[];
   getFolderByPath: (path: string) => NormalizedFolder | undefined;
   getSystemFolder: (type: SystemFolderType) => NormalizedFolder | undefined;
-  refreshFolders: () => Promise<void>;
+  refreshFolders: (options?: { syncAllAccounts?: boolean }) => Promise<void>;
   /** Cheap folder-only reload from the DB mirror (no live IMAP, no message refetch). */
   reloadFolders: () => Promise<void>;
   loadFolderMessages: (folderId: string) => Promise<void>;
@@ -1189,29 +1189,55 @@ export function useFolderOperations(): UseFolderOperationsReturn {
   );
 
   // Refresh folders
-  const refreshFolders = useCallback(async () => {
-    const account = resolveAccountContext();
-    if (account !== null) {
-      // Bump the current account to the FRONT of the sync queue and kick the driver, so
-      // Refresh triggers a real re-sync (not just a mirror re-read of the same rows).
-      const accountIds = isCombinedAccount(account)
-        ? (account.accountIds ?? [])
-        : typeof account.accountId === "number"
-          ? [account.accountId]
-          : [];
-      void refreshAccountSync(accountIds);
+  const refreshFolders = useCallback(
+    async ({
+      syncAllAccounts = false,
+    }: { syncAllAccounts?: boolean } = {}) => {
+      const account = resolveAccountContext();
+      if (account !== null) {
+        // Bump the current account to the FRONT of the sync queue and kick the driver, so
+        // Refresh triggers a real re-sync (not just a mirror re-read of the same rows).
+        // The explicit Refresh button hands the whole job to inbox.refreshMessages
+        // below (queue, drain, toasts), so it must not book the same refresh twice.
+        if (!syncAllAccounts) {
+          const accountIds = isCombinedAccount(account)
+            ? (account.accountIds ?? [])
+            : typeof account.accountId === "number"
+              ? [account.accountId]
+              : [];
+          void refreshAccountSync(accountIds);
+        }
 
-      if (isCombinedAccount(account)) {
-        await serviceFolderOps.loadConsolidatedFolders?.(
-          account.accountIds ?? [],
-          true,
-        );
-      } else {
-        await serviceFolderOps.loadFolders(account.accountId, true);
+        // On the explicit button the booking lives in refreshMessages below, so
+        // a failing folder load must not skip it: run it anyway, then rethrow
+        // the load error exactly as before. The automatic path booked up front
+        // and still stops at the throw.
+        let loadFailed = false;
+        let loadError: unknown;
+        try {
+          if (isCombinedAccount(account)) {
+            await serviceFolderOps.loadConsolidatedFolders?.(
+              account.accountIds ?? [],
+              true,
+            );
+          } else {
+            await serviceFolderOps.loadFolders(account.accountId, true);
+          }
+        } catch (error) {
+          if (!syncAllAccounts) {
+            throw error;
+          }
+          loadFailed = true;
+          loadError = error;
+        }
+        await inbox.refreshMessages({ syncAllAccounts });
+        if (loadFailed) {
+          throw loadError;
+        }
       }
-      await inbox.refreshMessages();
-    }
-  }, [resolveAccountContext, serviceFolderOps, inbox]);
+    },
+    [resolveAccountContext, serviceFolderOps, inbox],
+  );
 
   // Cheap folder-only reload from the DB mirror (force=false → no live IMAP, no
   // message refetch). Used to poll sync progress so per-folder loaders cascade

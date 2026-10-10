@@ -427,7 +427,7 @@ export function FolderPane({
         icon: EmailRefreshIcon,
         // Force a LIVE folder recount + message refresh (re-bootstraps a
         // stalled mirror), not just a mirror re-read of the same empty rows.
-        onClick: () => refreshFolders(),
+        onClick: () => refreshFolders({ syncAllAccounts: true }),
         disabled: isLoading || isRefreshing,
         testId: "folder-sidebar-refresh",
         spinning: isLoading || isRefreshing,
@@ -483,6 +483,7 @@ export function FolderPane({
                     variant={action.id === "compose" ? "default" : "outline"}
                     size="icon"
                     disabled={action.disabled}
+                    aria-busy={action.spinning || undefined}
                     onClick={action.onClick}
                     data-test={action.testId}
                     className="h-8 w-8 shrink-0"
@@ -505,6 +506,7 @@ export function FolderPane({
                   variant={action.id === "compose" ? "default" : "outline"}
                   size="sm"
                   disabled={action.disabled}
+                  aria-busy={action.spinning || undefined}
                   onClick={action.onClick}
                   data-test={action.testId}
                   className={cn(

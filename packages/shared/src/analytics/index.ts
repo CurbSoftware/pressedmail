@@ -6,6 +6,7 @@ export {
   type UmamiEventName,
   type UmamiFailureReason,
 } from './events';
+export * from './marketing-attribution';
 
 export {
   UMAMI_MAX_EVENT_NAME_LENGTH,

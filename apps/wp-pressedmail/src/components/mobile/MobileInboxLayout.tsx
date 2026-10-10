@@ -58,6 +58,7 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
     messages: filteredMessages,
     selectedMessage,
     isLoading,
+    isRefreshing,
     hasMore,
     isLoadingMore,
   } = useInboxState();
@@ -231,11 +232,15 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
               <button
                 type="button"
                 onClick={() => refreshMessages({ syncAllAccounts: true })}
-                disabled={isLoading}
+                disabled={isLoading || isRefreshing}
+                aria-busy={isRefreshing || undefined}
                 aria-label={__("Refresh messages", "pressedmail")}
                 className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
                 <EmailRefreshIcon
-                  className={cn("h-5 w-5", isLoading && "animate-spin")}
+                  className={cn(
+                    "h-5 w-5",
+                    (isLoading || isRefreshing) && "animate-spin",
+                  )}
                   aria-hidden="true"
                 />
               </button>
@@ -265,11 +270,15 @@ export function MobileInboxLayout({ accounts }: MobileInboxLayoutProps) {
               <button
                 type="button"
                 onClick={() => refreshMessages({ syncAllAccounts: true })}
-                disabled={isLoading}
+                disabled={isLoading || isRefreshing}
+                aria-busy={isRefreshing || undefined}
                 aria-label={__("Refresh messages", "pressedmail")}
                 className="pm-touch-target inline-flex items-center justify-center rounded-full p-2 hover:bg-muted">
                 <EmailRefreshIcon
-                  className={cn("h-5 w-5", isLoading && "animate-spin")}
+                  className={cn(
+                    "h-5 w-5",
+                    (isLoading || isRefreshing) && "animate-spin",
+                  )}
                   aria-hidden="true"
                 />
               </button>

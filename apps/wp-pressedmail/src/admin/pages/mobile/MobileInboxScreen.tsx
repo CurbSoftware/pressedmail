@@ -591,8 +591,14 @@ export function MobileInboxScreen() {
     prefetch,
     threadGroups,
   } = useInbox();
-  const { messages, isLoading, isLoadingMore, hasMore, totalCount } =
-    useInboxState();
+  const {
+    messages,
+    isLoading,
+    isRefreshing,
+    isLoadingMore,
+    hasMore,
+    totalCount,
+  } = useInboxState();
   const {
     selectMessage,
     archiveMessage,
@@ -2513,12 +2519,15 @@ export function MobileInboxScreen() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
-                      disabled={isLoading}
-                      onClick={() => refreshMessages()}>
+                      disabled={isLoading || isRefreshing}
+                      aria-busy={isRefreshing || undefined}
+                      onClick={() =>
+                        refreshMessages({ syncAllAccounts: true })
+                      }>
                       <EmailRefreshIcon
                         className={cn(
                           "mr-2 h-4 w-4",
-                          isLoading && "animate-spin",
+                          (isLoading || isRefreshing) && "animate-spin",
                         )}
                         aria-hidden="true"
                       />
@@ -2592,8 +2601,9 @@ export function MobileInboxScreen() {
             </p>
             <button
               type="button"
-              onClick={() => refreshMessages()}
-              disabled={isLoading}
+              onClick={() => refreshMessages({ syncAllAccounts: true })}
+              disabled={isLoading || isRefreshing}
+              aria-busy={isRefreshing || undefined}
               className="pm-touch-target pm-no-tap-highlight mt-1 inline-flex items-center justify-center rounded-full bg-primary px-4 text-sm font-semibold text-primary-foreground active:bg-primary/90 disabled:opacity-50">
               {__("Check for new mail", "pressedmail")}
             </button>

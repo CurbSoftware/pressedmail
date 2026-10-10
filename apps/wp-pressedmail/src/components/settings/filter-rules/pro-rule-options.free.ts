@@ -29,12 +29,11 @@ export const proActionPicker = (
   choices: Array<{ value: string; label: string }>;
   placeholder: string;
 } | null => null;
-export const useProSweepTasks = (): Array<
-  | "run_security_check"
-  | "run_spam_check"
-  | "run_phishing_check"
-  | "run_auto_tagger"
-> => [];
+export const useProSweepTasks = (): never[] => [];
+export const isScanTask = (_task: string): boolean => false;
+export const proSweepChecks = (
+  _task: string,
+): { phishing: boolean; spam: boolean } => ({ phishing: false, spam: false });
 export const proSweepMatchAllLabel = (): string => "";
 export const proSweepImpact = (_task: string, _count: number): string | null =>
   null;

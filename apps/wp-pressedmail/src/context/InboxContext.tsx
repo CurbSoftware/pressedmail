@@ -396,6 +396,12 @@ export interface InboxContextValue {
   threadGroups: EmailThreadGroupMap;
   /** Whether messages are loading */
   isLoading: boolean;
+  /**
+   * True while an explicit Refresh press is in flight (refresh-account, queue
+   * drain, then the list reload). `isLoading` only flips inside the reload at
+   * the end, so the Refresh controls read this too.
+   */
+  isRefreshing: boolean;
   /** Whether loading more messages (pagination) */
   isLoadingMore: boolean;
   /** Whether more messages are available */
@@ -621,6 +627,7 @@ const defaultContextValue: InboxContextValue = {
   groupedMessages: [],
   threadGroups: {},
   isLoading: false,
+  isRefreshing: false,
   isLoadingMore: false,
   hasMore: false,
   totalCount: 0,
@@ -1408,7 +1415,7 @@ export function InboxProvider({
     ],
   );
 
-  const refreshMessages = useCallback(
+  const runRefreshMessages = useCallback(
     async ({
       sync = true,
       syncAllAccounts = false,
@@ -1532,6 +1539,57 @@ export function InboxProvider({
       inboxService,
       isConsolidatedMode,
       loadMessages,
+      selectedAccountId,
+    ],
+  );
+
+  // One explicit Refresh at a time per scope. The press is slow before the list
+  // reload even starts (refresh-account, then a queue drain of up to 30 s), and
+  // `isLoading` is still false then, so a second press used to run a second
+  // refresh-account, a second drain and a second toast. A repeat press returns
+  // the running promise rather than being dropped: its caller then waits for
+  // the real end of the work instead of being told "done" at once. Automatic
+  // callers (no syncAllAccounts) bypass this entirely and never show busy.
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshInFlightRef = useRef<{
+    scope: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const refreshMessages = useCallback(
+    (
+      options: { sync?: boolean; syncAllAccounts?: boolean } = {},
+    ): Promise<void> => {
+      const scope = String(
+        (isConsolidatedMode
+          ? consolidatedScopeKey
+          : (selectedAccountId ?? inboxService.getCurrentAccountId())) ?? "",
+      );
+      if (!options.syncAllAccounts || options.sync === false || !scope) {
+        return runRefreshMessages(options);
+      }
+      const running = refreshInFlightRef.current;
+      if (running && running.scope === scope) {
+        return running.promise;
+      }
+      const entry = { scope, promise: Promise.resolve() };
+      // Cleared in finally: a throw, a failed outcome or an account switch
+      // mid-flight must never leave the control stuck busy. Only the newest
+      // entry clears the flag, so a superseded press cannot clear a live one.
+      entry.promise = runRefreshMessages(options).finally(() => {
+        if (refreshInFlightRef.current === entry) {
+          refreshInFlightRef.current = null;
+          setIsRefreshing(false);
+        }
+      });
+      refreshInFlightRef.current = entry;
+      setIsRefreshing(true);
+      return entry.promise;
+    },
+    [
+      consolidatedScopeKey,
+      inboxService,
+      isConsolidatedMode,
+      runRefreshMessages,
       selectedAccountId,
     ],
   );
@@ -3012,6 +3070,7 @@ export function InboxProvider({
       groupedMessages: inboxService.groupedMessages,
       threadGroups: inboxService.threadGroups,
       isLoading: inboxService.isLoading,
+      isRefreshing,
       isLoadingMore: inboxService.isLoadingMore,
       hasMore: inboxService.hasMore,
       totalCount: inboxService.totalCount,
@@ -3105,6 +3164,7 @@ export function InboxProvider({
       detailBodyPending,
       detailBodyError,
       retryMessageDetail,
+      isRefreshing,
       // useSyncExternalStore versions trigger memo recompute when
       // service state changes.
       inboxVersion,
@@ -3186,6 +3246,7 @@ export function useInboxState() {
     threadGroups,
     groupedMessages,
     isLoading,
+    isRefreshing,
     isLoadingMore,
     hasMore,
     totalCount,
@@ -3206,6 +3267,7 @@ export function useInboxState() {
     threadGroups,
     groupedMessages,
     isLoading,
+    isRefreshing,
     isLoadingMore,
     hasMore,
     totalCount,

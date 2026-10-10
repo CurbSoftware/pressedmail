@@ -91,7 +91,10 @@ export interface UseMailOperationsReturn {
   sendMessage: (data: ComposeData) => Promise<MailOperationResult>;
 
   // Loading Operations
-  refreshMessages: () => Promise<void>;
+  refreshMessages: (options?: {
+    sync?: boolean;
+    syncAllAccounts?: boolean;
+  }) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
 
   // Filter Operations
@@ -686,12 +689,16 @@ export function useMailOperations(): UseMailOperationsReturn {
 
   // ============== Loading Operations ==============
 
-  const refreshMessages = useCallback(async () => {
-    // No toast: refreshing is a routine action, the spinner and the Syncing
-    // state already say it is happening, and this one was untranslated English
-    // dressed up as a warning.
-    await inbox.refreshMessages();
-  }, [inbox]);
+  const refreshMessages = useCallback(
+    async (options?: { sync?: boolean; syncAllAccounts?: boolean }) => {
+      // No toast here: refreshing is a routine action, the spinner and the
+      // Syncing state already say it is happening. The outcome toasts for the
+      // explicit Refresh buttons come from the inbox, so the options must reach
+      // it. Dropping them here once left the PressedG button silent.
+      await inbox.refreshMessages(options);
+    },
+    [inbox],
+  );
 
   const loadMoreMessages = useCallback(async () => {
     await inbox.loadMore();
@@ -733,7 +740,7 @@ export function useMailOperations(): UseMailOperationsReturn {
       filteredMessages: inboxState.messages,
       selectedMessage: inboxState.selectedMessage,
       isLoading: inboxState.isLoading,
-      isRefreshing: inboxState.isLoading,
+      isRefreshing: inboxState.isLoading || inboxState.isRefreshing,
       isSending: composer.isSending,
       error: inboxState.error,
       hasMore: inboxState.hasMore,

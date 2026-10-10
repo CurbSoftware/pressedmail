@@ -63,6 +63,7 @@ function MailCompInner({
     messages: filteredMessages,
     selectedMessage,
     isLoading,
+    isRefreshing,
     hasMore,
     isLoadingMore,
   } = useInboxState();
@@ -122,15 +123,19 @@ function MailCompInner({
           <Button
             variant="outline"
             size="sm"
-            disabled={isLoading}
+            disabled={isLoading || isRefreshing}
+            aria-busy={isRefreshing || undefined}
             onClick={() => refreshMessages({ syncAllAccounts: true })}
             className="flex-1">
             <EmailRefreshIcon
-              className={cn("h-4 w-4", isLoading && "animate-spin")}
+              className={cn(
+                "h-4 w-4",
+                (isLoading || isRefreshing) && "animate-spin",
+              )}
             />
             {!isCollapsed && (
               <span className="ml-2">
-                {isLoading
+                {isLoading || isRefreshing
                   ? __("Loading...", "pressedmail")
                   : __("Refresh", "pressedmail")}
               </span>

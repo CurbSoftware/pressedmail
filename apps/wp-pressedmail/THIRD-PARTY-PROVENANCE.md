@@ -167,9 +167,9 @@ unreachable:
 
 | Call site | What reaches it | Verdict |
 |---|---|---|
-| `nesbot/carbon` `Traits/Mixin.php:127` — `eval(self::getAnonymousClassCodeForTrait($trait))` | `Carbon::mixin()`, which appears in this package only in docblocks | Unreachable. No caller anywhere in the tree. |
-| `curbsoftware/wp-eloquent` `Events/CallQueuedListener.php:143` — `unserialize($this->data)` | A listener that `implements ShouldQueue`, handled from a queue. PressedMail registers no queued listener and runs no queue worker | Unreachable. |
-| `symfony/http-foundation` `Session/Storage/MockFileSessionStorage.php:156` — `unserialize($data, ['allowed_classes' => true])` | Instantiating Symfony's mock session storage. It is a test double; nothing in the package instantiates it | Unreachable. |
+| `nesbot/carbon` `Traits/Mixin.php:127` - `eval(self::getAnonymousClassCodeForTrait($trait))` | `Carbon::mixin()`, which appears in this package only in docblocks | Unreachable. No caller anywhere in the tree. |
+| `curbsoftware/wp-eloquent` `Events/CallQueuedListener.php:143` - `unserialize($this->data)` | A listener that `implements ShouldQueue`, handled from a queue. PressedMail registers no queued listener and runs no queue worker | Unreachable. |
+| `symfony/http-foundation` `Session/Storage/MockFileSessionStorage.php:156` - `unserialize($data, ['allowed_classes' => true])` | Instantiating Symfony's mock session storage. It is a test double; nothing in the package instantiates it | Unreachable. |
 
 `nesbot/carbon` also has `unserialize()` in `CarbonInterval.php:3317` and
 `Traits/Serialization.php:93`. Both are `__unserialize()` bodies, so they need an

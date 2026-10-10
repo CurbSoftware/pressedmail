@@ -74,6 +74,8 @@ import {
   SweepScoreRange,
   proActionHint,
   proActionLabel,
+  isScanTask,
+  proSweepChecks,
   proSweepImpact,
   proSweepMatchAllLabel,
   sweepScoreRangeError,
@@ -101,17 +103,6 @@ function taskLabel(task: SweepTask): string {
       return proActionLabel(task);
   }
 }
-
-/**
- * The scans look at mail instead of changing it. That is why they alone may
- * take every message in the scope: tagging or moving everything is not a sweep.
- */
-const SCAN_TASKS: ReadonlySet<SweepTask> = new Set<SweepTask>([
-  "run_security_check",
-  "run_spam_check",
-  "run_phishing_check",
-  "run_auto_tagger",
-]);
 
 function sweepTasks(scans: SweepTask[]): SweepTask[] {
   // The scans are Pro; Free has no engine behind them and lists none.
@@ -487,7 +478,10 @@ export function EmailSweep({
   const tags = useTagsOptional()?.tags ?? [];
   const scanTasks = useProSweepTasks();
   const usesTag = task === "add_tag" || task === "remove_tag";
-  const isScan = SCAN_TASKS.has(task);
+  // The scans look at mail instead of changing it. That is why they alone may
+  // take every message in the scope: tagging or moving everything is not a sweep.
+  const isScan = isScanTask(task);
+  const checks = proSweepChecks(task);
   const matchAll = matchType === "all";
   // A range matches only mail already checked, and a check skips mail it has
   // already checked, so a check cannot use the range of its own kind: it would
@@ -496,13 +490,11 @@ export function EmailSweep({
   const usesScoreRange =
     __ENABLE_PHISHING_DETECTION__ &&
     rangeTask &&
-    task !== "run_phishing_check" &&
-    task !== "run_security_check";
+    !checks.phishing;
   const usesSpamRange =
     __ENABLE_SPAM_DETECTION__ &&
     rangeTask &&
-    task !== "run_spam_check" &&
-    task !== "run_security_check";
+    !checks.spam;
   const scoreRangeError = usesScoreRange
     ? sweepScoreRangeError(scoreMin, scoreMax)
     : null;
@@ -1218,8 +1210,8 @@ export function EmailSweep({
                       // tasks start on a sender. Moving between the two kinds
                       // never carries the other's choice over.
                       setMatchType((current) =>
-                        SCAN_TASKS.has(option)
-                          ? SCAN_TASKS.has(task)
+                        isScanTask(option)
+                          ? isScanTask(task)
                             ? current
                             : "all"
                           : current === "all"

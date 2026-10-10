@@ -1,5 +1,3 @@
-("use client");
-
 import * as React from "react";
 import { __, _x, sprintf } from "@wordpress/i18n";
 import { MoreHorizontal, Star } from "lucide-react";

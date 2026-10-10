@@ -1,7 +1,7 @@
 /**
  * The single Umami event vocabulary for every PMCPPN website.
  *
- * Adding a name here is a deliberate act: `events.test.ts` asserts the full
+ * Adding a name here is a deliberate act: `analytics-vocabulary.test.ts` asserts the full
  * list against an inline copy, so a new event cannot arrive by accident. That
  * is the cardinality gate. Umami's dashboards degrade once the number of
  * distinct event names grows without bound.
@@ -62,6 +62,15 @@ export const UMAMI_EVENTS = {
   // ---------------------------------------------------------- pricing/checkout
   pricingIntervalToggled: 'pricing_interval_toggled',
   pricingSelected: 'pricing_selected',
+  pricingViewed: 'pricing_viewed',
+  freeDownloadClicked: 'free_download_clicked',
+  demoOpened: 'demo_opened',
+  planSelected: 'plan_selected',
+  checkoutStarted: 'checkout_started',
+  purchaseCompleted: 'purchase_completed',
+  licenseActivated: 'license_activated',
+  leadCreated: 'lead_created',
+  registrationCompleted: 'registration_completed',
   checkoutEmailSubmitted: 'checkout_email_submitted',
   checkoutEmailRejected: 'checkout_email_rejected',
   checkoutCompleted: 'checkout_completed',

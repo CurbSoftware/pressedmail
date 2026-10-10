@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.5.1
+Stable tag: 1.5.2
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -136,8 +136,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.5.1](https://github.com/CurbSoftware/pressedmail/tree/v1.5.1)
-* [Build instructions for version 1.5.1](https://github.com/CurbSoftware/pressedmail/blob/v1.5.1/BUILD.md)
+* [Source for version 1.5.2](https://github.com/CurbSoftware/pressedmail/tree/v1.5.2)
+* [Build instructions for version 1.5.2](https://github.com/CurbSoftware/pressedmail/blob/v1.5.2/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then from the repository root run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`. Pro source is excluded.
 
@@ -147,18 +147,15 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.5.1/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.5.2/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
+= 1.5.2 =
+* No change to the free version. This update matches the Pro release.
+
 = 1.5.1 =
 * Internal tidy-up. Nothing changes for you.
-
-= 1.5.0 =
-* New mail reaches your list while sweeps and message downloads run.
-* Folder counts that disagree with the server no longer raise errors.
-* Sync jobs no longer sit unfinished for hours, and messages open while a sweep runs.
-* The PressedG list, composer links and block search are fixed.
 

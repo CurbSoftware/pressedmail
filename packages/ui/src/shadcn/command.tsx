@@ -63,8 +63,12 @@ function CommandDialog({
 
 function CommandInput({
   className,
+  hideIcon = false,
   ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+}: React.ComponentProps<typeof CommandPrimitive.Input> & {
+  /** Drop the leading search glyph; the field then spans the whole row. */
+  hideIcon?: boolean;
+}) {
   return (
     <div data-slot="command-input-wrapper" className="p-1 pb-0">
       <InputGroup className="bg-input/30 border-input/30 h-8! rounded-lg! shadow-none! *:data-[slot=input-group-addon]:pl-2!">
@@ -76,9 +80,11 @@ function CommandInput({
           )}
           {...props}
         />
-        <InputGroupAddon>
-          <SearchIcon className="size-4 shrink-0 opacity-50" />
-        </InputGroupAddon>
+        {!hideIcon && (
+          <InputGroupAddon>
+            <SearchIcon className="size-4 shrink-0 opacity-50" />
+          </InputGroupAddon>
+        )}
       </InputGroup>
     </div>
   );

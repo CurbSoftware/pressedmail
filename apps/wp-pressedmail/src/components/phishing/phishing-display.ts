@@ -1,6 +1,7 @@
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 
 import type { PhishingIconMark } from "@/components/icons/PhishingIcons";
+import { SECURITY_BANDS } from "@/lib/security-bands";
 import type {
   PhishingAnalysisResult,
   PhishingSuspectLevel,
@@ -21,15 +22,55 @@ export function getPhishingVerdict(
 ): PhishingVerdict | null {
   if (!result) return null;
   if (result.verdict) return result.verdict;
+  // The server's own band beats re-deriving one from the score here.
+  if (result.band === "safe" || result.band === "caution" || result.band === "danger") {
+    return result.band;
+  }
 
   const level = result.suspect_level as PhishingSuspectLevel | undefined;
   if (level === "high") return "danger";
   if (level === "medium") return "caution";
   if (level === "low") return "safe";
 
-  if (result.risk_score >= 61) return "danger";
-  if (result.risk_score >= 31) return "caution";
+  if (result.risk_score >= SECURITY_BANDS.phishing.danger[0]) return "danger";
+  if (result.risk_score >= SECURITY_BANDS.phishing.caution[0]) return "caution";
   return result.is_suspicious ? "caution" : "safe";
+}
+
+/** The words for a result: its band's name. */
+export function getPhishingResultLabel(
+  result: PhishingAnalysisResult | null | undefined,
+): string {
+  return getPhishingRiskLabel(getPhishingVerdict(result) ?? "safe");
+}
+
+/**
+ * How confident the check is that this message is phishing, from 0 (certainly not) to 100 (certainly), or null
+ * when the result carries none. An unknown confidence is never shown as 0: that would read as "certainly safe".
+ * A server before this release stored a check that could not judge as safe at 0, so a 0 on an abstained result is
+ * "no number", never "certainly not phishing".
+ */
+export function phishingConfidenceOf(
+  result: Partial<Pick<PhishingAnalysisResult, "risk_score" | "abstained">> | null | undefined,
+): number | null {
+  const score = result?.risk_score;
+  if (typeof score !== "number" || !Number.isFinite(score)) return null;
+  const confidence = Math.max(0, Math.min(100, Math.round(score)));
+  return result?.abstained && confidence === 0 ? null : confidence;
+}
+
+/** "Phishing confidence 88%", or "" when the result carries no number. */
+export function phishingConfidenceText(
+  result: Partial<Pick<PhishingAnalysisResult, "risk_score" | "abstained">> | null | undefined,
+): string {
+  const confidence = phishingConfidenceOf(result);
+  return confidence === null
+    ? ""
+    : sprintf(
+        /* translators: %d: how confident the check is that a message is phishing, from 0 to 100. */
+        __("Phishing confidence %d%%", "pressedmail"),
+        confidence,
+      );
 }
 
 export function getPhishingSafetyRating(
@@ -76,7 +117,7 @@ export function getPhishingButtonCopy(status: PhishingUiStatus): {
     case "safe":
       return {
         ariaLabel: __("No phishing indicators found", "pressedmail"),
-        visibleLabel: __("Safe", "pressedmail"),
+        visibleLabel: __("Looks safe", "pressedmail"),
         tooltip: __("No phishing indicators found", "pressedmail"),
         iconClassName: "text-success",
         buttonClassName: "text-success hover:bg-success/10 hover:text-success",
@@ -91,9 +132,9 @@ export function getPhishingButtonCopy(status: PhishingUiStatus): {
       };
     case "danger":
       return {
-        ariaLabel: __("High-risk phishing warning", "pressedmail"),
-        visibleLabel: __("High risk", "pressedmail"),
-        tooltip: __("High-risk phishing warning", "pressedmail"),
+        ariaLabel: __("Likely phishing", "pressedmail"),
+        visibleLabel: __("Likely phishing", "pressedmail"),
+        tooltip: __("Likely phishing", "pressedmail"),
         iconClassName: "text-destructive",
         buttonClassName:
           "text-destructive hover:bg-destructive/10 hover:text-destructive",
@@ -151,12 +192,12 @@ export function getPhishingRiskLabel(verdict: PhishingVerdict): string {
     return __("Suspicious", "pressedmail");
   }
 
-  return __("Safe", "pressedmail");
+  return __("Looks safe", "pressedmail");
 }
 
 export function getPhishingBannerTitle(verdict: PhishingVerdict): string {
   if (verdict === "danger") {
-    return __("High-risk phishing warning", "pressedmail");
+    return __("Likely phishing", "pressedmail");
   }
 
   if (verdict === "caution") {
@@ -164,4 +205,20 @@ export function getPhishingBannerTitle(verdict: PhishingVerdict): string {
   }
 
   return __("No phishing indicators found", "pressedmail");
+}
+
+/** The band and the confidence on one line, for a toast or a handling line: "Suspicious, phishing confidence 62%". */
+export function describePhishingBrief(
+  result: PhishingAnalysisResult | null | undefined,
+): string {
+  const label = getPhishingResultLabel(result);
+  const confidence = phishingConfidenceOf(result);
+  return confidence === null
+    ? label
+    : sprintf(
+        /* translators: 1: the phishing result, such as "Suspicious". 2: how confident the check is that it is phishing, a number from 0 to 100. */
+        __("%1$s, phishing confidence %2$d%%", "pressedmail"),
+        label,
+        confidence,
+      );
 }

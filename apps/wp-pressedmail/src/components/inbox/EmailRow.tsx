@@ -744,11 +744,14 @@ export function EmailRow({
             </span>
           </div>
         </TableCell>
-        <TableCell className="py-1 pr-3">
-          <div className="relative min-w-0">
+        {/* max-w-0 keeps long subjects and previews from setting the table's
+            width, so the column takes the space left over and the text clips
+            inside it instead of pushing a horizontal scrollbar onto the list. */}
+        <TableCell className="w-full max-w-0 py-1 pr-3">
+          <div className="relative min-w-0 overflow-hidden">
             <div className="flex min-w-0 flex-col gap-0.5">
               <div className="flex min-w-0 items-center justify-between gap-2">
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                   <span
                     data-test="email-row-subject"
                     data-testid="email-row-subject"
@@ -782,7 +785,7 @@ export function EmailRow({
                   className={cn(
                     "text-xs text-muted-foreground",
                     showPressedGDetails
-                      ? "line-clamp-2 whitespace-normal leading-5"
+                      ? "line-clamp-2 whitespace-normal break-words leading-5"
                       : "truncate",
                   )}>
                   {row.preview}

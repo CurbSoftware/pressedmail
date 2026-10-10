@@ -10,3 +10,6 @@ export function bulkAiChunkSize(
 ): number {
   return 1;
 }
+
+/** The same ceiling as the Pro edition, so a shared caller compiles; Free runs no bulk AI action. */
+export const BULK_AI_HARD_MAX = 200;

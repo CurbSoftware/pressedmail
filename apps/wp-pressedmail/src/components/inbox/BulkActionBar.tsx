@@ -64,9 +64,10 @@ import {
   resolveTrashMoveTarget,
 } from "@/lib/bulk-mail-actions";
 import { resolveMessageAccountId } from "@/lib/message-identity";
+import { rememberNotSpamBounded } from "@/lib/remember-not-spam";
 import { toPhishingEmailData } from "@/lib/phishing-email";
 import { bulkAiFailureMessage } from "@/lib/account-chunks";
-import { bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
+import { BULK_AI_HARD_MAX, bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
 import { PhishingRodIcon } from "@/components/icons/PhishingIcons";
 import {
   SecurityToolsMenuItems,
@@ -1290,15 +1291,49 @@ export function BulkActionBar({
     [handleMoveSelectionToInbox],
   );
 
-  const handleMarkNotSpam = useCallback(
-    () =>
-      handleMoveSelectionToInbox(
-        __("Messages moved to inbox", "pressedmail"),
-        __("Failed to move messages to inbox", "pressedmail"),
-        "not-spam",
-      ),
-    [handleMoveSelectionToInbox],
-  );
+  const { rememberNotSpam } = useSecurity();
+  const markingNotSpamRef = useRef(false);
+  const handleMarkNotSpam = useCallback(async () => {
+    // Busy from the first click. The remember step below can take seconds on a long selection, and until the move starts
+    // nothing else disables this button, so a second click started a second pass and a second move.
+    if (markingNotSpamRef.current) return;
+    markingNotSpamRef.current = true;
+    const captured = captureBulkScope();
+    // What the click was made on. The move below reads the live selection, which is the same one only while the scope
+    // is still current.
+    const clicked = getSelectionSnapshot();
+    setIsLoading(true);
+    try {
+      // Moving mail out of Junk is also the user saying these senders are fine. Tell the site first, so the next
+      // message from them is not judged as if nobody had ever said so. Bounded and silent: the move must not wait
+      // long for it, or fail because of it.
+      await rememberNotSpamBounded(
+        selectedMessages,
+        (message) => resolveMessageAccountId(message, accounts, selectedAccount),
+        rememberNotSpam,
+      );
+      if (captured.isCurrent()) {
+        await handleMoveSelectionToInbox(
+          __("Messages moved to inbox", "pressedmail"),
+          __("Failed to move messages to inbox", "pressedmail"),
+          "not-spam",
+        );
+      } else if (clicked.mode === "explicit") {
+        // The bar went away, or the selection moved on, while the senders were being remembered. The click still stands:
+        // the identities it was made on say what to move, and moving whatever is selected now would be someone else's mail.
+        // Plain batchMove, so the list takes the rows out itself; nothing here may clear the selection that is there now.
+        const result = await batchMove(Array.from(clicked.selectedIds), "INBOX");
+        if (result.success) toast.success(__("Messages moved to inbox", "pressedmail"));
+        else toast.error(result.error || __("Failed to move messages to inbox", "pressedmail"));
+      } else {
+        // A view-wide selection pages through the current view, which may no longer be the one it was made in.
+        toast.error(__("Failed to move messages to inbox", "pressedmail"));
+      }
+    } finally {
+      markingNotSpamRef.current = false;
+      if (mountedRef.current && captured.isPrincipalCurrent()) setIsLoading(false);
+    }
+  }, [batchMove, captureBulkScope, getSelectionSnapshot, handleMoveSelectionToInbox, rememberNotSpam, selectedMessages, accounts, selectedAccount]);
 
   const handleStopAiQueue = useCallback(() => {
     if (__IS_FREE__) return;
@@ -1818,12 +1853,13 @@ export function BulkActionBar({
       if (!captured.isCurrent()) {
         return;
       }
-      // PressedMail AI tags six emails per request; a customer's own
-      // provider keeps one email per request.
+      // PressedMail AI tags six emails per request, but never more than the
+      // admin's auto-tag bulk cap (the server drops anything past it); a
+      // customer's own provider keeps one email per request.
       for (const chunk of chunkByAccount(
         targets,
         (msg) => resolveMessageAccountId(msg, accounts, selectedAccount),
-        bulkAiChunkSize(autoTagger.settings?.engine),
+        bulkAiChunkSize(autoTagger.settings?.engine, aiBulkLimits?.autotag),
       )) {
         if (!captured.isCurrent()) return;
         if (
@@ -1969,6 +2005,7 @@ export function BulkActionBar({
     selectedAccount,
     selectedFolder,
     autoTagger,
+    aiBulkLimits,
     awaitBulkAiTurn,
     bulkAiJob,
     clearSelection,
@@ -1977,9 +2014,9 @@ export function BulkActionBar({
     applyFilters,
   ]);
 
-  // Single entry point for the three bulk AI ops: enforces the admin per-op cap
-  // (block + ask to deselect) and the "this may take a while" confirmation above
-  // the warn threshold before dispatching to the per-email loop.
+  // Single entry point for the three bulk AI ops: dispatches to the per-email loop. Whether to run at all is decided by
+  // requestBulkAi below: the server's batch ceiling refuses, and the admin's per-action cap and the "this may take a while"
+  // threshold ask for a confirmation.
   const runBulkAi = useCallback(
     (op: BulkAiOperation, options: { force?: boolean } = {}) => {
       if (__IS_FREE__) return;
@@ -2007,7 +2044,9 @@ export function BulkActionBar({
             ? aiBulkLimits.summary
             : aiBulkLimits.autotag;
 
-      if (count > cap) {
+      // The administrator's per-action number asks for a confirmation above it, it does not refuse: a list that was 50 rows
+      // and grew to 53 with new mail must still run. Only the server's own batch ceiling is a hard stop.
+      if (count > BULK_AI_HARD_MAX) {
         toast.error(
           sprintf(
             /* translators: %d: maximum emails allowed per bulk AI run. */
@@ -2015,7 +2054,7 @@ export function BulkActionBar({
               "Select at most %d emails for this AI action, then deselect some to continue.",
               "pressedmail",
             ),
-            cap,
+            BULK_AI_HARD_MAX,
           ),
         );
         return;
@@ -2034,7 +2073,7 @@ export function BulkActionBar({
                 ),
               ).length
             : 0;
-      const longRun = count > aiBulkLimits.warnThreshold;
+      const longRun = count > aiBulkLimits.warnThreshold || count > cap;
       if (longRun || existingCount > 0) {
         setPendingBulkAi({
           op,

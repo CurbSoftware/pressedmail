@@ -29,11 +29,13 @@ import {
   useMessageOperations,
 } from "@/context/InboxContext";
 import { useComposer, usePaneCompose } from "@/context/composer";
+import { useSecurity } from "@/context/security";
 import {
   getPersistedPaneState,
   savePaneMode,
 } from "@/lib/open-pane-persistence";
 import { getFolderRole } from "@/lib/bulk-mail-actions";
+import { rememberNotSpamBounded } from "@/lib/remember-not-spam";
 import {
   draftComposeIdentitiesMatch,
   getDraftComposeData,
@@ -170,6 +172,7 @@ export function RightPaneContainer({
     ? undefined
     : extras?.onScheduledEmailCleared;
   const { selectedAccount, accounts } = useAppContext();
+  const { rememberNotSpam } = useSecurity();
   const {
     refreshMessages,
     clearSelection,
@@ -1069,6 +1072,16 @@ export function RightPaneContainer({
     void (async () => {
       setIsDeleting(true);
       try {
+        // Not spam out of Junk is also the user saying this sender is fine: tell the site, then move it. Bounded and
+        // silent, like the bulk bar's: the request can take up to a minute and a half, and the move must not wait that
+        // long for it, or fail because of it.
+        if (folderRecoveryAction === "not-spam" && selectedMessage) {
+          await rememberNotSpamBounded(
+            [selectedMessage],
+            (message) => getMessageIdentityRef(message)?.accountId,
+            rememberNotSpam,
+          );
+        }
         const result = await moveMessage(selectedIdentity, "INBOX");
         if (
           result.success &&
@@ -1092,6 +1105,9 @@ export function RightPaneContainer({
     isCurrentSelection,
     finishAfterRemoval,
     reportOperationFailure,
+    folderRecoveryAction,
+    rememberNotSpam,
+    selectedMessage,
   ]);
 
   // Close compose and return to reading. Also clear the shared composer state

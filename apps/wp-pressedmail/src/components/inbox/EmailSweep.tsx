@@ -140,7 +140,7 @@ const SUB_FIELD = "mt-3 space-y-1.5 border-l-2 border-primary/40 pl-3";
  * Most values one rule-run sweep (tag, untag, scan) may match;
  * FilterRuleRunService::MAX_SWEEP_VALUES. The move sweep has no cap.
  */
-const MAX_SWEEP_VALUES = 50;
+const MAX_SWEEP_VALUES = 200;
 
 /** The server's reason when it gave one, else a plain retry line. */
 function sweepStartError(err: unknown): string {
@@ -997,7 +997,7 @@ export function EmailSweep({
                 ? __("Choose a tag.", "pressedmail")
                 : scoreRangeError
                   ? // The reason itself shows under the field.
-                    __("Fix the phishing risk range.", "pressedmail")
+                    __("Fix the phishing confidence range.", "pressedmail")
                   : spamRangeError;
   // How much a rule-run task takes on, before it starts: the server counts
   // the messages in scope the same way the run will.

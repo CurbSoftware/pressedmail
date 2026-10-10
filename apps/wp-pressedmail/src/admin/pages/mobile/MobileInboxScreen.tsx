@@ -165,6 +165,7 @@ import {
   useBulkSecurityCheck,
 } from "@/components/spam";
 import { bulkAiFailureMessage } from "@/lib/account-chunks";
+import { rememberNotSpamBounded } from "@/lib/remember-not-spam";
 import { bulkAiChunkSize, chunkByAccount } from "@/lib/ai-batches";
 import {
   useOptionalAutoTagger,
@@ -647,7 +648,7 @@ export function MobileInboxScreen() {
   const summaries = useOptionalEmailSummaries();
   const aiSummarizeAvailable = useProFeatureAvailable("ai_summarize");
   const snoozeAvailable = useProFeatureEnabled("snooze");
-  const { spamEnabled } = useSecurity();
+  const { spamEnabled, rememberNotSpam } = useSecurity();
   // Importance is owner-scoped on the server (CredentialAccessGuard).
   const showSelectedImportant = mailboxRole.isOwner;
   const autoTagger = useOptionalAutoTagger();
@@ -708,6 +709,8 @@ export function MobileInboxScreen() {
     null,
   );
   const [isBulkActionRunning, setIsBulkActionRunning] = React.useState(false);
+  // The state above reaches a tap only after the re-render, and a double tap can come first. This is the lock.
+  const bulkActionRunningRef = React.useRef(false);
   const [isTagging, setIsTagging] = React.useState(false);
   const tagSheetCloseGuard = React.useRef<MailTagCloseGuard | null>(null);
   const selectionScopeKey = JSON.stringify([
@@ -1265,10 +1268,14 @@ export function MobileInboxScreen() {
       successMessage: string,
       failureMessage = __("Operation failed", "pressedmail"),
     ) => {
+      // One bulk action at a time. A second tap while the first is still working (Not spam waits a few seconds for the
+      // site before it moves anything) started a second pass and a second move of the same mail.
+      if (bulkActionRunningRef.current) return;
       if (!validateSelectedMessages()) return;
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
 
+      bulkActionRunningRef.current = true;
       setIsBulkActionRunning(true);
       try {
         const result = await operation(captured);
@@ -1289,6 +1296,7 @@ export function MobileInboxScreen() {
         }
         toast.error(error instanceof Error ? error.message : failureMessage);
       } finally {
+        bulkActionRunningRef.current = false;
         if (mountedRef.current && captured.isPrincipalCurrent())
           setIsBulkActionRunning(false);
       }
@@ -1564,6 +1572,35 @@ export function MobileInboxScreen() {
       );
     },
     [batchMove, runBulkOperation, selectedMessageIds],
+  );
+
+  // Not spam out of Junk is also the user saying these senders are fine: tell the site, then move the mail.
+  const handleNotSpamToInbox = React.useCallback(
+    (message: string) => {
+      void runBulkOperation(
+        async () => {
+          // Bounded and silent: the move must not wait long for it, or fail because of it.
+          await rememberNotSpamBounded(
+            selectedMessages,
+            (item: EmailMessage) =>
+              resolveMessageAccountId(item, accounts, selectedAccount),
+            rememberNotSpam,
+          );
+          return batchMove(selectedMessageIds, "INBOX");
+        },
+        message,
+        __("Move failed", "pressedmail"),
+      );
+    },
+    [
+      accounts,
+      batchMove,
+      rememberNotSpam,
+      runBulkOperation,
+      selectedAccount,
+      selectedMessageIds,
+      selectedMessages,
+    ],
   );
 
   const handleToggleStarForSelection = React.useCallback(
@@ -2323,7 +2360,7 @@ export function MobileInboxScreen() {
           ariaLabel: __("Move selected messages to Inbox", "pressedmail"),
           icon: FolderInput,
           onAction: () =>
-            handleMoveToInbox(__("Messages moved to Inbox", "pressedmail")),
+            handleNotSpamToInbox(__("Messages moved to Inbox", "pressedmail")),
         }
       : {
           id: "archive",
@@ -2392,9 +2429,14 @@ export function MobileInboxScreen() {
           },
         ].map((action) => ({
           ...action,
+          // Busy actions are disabled, not just spinning: the primary one (Not spam, Archive, Restore) had no spinner and
+          // the others only turned their icon, so a second tap went straight through.
           disabled:
             action.id !== "more" &&
-            (("disabled" in action && action.disabled) || selectedCount === 0),
+            (("disabled" in action && action.disabled) ||
+              selectedCount === 0 ||
+              isBulkActionRunning),
+          loading: action.id !== "more" && isBulkActionRunning,
         }))
     : [];
 

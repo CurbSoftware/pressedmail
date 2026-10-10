@@ -11,8 +11,9 @@ export function SecurityProvider({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-// Only what shared components read; Pro-only callers never reach this stub.
-const OFF = { spamEnabled: false } as const;
+// Only what shared components read; Pro-only callers never reach this stub. Moving mail out of Junk tells the site the sender
+// is fine in Pro, and does nothing here: the Free edition has no checks to teach.
+const OFF = { spamEnabled: false, rememberNotSpam: async (): Promise<void> => {} } as const;
 
 export function useSecurity() {
   return OFF;

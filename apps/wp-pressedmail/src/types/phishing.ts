@@ -186,6 +186,17 @@ export interface PhishingAnalysisResult {
   risk_score: number;
   safety_rating?: number;
   verdict?: PhishingVerdict;
+  /** The band the server decided, one of SECURITY_BANDS.phishing. Preferred over the score. */
+  band?: PhishingVerdict;
+  /**
+   * The check could not decide. The result is stored as safe with no position, so a
+   * client that ignores this would show "Safe" for a message nobody could judge.
+   */
+  abstained?: boolean;
+  /** Some or all of the message body was not reviewed, and why. */
+  body_omitted?: boolean;
+  body_review_complete?: boolean;
+  body_omission_reason?: string;
   risk_factors: RiskFactor[];
   summary?: string;
   recommended_action?: string;

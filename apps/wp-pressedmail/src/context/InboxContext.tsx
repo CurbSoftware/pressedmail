@@ -74,7 +74,10 @@ import {
   refreshAccountSync,
 } from "@/services/sync-driver.service";
 import { loadCombinedFolders } from "@/services/implementations/folder.service";
-import { getCombinedReadiness } from "@/services/implementations/inbox.service";
+import {
+  getCombinedReadiness,
+  refreshLimit,
+} from "@/services/implementations/inbox.service";
 import { useCombinedAccountIds } from "@/hooks/useCombinedAccountIds";
 import { useAppContext } from "./AppProvider";
 import { __ } from "@wordpress/i18n";
@@ -1500,6 +1503,7 @@ export function InboxProvider({
       const currentPageState = inboxService as unknown as {
         _currentOffsetStart?: number;
         _currentLimit?: number;
+        _messages?: unknown[];
       };
 
       // Clamp the refresh offset to the (possibly shrunken) total: after a mass
@@ -1518,7 +1522,9 @@ export function InboxProvider({
         accountId: currentAccountId,
         folder: folderService.selectedFolder || inboxService.currentFolder,
         offset,
-        limit,
+        // Reload at least what is on screen: new mail grows a list of 50 to 53, and a reload at 50 (the sweep's live refresh,
+        // the Refresh button) dropped the three oldest rows from under a selection. The offset above still counts in pages.
+        limit: refreshLimit(limit, currentPageState._messages?.length ?? 0),
         forceRefresh: true,
         ...(__SINGLE_MAILBOX__
           ? null

@@ -302,7 +302,7 @@ export interface FilterRuleRunSweep {
   actions: Array<{ type: SweepRuleActionType; value?: string }>;
   scoreMin?: number;
   scoreMax?: number;
-  /** Pro: spam score range and "this result or worse". */
+  /** Pro: spam confidence range and "this result or worse". */
   spamMin?: number;
   spamMax?: number;
   spamBand?: string;

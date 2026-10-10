@@ -55,7 +55,10 @@ export function useSweepLiveRefresh(sweepTasks: ProcessTask[]): void {
       }
       timerRef.current = setTimeout(() => {
         timerRef.current = null;
-        void refreshRef.current();
+        // Reload the list from the mirror the sweep just changed. The default also asked the server to sync the account
+        // first (an IMAP session on the folder the sweep is moving mail out of), once for every page, and the reload waited
+        // behind it: the list sat on its loading state while a sweep ran and new mail came in.
+        void refreshRef.current({ sync: false });
       }, REFRESH_DEBOUNCE_MS);
     };
 

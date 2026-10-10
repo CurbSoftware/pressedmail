@@ -66,6 +66,17 @@ import {
  * Default pagination settings.
  */
 const DEFAULT_LIMIT = 50;
+/** The most rows a refresh re-requests to keep a list that has grown past one page. */
+const MAX_REFRESH_LIMIT = 100;
+
+/**
+ * The limit a reload of the list already on screen asks for: at least the rows on screen (up to the server's own ceiling), so
+ * a list that new mail grew from 50 to 53 keeps its three oldest rows. Every reload of the same scope takes it, the Refresh
+ * button and the sweep's live refresh as well as the service's own refresh().
+ */
+export function refreshLimit(currentLimit: number, onScreen: number): number {
+  return Math.max(currentLimit, Math.min(onScreen, MAX_REFRESH_LIMIT));
+}
 const LOAD_MORE_LIMIT = 25;
 const LOAD_MORE_NETWORK_COOLDOWN_MS = 8_000;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -2513,11 +2524,15 @@ export class InboxService implements IInboxOperations {
   async refresh(options?: RefreshOptions): Promise<void> {
     if (!this._currentAccountId) return;
 
+    // Reload at least what is on screen. New mail grows a list of 50 to 53 without raising the limit, so a reload at 50 dropped the three oldest
+    // rows from under a selection, and every action on that selection refused with "Reload the mailbox".
+    const sameFolder = !options?.folder || options.folder === this._currentFolder;
+    const onScreen = sameFolder ? this._messages.length : 0;
     await this.loadMessages({
       accountId: this._currentAccountId,
       folder: options?.folder ?? this._currentFolder,
       offset: this._currentOffsetStart,
-      limit: this._currentLimit,
+      limit: refreshLimit(this._currentLimit, onScreen),
       forceRefresh: true,
       ...combinedRequestOptions(this),
       grouping: this._currentGrouping,

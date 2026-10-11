@@ -327,6 +327,8 @@ export interface EmailAccount {
   // Separate credentials mode
   useSeparateCredentials?: boolean;
   use_separate_credentials?: boolean | number | string;
+  /** The account signs in with OAuth tokens, so it stores no password. */
+  use_oauth?: boolean | number | string;
 
   // Phase B: outgoing-provider override.
   outgoing_provider_type?: "smtp" | "sendgrid" | "ses" | "mailgun" | "postmark";

@@ -6,6 +6,10 @@ import type {
   EmailMessageTag,
 } from "@/types";
 import { getAccountBadgeLabel } from "@/lib/account-label";
+import {
+  resolveAccountBadge,
+  type AccountBadgeMap,
+} from "@/lib/account-badges";
 import { parseEmailDate } from "@/lib/email-date";
 import { buildEmailPreviewText } from "@/lib/email-content-normalization";
 import { parseSenderEmail, parseSenderName } from "@/lib/mail-utils";
@@ -47,11 +51,15 @@ export interface EmailRowViewModel {
   accountBadge: {
     label: string;
     title: string;
+    /** The viewer's chosen color; absent keeps the neutral badge. */
+    color?: string;
   } | null;
 }
 
 export interface BuildEmailRowViewModelOptions {
   showAccountBadge?: boolean;
+  /** The viewer's per-account aliases and colors. */
+  accountBadges?: AccountBadgeMap;
   showSenderEmail?: boolean;
   maxPreviewLength?: number;
   maxLabels?: number;
@@ -200,7 +208,11 @@ export function buildEmailRowViewModel(
     accountBadge:
       options.showAccountBadge && accountEmail
         ? {
-            label: getAccountBadgeLabel(message) ?? accountEmail,
+            ...resolveAccountBadge(
+              options.accountBadges,
+              message.accountId,
+              getAccountBadgeLabel(message) ?? accountEmail,
+            ),
             title: accountEmail,
           }
         : null,

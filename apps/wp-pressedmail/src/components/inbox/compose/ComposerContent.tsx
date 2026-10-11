@@ -401,7 +401,13 @@ export function ComposerContent({
 
   return (
     <div
-      className={cn("flex h-full flex-col", className)}
+      // min-h-0 lets this shrink to the pane instead of growing to its
+      // content. overflow-clip (not hidden) because a hidden box can still be
+      // scrolled by script: the caret reveal after a long paste would then move
+      // this whole box and lift the header and footer out of view. A clipped
+      // box cannot be scrolled and keeps its content's overflow from reaching
+      // the panes around it, so only the payload scroller and the editor move.
+      className={cn("flex h-full min-h-0 flex-col overflow-clip", className)}
       data-test="compose-form">
       {/* ── 1. From row: context label | account | send and close ──
           Outside the scrolling payload so the actions stay put. The label

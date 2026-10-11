@@ -10,6 +10,7 @@ import type {
   EmailMessageTag,
 } from "@/types";
 import { EmailTagBadges } from "@/components/tags/EmailTagBadges";
+import { accountBadgeStyle, useAccountBadges } from "@/lib/account-badges";
 import {
   EmailArchiveIcon,
   EmailForwardIcon,
@@ -299,7 +300,7 @@ function RowFlags({
         <span
           data-test="email-row-unread-dot"
           data-testid="email-row-unread-dot"
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary"
+          className="h-2 w-2 shrink-0 rounded-full bg-primary"
           aria-hidden="true"
         />
       )}
@@ -370,7 +371,7 @@ function Tags({
 function AccountBadge({
   badge,
 }: {
-  badge: { label: string; title: string } | null;
+  badge: { label: string; title: string; color?: string } | null;
 }) {
   if (!badge) return null;
 
@@ -378,12 +379,21 @@ function AccountBadge({
     <Badge
       variant="outline"
       // 9px was below the 12px legibility floor this app holds itself to.
-      className="h-5 max-w-24 truncate px-1 py-0 text-xs font-normal text-muted-foreground"
+      // A color the viewer chose uses the tag chip's tint and foreground text.
+      className={cn(
+        "h-5 max-w-24 truncate px-1 py-0 text-xs font-normal",
+        badge.color ? "text-foreground" : "text-muted-foreground",
+      )}
+      style={accountBadgeStyle(badge)}
       title={badge.title}
       data-test="message-account-badge"
       data-testid="email-row-account-badge">
-      {/* An element holds one data-test, so the testid's twin sits inside. */}
-      <span data-test="email-row-account-badge">{badge.label}</span>
+      {/* An element holds one data-test, so the testid's twin sits inside. It
+          also does the ellipsis: the Badge is a flex box, and text-overflow
+          never reaches the text of a flex container. */}
+      <span data-test="email-row-account-badge" className="min-w-0 truncate">
+        {badge.label}
+      </span>
     </Badge>
   );
 }
@@ -652,8 +662,10 @@ export function EmailRow({
   // the default row.
   const isPressedGTable = !__IS_FREE__ && variant === "pressedg-table";
   const showPressedGDetails = isPressedGTable && Boolean(showSenderEmail);
+  const { badges: accountBadges } = useAccountBadges();
   const row = buildEmailRowViewModel(message, {
     showAccountBadge,
+    accountBadges,
     showSenderEmail,
     maxPreviewLength:
       variant === "default-flat" ? 120 : showPressedGDetails ? 180 : 96,
@@ -725,7 +737,7 @@ export function EmailRow({
               <span
                 data-test="email-row-unread-dot"
                 data-testid="email-row-unread-dot"
-                className="absolute -left-1 -top-0.5 h-1.5 w-1.5 -translate-x-full translate-y-1/2 shrink-0 rounded-full bg-primary"
+                className="absolute -left-1 -top-0.5 h-2 w-2 -translate-x-full translate-y-1/2 shrink-0 rounded-full bg-primary"
                 aria-hidden="true"
               />
             )}
@@ -736,7 +748,7 @@ export function EmailRow({
               data-testid="email-row-sender"
               className={cn(
                 "block max-w-[11rem] truncate text-sm text-foreground touch-none",
-                emphasizeUnread ? "font-semibold" : "font-medium",
+                emphasizeUnread ? "font-semibold" : "font-normal",
                 isDragging ? "cursor-grabbing" : "cursor-grab",
               )}>
               {/* data-test is taken by drag-handle, so the twin sits inside. */}
@@ -759,7 +771,7 @@ export function EmailRow({
                       "min-w-0 truncate text-sm",
                       emphasizeUnread
                         ? "font-semibold text-foreground"
-                        : "font-medium text-foreground/90",
+                        : "font-normal text-foreground/90",
                     )}>
                     {row.subject}
                   </span>
@@ -943,7 +955,7 @@ export function EmailRow({
               data-testid="email-row-sender"
               className={cn(
                 "min-w-0 truncate text-sm text-foreground touch-none",
-                emphasizeUnread ? "font-semibold" : "font-medium",
+                emphasizeUnread ? "font-semibold" : "font-normal",
                 handleProps && (isDragging ? "cursor-grabbing" : "cursor-grab"),
               )}>
               {/* data-test is taken by drag-handle, so the twin sits inside. */}
@@ -960,7 +972,7 @@ export function EmailRow({
               "min-w-0 truncate text-sm",
               emphasizeUnread
                 ? "font-semibold text-foreground"
-                : "font-medium text-foreground/90",
+                : "font-normal text-foreground/90",
             )}>
             {row.subject}
           </span>

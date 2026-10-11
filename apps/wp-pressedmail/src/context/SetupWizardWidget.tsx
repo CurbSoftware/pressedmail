@@ -259,6 +259,12 @@ export default function SetupWizard({
     updateAccount,
   } = useAppContext();
   const isEditing = Boolean(editingAccount);
+  // An OAuth account stores tokens, not a password. Showing "Saved" for it would hide that
+  // leaving OAuth needs a new one (the server clears the tokens and keeps nothing else).
+  const accountUsesOAuth = [true, 1, "1", "true"].includes(
+    editingAccount?.use_oauth as boolean | number | string,
+  );
+  const hasSavedPassword = isEditing && !accountUsesOAuth;
   const setupReturnTo = getSetupReturnTo(location.state);
   const isMobileOrTablet = useIsMobileOrTablet();
   const mobileShellEnabled = useMobileShellFlag();
@@ -542,7 +548,7 @@ export default function SetupWizard({
         } else if (
           formData.provider !== "custom" &&
           !isAdvancedProvider(formData.provider) &&
-          !isEditing &&
+          (!isEditing || accountUsesOAuth) &&
           !formData.useOAuth &&
           !formData.password
         ) {
@@ -1185,6 +1191,7 @@ export default function SetupWizard({
         return (
           <StepCredentials
             isEditing={isEditing}
+            hasSavedPassword={hasSavedPassword}
             isCustomDomainMode={false}
             formData={formData}
             setFormData={setFormData}
@@ -1233,6 +1240,7 @@ export default function SetupWizard({
         return (
           <StepServerSettings
             isEditing={isEditing}
+            hasSavedPassword={hasSavedPassword}
             formData={formData}
             setFormData={setFormData}
             errors={errors}

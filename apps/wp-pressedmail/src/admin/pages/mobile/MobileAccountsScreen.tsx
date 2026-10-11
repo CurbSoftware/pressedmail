@@ -2,12 +2,23 @@
 
 import * as React from "react";
 import { __ } from "@wordpress/i18n";
-import { Plus, Settings2, UserCircle2 } from "lucide-react";
+import { Layers, Plus, Settings2, UserCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
+import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
 import { SharedBadge, SharedWithIcon } from "@/components/sharing";
 import { useAppContext } from "@/context/AppProvider";
+import { useProLicenseValid } from "@/context/features/pro-feature.active";
+import {
+  useCombinedAccountIds,
+  useCombinedViewAvailable,
+  useSetCombinedAccountIds,
+} from "@/hooks/useCombinedAccountIds";
+import {
+  getAvailableAccountIds,
+  normalizeConsolidatedAccountIds,
+} from "@/lib/consolidated-account-scope";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,6 +38,19 @@ export function MobileAccountsScreen() {
     setEditingAccount,
   } = useAppContext();
 
+  const licenseValid = useProLicenseValid();
+  const combinedInboxAvailable = useCombinedViewAvailable();
+  const combinedAccountIds = useCombinedAccountIds();
+  const setCombinedAccountIds = useSetCombinedAccountIds();
+  // Same gate as the desktop account selector.
+  const showCombined =
+    !__IS_FREE__ &&
+    !__SINGLE_MAILBOX__ &&
+    licenseValid &&
+    combinedInboxAvailable &&
+    (accounts ?? []).length > 0;
+  const combinedActive = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+
   const rows = React.useMemo(
     () =>
       (accounts ?? []).map((account) => {
@@ -42,6 +66,15 @@ export function MobileAccountsScreen() {
     navigate("/inbox");
   };
 
+  const handleSelectCombined = () => {
+    // An empty scope resolves to the default account only, which would open
+    // the combined inbox showing a single mailbox.
+    if (normalizeConsolidatedAccountIds(combinedAccountIds).length === 0) {
+      setCombinedAccountIds(getAvailableAccountIds(accounts ?? []));
+    }
+    handleSelect(CONSOLIDATED_INBOX_VALUE);
+  };
+
   return (
     <MobileScreen
       header={
@@ -49,6 +82,25 @@ export function MobileAccountsScreen() {
       }>
       <div className="px-3 py-4">
         <ul role="list" className="flex flex-col gap-1">
+          {showCombined ? (
+            <li>
+              <button
+                type="button"
+                aria-current={combinedActive ? "true" : undefined}
+                onClick={handleSelectCombined}
+                className={cn(
+                  "pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left active:bg-muted",
+                  combinedActive && "bg-primary/10 text-primary",
+                )}>
+                <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                  <Layers className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1 text-sm font-medium">
+                  {__("Combined inbox", "pressedmail")}
+                </span>
+              </button>
+            </li>
+          ) : null}
           {rows.map((account) => {
             const active = account.email === selectedAccount;
             return (

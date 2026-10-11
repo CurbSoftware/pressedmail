@@ -90,7 +90,7 @@ export function ComposePane({
   const isPoppedOut = paneMode === "popout";
   const isFullView = paneMode === "full";
   const isOverlayMode = isPoppedOut || isFullView;
-  const { preferences } = useUserPreferences();
+  const { preferences, loaded } = useUserPreferences();
 
   const form = useComposeForm({
     mode: composeMode,
@@ -104,7 +104,9 @@ export function ComposePane({
       preferences.composer_default_format,
     ),
     composerContext,
-    autoSaveOnClose: preferences.auto_save_drafts,
+    autoSaveDrafts: preferences.auto_save_drafts,
+    // The client default is on, so not before the server has answered.
+    autoSaveOnClose: preferences.auto_save_drafts && loaded,
     gateNavigation: true,
     onClose,
     onSendSuccess,
@@ -248,7 +250,7 @@ export function ComposePane({
           isPoppedOut &&
             !isContained &&
             "left-1/2 top-1/2 h-[78vh] max-h-[92vh] min-h-[28rem] w-[92vw] max-w-5xl",
-          !isOverlayMode && "h-full",
+          !isOverlayMode && "h-full min-h-0",
           !isOverlayMode && className,
         )}
         style={panelStyle}

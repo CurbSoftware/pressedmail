@@ -622,6 +622,16 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // The account badge editor names accounts in the combined inbox, which a
+      // single-mailbox build does not have. Free resolves a control that renders
+      // nothing, so the public Free source carries none of the editor.
+      find: /^@\/admin\/pages\/settings\/account-badge-control$/,
+      replacement: pick(
+        "./src/admin/pages/settings/account-badge-control.free.tsx",
+        "./src/admin/pages/settings/account-badge-control.tsx",
+      ),
+    },
+    {
       // Saved blocks are Pro: the composer's Insert block button and the slash
       // menu's Blocks group. Free resolves a kit that renders and offers nothing.
       find: /^@\/components\/composer\/plate\/composer-blocks-kit\.active$/,

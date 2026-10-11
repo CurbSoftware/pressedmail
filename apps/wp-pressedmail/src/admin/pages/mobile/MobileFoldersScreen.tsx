@@ -18,6 +18,7 @@ import {
 import { useNavigate } from "react-router-dom";
 
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
+import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { useAppContext } from "@/context/AppProvider";
 import {
   EmailImportantIcon,
@@ -347,7 +348,9 @@ export function MobileFoldersScreen() {
             </span>
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-medium">
-                {selectedAccount}
+                {selectedAccount === CONSOLIDATED_INBOX_VALUE
+                  ? __("All accounts", "pressedmail")
+                  : selectedAccount}
               </span>
               <span className="text-xs text-muted-foreground">
                 {__("Switch account", "pressedmail")}

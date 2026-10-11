@@ -1,6 +1,6 @@
 "use client";
 
-import { __ } from "@wordpress/i18n";
+import { __, sprintf } from "@wordpress/i18n";
 import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import { ChevronDown, Plus, Mail, User } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -196,9 +196,12 @@ export function HeaderAccountSelector({
 
   const activeEmail = isConsolidatedView
     ? explicitConsolidatedAccountIds.length === 0
-      ? "Combined Inbox"
-      : `Combined Inbox (${effectiveConsolidatedAccountIds.length})`
-    : (activeAccount?.email ?? "Select account");
+      ? __("Combined Inbox", "pressedmail")
+      : sprintf(
+          __("Combined inbox (%d)", "pressedmail"),
+          effectiveConsolidatedAccountIds.length,
+        )
+    : (activeAccount?.email ?? __("Select account", "pressedmail"));
   const truncatedEmail = truncateText(activeEmail, 40);
   const handleAddAccount = () => {
     setEditingAccount(null);
@@ -272,7 +275,11 @@ export function HeaderAccountSelector({
         size="sm"
         disabled={isLoading}
         onClick={() => navigate("/inbox")}
-        aria-label={`Go to inbox: ${activeEmail}`}
+        aria-label={sprintf(
+          /* translators: %s: the current account or view, such as an email address. */
+          __("Go to inbox: %s", "pressedmail"),
+          activeEmail,
+        )}
         data-test="account-selector-trigger"
         className={cn(
           "flex w-full min-w-80 items-center gap-1.5 border-primary/50 bg-background text-foreground",
@@ -293,7 +300,11 @@ export function HeaderAccountSelector({
             variant="outline"
             size="sm"
             disabled={isLoading}
-            aria-label={`Current account: ${activeEmail}. Click to switch accounts.`}
+            aria-label={sprintf(
+              /* translators: %s: the current account or view, such as an email address. */
+              __("Current account: %s. Click to switch accounts.", "pressedmail"),
+              activeEmail,
+            )}
             data-test="account-selector-trigger"
             className={cn(
               "flex w-full min-w-80 items-center gap-1.5 border-primary/50 bg-background text-foreground",

@@ -15,11 +15,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@kit/ui/plugin";
+import {
+  formatCalendarDate,
+  getLocaleTimeFormat,
+  getWeekStartsOn,
+} from "@/components/calendar/calendar-intl";
 import { cn } from "@/lib/utils";
 import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 
 export type DateTimeSelectorMode = "date" | "time" | "datetime";
 export type DateTimeSelectorTimeDisplayMode = "12h" | "24h";
+export type DateTimeSelectorDisplayFormat = "iso" | "locale";
+type WeekStart = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface DateTimeSelectorProps {
   id: string;
@@ -33,6 +40,15 @@ export interface DateTimeSelectorProps {
   className?: string;
   minuteStep?: number;
   defaultTime?: string;
+  /**
+   * How the trigger writes the value. "iso" (the default) is the plain
+   * `2026-06-01 08:15 AM` text. "locale" writes it through Intl in the
+   * WordPress locale, names the popover's months and weekdays in it, starts
+   * weeks on the site's first day, and, when `timeDisplayMode` is left out,
+   * follows the locale's clock (24h for German). It is opt in because screens
+   * and live specs read the ISO text.
+   */
+  displayFormat?: DateTimeSelectorDisplayFormat;
   timeDisplayMode?: DateTimeSelectorTimeDisplayMode;
   showTimeModeSelector?: boolean;
   /**
@@ -138,10 +154,14 @@ function getHour12(hours: number): number {
   return hour === 0 ? 12 : hour;
 }
 
+// The text on the trigger. Only displayFormat="locale" reaches Intl; the live
+// specs in testing/e2e/pressedmail/media-replay/calendar-additional.spec.ts
+// mirror its date-only branch, so change the two together.
 function formatDisplayValue(
   value: string,
   mode: DateTimeSelectorMode,
   timeDisplayMode: DateTimeSelectorTimeDisplayMode,
+  displayFormat: DateTimeSelectorDisplayFormat = "iso",
 ): string {
   if (!value) {
     if (mode === "time") return __("Select time", "pressedmail");
@@ -150,6 +170,22 @@ function formatDisplayValue(
   }
 
   const parsed = parseSelectorDate(value, mode);
+
+  if (displayFormat === "locale") {
+    const hourCycle = timeDisplayMode === "24h" ? "h23" : "h12";
+    if (mode === "date") {
+      return formatCalendarDate(parsed, { dateStyle: "medium" });
+    }
+    if (mode === "time") {
+      return formatCalendarDate(parsed, { timeStyle: "short", hourCycle });
+    }
+    return formatCalendarDate(parsed, {
+      dateStyle: "medium",
+      timeStyle: "short",
+      hourCycle,
+    });
+  }
+
   if (mode === "date") return formatDate(parsed);
   if (timeDisplayMode === "24h") {
     const time = formatTime(parsed);
@@ -160,6 +196,57 @@ function formatDisplayValue(
     parsed.getMinutes(),
   )} ${parsed.getHours() >= 12 ? "PM" : "AM"}`;
   return mode === "time" ? time : `${formatDate(parsed)} ${time}`;
+}
+
+// With displayFormat="locale", month and weekday names come from Intl in the
+// plugin locale, as everywhere else in the calendar. react-day-picker's own
+// `locale` prop wants a date-fns locale object, which would ship that data for
+// every WordPress locale.
+const dayPickerFormatters = {
+  formatMonthDropdown: (month: Date) =>
+    formatCalendarDate(month, { month: "short" }),
+  formatYearDropdown: (year: Date) =>
+    formatCalendarDate(year, { year: "numeric" }),
+  formatWeekdayName: (day: Date) =>
+    formatCalendarDate(day, { weekday: "short" }),
+  formatCaption: (month: Date) =>
+    formatCalendarDate(month, { month: "long", year: "numeric" }),
+};
+
+// The other pickers keep the English names and the Sunday-first week they had
+// before the event editor opted in. Left alone, the shared Calendar would name
+// the month dropdown in the browser's language: German months over "Su Mo Tu".
+const plainDayPickerFormatters = {
+  formatMonthDropdown: (month: Date) =>
+    month.toLocaleString("en-US", { month: "short" }),
+};
+
+// What a screen reader hears. It follows the plugin's language for every
+// picker, whatever the visible text does, and the two dropdowns are new
+// controls that need names of their own. Today is the one day the grid marks
+// only by a data attribute, so its name has to say so. "Selected" needs no
+// word: the cell carries aria-selected.
+const dayPickerLabels = {
+  labelDayButton: (date: Date, modifiers: { today?: boolean }) => {
+    const label = formatCalendarDate(date, { dateStyle: "full" });
+    return modifiers.today ? `${__("Today", "pressedmail")}, ${label}` : label;
+  },
+  labelGrid: (month: Date) =>
+    formatCalendarDate(month, { month: "long", year: "numeric" }),
+  labelWeekday: (day: Date) => formatCalendarDate(day, { weekday: "long" }),
+  labelMonthDropdown: () => __("Month", "pressedmail"),
+  labelYearDropdown: () => __("Year", "pressedmail"),
+  labelNext: () => __("Next month", "pressedmail"),
+  labelPrevious: () => __("Previous month", "pressedmail"),
+};
+
+/** The year dropdown's reach: birthdays back, plans ahead, and the value itself. */
+function dropdownMonths(selected: Date) {
+  const year = new Date().getFullYear();
+  return {
+    startMonth: new Date(Math.min(year - 100, selected.getFullYear()), 0),
+    endMonth: new Date(Math.max(year + 20, selected.getFullYear()), 11),
+  };
 }
 
 function toComparableDate(value: string | undefined): string | null {
@@ -350,7 +437,8 @@ export function DateTimeSelector({
   className,
   minuteStep,
   defaultTime,
-  timeDisplayMode = "12h",
+  displayFormat = "iso",
+  timeDisplayMode,
   showTimeModeSelector = true,
   "data-test": dataTest,
   "data-testid": dataTestIdProp,
@@ -359,18 +447,27 @@ export function DateTimeSelector({
 }: DateTimeSelectorProps) {
   const dataTestId = dataTest ?? dataTestIdProp;
   const [open, setOpen] = useState(false);
+  const localized = displayFormat === "locale";
+  const defaultTimeDisplayMode =
+    timeDisplayMode ?? (localized ? getLocaleTimeFormat() : "12h");
   const [activeTimeDisplayMode, setActiveTimeDisplayMode] =
-    useState<DateTimeSelectorTimeDisplayMode>(timeDisplayMode);
+    useState<DateTimeSelectorTimeDisplayMode>(defaultTimeDisplayMode);
   const selectedDate = useMemo(
     () => parseSelectorDate(value, mode, defaultTime),
     [defaultTime, mode, value],
   );
+  const localeCalendarProps = localized
+    ? {
+        weekStartsOn: getWeekStartsOn() as WeekStart,
+        formatters: dayPickerFormatters,
+      }
+    : { formatters: plainDayPickerFormatters };
   const step = clampMinuteStep(minuteStep);
   const Icon = mode === "time" ? Clock : CalendarIcon;
 
   useEffect(() => {
-    setActiveTimeDisplayMode(timeDisplayMode);
-  }, [timeDisplayMode]);
+    setActiveTimeDisplayMode(defaultTimeDisplayMode);
+  }, [defaultTimeDisplayMode]);
 
   function commit(nextDate: Date, close = false) {
     onChange(formatValue(nextDate, mode));
@@ -405,7 +502,12 @@ export function DateTimeSelector({
           )}>
           <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate">
-            {formatDisplayValue(value, mode, activeTimeDisplayMode)}
+            {formatDisplayValue(
+              value,
+              mode,
+              activeTimeDisplayMode,
+              displayFormat,
+            )}
           </span>
         </Button>
       </PopoverTrigger>
@@ -424,8 +526,13 @@ export function DateTimeSelector({
               mode="single"
               required
               selected={selectedDate}
+              defaultMonth={selectedDate}
               onSelect={handleDateChange}
               disabled={(date) => isDateDisabled(date, min, max)}
+              captionLayout="dropdown"
+              labels={dayPickerLabels}
+              {...dropdownMonths(selectedDate)}
+              {...localeCalendarProps}
               data-test={dataTestId ? `${dataTestId}-calendar` : undefined}
               data-testid={dataTestId ? `${dataTestId}-calendar` : undefined}
               className="!bg-transparent p-0"

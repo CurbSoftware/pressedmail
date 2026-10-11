@@ -33,7 +33,7 @@ export function MailHandlingSection({
       dataTest="preference-section-mail-handling"
       title={__("Mail handling", "pressedmail")}
       description={__(
-        "Archive after reply, confirm deletes, and save drafts on close.",
+        "Archive after reply, confirm deletes, and save drafts automatically.",
         "pressedmail",
       )}
       tooltip={settingsInfoTooltips.mailHandling}
@@ -55,9 +55,9 @@ export function MailHandlingSection({
         dataTest="pref-confirm-delete"
       />
       <PreferenceSwitchRow
-        title={__("Save drafts on close", "pressedmail")}
+        title={__("Save drafts automatically", "pressedmail")}
         description={__(
-          "Silently save unsaved composer content to Drafts instead of asking.",
+          "Saves your draft to Drafts about 10 seconds after you stop typing, and when you close the composer, without asking. A draft with a file attached is saved when you leave this tab or close the composer.",
           "pressedmail",
         )}
         checked={draft.auto_save_drafts}

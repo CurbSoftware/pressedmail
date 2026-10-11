@@ -17,6 +17,7 @@ import {
 import type { EmailAccount } from "@/types";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useAppContext } from "@/context/AppProvider";
+import { useCombinedViewAvailable } from "@/hooks/useCombinedAccountIds";
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { useSignatures } from "@/context/signatures";
 import { isDefaultAccount as matchesDefaultAccount } from "@/lib/default-account";
@@ -28,6 +29,7 @@ import {
   useLeaveShare,
 } from "@/components/sharing";
 import type { Signature } from "@/types/signatures";
+import { AccountBadgeControl } from "@/admin/pages/settings/account-badge-control";
 
 import {
   Alert,
@@ -134,6 +136,7 @@ export function EmailConnectionsCard() {
   const navigate = useNavigate();
   const location = useLocation();
   const isMobile = useIsMobileOrTablet();
+  const combinedInboxAvailable = useCombinedViewAvailable();
   const {
     signatures,
     loading: signaturesLoading,
@@ -326,6 +329,13 @@ export function EmailConnectionsCard() {
 
   const disableActions = pendingAccountId !== null || (!hasLoaded && isLoading);
 
+  // An account badge only shows in the combined inbox, and only tells anything
+  // apart when it lists two mailboxes or more. It lists the viewer's own, never
+  // a shared one, so shared mailboxes do not count. Each use below also names
+  // __SINGLE_MAILBOX__, a build-time constant, so a single-mailbox build loses
+  // the control from the bundle rather than hiding it at runtime.
+  const offerBadge = combinedInboxAvailable && ownedAccounts.length > 1;
+
   // One mailbox, one slot. This build offers the connect action while the slot
   // is empty and nothing once it is filled: there is no list to add to, so
   // there is no "add another". Changing mailbox is Disconnect then Connect,
@@ -488,6 +498,12 @@ export function EmailConnectionsCard() {
                             />
                           </div>
 
+                          {__SINGLE_MAILBOX__ || !offerBadge ? null : (
+                            <div className="mt-2">
+                              <AccountBadgeControl account={account} />
+                            </div>
+                          )}
+
                           {!isDefault ? (
                             <div className="mt-2">
                               <Button
@@ -566,6 +582,11 @@ export function EmailConnectionsCard() {
                           <th className="w-[1%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
                             {__("Signature", "pressedmail")}
                           </th>
+                          {__SINGLE_MAILBOX__ || !offerBadge ? null : (
+                            <th className="w-[1%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
+                              {__("Account badge", "pressedmail")}
+                            </th>
+                          )}
                           <th className="w-[1%] whitespace-nowrap px-4 py-3 text-right font-medium text-muted-foreground">
                             {__("Actions", "pressedmail")}
                           </th>
@@ -632,6 +653,11 @@ export function EmailConnectionsCard() {
                                   onClick={() => openSignatureDialog(account)}
                                 />
                               </td>
+                              {__SINGLE_MAILBOX__ || !offerBadge ? null : (
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <AccountBadgeControl account={account} />
+                                </td>
+                              )}
                               <td className="w-[1%] whitespace-nowrap px-4 py-3 text-right">
                                 <div className="inline-flex items-center gap-2">
                                   <PressedTooltip

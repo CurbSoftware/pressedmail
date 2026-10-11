@@ -28,7 +28,9 @@ export function getAccountLabel(account: EmailAccount): string {
  * Returns the badge label for a message's account, or null if none.
  * Detects the case where accountLabel was set to the full email and re-derives.
  */
-export function getAccountBadgeLabel(message: EmailMessage): string | null {
+export function getAccountBadgeLabel(
+  message: Pick<EmailMessage, "accountEmail" | "accountLabel">,
+): string | null {
   const accountEmail = message.accountEmail ?? "";
   const accountLabel = message.accountLabel ?? "";
   if (!accountEmail && !accountLabel) return null;

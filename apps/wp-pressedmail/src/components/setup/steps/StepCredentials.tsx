@@ -5,6 +5,7 @@ import { Button, Input, Label } from "@kit/ui/plugin";
 
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
 import { OAuthConnectButton } from "../OAuthConnectButton";
+import { SavedPasswordField } from "../SavedPasswordField";
 import { stepCredentialsOAuthPolicy } from "@/components/setup/step-credentials-oauth-policy.active";
 import type { StepCredentialsOAuthPolicy } from "../step-credentials-oauth-policy.types";
 import { getProviderGuidance } from "../provider-guidance";
@@ -32,6 +33,8 @@ export interface MicrosoftOAuthWiring {
 
 export interface StepCredentialsProps {
   isEditing: boolean;
+  /** The account being edited stores a password (an OAuth account does not). Defaults to isEditing. */
+  hasSavedPassword?: boolean;
   isCustomDomainMode: boolean;
   formData: SetupFormData;
   setFormData: React.Dispatch<React.SetStateAction<SetupFormData>>;
@@ -71,6 +74,7 @@ function getSuggestedProvider(
 export function StepCredentialsWithPolicy({
   oauthPolicy,
   isEditing,
+  hasSavedPassword = isEditing,
   isCustomDomainMode,
   formData,
   setFormData,
@@ -267,35 +271,43 @@ export function StepCredentialsWithPolicy({
             <Label htmlFor="password">
               {__("Password or app password", "pressedmail")}
             </Label>
-            <Input
+            <SavedPasswordField
               id="password"
-              data-test="password-input"
-              type="password"
-              name="pressedmail-mail-account-password"
-              placeholder={__(
-                "Your password or app-specific password",
-                "pressedmail",
-              )}
-              {...sensitiveInputProps("mail-account-password")}
-              value={formData.password}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  password: e.target.value,
-                }))
-              }
-              className={errors.password ? "border-destructive" : ""}
-            />
+              editing={hasSavedPassword}
+              hasValue={formData.password !== ""}
+              hasError={Boolean(errors.password)}>
+              <Input
+                id="password"
+                data-test="password-input"
+                type="password"
+                name="pressedmail-mail-account-password"
+                placeholder={__(
+                  "Your password or app-specific password",
+                  "pressedmail",
+                )}
+                {...sensitiveInputProps("mail-account-password")}
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+                className={errors.password ? "border-destructive" : ""}
+              />
+            </SavedPasswordField>
             {errors.password && (
               <p className="text-sm text-destructive">{errors.password}</p>
             )}
             <p className="text-xs text-muted-foreground">
-              {isCustomDomainMode
-                ? __("Enter your email account password", "pressedmail")
-                : __(
-                    "For Gmail/Outlook, use an app-specific password instead of your regular password",
+              {["gmail", "outlook", "yahoo", "icloud"].includes(
+                formData.provider ?? "",
+              )
+                ? __(
+                    "For Gmail, Outlook, Yahoo and iCloud, use an app-specific password instead of your regular password",
                     "pressedmail",
-                  )}
+                  )
+                : __("Enter your email account password", "pressedmail")}
             </p>
           </div>
         )}

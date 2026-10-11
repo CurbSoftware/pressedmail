@@ -5,6 +5,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   EmailArchiveIcon,
   EmailForwardIcon,
+  EmailJunkIcon,
   EmailMarkReadIcon,
   EmailMarkUnreadIcon,
   EmailReplyAllIcon,
@@ -40,7 +41,10 @@ import {
   parseAccountQualifiedToken,
   getMessageIdentityKey,
 } from "@/lib/message-identity";
-import { getFolderRole } from "@/lib/bulk-mail-actions";
+import {
+  getFolderRole,
+  resolveJunkMoveTarget,
+} from "@/lib/bulk-mail-actions";
 import { isDraftMessage } from "@/lib/draft-compose";
 import {
   composerDefaultFormatToContentType,
@@ -352,6 +356,35 @@ export function MobileMailReaderScreen() {
     preferences.after_archive_action,
   ]);
 
+  const junkTarget = React.useMemo(
+    () => resolveJunkMoveTarget(folders),
+    [folders],
+  );
+
+  const handleMoveToJunk = React.useCallback(() => {
+    if (!displayMessage) return;
+    const { identity: messageId, nextId } = captureRemoval();
+    if (!messageId) {
+      identityFailure();
+      return;
+    }
+    void moveMessage(messageId, junkTarget).then((result) => {
+      if (result.success && !result.requiresRefresh) {
+        finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
+      } else if (!result.success && !result.requiresRefresh) {
+        appMessage(__("Move to junk failed", "pressedmail"), "error");
+      }
+    });
+  }, [
+    captureRemoval,
+    displayMessage,
+    finishAfterRemoval,
+    identityFailure,
+    junkTarget,
+    moveMessage,
+    preferences.after_archive_action,
+  ]);
+
   const performDelete = async (request: NonNullable<typeof pendingDelete>) => {
     if (deleting) return;
     if (liveReader.current.displayedIdentity !== request.identity) {
@@ -430,6 +463,17 @@ export function MobileMailReaderScreen() {
             icon: EmailArchiveIcon,
             onAction: handleArchive,
           },
+          // Nothing to do for a message that is already in Trash or Junk.
+          ...(physicalRole === "trash" || physicalRole === "spam"
+            ? []
+            : [
+                {
+                  id: "junk",
+                  label: __("Move to junk", "pressedmail"),
+                  icon: EmailJunkIcon,
+                  onAction: handleMoveToJunk,
+                },
+              ]),
           {
             id: "delete",
             label: __("Delete", "pressedmail"),

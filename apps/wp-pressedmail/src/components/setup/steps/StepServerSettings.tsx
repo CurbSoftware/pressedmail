@@ -32,6 +32,7 @@ import { EmailSendIcon } from "@/components/icons/MailActionIcons";
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
 
 import { ProtonBridgePanel } from "../ProtonBridgePanel";
+import { SavedPasswordField } from "../SavedPasswordField";
 import {
   isAdvancedProvider,
   PROVIDERS,
@@ -46,6 +47,8 @@ import type {
 
 export interface StepServerSettingsProps {
   isEditing?: boolean;
+  /** The account being edited stores a password (an OAuth account does not). Defaults to isEditing. */
+  hasSavedPassword?: boolean;
   formData: SetupFormData;
   setFormData: Dispatch<SetStateAction<SetupFormData>>;
   errors: SetupFormErrors;
@@ -114,6 +117,7 @@ export function parsePortInput(raw: string, previous: number): number {
 
 export function StepServerSettings({
   isEditing = false,
+  hasSavedPassword = isEditing,
   formData,
   setFormData,
   errors,
@@ -123,6 +127,7 @@ export function StepServerSettings({
   onTestConnection,
   onAddEmail,
 }: StepServerSettingsProps) {
+  const isCustomServer = formData.provider === "custom";
   const hasConnectionActivity =
     loading ||
     testState.imapStatus !== "pending" ||
@@ -316,42 +321,55 @@ export function StepServerSettings({
                     <Label
                       htmlFor="imapPassword"
                       className="text-xs font-medium">
-                      {__("Password", "pressedmail")}
+                      {isCustomServer
+                        ? __("Mailbox password", "pressedmail")
+                        : __("Password", "pressedmail")}
                     </Label>
-                    <Input
+                    <SavedPasswordField
                       id="imapPassword"
-                      data-test="imap-password-input"
-                      type="password"
-                      name="pressedmail-imap-account-password"
-                      placeholder={__(
-                        "App password or account password",
-                        "pressedmail",
-                      )}
-                      {...sensitiveInputProps("mail-account-password")}
-                      value={
-                        formData.useSeparateCredentials
+                      editing={hasSavedPassword}
+                      hasValue={
+                        (formData.useSeparateCredentials
                           ? formData.imapPassword
-                          : formData.password
+                          : formData.password) !== ""
                       }
-                      onChange={(e) => {
-                        if (formData.useSeparateCredentials) {
-                          setFormData((prev) => ({
-                            ...prev,
-                            imapPassword: e.target.value,
-                          }));
-                        } else {
-                          setFormData((prev) => ({
-                            ...prev,
-                            password: e.target.value,
-                          }));
+                      hasError={Boolean(errors.imapPassword || errors.password)}>
+                      <Input
+                        id="imapPassword"
+                        data-test="imap-password-input"
+                        type="password"
+                        name="pressedmail-imap-account-password"
+                        placeholder={
+                          isCustomServer
+                            ? __("Mailbox password", "pressedmail")
+                            : __("App password or account password", "pressedmail")
                         }
-                      }}
-                      className={
-                        errors.imapPassword || errors.password
-                          ? "border-destructive"
-                          : ""
-                      }
-                    />
+                        {...sensitiveInputProps("mail-account-password")}
+                        value={
+                          formData.useSeparateCredentials
+                            ? formData.imapPassword
+                            : formData.password
+                        }
+                        onChange={(e) => {
+                          if (formData.useSeparateCredentials) {
+                            setFormData((prev) => ({
+                              ...prev,
+                              imapPassword: e.target.value,
+                            }));
+                          } else {
+                            setFormData((prev) => ({
+                              ...prev,
+                              password: e.target.value,
+                            }));
+                          }
+                        }}
+                        className={
+                          errors.imapPassword || errors.password
+                            ? "border-destructive"
+                            : ""
+                        }
+                      />
+                    </SavedPasswordField>
                     {(errors.imapPassword || errors.password) && (
                       <p className="text-xs text-destructive">
                         {errors.imapPassword || errors.password}

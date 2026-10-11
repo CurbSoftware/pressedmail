@@ -74,6 +74,16 @@ export function formatCalendarDate(
   return calendarFormatter(options).format(date);
 }
 
+/**
+ * The clock the calendar locale uses by default: "24h" for German or French,
+ * "12h" for American English. What someone who never chose gets.
+ */
+export function getLocaleTimeFormat(): "12h" | "24h" {
+  const cycle = calendarFormatter({ hour: "numeric" }).resolvedOptions()
+    .hourCycle;
+  return cycle === "h23" || cycle === "h24" ? "24h" : "12h";
+}
+
 /** Hour and minute, honouring an explicit 12h or 24h display setting. */
 export function formatCalendarTime(
   date: Date,

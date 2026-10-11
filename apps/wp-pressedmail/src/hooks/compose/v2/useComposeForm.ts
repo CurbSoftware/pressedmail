@@ -162,13 +162,22 @@ export interface UseComposeFormOptions {
   /** If provided, syncs state with global ComposerContext (for floating window persistence). */
   composerContext?: ReturnType<typeof useComposer>;
   /**
-   * Legacy option kept for caller compatibility. Draft auto-save now happens
-   * only on composer exit via autoSaveOnClose.
+   * Timed draft save: about ten seconds after the last edit, when the draft is
+   * dirty and not empty, and again when the tab is hidden. It goes through the
+   * same save as the Save button, so the draft is replaced, never duplicated.
+   * A draft with an attached File skips the ten second clock, because every
+   * save uploads the file again; it is saved when the tab is hidden, by Save
+   * and on close. Saving on close is separate (autoSaveOnClose). The hook waits
+   * for the preferences to load before it runs the clock, so a caller can pass
+   * the setting as it stands.
    */
   autoSaveDrafts?: boolean;
   /**
    * Pro feature: when true, close/discard with dirty content silently saves
-   * a draft and closes instead of showing the discard dialog.
+   * a draft and closes instead of showing the discard dialog. Unlike
+   * autoSaveDrafts the hook does not wait for the preferences here, so a caller
+   * passes the person's setting only once they have loaded: the client default
+   * is on, and a person who turned it off must not be saved for.
    */
   autoSaveOnClose?: boolean;
   /**
@@ -252,6 +261,8 @@ export interface UseComposeFormReturn {
   isDiscarding: boolean;
   pendingInlineImageUploads: number;
   isDraftSaved: boolean;
+  /** What the composer footer says about the draft, for every save. */
+  draftSaveStatus: DraftSaveStatus;
   showDiscardDialog: boolean;
   showQuotedText: boolean;
   quotedText: string;
@@ -525,9 +536,29 @@ function appendAttachmentsToFormData(
  */
 type SaveDraftResult = ComposerDraftSaveResult;
 
+/** The footer's account of the draft: nothing yet, saving, saved, or failed. */
+export type DraftSaveStatus =
+  | { state: "idle" }
+  | { state: "saving" }
+  | { state: "saved"; at: number }
+  | { state: "error" };
+
+const DRAFT_SAVE_IDLE: DraftSaveStatus = { state: "idle" };
+
+/**
+ * How long the draft sits untouched before a timed save. Each save is one IMAP
+ * APPEND, so this is deliberately long.
+ */
+const DRAFT_AUTOSAVE_IDLE_MS = 10_000;
+
 interface SaveDraftOptions {
   listDelivery?: boolean;
   silent?: boolean;
+  /**
+   * A save nobody asked for (the timed one). A failure shows in the footer,
+   * never as a toast, so a flaky connection cannot stack one every ten seconds.
+   */
+  background?: boolean;
   subject?: string;
   body?: string;
   to?: string;
@@ -616,6 +647,7 @@ export function useComposeForm({
   quotedText: quotedTextInput = "",
   editorRef,
   composerContext,
+  autoSaveDrafts = false,
   autoSaveOnClose = false,
   gateNavigation = false,
   extras,
@@ -727,6 +759,8 @@ export function useComposeForm({
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [pendingInlineImageUploads, setPendingInlineImageUploads] = useState(0);
   const [isDraftSaved, setIsDraftSaved] = useState(false);
+  const [draftSaveStatus, setDraftSaveStatus] =
+    useState<DraftSaveStatus>(DRAFT_SAVE_IDLE);
   const defaultFromAccount =
     selectedAccount === CONSOLIDATED_INBOX_VALUE
       ? accounts[0]?.email || ""
@@ -790,7 +824,14 @@ export function useComposeForm({
   // (undo send, scheduling, read receipts, bound signatures).
   const isSharedMailbox = isSharedResource(resolveSendingAccount());
 
-  const { preferences: composerPreferences } = useUserPreferences();
+  // The client default for auto_save_drafts is on. Until a read of the
+  // preferences has succeeded, the timed save stays off rather than save for
+  // somebody who turned it off. `loaded` is set by that first good read and
+  // kept, so a failed write of some other preference (a colour, the speed dial)
+  // does not switch the save off again. A first read that failed leaves it off
+  // until a later read gets through.
+  const { preferences: composerPreferences, loaded: preferencesLoaded } =
+    useUserPreferences();
 
   useEffect(() => {
     if (accounts.length === 0) {
@@ -1561,6 +1602,21 @@ export function useComposeForm({
   // Stops the opened-draft clean-baseline window (see hasUnsavedDraftChanges).
   const draftBaselineStopRef = useRef<(() => void) | null>(null);
   const closeAutoSaveStartedRef = useRef(false);
+  // The folder the last timed save wrote to. A timed save is quiet, so the open
+  // list never heard of it, and a close that finds nothing left to save would
+  // not either: the list would keep a row for a draft the server replaced. The
+  // composer going away says so, once.
+  const timedSaveFolderRef = useRef<string | null>(null);
+  const onDraftSavedRef = useRef(onDraftSaved);
+  onDraftSavedRef.current = onDraftSaved;
+  useEffect(
+    () => () => {
+      if (timedSaveFolderRef.current !== null) {
+        onDraftSavedRef.current?.(timedSaveFolderRef.current);
+      }
+    },
+    [],
+  );
   const rawContextDraftUid = composerContext?.composeData.draftUid;
   const rawContextDraftFolder = composerContext?.composeData.draftFolder;
   const contextDraftUid = String(rawContextDraftUid ?? "").trim() || null;
@@ -1683,6 +1739,7 @@ export function useComposeForm({
     openedDraftIdentityRef.current = null;
     draftBaselineStopRef.current?.();
     lastSavedDraftSnapshotRef.current = null;
+    setDraftSaveStatus(DRAFT_SAVE_IDLE);
   }, [isContextMode, composerContext, defaultContentType]);
 
   // The bound draft was deleted, here from the list or elsewhere mid-save.
@@ -1876,6 +1933,7 @@ export function useComposeForm({
         setIsDraftSaved(true);
         if (feedback === "manual") {
           appMessage(__("Draft saved", "pressedmail"), "success");
+          timedSaveFolderRef.current = null;
           onDraftSaved?.(savedDraft.draft_folder);
         }
         setTimeout(() => {
@@ -1898,13 +1956,17 @@ export function useComposeForm({
       opts: SaveDraftOptions | undefined,
       composeSessionVersion: number | null,
     ): Promise<SaveDraftResult> => {
+      // A background save reports through the footer, so it never toasts.
+      const notify: typeof appMessage = (...args) => {
+        if (!opts?.background) appMessage(...args);
+      };
       if (senderNeedsConfirmation) {
         if (!opts?.silent) appMessage(senderUnavailableMessage, "error");
         return { ok: false, draft: null };
       }
       draftGoneRef.current = false;
       if (hasIncompleteDraftIdentity) {
-        appMessage(
+        notify(
           __("Reload this draft before saving or sending it.", "pressedmail"),
           "error",
         );
@@ -1923,7 +1985,7 @@ export function useComposeForm({
         priorDraft &&
         (priorDraft.accountId === null || priorDraft.accountId !== accountId)
       ) {
-        appMessage(
+        notify(
           __(
             "Switch back to the draft's account before saving or sending it.",
             "pressedmail",
@@ -1933,7 +1995,7 @@ export function useComposeForm({
         return { ok: false, draft: null };
       }
       if (priorDraft && (!priorDraft.uidValidity || !priorDraft.messageId)) {
-        appMessage(
+        notify(
           __("Reload this draft before saving or sending it.", "pressedmail"),
           "error",
         );
@@ -2046,10 +2108,13 @@ export function useComposeForm({
 
         if (!response || response.status !== "success") {
           if (ownsComposeSession(composeSessionVersion)) {
-            if (response?.code === "DRAFT_DELETED") {
+            // A timed save runs while somebody is typing, and closing would
+            // throw their words away. It reports through the footer and leaves
+            // the composer open; Save and closing still close it.
+            if (response?.code === "DRAFT_DELETED" && !opts?.background) {
               closeDeletedDraft();
             } else {
-              appMessage(
+              notify(
                 response?.message || __("Failed to save draft", "pressedmail"),
                 "error",
               );
@@ -2070,7 +2135,7 @@ export function useComposeForm({
           !draftMessageId
         ) {
           if (ownsComposeSession(composeSessionVersion)) {
-            appMessage(
+            notify(
               __(
                 "Reload the saved draft before editing it again.",
                 "pressedmail",
@@ -2111,7 +2176,7 @@ export function useComposeForm({
           setDraftDocumentStorageUnavailable(documentNotStored);
         }
         if (documentNotStored && !opts?.silent) {
-          appMessage(
+          notify(
             __(
               "Rich Text blocks will reopen as email HTML while database caching is off.",
               "pressedmail",
@@ -2122,7 +2187,7 @@ export function useComposeForm({
         return result;
       } catch (error) {
         if (ownsComposeSession(composeSessionVersion)) {
-          appMessage(__("Failed to save draft", "pressedmail"), "error");
+          notify(__("Failed to save draft", "pressedmail"), "error");
         }
         return { ok: false, draft: null };
       } finally {
@@ -2164,6 +2229,42 @@ export function useComposeForm({
     null,
   );
   const pendingInlineImageUploadsRef = useRef(0);
+  // Saves running now, manual and timed alike. The footer says "Saving" until
+  // the last one settles, and a timed save never starts beside another.
+  const activeSavesRef = useRef(0);
+
+  const trackDraftSave = useCallback(
+    (
+      save: Promise<SaveDraftResult>,
+      composeSessionVersion: number | null,
+    ): Promise<SaveDraftResult> => {
+      activeSavesRef.current += 1;
+      if (mountedRef.current) setDraftSaveStatus({ state: "saving" });
+      const settle = (ok: boolean) => {
+        activeSavesRef.current -= 1;
+        if (activeSavesRef.current > 0 || !mountedRef.current) return;
+        setDraftSaveStatus(
+          // A composer that has moved on has nothing to report.
+          !ownsComposeSession(composeSessionVersion)
+            ? DRAFT_SAVE_IDLE
+            : ok
+              ? { state: "saved", at: Date.now() }
+              : { state: "error" },
+        );
+      };
+      return save.then(
+        (result) => {
+          settle(result.ok);
+          return result;
+        },
+        (error: unknown) => {
+          settle(false);
+          throw error;
+        },
+      );
+    },
+    [ownsComposeSession],
+  );
 
   const beginInlineImageUpload = useCallback((): boolean => {
     if (operationGateRef.current) {
@@ -2243,24 +2344,27 @@ export function useComposeForm({
         references: opts?.references ?? references,
       };
       if (composerContext && composeSessionVersion !== null) {
-        return composerContext.queueDraftSave(
+        return trackDraftSave(
+          composerContext.queueDraftSave(
+            composeSessionVersion,
+            async (latestSavedDraft) => {
+              if (!ownsComposeSession(composeSessionVersion)) {
+                return { ok: false, draft: null };
+              }
+              if (
+                latestSavedDraft &&
+                !applySavedDraftResult(
+                  latestSavedDraft,
+                  composeSessionVersion,
+                  null,
+                )
+              ) {
+                return { ok: false, draft: null };
+              }
+              return performSaveDraft(capturedOptions, composeSessionVersion);
+            },
+          ),
           composeSessionVersion,
-          async (latestSavedDraft) => {
-            if (!ownsComposeSession(composeSessionVersion)) {
-              return { ok: false, draft: null };
-            }
-            if (
-              latestSavedDraft &&
-              !applySavedDraftResult(
-                latestSavedDraft,
-                composeSessionVersion,
-                null,
-              )
-            ) {
-              return { ok: false, draft: null };
-            }
-            return performSaveDraft(capturedOptions, composeSessionVersion);
-          },
         );
       }
 
@@ -2280,13 +2384,14 @@ export function useComposeForm({
             inFlightSaveRef.current = null;
           }
         });
-      return pending;
+      return trackDraftSave(pending, composeSessionVersion);
     },
     [
       applySavedDraftResult,
       composerContext,
       ownsComposeSession,
       performSaveDraft,
+      trackDraftSave,
       inReplyTo,
       references,
     ],
@@ -3273,6 +3378,7 @@ export function useComposeForm({
             "success",
           );
         }
+        timedSaveFolderRef.current = null;
         onDraftSaved?.(priorDraft?.folder);
         onScheduledChanged?.();
         if (scheduledAttempt)
@@ -3777,6 +3883,7 @@ export function useComposeForm({
       priorDraftRef.current = null;
       openedDraftIdentityRef.current = null;
       onDraftDiscarded?.(prior.folder);
+      timedSaveFolderRef.current = null;
       onDraftSaved?.(prior.folder);
       return true;
     } catch {
@@ -4050,6 +4157,170 @@ export function useComposeForm({
       closeAutoSaveStartedRef.current = false;
     }
   }, [autoSaveOnClose, hasComposedDraftContent, hasUnsavedDraftChanges]);
+
+  // Timed draft save. Every edit restarts the clock; when it runs out the draft
+  // is saved through the same path as the Save button, so the server replaces
+  // the previous copy and the draft ids move exactly as they do for a click.
+  // The checks below keep it from asking the mail server for nothing: an empty
+  // draft, one already saved as it stands, a second save beside one in flight,
+  // and no connection all wait or skip.
+  const timedSaveOn = autoSaveDrafts && preferencesLoaded;
+  // What the clock watches, as one string. In context mode the recipient and
+  // attachment arrays are rebuilt on every render, so they cannot be
+  // dependencies: a re-render that changed nothing (new mail, an undo tick)
+  // would restart the clock, and a failed save, which re-renders the footer,
+  // would arm the next attempt by itself.
+  const autoSaveContentKey = [
+    recipientsToString(toRecipients),
+    recipientsToString(ccRecipients),
+    recipientsToString(bccRecipients),
+    subject,
+    body,
+    bodyBackgroundColor ?? "",
+    contentType,
+    String(listDelivery),
+    __ENABLE_CONTACT_LISTS__
+      ? JSON.stringify(
+          getRecipientListFields({
+            to: toRecipients,
+            cc: ccRecipients,
+            bcc: bccRecipients,
+          }),
+        )
+      : "",
+    attachments.map(describeAttachmentForDraftSnapshot).join("|"),
+  ].join("\u0000");
+  // The content a timed save last failed on. The clock leaves it alone until an
+  // edit changes it, so a mail server that is down is asked once, not every ten
+  // seconds. Leaving the tab and the footer's Retry still try.
+  const autoSaveFailedKeyRef = useRef<string | null>(null);
+  const autoSaveLatestRef = useRef({
+    enabled: false,
+    contentKey: autoSaveContentKey,
+    hasComposedDraftContent,
+    hasUnsavedDraftChanges,
+    saveDraftToServer,
+    canSave: (): boolean => true,
+  });
+  autoSaveLatestRef.current = {
+    enabled: timedSaveOn && !isScheduledEdit,
+    contentKey: autoSaveContentKey,
+    hasComposedDraftContent,
+    hasUnsavedDraftChanges,
+    saveDraftToServer,
+    // The manual Save explains these with a message; a timed one stays quiet.
+    canSave: () =>
+      !senderNeedsConfirmation &&
+      !hasIncompleteDraftIdentity &&
+      getSendingAccountId() !== null,
+  };
+  const autoSaveTimerRef = useRef<number | null>(null);
+  // "idle" is the clock running out. "leave" is the tab being hidden or the
+  // page going: the last chance, so it skips the idle-only rules below.
+  const runAutoSaveRef = useRef<(reason?: "idle" | "leave") => Promise<void>>(
+    async () => {},
+  );
+  const cancelAutoSave = useCallback(() => {
+    if (autoSaveTimerRef.current !== null) {
+      window.clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+  }, []);
+  const armAutoSave = useCallback(() => {
+    cancelAutoSave();
+    autoSaveTimerRef.current = window.setTimeout(() => {
+      autoSaveTimerRef.current = null;
+      void runAutoSaveRef.current();
+    }, DRAFT_AUTOSAVE_IDLE_MS);
+  }, [cancelAutoSave]);
+  runAutoSaveRef.current = async (reason = "idle") => {
+    const latest = autoSaveLatestRef.current;
+    if (!latest.enabled || !mountedRef.current) return;
+    if (!latest.hasComposedDraftContent() || !latest.hasUnsavedDraftChanges()) {
+      return;
+    }
+    // A send, discard or close owns the draft now.
+    if (operationGateRef.current) return;
+    // Offline: the online listener below tries again.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+    // One save at a time. Look again after the next quiet stretch.
+    if (
+      activeSavesRef.current > 0 ||
+      pendingInlineImageUploadsRef.current > 0
+    ) {
+      armAutoSave();
+      return;
+    }
+    // A File goes up whole with every save, and the mail server appends the
+    // whole message again. The clock leaves such a draft to Save, closing and
+    // leaving the tab instead of repeating a big upload at every pause.
+    if (
+      reason === "idle" &&
+      attachmentsRef.current.some(
+        (attachment) =>
+          typeof File !== "undefined" && attachment instanceof File,
+      )
+    ) {
+      // An earlier save may have left "Saved at" in the footer. These edits
+      // came after it and nothing will save them yet, so it must not vouch for
+      // them.
+      setDraftSaveStatus((status) =>
+        status.state === "saved" ? DRAFT_SAVE_IDLE : status,
+      );
+      return;
+    }
+    if (
+      reason === "idle" &&
+      autoSaveFailedKeyRef.current === latest.contentKey
+    ) {
+      return;
+    }
+    if (!latest.canSave()) return;
+    try {
+      const saved = await latest.saveDraftToServer({
+        silent: true,
+        background: true,
+      });
+      autoSaveFailedKeyRef.current = saved.ok ? null : latest.contentKey;
+      if (saved.ok) {
+        timedSaveFolderRef.current = saved.draft?.draft_folder ?? "";
+      }
+    } catch {
+      // The footer already shows the failure.
+      autoSaveFailedKeyRef.current = latest.contentKey;
+    }
+  };
+  useEffect(() => {
+    if (!timedSaveOn) return undefined;
+    armAutoSave();
+    return cancelAutoSave;
+  }, [
+    armAutoSave,
+    autoSaveContentKey,
+    cancelAutoSave,
+    draftDocument,
+    timedSaveOn,
+  ]);
+  // Leaving the tab is the moment unsaved work gets lost, so save then without
+  // waiting out the clock.
+  useEffect(() => {
+    if (!timedSaveOn) return undefined;
+    const flush = () => {
+      cancelAutoSave();
+      void runAutoSaveRef.current("leave");
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", flush);
+    window.addEventListener("online", armAutoSave);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("online", armAutoSave);
+    };
+  }, [armAutoSave, cancelAutoSave, timedSaveOn]);
 
   // Refs for the navigation guard so the registered callback always sees
   // the latest cleanup helpers without re-registering on every render.
@@ -4435,6 +4706,7 @@ export function useComposeForm({
     isDiscarding,
     pendingInlineImageUploads,
     isDraftSaved,
+    draftSaveStatus,
     showDiscardDialog,
     showQuotedText,
     quotedText: quotedTextInput,

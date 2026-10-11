@@ -1185,7 +1185,9 @@ export function InboxProvider({
         if (!folderResult.success) {
           if (folderResult.authError) {
             initializedAccountRef.current = null;
-            setInitError(folderResult.error || "Failed to load folders");
+            setInitError(
+              folderResult.error || __("Failed to load folders", "pressedmail"),
+            );
           } else {
             if (folderResult.error?.includes("Account not found")) {
               initializedAccountRef.current = null;
@@ -1209,7 +1211,9 @@ export function InboxProvider({
       if (!folderResult.success) {
         if (folderResult.authError) {
           initializedAccountRef.current = null;
-          setInitError(folderResult.error || "Failed to load folders");
+          setInitError(
+            folderResult.error || __("Failed to load folders", "pressedmail"),
+          );
         } else {
           if (folderResult.error?.includes("Account not found")) {
             initializedAccountRef.current = null;
@@ -2830,7 +2834,9 @@ export function InboxProvider({
       );
 
       if (!result.success) {
-        setInitError(result.error || "Failed to load folders");
+        setInitError(
+          result.error || __("Failed to load folders", "pressedmail"),
+        );
         return result;
       }
 

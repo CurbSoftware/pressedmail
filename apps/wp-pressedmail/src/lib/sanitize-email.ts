@@ -178,11 +178,27 @@ const EMAIL_SANITIZE_CONFIG = {
 
 const SAFE_STYLESHEET_URL = /^https:\/\//i;
 
+/**
+ * What a sender's `(prefers-color-scheme: dark)` becomes: a condition that can
+ * never be true. Same rule, same text, as EmailHtmlSanitizer::DARK_SCHEME_QUERY_OFF.
+ *
+ * The reading pane is a fixed light canvas whatever theme the reader picked, but
+ * the iframe follows the system, so a sender's dark-mode rules still run when the
+ * system is dark, and rules that darken only part of the message leave light text
+ * on the light surface. It has no `prefers-color-scheme` in it, so a second pass
+ * changes nothing.
+ */
+const DARK_SCHEME_QUERY_OFF = "((min-width: 1px) and (max-width: 0px))";
+
 export function sanitizeEmailCssText(css: string): string {
   if (!css) return "";
 
   return css
     .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(
+      /\(\s*prefers-color-scheme\s*:\s*dark\s*\)/gi,
+      DARK_SCHEME_QUERY_OFF,
+    )
     .replace(
       /@import\s+(?!(?:url\(\s*['"]?https:\/\/|['"]https:\/\/))[^;]+;?/gi,
       "",
@@ -314,6 +330,14 @@ function normalizeEmailCss(html: string): string {
   });
 
   root.querySelectorAll("style").forEach((style) => {
+    // A stylesheet meant only for a dark system is dropped whole: its media
+    // attribute is not CSS text.
+    if (
+      /prefers-color-scheme\s*:\s*dark/i.test(style.getAttribute("media") ?? "")
+    ) {
+      style.remove();
+      return;
+    }
     style.textContent = sanitizeEmailCssText(style.textContent || "");
   });
 

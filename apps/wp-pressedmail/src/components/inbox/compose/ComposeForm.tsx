@@ -40,7 +40,7 @@ export function ComposeForm({
 }: ComposeFormProps) {
   const composerCtx = useComposer();
   const editorRef = useRef<EmailEditorRef>(null);
-  const { preferences } = useUserPreferences();
+  const { preferences, loaded } = useUserPreferences();
 
   const form = useComposeForm({
     mode:
@@ -51,7 +51,9 @@ export function ComposeForm({
       preferences.composer_default_format,
     ),
     composerContext: composerCtx,
-    autoSaveOnClose: preferences.auto_save_drafts,
+    autoSaveDrafts: preferences.auto_save_drafts,
+    // The client default is on, so not before the server has answered.
+    autoSaveOnClose: preferences.auto_save_drafts && loaded,
     extras: __IS_FREE__ ? undefined : { undoSend: true },
     gateNavigation: true,
     onClose,

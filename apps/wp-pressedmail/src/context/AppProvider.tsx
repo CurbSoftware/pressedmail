@@ -152,6 +152,9 @@ interface AppProviderProps {
   children: React.ReactNode;
 }
 
+/** Waits before the two retries of the accounts load after a server error. */
+const ACCOUNTS_RETRY_DELAYS_MS = [600, 1800];
+
 const NO_SELECTION: number[] = [];
 const ignoreSelection: React.Dispatch<React.SetStateAction<number[]>> = () => {};
 
@@ -504,9 +507,9 @@ export default function AppProvider({ children }: AppProviderProps) {
             ? err?.safeManagedMessage === true
               ? err.message
               : managedAccountErrorMessage(undefined)
-            : err.message || "Failed to add account",
+            : err.message || __("Failed to add account", "pressedmail"),
         );
-        appMessage("Failed to add account", "error");
+        appMessage(__("Failed to add account", "pressedmail"), "error");
         throw err;
       } finally {
         setIsLoading(false);
@@ -532,7 +535,7 @@ export default function AppProvider({ children }: AppProviderProps) {
         const response = await apiForm(accountRemoveROuteApi, formData);
 
         if ((response as any).status !== "success") {
-          appMessage("Failed to remove account", "error");
+          appMessage(__("Failed to remove account", "pressedmail"), "error");
           return;
         }
 
@@ -553,7 +556,7 @@ export default function AppProvider({ children }: AppProviderProps) {
         }
       } catch (err: any) {
         console.error("Error removing account:", err);
-        appMessage("Failed to remove account", "error");
+        appMessage(__("Failed to remove account", "pressedmail"), "error");
         throw err;
       } finally {
         setIsLoading(false);
@@ -713,7 +716,8 @@ export default function AppProvider({ children }: AppProviderProps) {
 
         if ((response as any)?.status !== "success") {
           const message =
-            (response as any)?.message || "Failed to update account";
+            (response as any)?.message ||
+            __("Failed to update account", "pressedmail");
           throw new Error(message);
         }
 
@@ -750,6 +754,9 @@ export default function AppProvider({ children }: AppProviderProps) {
               useSeparateCredentials:
                 updates.useSeparateCredentials ??
                 account.useSeparateCredentials,
+              // The setup form keys on this to show "Saved" or ask for a
+              // password, so a switch to a password has to reach the list.
+              use_oauth: updates.useOAuth ?? account.use_oauth,
             };
           }),
         );
@@ -775,7 +782,7 @@ export default function AppProvider({ children }: AppProviderProps) {
             ? err?.safeManagedMessage === true
               ? err.message
               : managedAccountErrorMessage(undefined)
-            : err?.message || "Failed to update account";
+            : err?.message || __("Failed to update account", "pressedmail");
         setError(message);
         appMessage(message, "error");
         throw err;
@@ -852,15 +859,27 @@ export default function AppProvider({ children }: AppProviderProps) {
     async (signal?: AbortSignal): Promise<EmailAccount[] | null> => {
       setIsLoading(true);
       setError(null);
+      let serverFailed = false;
 
       try {
-        const response = await apiFetch(accountsLoadRouteApi, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          signal,
-        });
+        const fetchAccounts = () =>
+          apiFetch(accountsLoadRouteApi, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            signal,
+          });
+        let response = await fetchAccounts();
+        // Right after an install or update the tables can be missing for a
+        // moment, and apiFetch never retries. Two more tries, a short wait
+        // apart, only for a server error.
+        for (const delay of ACCOUNTS_RETRY_DELAYS_MS) {
+          if (signal?.aborted || response.status < 500) break;
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          if (signal?.aborted) return null;
+          response = await fetchAccounts();
+        }
 
         if (signal?.aborted) return null;
 
@@ -870,6 +889,7 @@ export default function AppProvider({ children }: AppProviderProps) {
         }
 
         if (!response.ok) {
+          serverFailed = response.status >= 500;
           throw new Error(`HTTP error! status: ${response.status}`);
         }
 
@@ -924,12 +944,19 @@ export default function AppProvider({ children }: AppProviderProps) {
       } catch (err) {
         if (signal?.aborted) return null;
         console.error("[AppProvider] Error loading accounts:", err);
-        setError("Failed to load accounts");
+        setError(
+          serverFailed
+            ? __(
+                "PressedMail is still starting up. Give it a moment and try again.",
+                "pressedmail",
+              )
+            : __("Failed to load accounts", "pressedmail"),
+        );
         // Surface the failure instead of silently rendering the empty/setup
         // state. Existing accounts are intentionally left intact here, only an
         // explicit 404/empty response clears them, so a transient auth/network
         // failure does not look like "no accounts".
-        appMessage("Failed to load accounts", "error");
+        appMessage(__("Failed to load accounts", "pressedmail"), "error");
         return null;
       } finally {
         if (!signal?.aborted) {

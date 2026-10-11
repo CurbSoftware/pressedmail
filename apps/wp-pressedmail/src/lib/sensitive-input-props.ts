@@ -25,7 +25,9 @@ export function sensitiveInputProps(
 ): SensitiveInputProps {
   return {
     autoCapitalize: "off",
-    autoComplete: "off",
+    // Chrome and Firefox ignore "off" on a password field and fill it with the
+    // WordPress login. "new-password" is the one value they respect.
+    autoComplete: field === "mail-account-password" ? "new-password" : "off",
     autoCorrect: "off",
     "data-1p-ignore": "true",
     "data-form-type": "other",

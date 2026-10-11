@@ -273,7 +273,7 @@ export const PREFERENCE_ALLOWED_VALUES = {
   // Calendar is Pro: the Free build carries no calendar preference.
   ...(__ENABLE_CALENDAR__
     ? {
-        calendar_time_format: ["12h", "24h"] as const,
+        calendar_time_format: ["auto", "12h", "24h"] as const,
         calendar_default_reminder_minutes: [0, 5, 15, 30, 60, 1440] as const,
       }
     : {}),
@@ -342,7 +342,12 @@ export interface UserPreferences {
   header_activity_enabled: boolean;
   speed_dial_enabled: boolean;
   speed_dial_position: SpeedDialPosition;
-  /** Pro only: when true, skip the discard dialog and silently save to drafts on composer close / route change. */
+  /**
+   * When true, drafts save about 10 seconds after the last edit, on tab hide,
+   * and on close or route change without the discard dialog. A draft with an
+   * attached file skips the 10 second save and waits for the tab hide or the
+   * close, because every save uploads the file again.
+   */
   auto_save_drafts: boolean;
   // Contacts preferences
   auto_add_contacts: boolean;
@@ -362,7 +367,8 @@ export interface UserPreferences {
   // Calendar display preferences
   calendar_day_start_hour: number;
   calendar_day_end_hour: number;
-  calendar_time_format: "12h" | "24h";
+  /** "auto" follows the WordPress locale; "12h" and "24h" are a choice. */
+  calendar_time_format: "auto" | "12h" | "24h";
   /** Minutes before an event a reminder fires by default (0 = none). */
   calendar_default_reminder_minutes: CalendarReminderMinutes;
   // Email list display preferences
@@ -435,6 +441,13 @@ export interface UserPreferences {
    * color used by the flag badge. Unset flags fall back to a stable hash color.
    */
   contact_flag_colors: Record<string, string>;
+  /**
+   * Per-viewer inbox badge for each account, keyed by account id: an optional
+   * alias in place of the derived label and an optional hex color. Applies to
+   * shared mailboxes too, because it belongs to the person looking, not to the
+   * account.
+   */
+  account_badges: Record<string, { alias?: string; color?: string }>;
 }
 
 /**
@@ -452,7 +465,7 @@ const DEFAULT_PREFERENCES = {
   header_activity_enabled: true,
   speed_dial_enabled: true,
   speed_dial_position: "bottom-right",
-  auto_save_drafts: false,
+  auto_save_drafts: true,
   // Contacts are Pro: the Free build carries no contacts preference.
   ...(__ENABLE_CONTACTS__
     ? { auto_add_contacts: false, contacts_default_list_id: 0 }
@@ -470,7 +483,7 @@ const DEFAULT_PREFERENCES = {
     ? {
         calendar_day_start_hour: 0,
         calendar_day_end_hour: 23,
-        calendar_time_format: "12h" as const,
+        calendar_time_format: "auto" as const,
         calendar_default_reminder_minutes: 15 as const,
       }
     : {}),
@@ -532,6 +545,7 @@ const DEFAULT_PREFERENCES = {
   palette_recent_colors: [],
   composer_palette_level: "reduced",
   contact_flag_colors: {},
+  account_badges: {},
 } as UserPreferences;
 
 function normalizePreferences(
@@ -559,6 +573,12 @@ function getApiUrl(): string {
 
 interface PreferencesState {
   preferences: UserPreferences;
+  /**
+   * True once a read of the preferences has succeeded, and it stays true. A
+   * failed write or a later failed read does not take it back, which `error`
+   * cannot promise: every failed write sets that one.
+   */
+  loaded: boolean;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -570,6 +590,7 @@ interface PreferencesState {
 // dial position control updating the ApplicationLayout render guard).
 let state: PreferencesState = {
   preferences: DEFAULT_PREFERENCES,
+  loaded: false,
   loading: true,
   saving: false,
   error: null,
@@ -710,6 +731,7 @@ async function loadPreferences(quiet: boolean): Promise<void> {
               ? normalizePreferences(data.preferences)
               : prev.preferences,
           loading: false,
+          loaded: true,
         }));
       } else if (!quiet) {
         setState((prev) => ({
@@ -938,6 +960,7 @@ export function useUserPreferences() {
 
   return {
     preferences: snapshot.preferences,
+    loaded: snapshot.loaded,
     loading: snapshot.loading,
     saving: snapshot.saving,
     error: snapshot.error,

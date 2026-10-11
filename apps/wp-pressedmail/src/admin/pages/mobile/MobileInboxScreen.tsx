@@ -114,7 +114,7 @@ import {
   getMessageIdentityRef,
   getMessageListRowKeys,
 } from "@/lib/message-identity";
-import { getAccountBadgeLabel } from "@/lib/account-label";
+import { accountBadgeStyle, useAccountBadges } from "@/lib/account-badges";
 import { sortEmailMessages } from "@/lib/email-list-sort";
 import {
   emailListDateGroupKey,
@@ -279,9 +279,14 @@ function MailRowComponent({
     onTap(mail);
   };
   const preview = getReadableMessagePreview(mail);
+  const { badges: accountBadges } = useAccountBadges();
+  const showAccountBadge = rowPresentation.showAccountBadge;
   // The desktop row model, so a phone row reads "9:03 AM", "Thu" or "Sep 9"
   // like every other list in the product instead of "9/10/2026" on every row.
-  const rowModel = React.useMemo(() => buildEmailRowViewModel(mail), [mail]);
+  const rowModel = React.useMemo(
+    () => buildEmailRowViewModel(mail, { showAccountBadge, accountBadges }),
+    [mail, showAccountBadge, accountBadges],
+  );
   const emphasizeUnread =
     !mail.read &&
     (rowPresentation.unreadIndicator === "bold" ||
@@ -290,10 +295,7 @@ function MailRowComponent({
     !mail.read &&
     (rowPresentation.unreadIndicator === "dot" ||
       rowPresentation.unreadIndicator === "dot_and_bold");
-  const accountBadge =
-    rowPresentation.showAccountBadge && mail.accountEmail
-      ? getAccountBadgeLabel(mail)
-      : null;
+  const accountBadge = rowModel.accountBadge;
   const showAttachment =
     rowPresentation.showAttachmentIcon &&
     Boolean(
@@ -350,7 +352,7 @@ function MailRowComponent({
                   <span
                     data-test="email-row-unread-dot"
                     data-testid="email-row-unread-dot"
-                    className="h-1.5 w-1.5 rounded-full bg-primary"
+                    className="h-2 w-2 rounded-full bg-primary"
                   />
                 ) : null}
               </span>
@@ -358,12 +360,24 @@ function MailRowComponent({
             {accountBadge ? (
               <Badge
                 variant="outline"
-                className="h-4 max-w-24 shrink-0 truncate px-1 py-0 text-[9px] font-normal text-muted-foreground"
+                className={cn(
+                  "h-4 max-w-24 shrink-0 truncate px-1 py-0 text-[9px] font-normal",
+                  accountBadge.color
+                    ? "text-foreground"
+                    : "text-muted-foreground",
+                )}
+                style={accountBadgeStyle(accountBadge)}
                 title={mail.accountEmail}
                 data-test="message-account-badge"
                 data-testid="email-row-account-badge">
-                {/* An element holds one data-test, so the testid's twin sits inside. */}
-                <span data-test="email-row-account-badge">{accountBadge}</span>
+                {/* An element holds one data-test, so the testid's twin sits inside. It
+                    also does the ellipsis: the Badge is a flex box, and text-overflow
+                    never reaches the text of a flex container. */}
+                <span
+                  data-test="email-row-account-badge"
+                  className="min-w-0 truncate">
+                  {accountBadge.label}
+                </span>
               </Badge>
             ) : null}
             <span

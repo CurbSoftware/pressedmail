@@ -92,7 +92,7 @@ export function MobileComposeScreen({
   const { selectedFolder } = useFolderOperations();
   const { selectedMessage } = useInboxState();
   const paneFolder = selectedFolder || selectedMessage?.folder || "INBOX";
-  const { preferences } = useUserPreferences();
+  const { preferences, loaded } = useUserPreferences();
 
   const routeFields = React.useMemo(
     () =>
@@ -182,7 +182,9 @@ export function MobileComposeScreen({
       composeData.contentType ??
       composerDefaultFormatToContentType(preferences.composer_default_format),
     editorRef,
-    autoSaveOnClose: preferences.auto_save_drafts,
+    autoSaveDrafts: preferences.auto_save_drafts,
+    // The client default is on, so not before the server has answered.
+    autoSaveOnClose: preferences.auto_save_drafts && loaded,
     extras: __IS_FREE__
       ? undefined
       : { undoSend: true, onScheduledChanged: refreshScheduledEmails },

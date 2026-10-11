@@ -1228,9 +1228,9 @@ body :is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .h
    still paints a select's text #1e1e1e (unreadable on a dark field) and gives
    every text field and select a 40px min-height and 14px text the kit
    controls do not have, so a value box stood 4px taller than the select next
-   to it with bigger text. The kit classes already set the fill and border
-   there, as in the tag dialog, so only the text, the height and the padding
-   need taking back. */
+   to it with bigger text. The kit classes set the border there, so only the
+   text, the height and the padding need taking back. The fill is the one
+   thing the kit classes do NOT win on their own: see the next block. */
 [data-pm-portal]
   input:is(
     [type="text"],
@@ -1250,6 +1250,47 @@ body :is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .h
      and resolves there, to the kit's 36px fallback. */
   min-height: var(--control-height) !important;
   padding-block: 0 !important;
+}
+
+/* A field in a dialog, popover or sheet keeps the fill it asked for.
+   wp-admin forms.css paints every typed input, textarea and select
+   `background-color: #fff`, unlayered, and an unlayered declaration beats every
+   layered utility, so bg-background and dark:bg-input/30 lost to it. The root
+   has its own !important field rules; a portal had none that matched (the ones
+   written for [data-radix-portal] match nothing, the container is
+   [data-pm-portal]). Pro's theme engine repeats bg-background and
+   dark:bg-input/30 as !important rules at runtime, which hid it there. Free
+   has no engine, so every typed Input (email, password, number, search, url,
+   tel, date, time), every Textarea and every select in a dialog was a white
+   box under light text in dark mode. An Input with no type escaped, because
+   core only styles the typed ones. Pro still showed it for a field that asks
+   for bg-transparent, which no runtime rule repeats.
+   revert-layer hands the fill back to the layers: whatever bg-* the field
+   carries applies as authored, and a bare one falls to preflight's
+   transparent. An !important fill (Pro's runtime rules, the tag filter below)
+   still wins. Not a colour on purpose: a colour here would override a field
+   that asked for none. `body` lifts it above core's :disabled rule, which has
+   the same specificity. form-control-surface.spec.ts holds every control type
+   to this in a real browser. */
+body
+  :is([data-pm-portal], [data-radix-popper-content-wrapper])
+  :is(
+    textarea,
+    select,
+    input:not(
+      [type="checkbox"],
+      [type="radio"],
+      [type="range"],
+      [type="file"],
+      [type="color"],
+      [type="hidden"],
+      [type="button"],
+      [type="submit"],
+      [type="reset"],
+      [type="image"]
+    )
+  ) {
+  background-color: revert-layer;
 }
 
 /* Compact controls: /ui reads this into --spacing-control (h-control).

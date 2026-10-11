@@ -159,4 +159,4 @@ Older releases: https://pressedmail.com/changelog
 * A busy mail server is retried, not called unreachable.
 * Drafts save themselves after you stop typing.
 * A browser no longer overwrites a saved password.
-* Emails with dark-mode styles stay readable.
+* Emails and form fields stay readable in dark mode.

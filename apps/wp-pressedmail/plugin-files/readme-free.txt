@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.6.0
+Stable tag: 1.6.1
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -29,19 +29,20 @@ PressedMail turns your dashboard into an email workspace. Connect the mailbox yo
 
 = PressedMail Free =
 
-PressedMail Free connects one mailbox per site and gives it the whole client: inbox, reading, composing, search, folders, tags, rules and mailbox management, with no subscription.
+PressedMail Free connects one mailbox per site and gives it the whole client: inbox, reading, composing, search, folders, tags, rules and mailbox management, with no subscription, trial or time limit.
 
 = PressedMail Pro, a separate edition =
 
-Pro, for several mailboxes or a wider workspace, adds:
+Pro is for when one mailbox is not enough, or you want more done for you. It adds:
 
 * Connect multiple mailboxes and read them in one combined inbox.
-* Contacts, a calendar, more themes and layouts.
-* AI tools and phishing checks, with your own provider or PressedMail AI.
+* AI tools and phishing checks, with your own provider or PressedMail AI: summaries, drafts and replies, plus spam and phishing warnings.
+* Contacts and a calendar beside your mail, with an Add to calendar button on invitations.
 * Auto-replies, scheduled send, snooze and undo send.
+* More themes and layouts.
 * Ultimate plan: shared inboxes, calendars and contact lists, white labelling with a brand theme.
 
-Pro shares this interface, and replacing Free with Pro keeps your accounts, settings and local data. Pro is a separate GPL-compatible paid plugin, not part of this download. [Compare plans](https://pressedmail.com/pricing), [documentation](https://pressedmail.com/docs).
+Pro shares this interface, and replacing Free with Pro keeps your accounts, settings and local data. Pro is a separate GPL-compatible paid plugin, not part of this download. [See plans and pricing](https://pressedmail.com/pricing) or [read the documentation](https://pressedmail.com/docs).
 
 = Security controls for reading email =
 
@@ -68,13 +69,7 @@ No license key required and no trial expiration. There is no telemetry and no an
 1. In Plugins > Add New, search for PressedMail, then install and activate it.
 2. Open PressedMail in the sidebar and connect your mailbox.
 
-== Frequently Asked Questions ==
-
-= What does PressedMail need to run? =
-
-WordPress 6.6+, PHP 8.2+, MySQL 5.7+ or MariaDB 10.2+, with the user metadata table on InnoDB.
-
-PressedMail needs MySQL named locks, so SQLite, including WordPress Playground, cannot finish mailbox setup. Site Health flags this under "PressedMail database requirements".
+PressedMail needs WordPress 6.6+, PHP 8.2+, and MySQL 5.7+ or MariaDB 10.2+ with named locks and the user metadata table on InnoDB. SQLite, including WordPress Playground, cannot finish mailbox setup. Site Health flags this under "PressedMail database requirements".
 
 == Screenshots ==
 
@@ -136,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.6.0](https://github.com/CurbSoftware/pressedmail/tree/v1.6.0)
-* [Build instructions for version 1.6.0](https://github.com/CurbSoftware/pressedmail/blob/v1.6.0/BUILD.md)
+* [Source for version 1.6.1](https://github.com/CurbSoftware/pressedmail/tree/v1.6.1)
+* [Build instructions for version 1.6.1](https://github.com/CurbSoftware/pressedmail/blob/v1.6.1/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then from the repository root run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`. Pro source is excluded.
 
@@ -147,16 +142,11 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.6.0/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.6.1/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
-= 1.6.0 =
-* Approve a mail server on a private address with PRESSEDMAIL_ALLOWED_PRIVATE_HOSTS.
-* Shared and public IMAP folders show their contents.
-* A busy mail server is retried, not called unreachable.
-* Drafts save themselves after you stop typing.
-* A browser no longer overwrites a saved password.
-* Emails and form fields stay readable in dark mode.
+= 1.6.1 =
+* Drafts no longer save themselves until you turn that on under Settings, Mail handling.

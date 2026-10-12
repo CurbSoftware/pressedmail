@@ -177,7 +177,7 @@ export interface UseComposeFormOptions {
    * a draft and closes instead of showing the discard dialog. Unlike
    * autoSaveDrafts the hook does not wait for the preferences here, so a caller
    * passes the person's setting only once they have loaded: the client default
-   * is on, and a person who turned it off must not be saved for.
+   * is off, and a stored choice counts only after a read has succeeded.
    */
   autoSaveOnClose?: boolean;
   /**
@@ -824,12 +824,12 @@ export function useComposeForm({
   // (undo send, scheduling, read receipts, bound signatures).
   const isSharedMailbox = isSharedResource(resolveSendingAccount());
 
-  // The client default for auto_save_drafts is on. Until a read of the
-  // preferences has succeeded, the timed save stays off rather than save for
-  // somebody who turned it off. `loaded` is set by that first good read and
-  // kept, so a failed write of some other preference (a colour, the speed dial)
-  // does not switch the save off again. A first read that failed leaves it off
-  // until a later read gets through.
+  // The client default for auto_save_drafts is off. The timed save waits for a
+  // successful read of the preferences, so a stored choice is honoured before
+  // anything saves. `loaded` is set by that first good read and kept, so a
+  // failed write of some other preference (a colour, the speed dial) does not
+  // switch the save off again. A first read that failed leaves it off until a
+  // later read gets through.
   const { preferences: composerPreferences, loaded: preferencesLoaded } =
     useUserPreferences();
 

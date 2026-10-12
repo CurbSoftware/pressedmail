@@ -346,7 +346,8 @@ export interface UserPreferences {
    * When true, drafts save about 10 seconds after the last edit, on tab hide,
    * and on close or route change without the discard dialog. A draft with an
    * attached file skips the 10 second save and waits for the tab hide or the
-   * close, because every save uploads the file again.
+   * close, because every save uploads the file again. Off until a person turns
+   * it on.
    */
   auto_save_drafts: boolean;
   // Contacts preferences
@@ -465,7 +466,7 @@ const DEFAULT_PREFERENCES = {
   header_activity_enabled: true,
   speed_dial_enabled: true,
   speed_dial_position: "bottom-right",
-  auto_save_drafts: true,
+  auto_save_drafts: false,
   // Contacts are Pro: the Free build carries no contacts preference.
   ...(__ENABLE_CONTACTS__
     ? { auto_add_contacts: false, contacts_default_list_id: 0 }

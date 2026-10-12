@@ -18,7 +18,7 @@ export interface AutoTaggerSettings {
   is_admin_connection_valid: boolean;
   /** Whether AutoTagger is currently available to users */
   is_available: boolean;
-  /** Whether on-demand AI tagging can run through the configured provider */
+  /** Whether an engine is set up for tagging. It does not mean tagging may run: that also takes is_admin_enabled and the site-wide AI switch. */
   is_tool_available?: boolean;
   /** Model to use for classification */
   model: string;

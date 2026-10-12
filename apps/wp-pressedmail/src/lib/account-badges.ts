@@ -1,8 +1,8 @@
 /**
  * Account badges
  *
- * Two accounts can derive the same inbox badge (both "mustafa@..." read
- * "Mustafa"). The per-viewer `account_badges` preference lets a person give
+ * Two accounts can derive the same inbox badge (both "alex@..." read
+ * "Alex"). The per-viewer `account_badges` preference lets a person give
  * each account an alias and a color, keyed by account id. It is per viewer.
  * Only the mailboxes the combined inbox lists carry a badge, and a shared
  * mailbox is never one of them (getAvailableAccountIds). With nothing set, the

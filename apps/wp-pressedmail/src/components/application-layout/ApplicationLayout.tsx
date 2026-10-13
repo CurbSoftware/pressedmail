@@ -102,8 +102,13 @@ const ApplicationLayout = () => {
   const autoSyncDisabled = useAutoSyncDisabled();
   // Drive the sequential mailbox sync forward while the app is open (WP-Cron is
   // unreliable). Respects the auto-sync setting, when sync is turned off (0), only a
-  // manual Refresh advances. Manual refresh stays available regardless.
-  useSyncDriver(accounts.length > 0 && !autoSyncDisabled);
+  // manual Refresh advances. Manual refresh stays available regardless. While the footer says a new
+  // account is syncing, the app is filling the mailbox itself, so the driver does not call a late
+  // wp-cron a fault.
+  useSyncDriver(
+    accounts.length > 0 && !autoSyncDisabled,
+    syncProgress.isSyncing && syncProgress.isInitialSync,
+  );
   // Keep the REST nonce fresh via WP Heartbeat so a long-open tab doesn't start 403ing
   // every request with rest_cookie_invalid_nonce once the original nonce expires.
   useNonceRefresh();

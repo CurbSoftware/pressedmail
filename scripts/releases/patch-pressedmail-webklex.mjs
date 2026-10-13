@@ -105,3 +105,32 @@ export function patchPressedMailWebklex(directory) {
   if (startsFromReviewedUpstream) assertPatchedFile(target);
   return true;
 }
+
+/**
+ * `node scripts/releases/patch-pressedmail-webklex.mjs <plugin directory>`.
+ *
+ * The release pipeline patches the tree it is about to package through the
+ * function above, and the capped test runner calls this CLI on the vendor it
+ * just installed in the guest: the pressed-mail tests characterise the parser
+ * the plugin *ships*, which is this patched one, so a guest running a fresh
+ * `composer install` tests the wrong bytes (test-folder-driver-descriptors.php
+ * is the one that notices). Failures throw with the reason, and the exit code
+ * is non-zero, so the runner's `set -e` stops the job.
+ */
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const directory = process.argv[2];
+
+  if (!directory || !existsSync(join(directory, 'composer.json'))) {
+    console.error(
+      'usage: node scripts/releases/patch-pressedmail-webklex.mjs <plugin directory>',
+    );
+    process.exit(2);
+  }
+
+  const applied = patchPressedMailWebklex(directory);
+  console.log(
+    applied
+      ? `PressedMail IMAP decoder patched in ${directory}.`
+      : `PressedMail IMAP decoder in ${directory} needed no patch.`,
+  );
+}

@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.6.1`
+Public tag: `v1.7.0`
 
 ## Layout
 
@@ -103,3 +103,10 @@ zip.
 - The bundled `wired-*.woff2` fonts are the OpenDyslexic typeface (used for
   the optional dyslexia-friendly reading mode), licensed under the SIL Open
   Font License 1.1. See `apps/wp-pressedmail/src/assets/fonts/OFL.txt`.
+- The PDF preview ships pdf.js 6.3.289 (Apache-2.0) as upstream built it,
+  unmodified, in `assets/pdfjs/` of the plugin package, together with its JBIG2
+  and OpenJPEG wasm decoders, six CJK character maps and the Symbol and
+  Dingbats fonts. Their source is https://github.com/mozilla/pdf.js. The
+  package carries the licence files, and `THIRD-PARTY-NOTICES.txt` lists them.
+  The page side that talks to the sandboxed frame is `src/components/inbox/
+  attachment-preview/pdf-sandbox/` in this repository.

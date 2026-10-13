@@ -192,6 +192,8 @@ export interface EmailAttachment {
   mime?: string;
   source?: "received" | "media-library";
   inline?: boolean;
+  /** Content-ID of a part the body shows through `cid:`, when read live from the mail server. */
+  contentId?: string | null;
   part?: string | null;
   part_format?: string | null;
   metadata_format?: string | null;

@@ -447,6 +447,15 @@ export function createPlateEmailEditorRef<TValue = Value, TNode = Value>({
     ...(getValue
       ? { getValue: getValue as unknown as () => Value }
       : {}),
+    getSelection() {
+      const range = getSelection();
+      return range
+        ? {
+            anchor: createPlateEmailSelectionPoint(range.anchor.path, range.anchor.offset),
+            focus: createPlateEmailSelectionPoint(range.focus.path, range.focus.offset),
+          }
+        : null;
+    },
     setContent(html) {
       controller.setContent(html, {
         deserializer,
@@ -854,6 +863,8 @@ export interface PlateEmailEditorRef {
   getPlainText?: () => string;
   /** Optional app adapter extension for reading the live document. */
   getValue?: () => Value;
+  /** A detached current selection for asynchronous insertion ownership checks. */
+  getSelection?: () => PlateEmailEditorSelectionRange | null;
   setContent: (html: string) => void;
   insertContent: (html: string) => void;
   captureSelection: () => void;

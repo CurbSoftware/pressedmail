@@ -16,7 +16,10 @@
     "./env": "./src/env/index.ts",
     "./env/appsumo": "./src/env/appsumo.ts",
     "./env/local-sign-in": "./src/env/local-sign-in.ts",
-    "./env/microsoft-oauth": "./src/env/microsoft-oauth.ts"
+    "./env/microsoft-oauth": "./src/env/microsoft-oauth.ts",
+    "./mail-ai-questions/v2": "./src/mail-ai-questions/questions-v2.ts",
+    "./mail-ai-questions/v3": "./src/mail-ai-questions/questions-v3.ts",
+    "./mail-ai-questions/types": "./src/mail-ai-questions/types.ts"
   },
   "devDependencies": {
     "@kit/tsconfig": "workspace:*",

@@ -12,6 +12,7 @@ import type {
   IConnectionStateService,
   ConnectionHealth,
   AuthStatus,
+  SyncDelayedKind,
 } from "../interfaces/connection-state.interface";
 import {
   CircuitBreakerError,
@@ -100,6 +101,12 @@ export function isConnectionError(errorMessage?: string | null): boolean {
 const TRANSIENT_COOLDOWN_MS = 15_000;
 
 /**
+ * The sync notice appears at most this often. A connection that recovers and relapses would
+ * otherwise bring it back each time, and a notice that keeps coming back is one nobody reads.
+ */
+export const SYNC_NOTICE_MIN_GAP_MS = 30 * 60_000;
+
+/**
  * Connection State Service
  */
 export class ConnectionStateService implements IConnectionStateService {
@@ -107,7 +114,13 @@ export class ConnectionStateService implements IConnectionStateService {
   private _listeners = new Set<() => void>();
   private _version = 0;
   private _sessionError: string | null = null;
-  private _syncDelayed: string | null = null;
+  private _syncDelayed: SyncDelayedKind | null = null;
+  /** Whether the notice for the current episode is on screen. */
+  private _syncNoticeShown = false;
+  /** The person dismissed the current episode's notice. Lasts until the condition clears. */
+  private _syncNoticeDismissed = false;
+  /** When the notice last appeared, or null if it has not this page load. */
+  private _syncNoticeShownAt: number | null = null;
   private _credentialsRequired = new Map<string, string>();
 
   // ============== State Accessors ==============
@@ -305,23 +318,49 @@ export class ConnectionStateService implements IConnectionStateService {
     return this._sessionError;
   }
 
-  // ============== Background-sync delayed hint (info, not error) ==============
+  // ============== Sync running late (info, not error) ==============
 
-  markSyncDelayed(reason: string): void {
-    // Idempotent per reason so a sustained delay does not re-notify each poll.
-    if (this._syncDelayed === reason) return;
-    this._syncDelayed = reason;
-    this.notify();
+  markSyncDelayed(kind: SyncDelayedKind): void {
+    // The driver calls this on every tick while the condition holds. Each call is also a
+    // chance for an episode that was held back to appear, once the gap since the last
+    // appearance has passed. A dismissed episode stays hidden until the condition clears.
+    let changed = this._syncDelayed !== kind;
+    this._syncDelayed = kind;
+    if (!this._syncNoticeShown && !this._syncNoticeDismissed) {
+      const now = Date.now();
+      // A clock that moved back past the last appearance makes the gap negative; that is long ago, not never.
+      const sinceShown =
+        this._syncNoticeShownAt === null ? Infinity : now - this._syncNoticeShownAt;
+      if (sinceShown < 0 || sinceShown >= SYNC_NOTICE_MIN_GAP_MS) {
+        this._syncNoticeShown = true;
+        this._syncNoticeShownAt = now;
+        changed = true;
+      }
+    }
+    if (changed) this.notify();
   }
 
   clearSyncDelayed(): void {
     if (this._syncDelayed === null) return;
     this._syncDelayed = null;
+    this._syncNoticeShown = false;
+    this._syncNoticeDismissed = false;
     this.notify();
   }
 
-  getSyncDelayed(): string | null {
+  getSyncDelayed(): SyncDelayedKind | null {
     return this._syncDelayed;
+  }
+
+  getSyncNotice(): SyncDelayedKind | null {
+    return this._syncNoticeShown ? this._syncDelayed : null;
+  }
+
+  dismissSyncNotice(): void {
+    if (!this._syncNoticeShown) return;
+    this._syncNoticeShown = false;
+    this._syncNoticeDismissed = true;
+    this.notify();
   }
 
   // ============== Circuit Breaker ==============

@@ -2920,6 +2920,35 @@ export function useComposeForm({
       getCacheService().invalidateMessages({
         accountId: String(activeSendSnapshot.accountId),
       });
+      // The sent draft's row. The server deleted the draft with the send, but the
+      // list reads the mirror, which only learns that on the account's next sync,
+      // so the row a person just watched themselves send would stay listed until
+      // then (the 1.7.0-beta.2 report). Drop it now, from the identity the
+      // composer itself carried. A queued send has not cleaned up yet, so its
+      // draft stays listed until the queue delivers it.
+      const sentDraft = priorDraftRef.current;
+      if (
+        sentDraft &&
+        sentDraft.accountId !== null &&
+        response.outcome !== "queued"
+      ) {
+        const sentKey =
+          sentDraft.uidValidity != null
+            ? getMessageIdentityKey({
+                accountId: sentDraft.accountId,
+                folder: sentDraft.folder,
+                uidValidity: sentDraft.uidValidity,
+                uid: sentDraft.uid,
+              })
+            : null;
+        const sentRow =
+          sentKey !== null
+            ? getInboxService().messages.find(
+                (row) => getMessageIdentityKey(row) === sentKey,
+              )
+            : undefined;
+        if (sentRow) getInboxService().removeMessage(sentRow.id);
+      }
       // Bump the account to the front of the sync queue so the server-side
       // mirror picks up the sent message quickly. Fire-and-forget.
       void refreshAccountSync([activeSendSnapshot.accountId]).catch(() => {});

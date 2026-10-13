@@ -144,6 +144,12 @@ function isError(
   return typeof status === "number" && (status >= 400 || status === 505);
 }
 
+/** An idempotent mutation may have lost a race with the mail server and can simply be sent again. */
+const RETRYABLE_MUTATION_STATUSES = new Set([424, 500, 502, 503, 505]);
+
+/** Waits between retries of an idempotent mutation: short, then long enough for a worker to free up. */
+const MUTATION_RETRY_DELAYS_MS = [500, 1500];
+
 /**
  * Extract error message from response.
  */
@@ -232,6 +238,31 @@ export class MessageService implements IMessageOperations {
           Number.isSafeInteger(numericId) && numericId > 0 ? [numericId] : "all",
         action: true,
       });
+    }
+    return response;
+  }
+
+  /**
+   * Runs an idempotent mutation, sending it again when the answer is a transient numeric status
+   * (see RETRYABLE_MUTATION_STATUSES) rather than a verdict about the message. A string status
+   * envelope from the server is a verdict and returns at once, as does every non-retryable
+   * numeric status. At most MUTATION_RETRY_DELAYS_MS.length retries, waiting the listed ms
+   * between attempts.
+   */
+  private async retryTransient(
+    operation: () => Promise<ApiResponse>,
+  ): Promise<ApiResponse> {
+    let response = await operation();
+    for (const delayMs of MUTATION_RETRY_DELAYS_MS) {
+      const status = (response as { status?: unknown }).status;
+      if (
+        typeof status !== "number" ||
+        !RETRYABLE_MUTATION_STATUSES.has(status)
+      ) {
+        return response;
+      }
+      await new Promise((done) => setTimeout(done, delayMs));
+      response = await operation();
     }
     return response;
   }
@@ -691,8 +722,15 @@ export class MessageService implements IMessageOperations {
     const ref = resolveIdentity(accountId, messageId, options);
     if (!ref) return identityFailure();
     try {
+      // Marking a message read twice changes nothing, so a request the mail
+      // server momentarily refused (a 424 while it was busy, a dropped
+      // connection) is worth sending again rather than leaving the message
+      // unread. Bounded to two retries with growing waits; every other
+      // failure (identity, permission, lock) returns at once.
       const response = await this.withBreaker(accountId, () =>
-        apiForm(markEmailAsReadRouteApi, this.buildMessageMutationPayload(ref)),
+        this.retryTransient(() =>
+          apiForm(markEmailAsReadRouteApi, this.buildMessageMutationPayload(ref)),
+        ),
       );
       if (isError(response))
         return operationFailure(response as ApiErrorResponse);

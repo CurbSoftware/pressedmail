@@ -522,6 +522,17 @@ export function isFollowingLeader(): boolean {
   return leaderIsFresh();
 }
 
+/**
+ * Milliseconds since a leader in another tab last announced itself, or Infinity when none has
+ * (or it resigned). A tab that has just come back into view asks a leader that has been quiet
+ * this long to speak up, by posting `hello`: the leader announces itself and re-sends the feed
+ * and the queue it last loaded, which is how a follower's view catches up without a sync of
+ * its own.
+ */
+export function leaderSilenceMs(): number {
+  return lastLeader === null ? Infinity : Date.now() - lastLeader.at;
+}
+
 /** A live leader in another tab polls `folder` of every account in `accounts`. */
 export function isCoveredByLeader(
   accounts: number[] | null,

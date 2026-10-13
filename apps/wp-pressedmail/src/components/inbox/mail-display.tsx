@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ChevronDown,
   Download,
+  Eye,
   Loader2,
   Mail,
   Paperclip,
@@ -52,6 +53,12 @@ import {
   type StoragePrincipal,
 } from "@/lib/principal-storage";
 import { formatFileSize } from "./compose/compose-utils";
+import { AttachmentPreviewDialog } from "./attachment-preview/attachment-preview-dialog";
+import {
+  isPreviewableAttachment,
+  type AttachmentPreviewContext,
+  type AttachmentPreviewItem,
+} from "./attachment-preview/previewable";
 import { EmailSandbox } from "./EmailSandbox";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
 import { ITipBanner } from "@/components/inbox/itip-banner";
@@ -1490,13 +1497,8 @@ export function MailDisplay({
   );
 }
 
-interface AttachmentDownloadContext {
-  accountId: number | null;
-  uid: string | number | null;
-  uidValidity?: string | number;
-  msgNo: string | number | null;
-  folder: string;
-}
+/** The message an attachment belongs to. A download and a preview ask the server about it the same way. */
+type AttachmentDownloadContext = AttachmentPreviewContext;
 
 export function buildAttachmentDownloadUrl(
   ctx: AttachmentDownloadContext,
@@ -1589,6 +1591,9 @@ type AttachmentActionRenderer = (
   filename: string,
 ) => React.ReactNode;
 
+/** Above this many attachments the header folds behind a count (the 1.7.0-beta.2 reading-pane report). */
+const ATTACHMENT_COLLAPSE_ABOVE = 3;
+
 function HeaderAttachmentList({
   attachments,
   canDownload,
@@ -1600,6 +1605,28 @@ function HeaderAttachmentList({
   downloadContext: AttachmentDownloadContext;
   renderAttachmentAction?: AttachmentActionRenderer;
 }) {
+  const [previewIndex, setPreviewIndex] = React.useState<number | null>(null);
+  // The button that opened the dialog, so closing it puts focus back there.
+  const previewOpener = React.useRef<HTMLElement | null>(null);
+  const [attachmentsExpanded, setAttachmentsExpanded] =
+    React.useState(false);
+  const attachmentsCollapsed =
+    attachments.length > ATTACHMENT_COLLAPSE_ABOVE && !attachmentsExpanded;
+  const attachmentPanelId = React.useId();
+
+  // A preview belongs to one message. Another one opening behind it ends it, and
+  // the next message's attachments start folded.
+  const messageKey = [
+    downloadContext.accountId,
+    downloadContext.folder,
+    downloadContext.uidValidity,
+    downloadContext.uid,
+  ].join("|");
+  React.useEffect(() => {
+    setPreviewIndex(null);
+    setAttachmentsExpanded(false);
+  }, [messageKey]);
+
   const adminNotice = !canDownload ? (
     <p className="basis-full text-xs text-muted-foreground">
       {__(
@@ -1609,11 +1636,70 @@ function HeaderAttachmentList({
     </p>
   ) : null;
 
+  // The index is the attachment's place in the message, which is how the server finds it.
+  const previewItems: AttachmentPreviewItem[] = attachments.flatMap(
+    (att, index) =>
+      isPreviewableAttachment(att)
+        ? [
+            {
+              index,
+              filename: att.filename,
+              size: att.size,
+              mimeType: att.mimeType || att.mime || "",
+            },
+          ]
+        : [],
+  );
+
   return (
     <div
       data-test="message-detail-attachments"
       className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
       {adminNotice}
+      {attachmentsCollapsed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setAttachmentsExpanded(true)}
+          aria-expanded={false}
+          aria-controls={attachmentPanelId}
+          data-test="attachment-toggle">
+          <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+          {sprintf(
+            /* translators: %d: how many attachments the message carries. */
+            __("%d attachments", "pressedmail"),
+            attachments.length,
+          )}
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      ) : attachments.length > ATTACHMENT_COLLAPSE_ABOVE ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-2 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setAttachmentsExpanded(false)}
+          aria-expanded={true}
+          aria-controls={attachmentPanelId}
+          data-test="attachment-toggle">
+          <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+          {sprintf(
+            __("%d attachments", "pressedmail"),
+            attachments.length,
+          )}
+          <ChevronDown className="h-3.5 w-3.5 rotate-180" aria-hidden="true" />
+        </Button>
+      ) : null}
+      <div
+        id={attachmentPanelId}
+        data-test="attachment-panel"
+        className={
+          attachmentsCollapsed
+            ? "hidden"
+            : "flex min-w-0 flex-wrap items-center gap-1.5"
+        }>
       {attachments.map((att, idx) => (
         <HeaderAttachmentChip
           key={idx}
@@ -1622,8 +1708,34 @@ function HeaderAttachmentList({
           canDownload={canDownload}
           downloadContext={downloadContext}
           renderAttachmentAction={renderAttachmentAction}
+          onPreview={
+            isPreviewableAttachment(att)
+              ? (opener) => {
+                  previewOpener.current = opener;
+                  setPreviewIndex(idx);
+                }
+              : undefined
+          }
         />
       ))}
+      </div>
+      {canDownload &&
+      previewIndex !== null &&
+      previewItems.some((item) => item.index === previewIndex) ? (
+        <AttachmentPreviewDialog
+          context={downloadContext}
+          items={previewItems}
+          activeIndex={previewIndex}
+          canDownload={canDownload}
+          onActiveIndexChange={setPreviewIndex}
+          onDownload={(index) => {
+            const att = attachments[index];
+            if (att) downloadAttachment(att, downloadContext, index);
+          }}
+          onClose={() => setPreviewIndex(null)}
+          returnFocusTo={previewOpener.current}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1634,12 +1746,15 @@ function HeaderAttachmentChip({
   canDownload,
   downloadContext,
   renderAttachmentAction,
+  onPreview,
 }: {
   attachment: AttachmentLike;
   index: number;
   canDownload: boolean;
   downloadContext: AttachmentDownloadContext;
   renderAttachmentAction?: AttachmentActionRenderer;
+  /** Set when this attachment can be previewed: an image today. Receives the button that asked, for focus on close. */
+  onPreview?: (opener: HTMLElement) => void;
 }) {
   const filename =
     attachment.filename ||
@@ -1649,31 +1764,71 @@ function HeaderAttachmentChip({
     __("Download attachment %s", "pressedmail"),
     filename,
   );
+  const previewLabel = sprintf(
+    __("Preview attachment %s", "pressedmail"),
+    filename,
+  );
+  const nameClassName =
+    "min-w-0 truncate text-xs font-medium text-foreground/90";
 
   return (
     <div
       className="inline-flex max-w-[min(18rem,100%)] min-w-0 items-center gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 py-1 text-xs text-muted-foreground"
       data-test="message-detail-attachment-chip">
       <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span
-        className="min-w-0 truncate text-xs font-medium text-foreground/90"
-        title={filename}
-        data-test="message-detail-attachment-name">
-        {filename}
-      </span>
+      {onPreview && canDownload ? (
+        // The name opens the preview too. The Eye button beside it is the
+        // labelled control; this one only saves the aim.
+        <button
+          type="button"
+          className={cn(
+            nameClassName,
+            "rounded-sm text-start hover:underline",
+          )}
+          title={previewLabel}
+          onClick={(event) => onPreview(event.currentTarget)}
+          data-test="message-detail-attachment-name">
+          {filename}
+        </button>
+      ) : (
+        <span
+          className={nameClassName}
+          title={filename}
+          data-test="message-detail-attachment-name">
+          {filename}
+        </span>
+      )}
       {sizeLabel && (
         <span className="shrink-0 text-[11px] text-muted-foreground">
           {sizeLabel}
         </span>
       )}
       {renderAttachmentAction?.(attachment, index, filename) ?? null}
+      {onPreview ? (
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          // 24px is the target floor; a finger gets 44px.
+          className="h-6 w-6 shrink-0 p-0 text-muted-foreground pointer-coarse:h-11 pointer-coarse:w-11"
+          onClick={(event) => onPreview(event.currentTarget)}
+          disabled={!canDownload}
+          aria-label={previewLabel}
+          title={
+            canDownload
+              ? previewLabel
+              : __("Downloads disabled by administrator", "pressedmail")
+          }>
+          <Eye className="h-3.5 w-3.5" />
+        </Button>
+      ) : null}
       <Button
         type="button"
         size="icon"
         variant="ghost"
         // h-6 w-6 is the 24px target floor. At h-5 w-5 these two controls
         // measured 20x20 and the craft gate failed them as HF-TARGET.
-        className="h-6 w-6 shrink-0 p-0 text-muted-foreground"
+        className="h-6 w-6 shrink-0 p-0 text-muted-foreground pointer-coarse:h-11 pointer-coarse:w-11"
         onClick={() => downloadAttachment(attachment, downloadContext, index)}
         disabled={!canDownload}
         aria-label={downloadLabel}

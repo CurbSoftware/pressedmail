@@ -37,6 +37,7 @@ import {
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { focusQuietly, PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useNotificationPause } from "@/hooks/useNotificationPause";
+import { dismissSyncNotice, useSyncNotice } from "@/hooks/useSyncNotice";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   DISMISS_UNDO_MS,
@@ -66,6 +67,7 @@ import {
   NotificationMutedNote,
 } from "./NotificationMuteButton";
 import { closeMenuOnly, NotificationPauseMenu } from "./NotificationPauseMenu";
+import { SyncNoticeEntry, syncNoticeTitle } from "./SyncNoticeEntry";
 import { useRovingFocus } from "./useRovingFocus";
 
 /** Notifications are kept this long. Mirrors `NotificationService::RETENTION_DAYS`. */
@@ -460,6 +462,17 @@ export function NotificationsPanel({
       setAnnouncement((current) => ({ text, n: current.n + 1 })),
     [],
   );
+  // The sync notice sits at the top of the panel for as long as it is up. A reader who is here
+  // when it arrives hears it, politely, through the same status region as the rest and without
+  // losing their place. One that was up before the panel opened is just its first entry.
+  const syncNotice = useSyncNotice();
+  const syncNoticeSeen = React.useRef(syncNotice);
+  React.useEffect(() => {
+    if (syncNotice !== null && syncNoticeSeen.current === null) {
+      announce(syncNoticeTitle());
+    }
+    syncNoticeSeen.current = syncNotice;
+  }, [syncNotice, announce]);
   const [pagedOlder, setPagedOlder] = React.useState(false);
   const [listFocused, setListFocused] = React.useState(false);
   // Times read "5m", which is right until the next minute turns over.
@@ -534,6 +547,26 @@ export function NotificationsPanel({
   const toolbar = useRovingFocus<HTMLDivElement>("horizontal");
   const list = useRovingFocus<HTMLUListElement>("vertical");
   const hintId = React.useId();
+
+  // The sync entry can go with focus on one of its buttons: it was dismissed, or the condition cleared
+  // under a keyboard reader. Focus goes to the first row, or to the toolbar when the feed has none, so the
+  // reader keeps their place in the panel. Quietly: the toolbar's buttons open a tooltip on keyboard focus.
+  // Not when the whole panel is going; its container hands focus back to the bell then.
+  const closing = React.useRef(false);
+  React.useLayoutEffect(() => {
+    closing.current = false;
+    return () => {
+      closing.current = true;
+    };
+  }, []);
+  const keepPlaceAfterSyncEntry = () => {
+    if (closing.current) return;
+    const next =
+      list.items()[0] ??
+      root.current?.querySelector<HTMLElement>("[data-roving-item]") ??
+      null;
+    if (next) focusQuietly(next);
+  };
 
   // The panel mounts each time its container opens, and older pages loaded last
   // time may have changed elsewhere since, so it starts from the newest page.
@@ -1168,6 +1201,15 @@ export function NotificationsPanel({
             // sheet's own scroller, and a contained overscroll swallowed it.
             variant === "popover" && "overscroll-contain",
           )}>
+          {syncNotice ? (
+            <SyncNoticeEntry
+              kind={syncNotice}
+              surface={surface}
+              touch={touch}
+              onDismiss={dismissSyncNotice}
+              onFocusLost={keepPlaceAfterSyncEntry}
+            />
+          ) : null}
           {isLoading && isEmpty ? (
             <NotificationSkeleton />
           ) : error && isEmpty ? (

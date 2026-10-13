@@ -2,13 +2,12 @@ import { getMessageIdentityKey } from "@/lib/message-identity";
 import { useEffect, useRef } from "react";
 
 import { useInbox, useInboxState } from "@/context/InboxContext";
-import { isSyncBusy, whenSyncIdle } from "@/hooks/useSyncDriver";
+import { isSyncBusy, isSyncLate, whenSyncIdle } from "@/hooks/useSyncDriver";
 import {
   isFollowingLeader,
   isOwnViewCoveredByLeader,
   isTabLeader,
 } from "@/lib/tab-channel";
-import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 
 /**
  * How long to wait after the list settles before warming bodies. Long enough
@@ -170,7 +169,9 @@ export function useVisibleBodyPrefetch(): void {
           // server has two workers, and a warm batch that takes one of them is
           // taking it from the message somebody is waiting for.
           if (prefetch.hasUserSelectedPending()) return;
-          if (getConnectionStateService().getSyncDelayed()) return;
+          // Sync is already late (slow, busy or behind): warming now would add to the load that causes it.
+          // This reads the driver's own early signal, not the notice, which is shown only after a long wait.
+          if (isSyncLate()) return;
           // A tick can hold a twelve second content turn, so wait for the gap between ticks once rather than
           // being skipped for as long as a backlog drains; still busy after that, leave it for the next settle.
           if (isSyncBusy()) {

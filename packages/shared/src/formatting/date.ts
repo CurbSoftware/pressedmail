@@ -77,30 +77,6 @@ export function formatDateShort(
 }
 
 /**
- * Format date as "1/15/25" (numeric short form)
- *
- * @param date Date object, timestamp, or ISO string (accepts null/undefined)
- * @param locale Optional locale (default: en-US)
- * @param fallback Value to return for invalid input (default: "-")
- * @returns Formatted numeric date string or fallback value
- * @example formatDateNumeric('2025-01-15') => "1/15/25"
- */
-export function formatDateNumeric(
-  date: Date | number | string | null | undefined,
-  locale: string = 'en-US',
-  fallback: string = DEFAULT_FALLBACK,
-): string {
-  const dateObj = parseDate(date);
-  if (!dateObj) return fallback;
-
-  return new Intl.DateTimeFormat(locale, {
-    year: '2-digit',
-    month: 'numeric',
-    day: 'numeric',
-  }).format(dateObj);
-}
-
-/**
  * Format date as "January 15, 2025 at 2:30 PM"
  *
  * @param date Date object, timestamp, or ISO string (accepts null/undefined)
@@ -125,35 +101,6 @@ export function formatDateTime(
     minute: '2-digit',
     hour12: true,
   }).format(dateObj);
-}
-
-/**
- * Format a date range
- *
- * @param start Start date
- * @param end End date
- * @param locale Optional locale (default: en-US)
- * @returns Formatted date range string
- * @example formatDateRange('2025-01-01', '2025-01-31') => "Jan 1, 2025 - Jan 31, 2025"
- */
-export function formatDateRange(
-  start: Date | number | string | null | undefined,
-  end: Date | number | string | null | undefined,
-  locale: string = 'en-US',
-): string {
-  const startFormatted = formatDateShort(start, locale);
-  const endFormatted = formatDateShort(end, locale);
-
-  if (
-    startFormatted === DEFAULT_FALLBACK &&
-    endFormatted === DEFAULT_FALLBACK
-  ) {
-    return DEFAULT_FALLBACK;
-  }
-  if (startFormatted === DEFAULT_FALLBACK) return `... - ${endFormatted}`;
-  if (endFormatted === DEFAULT_FALLBACK) return `${startFormatted} - ...`;
-
-  return `${startFormatted} - ${endFormatted}`;
 }
 
 /**

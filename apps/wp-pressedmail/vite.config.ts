@@ -501,6 +501,87 @@ function repositoryUrlForPackage(value: unknown): string | undefined {
     .replace(/\.git$/, "");
 }
 
+interface NoticeEntry {
+  name: string;
+  version: string;
+  license: string;
+  repository: string | undefined;
+  text: string | null;
+}
+
+/**
+ * Third-party files that ship as static assets, not through Rollup, so the module graph never sees them: pdf.js and the
+ * decoders, fonts and character maps it brings. They travel in `plugin-files/assets/pdfjs/` with their licence files,
+ * and the notices carry the text of every one. Each reads its text and, where the file states one, its version from
+ * what ships, and the build fails if a file is missing or no longer says what it used to, so the notices cannot
+ * describe a pdf.js that is not the one in the package. Bumping pdf.js means looking at this list.
+ */
+function runtimeAssetNotices(): NoticeEntry[] {
+  const dir = path.resolve(__dirname, "plugin-files/assets/pdfjs");
+  // The public Free source repository builds this same bundle without the plugin's static assets: it publishes the
+  // source of the compiled code, not the plugin folder, so there is nothing of this kind to describe there. The
+  // packager refuses a package that ships assets/pdfjs without these notices (assertPressedMailPluginCheckContract).
+  if (!existsSync(path.join(dir, "pdf.min.mjs"))) return [];
+  const read = (file: string) =>
+    readFileSync(path.join(dir, file), "utf8").trim();
+  const bundled = read("pdf.min.mjs");
+  const pdfjsVersion = /pdfjsVersion = (\d+\.\d+\.\d+)/.exec(bundled)?.[1];
+  const coreJsVersion =
+    /version:"(\d+\.\d+\.\d+)",mode:[^,]+,copyright:"[^"]*CoreJS Company/.exec(
+      bundled,
+    )?.[1];
+  if (!pdfjsVersion || !coreJsVersion) {
+    throw new Error(
+      "plugin-files/assets/pdfjs/pdf.min.mjs no longer states its pdf.js and core-js versions where THIRD-PARTY-NOTICES reads them. Update runtimeAssetNotices() in vite.config.ts.",
+    );
+  }
+  const via = `bundled with pdf.js ${pdfjsVersion}`;
+  return [
+    {
+      name: "pdf.js (pdfjs-dist, legacy build)",
+      version: pdfjsVersion,
+      license: "Apache-2.0",
+      repository: "https://github.com/mozilla/pdf.js",
+      text: read("LICENSE"),
+    },
+    {
+      name: "core-js (compiled into the pdf.js legacy build)",
+      version: coreJsVersion,
+      license: "MIT",
+      repository: "https://github.com/zloirock/core-js",
+      text: read("LICENSE_CORE_JS"),
+    },
+    {
+      name: "OpenJPEG (JPEG 2000 decoder, as compiled to wasm for pdf.js)",
+      version: via,
+      license: "BSD-2-Clause",
+      repository: "https://github.com/uclouvain/openjpeg",
+      text: `${read("wasm/LICENSE_OPENJPEG")}\n\n${read("wasm/LICENSE_PDFJS_OPENJPEG")}`,
+    },
+    {
+      name: "JBIG2 decoder (from PDFium, as compiled to wasm for pdf.js)",
+      version: via,
+      license: "BSD-3-Clause AND Apache-2.0",
+      repository: "https://pdfium.googlesource.com/pdfium/",
+      text: `${read("wasm/LICENSE_JBIG2")}\n\n${read("wasm/LICENSE_PDFJS_JBIG2")}`,
+    },
+    {
+      name: "Foxit standard fonts (from PDFium, Symbol and Dingbats)",
+      version: via,
+      license: "BSD-3-Clause",
+      repository: "https://pdfium.googlesource.com/pdfium/",
+      text: read("standard_fonts/LICENSE_FOXIT"),
+    },
+    {
+      name: "Adobe CMap resources (Japan, GB and Korea character maps)",
+      version: via,
+      license: "BSD-3-Clause",
+      repository: "https://github.com/adobe-type-tools/cmap-resources",
+      text: read("cmaps/LICENSE"),
+    },
+  ];
+}
+
 /**
  * Writes the copyright and licence notices for the third-party code in the
  * bundle, from the modules Rollup actually pulled in.
@@ -529,7 +610,7 @@ function emitThirdPartyNotices(): Plugin {
         }
       }
 
-      const entries = [...dirs]
+      const entries: NoticeEntry[] = [...dirs]
         .map((dir) => {
           const manifest = JSON.parse(
             readFileSync(path.join(dir, "package.json"), "utf8"),
@@ -555,6 +636,7 @@ function emitThirdPartyNotices(): Plugin {
             text: licenseTextForPackage(dir),
           };
         })
+        .concat(runtimeAssetNotices())
         .sort((a, b) => a.name.localeCompare(b.name));
 
       const body = entries
@@ -587,7 +669,9 @@ function emitThirdPartyNotices(): Plugin {
           `Third-party notices for the PressedMail ${variant} admin bundle\n` +
           `${"=".repeat(78)}\n\n` +
           `The compiled JavaScript in this directory contains code from the\n` +
-          `packages listed below, taken from the npm registry. Each is used under\n` +
+          `packages listed below, taken from the npm registry, and the plugin's\n` +
+          `assets/pdfjs directory ships pdf.js with the decoders, fonts and\n` +
+          `character maps listed with it. Each is used under\n` +
           `the licence shown, and its copyright notice and licence text as\n` +
           `published by the package follow the index. Every licence here is\n` +
           `compatible with the GPL-2.0-or-later terms PressedMail ships under.\n\n` +

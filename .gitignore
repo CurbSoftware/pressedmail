@@ -1,5 +1,6 @@
 node_modules/
 dist/
-apps/wp-pressedmail/plugin-files/assets/
+apps/wp-pressedmail/plugin-files/assets/admin/
+apps/wp-pressedmail/plugin-files/assets/blocks/
 *.log
 .DS_Store

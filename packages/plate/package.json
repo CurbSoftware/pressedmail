@@ -9,7 +9,6 @@
     ".": "./src/index.ts",
     "./ai": "./src/plugins/ai.ts",
     "./ai/react": "./src/plugins/ai-react.ts",
-    "./autoformat": "./src/plugins/autoformat.ts",
     "./basic-nodes": "./src/plugins/basic-nodes.ts",
     "./basic-nodes/react": "./src/plugins/basic-nodes-react.ts",
     "./basic-styles": "./src/plugins/basic-styles.ts",
@@ -81,7 +80,6 @@
   },
   "dependencies": {
     "@platejs/ai": "catalog:",
-    "@platejs/autoformat": "catalog:",
     "@platejs/basic-nodes": "catalog:",
     "@platejs/basic-styles": "catalog:",
     "@platejs/callout": "catalog:",

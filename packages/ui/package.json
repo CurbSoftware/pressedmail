@@ -117,7 +117,6 @@
     "./dev-section-marker": "./src/dev/dev-section-marker.tsx",
     "./dev-section-overlay": "./src/dev/dev-section-overlay.tsx",
     "./utils": "./src/lib/utils/index.ts",
-    "./hooks/use-async-dialog": "./src/hooks/use-async-dialog.ts",
     "./hooks/use-mobile": "./src/hooks/use-mobile.tsx",
     "./plugin": "./src/plugin/index.ts",
     "./styles/tailwind-base.css": "./src/styles/tailwind-base.css",

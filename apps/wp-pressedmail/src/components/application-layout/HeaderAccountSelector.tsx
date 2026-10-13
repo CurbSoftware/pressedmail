@@ -349,7 +349,8 @@ export function HeaderAccountSelector({
                   </Badge>
                   {hasPendingCombinedChanges && (
                     <span className="text-[10px] font-medium text-primary">
-                      click to load
+                      {/* translators: hint beside the combined inbox row when its unread count needs a reload to show. */}
+                      {__("click to load", "pressedmail")}
                     </span>
                   )}
                 </div>
@@ -366,7 +367,7 @@ export function HeaderAccountSelector({
                     handleSelectAllConsolidated();
                   }}
                   data-test="consolidated-select-all">
-                  Select all
+                  {__("Select all", "pressedmail")}
                 </Button>
                 <Button
                   type="button"
@@ -379,7 +380,7 @@ export function HeaderAccountSelector({
                     handleSelectNoneConsolidated();
                   }}
                   data-test="consolidated-select-none">
-                  Select none
+                  {__("Select none", "pressedmail")}
                 </Button>
               </div>
               <DropdownMenuSeparator />
@@ -391,7 +392,7 @@ export function HeaderAccountSelector({
             <DropdownMenuLabel className="flex items-center justify-between gap-2 px-2 py-1.5">
               <span className="flex items-center gap-2 text-sm font-medium">
                 <User className="h-4 w-4" aria-hidden="true" />
-                Email Accounts
+                {__("Email Accounts", "pressedmail")}
               </span>
               {/* One slot, so nothing to add alongside. */}
               {__SINGLE_MAILBOX__ ? null : (

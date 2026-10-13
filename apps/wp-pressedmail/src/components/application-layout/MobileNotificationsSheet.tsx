@@ -6,6 +6,7 @@ import { Bell, BellOff, Pause } from "lucide-react";
 
 import { MobileSheet } from "@/components/mobile-shell";
 import { useNotificationPause } from "@/hooks/useNotificationPause";
+import { useSyncNotice } from "@/hooks/useSyncNotice";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNotificationFeed } from "@/layouts/shared/hooks/useNotificationFeed";
 import { describePause } from "@/lib/notification-pause";
@@ -94,6 +95,7 @@ export function MobileNotificationsButton() {
   const { unreadCount } = useNotificationFeed();
   const silence = useNotificationPause();
   const { preferences } = useUserPreferences();
+  const syncLate = useSyncNotice() !== null;
   const paused = silence.paused;
   const muted = preferences.notification_muted === true;
   const name = notificationBellName({
@@ -101,6 +103,7 @@ export function MobileNotificationsButton() {
     pausedText:
       silence.endsAt !== null ? describePause(silence.endsAt) : null,
     muted,
+    syncLate,
   });
 
   return (
@@ -126,6 +129,12 @@ export function MobileNotificationsButton() {
           className="pointer-events-none absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
           {unreadCount > 99 ? "99+" : unreadCount}
         </span>
+      ) : null}
+      {syncLate ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-2 end-2 h-2 w-2 rounded-full bg-warning ring-2 ring-card"
+        />
       ) : null}
       {paused ? (
         <span

@@ -1253,9 +1253,9 @@ body :is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .h
 }
 
 /* A field in a dialog, popover or sheet keeps the fill it asked for.
-   wp-admin forms.css paints every typed input, textarea and select
-   `background-color: #fff`, unlayered, and an unlayered declaration beats every
-   layered utility, so bg-background and dark:bg-input/30 lost to it. The root
+   wp-admin forms.css gives every typed input, textarea and select a plain white
+   fill, unlayered, and an unlayered declaration beats every layered utility,
+   so bg-background and dark:bg-input/30 lost to it. The root
    has its own !important field rules; a portal had none that matched (the ones
    written for [data-radix-portal] match nothing, the container is
    [data-pm-portal]). Pro's theme engine repeats bg-background and

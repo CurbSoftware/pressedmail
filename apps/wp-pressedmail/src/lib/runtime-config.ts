@@ -126,3 +126,46 @@ export function getRuntimeRestNamespace(): string {
 export function getPluginRestBase(): string {
   return getRuntimeRestRoot() + getRuntimeRestNamespace() + "/";
 }
+
+/**
+ * The plugin's static `assets/` folder as a URL with its trailing slash, or an
+ * empty string when PHP did not localize one. The PDF viewer fetches pdf.js and
+ * its helper files from here, so an empty answer means there is nothing to load.
+ */
+export function getRuntimeAssetsUrl(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const url = window.pressedmailPlugin?.assetsUrl;
+  if (typeof url !== "string" || url.trim() === "") {
+    return "";
+  }
+
+  return url.endsWith("/") ? url : `${url}/`;
+}
+
+/**
+ * The plugin's UI language as a BCP 47 tag ("de_DE" becomes "de-DE"), falling
+ * back to the admin page's own. Empty when neither is set. Text that is not in
+ * the page's own document, such as the labels inside the PDF frame, carries it
+ * so a screen reader speaks them in the right voice.
+ */
+export function getRuntimeLocaleTag(): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const candidates = [
+    window.pressedmailPlugin?.locale,
+    typeof document !== "undefined" ? document.documentElement.lang : "",
+  ];
+  for (const candidate of candidates) {
+    const tag =
+      typeof candidate === "string" ? candidate.replace(/_/g, "-") : "";
+    if (/^[A-Za-z0-9-]{2,20}$/.test(tag)) {
+      return tag;
+    }
+  }
+  return "";
+}

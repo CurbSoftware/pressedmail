@@ -7,6 +7,7 @@ import { Button, Popover, PopoverTrigger } from "@kit/ui/plugin";
 import { PressedPopoverContent } from "@/components/ui/pressed-overlay";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useNotificationPause } from "@/hooks/useNotificationPause";
+import { useSyncNotice } from "@/hooks/useSyncNotice";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import type { NotificationFeedState } from "@/layouts/shared/hooks/useNotificationFeed";
 import { describePause } from "@/lib/notification-pause";
@@ -62,6 +63,9 @@ export function HeaderNotificationsButton({
 }: HeaderNotificationsButtonProps) {
   const silence = useNotificationPause();
   const { preferences } = useUserPreferences();
+  // Sync running late is not a count of anything, so the bell wears a dot and says why in
+  // its name. The panel holds the entry itself.
+  const syncLate = useSyncNotice() !== null;
   const [open, setOpen] = React.useState(false);
   // Whether the clear-all confirm is up. It opens over the popup, and a click in
   // it or focus moving into it reads as the popup losing focus, so a close that
@@ -85,7 +89,12 @@ export function HeaderNotificationsButton({
         ? "99+"
         : String(unreadCount)
       : null;
-  const bellName = notificationBellName({ unreadCount, pausedText, muted });
+  const bellName = notificationBellName({
+    unreadCount,
+    pausedText,
+    muted,
+    syncLate,
+  });
 
   return (
     <Popover
@@ -95,7 +104,7 @@ export function HeaderNotificationsButton({
         setOpen(next);
       }}>
       <PressedTooltip
-        content={paused || muted ? bellName : label}
+        content={paused || muted || syncLate ? bellName : label}
         side={tooltipSide}>
         <PopoverTrigger asChild>
           <Button
@@ -122,6 +131,14 @@ export function HeaderNotificationsButton({
                 className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground">
                 {badgeDisplay}
               </span>
+            ) : null}
+            {syncLate ? (
+              // The same small warning dot the Templates button wears. It sits at the foot of the
+              // bell so it never covers the unread number, and the state is in the name too.
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute bottom-1 end-1 h-2 w-2 rounded-full bg-warning ring-2 ring-background"
+              />
             ) : null}
             {paused ? (
               <span

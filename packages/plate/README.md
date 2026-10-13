@@ -50,7 +50,7 @@ upgrades every consumer atomically.
 | Re-exports of `platejs` and every `@platejs/*`        | App-specific node components (`*-node.tsx`)         |
 | `BaseEditorKit` plugin preset                        | App-specific toolbar buttons and styling            |
 | `transforms.ts` shared block ops                     | App-specific custom plugins (signature, quote, ...) |
-| Curated kits (autoformat, markdown, composer)        | App page / route integration                        |
+| Curated kits (markdown, composer)                    | App page / route integration                        |
 
 ## Adding a new `@platejs/*` plugin
 

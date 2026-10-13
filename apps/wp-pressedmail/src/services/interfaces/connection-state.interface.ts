@@ -17,6 +17,16 @@
 export type AuthStatus = "ok" | "auth_failed" | "config_error";
 
 /**
+ * Why the sync driver says sync is running late. It is a kind and not a sentence,
+ * so the words live where the notification panel can translate them:
+ * - `background`: wp-cron is not running the queue, and the app's own drain has
+ *   not caught it up for a long while.
+ * - `slow`: the server keeps timing out on the sync request.
+ * - `busy`: the server keeps asking the app to wait (429 or 503).
+ */
+export type SyncDelayedKind = "background" | "slow" | "busy";
+
+/**
  * Per-account connection health state.
  */
 export interface ConnectionHealth {
@@ -169,19 +179,33 @@ export interface IConnectionStateService {
   getSessionError(): string | null;
 
   /**
-   * Set an INFO-level "background sync delayed" hint (NOT an error). Surfaced by the sync
-   * driver when the server is slow-but-working (repeated advance timeouts) or the background
-   * queue is backing up (a starved wp-cron loopback), the app is still making progress in the
-   * foreground, so this must never be a session error and never gate reads. Idempotent per
-   * reason so a sustained condition does not re-notify each poll.
+   * Say that sync has been running late for long enough to tell the reader (NOT an error).
+   * The sync driver raises it when the server is slow-but-working (repeated advance timeouts),
+   * keeps asking the app to wait, or the background queue stays behind (a starved wp-cron
+   * loopback). The app is still making progress in the foreground, so this must never be a
+   * session error and never gate reads. The driver calls it on every tick while the condition
+   * holds, so it is idempotent and also where the notice is rationed (see `getSyncNotice`).
    */
-  markSyncDelayed(reason: string): void;
+  markSyncDelayed(kind: SyncDelayedKind): void;
 
-  /** Clear the "background sync delayed" hint (the delay condition recovered). */
+  /** The delay condition recovered: clear the notice, and forget a dismissal of it. */
   clearSyncDelayed(): void;
 
-  /** Current "background sync delayed" hint reason, or `null`. */
-  getSyncDelayed(): string | null;
+  /** What the driver currently reports, whether or not the notice is on screen, or `null`. */
+  getSyncDelayed(): SyncDelayedKind | null;
+
+  /**
+   * The notice the notifications panel and the bell should show right now, or `null`.
+   *
+   * It is not stored anywhere and it is not the same as `getSyncDelayed`: a person can dismiss
+   * it for the rest of the episode, and once an episode has ended a new one shows again only if
+   * the last appearance was at least 30 minutes ago. So a flapping connection gets one notice
+   * and not a new one each time it recovers and relapses.
+   */
+  getSyncNotice(): SyncDelayedKind | null;
+
+  /** Hide the notice until the condition clears and comes back. Nothing is saved. */
+  dismissSyncNotice(): void;
 
   /**
    * Wrap an async operation with circuit breaker logic.

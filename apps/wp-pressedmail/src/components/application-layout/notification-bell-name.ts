@@ -6,18 +6,22 @@ import { __, sprintf } from "@wordpress/i18n";
  * A paused bell hides its badge on purpose, so the number it would have shown has
  * to be in the name, or nobody learns that mail piled up without opening it. A
  * muted bell looks different from a normal one, and says so for the same reason:
- * someone who muted it last week and hears nothing has no other hint.
+ * someone who muted it last week and hears nothing has no other hint. A bell with a
+ * sync notice up wears a dot, and the dot is not the only place that says why.
  */
 export function notificationBellName({
   unreadCount,
   pausedText,
   muted = false,
+  syncLate = false,
 }: {
   unreadCount: number;
   /** When the pause ends, such as "Paused until 3:40 PM". Empty when not paused. */
   pausedText: string | null;
   /** Whether sound and pop-ups are muted. */
   muted?: boolean;
+  /** Whether the "sync is running late" notice is up. */
+  syncLate?: boolean;
 }): string {
   const label = __("Notifications", "pressedmail");
   let name = label;
@@ -46,12 +50,20 @@ export function notificationBellName({
       pausedText,
     );
   }
-  return muted
+  if (muted) {
+    name = sprintf(
+      /* translators: 1: the bell's name so far, such as "Notifications, 3 unread", 2: "Muted". */
+      __("%1$s. %2$s", "pressedmail"),
+      name,
+      __("Muted", "pressedmail"),
+    );
+  }
+  return syncLate
     ? sprintf(
-        /* translators: 1: the bell's name so far, such as "Notifications, 3 unread", 2: "Muted". */
+        /* translators: 1: the bell's name so far, such as "Notifications, 3 unread", 2: "Sync is running late". */
         __("%1$s. %2$s", "pressedmail"),
         name,
-        __("Muted", "pressedmail"),
+        __("Sync is running late", "pressedmail"),
       )
     : name;
 }

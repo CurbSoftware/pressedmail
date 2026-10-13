@@ -33,7 +33,6 @@ catalog:
   '@next/bundle-analyzer': 16.1.6
   '@next/eslint-plugin-next': 16.1.6
   '@platejs/ai': 53.0.9
-  '@platejs/autoformat': 53.0.0
   '@platejs/basic-nodes': 53.0.0
   '@platejs/basic-styles': 53.0.0
   '@platejs/callout': 53.0.0

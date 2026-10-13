@@ -5,15 +5,13 @@ import { __ } from "@wordpress/i18n";
 import { Alert, AlertDescription, Button } from "@kit/ui/plugin";
 import { useInbox, useInboxState } from "@/context/InboxContext";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
-import { cn } from "@/lib/utils";
 
 /**
  * Reload the whole page.
  *
- * Both notices this banner carries are conditions an in-app refetch cannot
- * clear: an expired session needs a new WordPress nonce, and a stalled
- * background queue needs the driver restarted. Isolated here so the tests can
- * stub one thing rather than the global.
+ * An expired session is a condition an in-app refetch cannot clear: it needs a
+ * new WordPress nonce, which only a real page load issues. Isolated here so the
+ * tests can stub one thing rather than the global.
  */
 function reloadPage(): void {
   window.location.reload();
@@ -209,6 +207,11 @@ export function ConnectionErrorBanner() {
   // Session-wide errors from the sync driver / api-client (expired session that no
   // request could heal, repeated advance failures). Not tied to one account, so they
   // arrive via the connection-state service rather than the inbox init error.
+  //
+  // A late sync (a slow server, a busy one, a queue wp-cron is not running) is not shown
+  // here. It used to be a chip above the list, and on a site still filling a mailbox it
+  // never went away. It is an entry in the notifications panel now (SyncNoticeEntry), so
+  // this banner carries only what is wrong with the connection itself.
   const connectionState = getConnectionStateService();
   useSyncExternalStore(
     (cb) => connectionState.subscribe(cb),
@@ -216,34 +219,6 @@ export function ConnectionErrorBanner() {
     () => connectionState.getSnapshot(),
   );
   const sessionError = connectionState.getSessionError();
-
-  // INFO-level, not an error: the in-app sync driver is slow-but-working, or the background
-  // queue is backing up because wp-cron's loopback is starved. The app keeps making progress
-  // in the foreground, so this surfaces as a muted chip (never the destructive banner) and
-  // clears itself once the condition recovers. Rendered independently of the error banner.
-  const syncDelayed = connectionState.getSyncDelayed();
-  const syncChip = syncDelayed ? (
-    <div
-      data-test="sync-delayed-chip"
-      className={cn(
-        "flex items-center gap-2 rounded-lg border bg-muted px-4 py-2 text-xs text-muted-foreground",
-      )}>
-      <span className="flex-1">{syncDelayed}</span>
-      {/* A delayed background queue means the app is doing the sync itself in
-          this tab. Reloading restarts that work from a clean state, which is
-          the one thing a reader can usefully do about it. */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-7 shrink-0 px-2 text-xs"
-        data-test="sync-delayed-reload"
-        onClick={reloadPage}>
-        <RefreshCw className="mr-1 size-3" aria-hidden="true" />
-        {__("Reload", "pressedmail")}
-      </Button>
-    </div>
-  ) : null;
 
   // The site's approval state, injected by PHP at boot. WordPress has not approved
   // this site for UNATTENDED mailbox work (a copied or restored site, until an
@@ -304,18 +279,12 @@ export function ConnectionErrorBanner() {
     ? connectionState.getCredentialsRequired(String(selectedAccountId))
     : null;
 
-  // The two info chips render on their own, with no error present at all: the site
-  // pause is a standing state, not a failure, and it is most likely to be seen on a
-  // site where nothing else is reporting trouble. Every return path below has to
-  // carry them, which is why they travel as one node.
-  const chips = (
-    <>
-      {pauseChip}
-      {syncChip}
-    </>
-  );
+  // The pause chip renders on its own, with no error present at all: the site pause is a
+  // standing state, not a failure, and it is most likely to be seen on a site where nothing
+  // else is reporting trouble. Every return path below has to carry it.
+  const chips = pauseChip;
 
-  // No error to show, but the info chips may still need to render on their own.
+  // No error to show, but the pause chip may still need to render on its own.
   if (!error && !sessionError && !authBlocked && !credentialsRequired)
     return chips;
 

@@ -50,6 +50,7 @@ const BLOCK_NODE_TYPES = new Set([
   "blockquote",
   "callout",
   "code_block",
+  "pm_button",
   "code_line",
   "column",
   "column_group",
@@ -212,6 +213,8 @@ function serializeBlockNode(node: ComposerNode): string {
         .join("\n");
       return signature ? `-- \n${signature}` : "-- ";
     }
+    case "pm_button":
+      return labelWithUrl(stringProperty(node.label), stringProperty(node.url));
     case "equation":
       return stringProperty(node.texExpression) || "[Empty equation]";
     case "excalidraw": {

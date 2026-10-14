@@ -2633,7 +2633,8 @@ export function MobileInboxScreen() {
       <TaskProgressBanner />
       <PullToRefresh
         onRefresh={async () => {
-          await refreshMessages();
+          // A pull is the person asking for new mail, so it syncs first.
+          await refreshMessages({ sync: true });
         }}
         disabled={bulkMode}>
         {isLoading && visibleMessages.length === 0 ? (

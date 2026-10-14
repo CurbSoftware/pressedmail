@@ -77,6 +77,12 @@ const PRIORITY_WEIGHT: Record<FetchPriority, number> = {
 const MAX_CONCURRENT = 2;
 
 /**
+ * A message somebody clicked does not wait behind two slow reads of messages
+ * clicked earlier: it may start past MAX_CONCURRENT, up to this many in flight.
+ */
+const MAX_CONCURRENT_USER_SELECTED = 4;
+
+/**
  * Build a deduplication key.
  */
 function resolveReference(
@@ -519,7 +525,12 @@ export class PrefetchService implements IPrefetchService {
   private processQueue(): void {
     if (this.destroyed) return;
 
-    while (this.activeCount < MAX_CONCURRENT && this.queue.length > 0) {
+    while (
+      this.queue.length > 0 &&
+      (this.activeCount < MAX_CONCURRENT ||
+        (this.queue[0]!.priority === "user-selected" &&
+          this.activeCount < MAX_CONCURRENT_USER_SELECTED))
+    ) {
       const item = this.queue.shift();
       if (!item) break;
 

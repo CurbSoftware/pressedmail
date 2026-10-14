@@ -88,6 +88,7 @@ export const batchMarkUnreadRouteApi =
 export const batchDeleteRouteApi = routeApiPrefix + "/messages/batch/delete";
 export const batchMoveRouteApi = routeApiPrefix + "/messages/batch/move";
 export const emptyTrashRouteApi = routeApiPrefix + "/messages/trash/empty";
+export const emptyJunkRouteApi = routeApiPrefix + "/messages/junk/empty";
 export const deleteEmailFromImapRouteApi = routeApiPrefix + "/message/delete";
 export const moveEmailRouteApi = routeApiPrefix + "/message/move";
 export const flagEmailRouteApi = routeApiPrefix + "/message/flag";

@@ -174,7 +174,11 @@ export const InboxEmptyState = memo(function InboxEmptyState({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => (onRetry ? onRetry() : void refreshMessages())}
+          // Asked for by the person, so it syncs the mailbox first; only
+          // automatic reloads reread the list alone.
+          onClick={() =>
+            onRetry ? onRetry() : void refreshMessages({ sync: true })
+          }
           className="h-7 text-xs"
           data-test="empty-state-retry">
           {__("Try again", "pressedmail")}
@@ -183,7 +187,7 @@ export const InboxEmptyState = memo(function InboxEmptyState({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => void refreshMessages()}
+          onClick={() => void refreshMessages({ sync: true })}
           disabled={busy}
           className="h-7 text-xs"
           data-test="empty-state-refresh">

@@ -2746,12 +2746,18 @@ export class InboxService implements IInboxOperations {
     };
   }
 
-  removeMessage(messageId: string | number): void {
+  removeMessage(
+    messageId: string | number,
+    options?: { quiet?: boolean },
+  ): void {
     const token = canonicalMessageToken(messageId);
     if (!token) return;
     const ref = parseAccountQualifiedToken(token);
     if (ref?.kind !== "message") return;
-    removalListeners.forEach((listener) => listener(token));
+    // A quiet removal only hides the row while the server decides. A composer
+    // bound to that draft must not close (and drop its edits) for a delete the
+    // server may still refuse; it hears the confirmed removal that follows.
+    if (!options?.quiet) removalListeners.forEach((listener) => listener(token));
     const knownMessages = [
       ...this._messages,
       ...Object.values(this._threadGroups).flat(),

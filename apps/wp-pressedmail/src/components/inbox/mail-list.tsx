@@ -40,6 +40,7 @@ import {
   useMessageOperations,
 } from "@/context/InboxContext";
 import { useComposer } from "@/context/composer";
+import { isDraftMessage } from "@/lib/draft-compose";
 import type { EmailMessage, EmailMessageTag } from "@/types";
 
 import { decodeMimeWords } from "./mail-display";
@@ -388,9 +389,13 @@ export function MailList({
 
   const guardedSelect = useCallback(
     (msg: EmailMessage) => {
-      requestNavigation(() => {
-        void selectMessage(msg);
-      });
+      // A draft opens in the composer and replaces what is open there.
+      requestNavigation(
+        () => {
+          void selectMessage(msg);
+        },
+        { waitForSave: isDraftMessage(msg) },
+      );
     },
     [requestNavigation, selectMessage],
   );

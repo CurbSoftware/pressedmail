@@ -37,6 +37,10 @@ import {
   useManagedDomainSetup,
 } from "@/components/setup/managed-domain-setup.active";
 import {
+  ProtonBridgeStep,
+  useProtonConnector,
+} from "@/components/setup/proton-connector.active";
+import {
   StepCredentials,
   StepProviderSelect,
   StepServerSettings,
@@ -257,6 +261,7 @@ export default function SetupWizard({
     editingAccount,
     setEditingAccount,
     updateAccount,
+    reloadAccounts,
   } = useAppContext();
   const isEditing = Boolean(editingAccount);
   // An OAuth account stores tokens, not a password. Showing "Saved" for it would hide that
@@ -295,6 +300,15 @@ export default function SetupWizard({
   if (initialFormDataRef.current === null) {
     initialFormDataRef.current = formData;
   }
+  // The Proton Bridge companion supplies its own sign-in form. It replaces the
+  // credentials and server steps for a new Proton account, and creates the
+  // account itself, so none of the generic test-and-save machinery applies.
+  const protonConnector = useProtonConnector();
+  const protonMode =
+    !__IS_FREE__ &&
+    protonConnector !== null &&
+    formData.provider === "protonmail" &&
+    !isEditing;
   const [errors, setErrors] = useState<SetupFormErrors>({});
   const [oauthConnected, setOauthConnected] = useState<boolean>(false);
   // Either/or auth method for OAuth-capable providers (gmail/outlook).
@@ -496,7 +510,7 @@ export default function SetupWizard({
   );
 
   // In custom domain mode: skip provider selection.
-  const totalSteps = managedSetupMode ? 2 : 3;
+  const totalSteps = managedSetupMode || protonMode ? 2 : 3;
   const entryStep = isEditing ? 2 : 1;
   const progress = (currentStep / totalSteps) * 100;
 
@@ -512,6 +526,9 @@ export default function SetupWizard({
       if (step === 1) return true;
       return managed.validate().valid;
     }
+
+    // The companion's form validates and submits itself.
+    if (protonMode && step === 2) return true;
 
     const newErrors: SetupFormErrors = {};
     const effective = step;
@@ -1173,6 +1190,19 @@ export default function SetupWizard({
           />
         );
       case 2:
+        if (protonMode && protonConnector) {
+          return (
+            <ProtonBridgeStep
+              restBase={protonConnector.restBase}
+              canManage={protonConnector.canManage}
+              onConnected={async (message: string) => {
+                await reloadAccounts();
+                if (message) appMessage(message, "success");
+                leaveSetupWizard();
+              }}
+            />
+          );
+        }
         if (managedSetupMode) {
           return (
             <ManagedDomainCredentialsStep

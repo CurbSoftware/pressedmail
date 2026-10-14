@@ -13,7 +13,7 @@ import {
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { useSharedMailboxRole } from "@/components/sharing";
 import { getFolderRole } from "@/lib/bulk-mail-actions";
-import type { ImapFolder } from "@/services/interfaces";
+import type { EmptyFolderRole, ImapFolder } from "@/services/interfaces";
 
 function resolveCurrentFolder(
   folders: ImapFolder[],
@@ -33,35 +33,70 @@ function resolveCurrentFolder(
   );
 }
 
+// The client's folder role for Junk is "spam".
+function emptyRoleFor(folder: ImapFolder): EmptyFolderRole | null {
+  const role = getFolderRole(folder);
+  if (role === "trash") return "trash";
+  if (role === "spam") return "junk";
+  return null;
+}
+
+function emptyFolderCopy(role: EmptyFolderRole) {
+  return role === "junk"
+    ? {
+        action: __("Empty Junk", "pressedmail"),
+        title: __("Empty Junk?", "pressedmail"),
+        description: __(
+          "This permanently deletes all messages in Junk. This action cannot be undone.",
+          "pressedmail",
+        ),
+        done: __("Junk emptied", "pressedmail"),
+        failed: __("Could not empty Junk", "pressedmail"),
+      }
+    : {
+        action: __("Empty Trash", "pressedmail"),
+        title: __("Empty Trash?", "pressedmail"),
+        description: __(
+          "This permanently deletes all messages in Trash. This action cannot be undone.",
+          "pressedmail",
+        ),
+        done: __("Trash emptied", "pressedmail"),
+        failed: __("Could not empty Trash", "pressedmail"),
+      };
+}
+
 export function FolderRecoveryActions() {
   const { refreshMessages, selectedAccountId } = useInbox();
-  // Emptying Trash deletes permanently: owners and Managers only.
+  // Emptying Trash or Junk deletes permanently: owners and Managers only.
   const { canManage } = useSharedMailboxRole(selectedAccountId);
-  const { emptyTrash } = useMessageOperations();
+  const { emptyFolder } = useMessageOperations();
   const { folders, selectedFolder, getTrashFolder } = useFolderOperations();
   const [isEmptying, setIsEmptying] = React.useState(false);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const currentFolder = resolveCurrentFolder(folders, selectedFolder);
-  const isTrash = getFolderRole(currentFolder) === "trash";
+  const role = emptyRoleFor(currentFolder);
 
-  if (!isTrash || !canManage) {
+  if (!role || !canManage) {
     return null;
   }
 
-  const trashPath = getTrashFolder()?.path || currentFolder.path || "Trash";
+  const copy = emptyFolderCopy(role);
+  const path =
+    (role === "trash" ? getTrashFolder()?.path : undefined) ||
+    currentFolder.path;
 
-  const handleEmptyTrash = async () => {
+  const handleEmpty = async () => {
     setIsEmptying(true);
     try {
-      const result = await emptyTrash(trashPath);
+      const result = await emptyFolder(role, path);
       if (!result.success) {
-        toast.error(result.error || __("Could not empty Trash", "pressedmail"));
+        toast.error(result.error || copy.failed);
         return;
       }
       await refreshMessages();
-      toast.success(__("Trash emptied", "pressedmail"));
+      toast.success(copy.done);
     } catch {
-      toast.error(__("Could not empty Trash", "pressedmail"));
+      toast.error(copy.failed);
     } finally {
       setIsEmptying(false);
       setConfirmOpen(false);
@@ -84,21 +119,18 @@ export function FolderRecoveryActions() {
         ) : (
           <Trash2 className="h-3.5 w-3.5" />
         )}
-        {__("Empty Trash", "pressedmail")}
+        {copy.action}
       </Button>
       <ConfirmationPanel
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={__("Empty Trash?", "pressedmail")}
-        description={__(
-          "This permanently deletes all messages in Trash. This action cannot be undone.",
-          "pressedmail",
-        )}
+        title={copy.title}
+        description={copy.description}
         confirmText={__("Delete All", "pressedmail")}
         cancelText={__("Cancel", "pressedmail")}
         variant="destructive"
         loading={isEmptying}
-        onConfirm={() => void handleEmptyTrash()}
+        onConfirm={() => void handleEmpty()}
       />
     </div>
   );

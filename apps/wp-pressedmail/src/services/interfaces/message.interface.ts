@@ -89,6 +89,9 @@ export interface BatchRemovalOptions {
  */
 export type MessageIdentifierMode = "uid" | "msg_no";
 
+/** The folders Empty Trash and Empty Junk delete from permanently. */
+export type EmptyFolderRole = "trash" | "junk";
+
 /**
  * Shared options for mailbox mutation requests.
  */
@@ -330,15 +333,18 @@ export interface IMessageOperations {
   ): Promise<BatchOperationResult>;
 
   /**
-   * Permanently delete every message currently in the account Trash folder.
+   * Permanently delete every message currently in the account's Trash or
+   * Junk folder. Junk is expunged too, never moved to Trash.
    *
+   * @param role - Which folder kind to empty
    * @param accountId - Account ID
-   * @param folder - Trash folder path
+   * @param folder - Physical folder path
    * @returns Batch operation result using the number of messages emptied
    */
-  emptyTrash(
+  emptyFolder(
+    role: EmptyFolderRole,
     accountId: string | number,
-    folder?: string,
+    folder: string,
   ): Promise<BatchOperationResult>;
 
   /**

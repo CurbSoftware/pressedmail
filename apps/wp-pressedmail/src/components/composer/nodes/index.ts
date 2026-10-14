@@ -1,6 +1,7 @@
 export { SignatureBlockPlugin } from './signature-plugin';
 export { AttachmentCardPlugin } from './attachment-plugin';
 export { AISuggestionPlugin } from './ai-suggestion-plugin';
+export { ButtonPlugin } from './button-plugin';
 
 export { SignatureNode } from './signature-node';
 export type { SignatureElement } from './signature-node';
@@ -10,3 +11,6 @@ export type { AttachmentCardElement } from './attachment-card-node';
 
 export { AISuggestionNode } from './ai-suggestion-node';
 export type { AISuggestionElement } from './ai-suggestion-node';
+
+export { ButtonElement } from './button-node';
+export type { TButtonElement } from './button-plugin';

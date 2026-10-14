@@ -327,7 +327,8 @@ export function ConnectionErrorBanner() {
     clearError();
 
     if (selectedAccountId) {
-      void refreshMessages();
+      // A retry the person asked for syncs first, not just a reread.
+      void refreshMessages({ sync: true });
       return;
     }
 

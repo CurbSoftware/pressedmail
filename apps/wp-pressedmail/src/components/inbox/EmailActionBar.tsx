@@ -606,7 +606,9 @@ export function EmailActionBar({
       if (!requireMessageIdentity(principal)) return;
       try {
         const result = await moveMessage(operationId, targetFolder);
-        if (!isCurrentTagScope(tagScope, principal)) return;
+        // The row and this bar leave as the move starts, so the outcome is
+        // reported for the same signed-in user, not only while it is shown.
+        if (!isRequestPrincipalCurrent(principal)) return;
         if (!result.success && !result.requiresRefresh)
           toast.error(
             result.error ||
@@ -614,19 +616,13 @@ export function EmailActionBar({
           );
         if (result.warning) toast.warning(result.warning);
       } catch (error) {
-        if (isCurrentTagScope(tagScope, principal) && !isApiAuthError(error))
+        if (isRequestPrincipalCurrent(principal) && !isApiAuthError(error))
           toast.error(
             __("Could not move this message. Try again.", "pressedmail"),
           );
       }
     },
-    [
-      operationId,
-      moveMessage,
-      requireMessageIdentity,
-      tagScope,
-      isCurrentTagScope,
-    ],
+    [operationId, moveMessage, requireMessageIdentity],
   );
 
   const handleTagDropdownOpenChange = useCallback(

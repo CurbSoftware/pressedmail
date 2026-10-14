@@ -69,9 +69,13 @@ export function ComposeNavigationBlocker() {
       const destination = anchor.href;
       event.preventDefault();
       event.stopPropagation();
-      requestNavigation(() => {
-        window.location.href = destination;
-      });
+      // Leaving the page would cut off a save still running, so it lands first.
+      requestNavigation(
+        () => {
+          window.location.href = destination;
+        },
+        { waitForSave: true },
+      );
     };
 
     document.addEventListener("click", onClick, true);

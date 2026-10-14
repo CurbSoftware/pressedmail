@@ -1321,6 +1321,17 @@ function normalizeComposerNodesForMarkdown(
         );
         break;
       }
+      case "pm_button": {
+        // A button is a link in Markdown: its text, pointing where it points.
+        const label = typeof node.label === "string" ? node.label.trim() : "";
+        const url = typeof node.url === "string" ? node.url : "";
+        const link: ComposerSerializationNode =
+          url && isSafeImportedUrl(url, "href")
+            ? { type: "a", url, children: [{ text: label || url }] }
+            : { text: label };
+        result.push(inlineContext ? link : { type: "p", children: [link] });
+        break;
+      }
       case "ai-suggestion":
         result.push(...normalizedChildren);
         break;

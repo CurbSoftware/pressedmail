@@ -45,6 +45,7 @@ import type {
   LoadMessagesResult,
   OperationResult,
   BatchOperationResult,
+  EmptyFolderRole,
   BatchRemovalOptions,
   MessageFilters,
   ImapFolder,
@@ -444,7 +445,7 @@ export interface InboxContextValue {
   loadMore: () => Promise<LoadMessagesResult>;
   /** Load an exact page for the current account/folder context */
   loadPage: (page: number, pageSize?: number) => Promise<LoadMessagesResult>;
-  /** Refresh messages from server; `sync: false` rereads the mirror without an IMAP sync first */
+  /** Refresh messages from server. Rereads the mirror only, unless `sync` (default: `syncAllAccounts`, the Refresh buttons) books an IMAP sync first */
   refreshMessages: (options?: { sync?: boolean; syncAllAccounts?: boolean }) => Promise<void>;
   /** Drop cached pages for a folder so its next open refetches fresh */
   invalidateFolderMessages: (folder: string) => void;
@@ -521,8 +522,11 @@ export interface InboxContextValue {
     targetFolder: MutationTarget,
     options?: BatchRemovalOptions,
   ) => Promise<BatchOperationResult>;
-  /** Empty the current Trash folder */
-  emptyTrash: (folder?: string) => Promise<BatchOperationResult>;
+  /** Permanently empty the Trash or Junk folder */
+  emptyFolder: (
+    role: EmptyFolderRole,
+    folder?: string,
+  ) => Promise<BatchOperationResult>;
 
   // ============== Folder Operations ==============
   /** Current folders */
@@ -709,7 +713,7 @@ const defaultContextValue: InboxContextValue = {
   batchMoveMessages: async () => {
     throw new Error("InboxContext not initialized");
   },
-  emptyTrash: async () => {
+  emptyFolder: async () => {
     throw new Error("InboxContext not initialized");
   },
   folders: [],
@@ -1424,8 +1428,8 @@ export function InboxProvider({
 
   const runRefreshMessages = useCallback(
     async ({
-      sync = true,
       syncAllAccounts = false,
+      sync = syncAllAccounts,
     }: { sync?: boolean; syncAllAccounts?: boolean } = {}): Promise<void> => {
       const currentAccountId = isConsolidatedMode
         ? consolidatedScopeKey
@@ -1434,6 +1438,10 @@ export function InboxProvider({
         return;
       }
 
+      // Only the explicit Refresh buttons (syncAllAccounts) sync by default. An
+      // automatic reload after a send, move or failure rereads the mirror only:
+      // booking a sync first put a server round trip in front of every reload.
+      //
       // Force a real server-side sync first: prioritize the visible account(s) at
       // the front of the sync queue and advance the driver. Without this the
       // refresh only re-read the DB mirror (force=1 merely queued a background
@@ -1717,6 +1725,28 @@ export function InboxProvider({
     [inboxService, clearDetailRepollTimer, clearMarkAsReadTimer],
   );
 
+  // Delete, move, archive and read state change the visible list before the
+  // server answers. Taken as the change starts, this returns what undoes it
+  // when the server refuses: the cached pages and kept snapshots of the view
+  // and of each source folder go, so reopening them asks the server again, and
+  // the list rereads itself only while it still shows that view (by then the
+  // person may be looking at another folder or account). Not awaited: the
+  // caller's error toast must not wait on a list read. `reread` is false when
+  // an identity conflict refreshes the view itself.
+  const captureRestore = useCallback(
+    (sourceFolders: readonly string[]): ((reread?: boolean) => void) => {
+      const view = captureViewScope();
+      const folders = new Set([inboxService.currentFolder, ...sourceFolders]);
+      return (reread = true) => {
+        for (const folder of folders)
+          inboxService.invalidateFolderMessages(folder);
+        if (reread && captureViewScope() === view)
+          void inboxService.refresh().catch(() => {});
+      };
+    },
+    [captureViewScope, inboxService],
+  );
+
   const runDetailFetch = useCallback(
     async (req: SelectedDetailRequest, autoRepoll: boolean): Promise<void> => {
       if (!isCurrentDetail(req)) return;
@@ -1937,6 +1967,8 @@ export function InboxProvider({
     async (messageId: string | number): Promise<OperationResult> => {
       const messageRef = resolveMessageRef(messageId);
       if (!messageRef) return reportIdentityConflict();
+      const restore = captureRestore([messageRef.folder]);
+      inboxService.updateMessage(messageRef.localId, { read: true });
       const result = await messageService.markAsRead(
         messageRef.accountId,
         messageRef.apiId,
@@ -1946,12 +1978,14 @@ export function InboxProvider({
           identifierMode: messageRef.identifierMode,
         },
       );
-      if (result.requiresRefresh)
+      if (result.requiresRefresh) {
+        restore(false);
         return reportIdentityConflict(result.error, messageRef.localId);
+      }
       if (result.success) {
         inboxService.updateMessage(messageRef.localId, { read: true });
         scheduleFolderCountRefresh();
-      }
+      } else restore();
       return result;
     },
     [
@@ -1962,6 +1996,7 @@ export function InboxProvider({
       scheduleFolderCountRefresh,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -1969,6 +2004,8 @@ export function InboxProvider({
     async (messageId: string | number): Promise<OperationResult> => {
       const messageRef = resolveMessageRef(messageId);
       if (!messageRef) return reportIdentityConflict();
+      const restore = captureRestore([messageRef.folder]);
+      inboxService.updateMessage(messageRef.localId, { read: false });
       const result = await messageService.markAsUnread(
         messageRef.accountId,
         messageRef.apiId,
@@ -1978,12 +2015,14 @@ export function InboxProvider({
           identifierMode: messageRef.identifierMode,
         },
       );
-      if (result.requiresRefresh)
+      if (result.requiresRefresh) {
+        restore(false);
         return reportIdentityConflict(result.error, messageRef.localId);
+      }
       if (result.success) {
         inboxService.updateMessage(messageRef.localId, { read: false });
         scheduleFolderCountRefresh();
-      }
+      } else restore();
       return result;
     },
     [
@@ -1994,6 +2033,7 @@ export function InboxProvider({
       scheduleFolderCountRefresh,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2129,6 +2169,9 @@ export function InboxProvider({
     ): Promise<OperationResult> => {
       const messageRef = resolveMessageRef(messageId);
       if (!messageRef) return reportIdentityConflict();
+      // The row leaves the list now; the server's answer confirms or restores it.
+      const restore = captureRestore([messageRef.folder]);
+      inboxService.removeMessage(messageRef.localId, { quiet: true });
       const result = await messageService.deleteMessage(
         messageRef.accountId,
         messageRef.apiId,
@@ -2139,11 +2182,15 @@ export function InboxProvider({
           identifierMode: messageRef.identifierMode,
         },
       );
-      if (result.requiresRefresh)
+      if (result.requiresRefresh) {
+        restore(false);
         return reportIdentityConflict(result.error, messageRef.localId);
+      }
+      // Removed again on success: a list read that answered while the delete
+      // was in flight may have listed the row once more.
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
-      }
+      } else restore();
       return result;
     },
     [
@@ -2153,6 +2200,7 @@ export function InboxProvider({
       messageService,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2175,6 +2223,8 @@ export function InboxProvider({
       if (!resolved.ok) {
         return { success: false, error: resolved.error };
       }
+      const restore = captureRestore([messageRef.folder]);
+      inboxService.removeMessage(messageRef.localId, { quiet: true });
       // The single-move endpoint takes literal paths only; destination unions
       // go through the batch endpoint (same semantics, one message).
       const result = isDestinationMutationTarget(resolved.target)
@@ -2198,11 +2248,14 @@ export function InboxProvider({
               identifierMode: messageRef.identifierMode,
             },
           );
-      if (result.requiresRefresh)
+      if (result.requiresRefresh) {
+        restore(false);
         return reportIdentityConflict(result.error, messageRef.localId);
+      }
+      // Removed first and again on success, as deleteMessage does.
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
-      }
+      } else restore();
       return result;
     },
     [
@@ -2212,6 +2265,7 @@ export function InboxProvider({
       messageService,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2224,6 +2278,8 @@ export function InboxProvider({
         ? resolveReplySourceRef(replySource)
         : resolveMessageRef(messageId);
       if (!messageRef) return reportIdentityConflict();
+      const restore = captureRestore([messageRef.folder]);
+      inboxService.removeMessage(messageRef.localId, { quiet: true });
       const result = await messageService.archiveMessage(
         messageRef.accountId,
         messageRef.apiId,
@@ -2233,11 +2289,14 @@ export function InboxProvider({
           identifierMode: messageRef.identifierMode,
         },
       );
-      if (result.requiresRefresh)
+      if (result.requiresRefresh) {
+        restore(false);
         return reportIdentityConflict(result.error, messageRef.localId);
+      }
+      // Removed first and again on success, as deleteMessage does.
       if (result.success) {
         inboxService.removeMessage(messageRef.localId);
-      }
+      } else restore();
       return result;
     },
     [
@@ -2247,6 +2306,7 @@ export function InboxProvider({
       messageService,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2271,6 +2331,10 @@ export function InboxProvider({
       let firstError: string | undefined = undefined;
       let firstWarning: string | undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
+      const restore = captureRestore(groups.map((group) => group.folder));
+      for (const group of groups)
+        for (const ref of group.refs)
+          inboxService.updateMessage(ref.localId, { read: true });
       for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
         const response = await messageService.batchMarkRead(
@@ -2285,6 +2349,7 @@ export function InboxProvider({
         const result = validateBatchResult(group.refs, response);
         firstWarning ??= result.warning;
         if (result.requiresRefresh) {
+          restore(false);
           await reportIdentityConflict(result.error);
           return {
             success: false,
@@ -2327,6 +2392,7 @@ export function InboxProvider({
       if (totalSuccess > 0) {
         scheduleFolderCountRefresh();
       }
+      if (allFailed.length > 0) restore();
 
       return {
         success: allFailed.length === 0,
@@ -2346,6 +2412,7 @@ export function InboxProvider({
       scheduleFolderCountRefresh,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2385,6 +2452,10 @@ export function InboxProvider({
       let firstError: string | undefined = undefined;
       let firstWarning: string | undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
+      const restore = captureRestore(groups.map((group) => group.folder));
+      for (const group of groups)
+        for (const ref of group.refs)
+          inboxService.updateMessage(ref.localId, { read: false });
       for (const [groupIndex, group] of groups.entries()) {
         const apiIds = group.refs.map((ref) => ref.apiId);
         const response = await messageService.batchMarkUnread(
@@ -2399,6 +2470,7 @@ export function InboxProvider({
         const result = validateBatchResult(group.refs, response);
         firstWarning ??= result.warning;
         if (result.requiresRefresh) {
+          restore(false);
           await reportIdentityConflict(result.error);
           return {
             success: false,
@@ -2438,6 +2510,7 @@ export function InboxProvider({
       if (totalSuccess > 0) {
         scheduleFolderCountRefresh();
       }
+      if (allFailed.length > 0) restore();
       return {
         success: allFailed.length === 0,
         successCount: totalSuccess,
@@ -2456,6 +2529,7 @@ export function InboxProvider({
       scheduleFolderCountRefresh,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2499,6 +2573,13 @@ export function InboxProvider({
       let firstWarning: string | undefined = undefined;
       const allFailed: (string | number)[] = [...unmatchedIds];
       const removedLocalIds = new Set<string>();
+      const restore = captureRestore(groups.map((group) => group.folder));
+      // Rows leave the list now unless the caller shows them working first;
+      // each confirmed row is removed again below, a refusal rereads the list.
+      if (!deferRemoval)
+        for (const group of groups)
+          for (const ref of group.refs)
+            inboxService.removeMessage(ref.localId, { quiet: true });
       try {
         for (const [groupIndex, group] of groups.entries()) {
           const apiIds = group.refs.map((ref) => ref.apiId);
@@ -2514,6 +2595,7 @@ export function InboxProvider({
           );
           const result = validateBatchResult(group.refs, response);
           if (result.requiresRefresh) {
+            restore(false);
             await reportIdentityConflict(result.error);
             return {
               success: false,
@@ -2562,6 +2644,7 @@ export function InboxProvider({
         if (deferRemoval && removedLocalIds.size > 0) {
           applyDeferredRemoval([...removedLocalIds]);
         }
+        if (!deferRemoval) restore();
         throw error;
       }
       if (!deferRemoval) {
@@ -2571,6 +2654,7 @@ export function InboxProvider({
         if (selectedMessageKey && removedLocalIds.has(selectedMessageKey)) {
           inboxService.clearSelection();
         }
+        if (allFailed.length > 0) restore();
       }
       return {
         success: allFailed.length === 0,
@@ -2592,6 +2676,7 @@ export function InboxProvider({
       messageService,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2655,6 +2740,12 @@ export function InboxProvider({
       const accountErrors: { accountId: string | number; error: string }[] = [];
       const createdFolders: { path: string; folderId?: number | null }[] = [];
       const removedLocalIds = new Set<string>();
+      const restore = captureRestore(groups.map((group) => group.folder));
+      // Rows leave the list now, as batchDeleteInMessages does.
+      if (!deferRemoval)
+        for (const group of groups)
+          for (const ref of group.refs)
+            inboxService.removeMessage(ref.localId, { quiet: true });
       try {
         for (const [groupIndex, group] of groups.entries()) {
           // Resolve the requested target for THIS account: merged folders remap
@@ -2687,6 +2778,7 @@ export function InboxProvider({
           );
           const result = validateBatchResult(group.refs, response);
           if (result.requiresRefresh) {
+            restore(false);
             await reportIdentityConflict(result.error);
             return {
               success: false,
@@ -2751,8 +2843,10 @@ export function InboxProvider({
         if (deferRemoval && removedLocalIds.size > 0) {
           applyDeferredRemoval([...removedLocalIds]);
         }
+        if (!deferRemoval) restore();
         throw error;
       }
+      if (!deferRemoval && allFailed.length > 0) restore();
       return {
         success: allFailed.length === 0,
         successCount: totalSuccess,
@@ -2775,6 +2869,7 @@ export function InboxProvider({
       messageService,
       selectedAccountId,
       reportIdentityConflict,
+      captureRestore,
     ],
   );
 
@@ -2846,14 +2941,21 @@ export function InboxProvider({
     [folderService],
   );
 
-  const emptyTrash = useCallback(
-    async (folder?: string): Promise<BatchOperationResult> => {
-      const trashFolder = folderService.getTrashFolder();
-      const requestedFolder = folder || trashFolder?.path || "Trash";
+  const emptyFolder = useCallback(
+    async (
+      role: EmptyFolderRole,
+      folder?: string,
+    ): Promise<BatchOperationResult> => {
+      // The client knows Junk as the "spam" system folder.
+      const systemFolder = folderService.getSystemFolder(
+        role === "junk" ? "spam" : "trash",
+      );
+      const requestedFolder =
+        folder || systemFolder?.path || (role === "junk" ? "Junk" : "Trash");
       const requests = isConsolidatedMode
         ? effectiveConsolidatedAccountIds.map((accountId) => {
             const sourcePath =
-              trashFolder?.sourceFolders?.find(
+              systemFolder?.sourceFolders?.find(
                 (source) => Number(source.accountId) === Number(accountId),
               )?.path ?? requestedFolder;
             return { accountId, folder: sourcePath };
@@ -2889,7 +2991,8 @@ export function InboxProvider({
       const failedIds: (string | number)[] = [];
 
       for (const request of validRequests) {
-        const result = await messageService.emptyTrash(
+        const result = await messageService.emptyFolder(
+          role,
           request.accountId,
           request.folder,
         );
@@ -3120,7 +3223,7 @@ export function InboxProvider({
       batchDeleteMessages,
       batchMove,
       batchMoveMessages,
-      emptyTrash,
+      emptyFolder,
 
       // Folder operations
       folders: folderService.folders,
@@ -3206,7 +3309,7 @@ export function InboxProvider({
       batchDeleteMessages,
       batchMove,
       batchMoveMessages,
-      emptyTrash,
+      emptyFolder,
       loadFolders,
       loadConsolidatedFolders,
       selectFolder,
@@ -3316,7 +3419,7 @@ export function useMessageOperations() {
     batchDeleteMessages,
     batchMove,
     batchMoveMessages,
-    emptyTrash,
+    emptyFolder,
     selectMessage,
     clearSelection,
   } = useInbox();
@@ -3338,7 +3441,7 @@ export function useMessageOperations() {
     batchDeleteMessages,
     batchMove,
     batchMoveMessages,
-    emptyTrash,
+    emptyFolder,
     selectMessage,
     clearSelection,
   };

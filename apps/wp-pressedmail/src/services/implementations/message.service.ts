@@ -15,6 +15,7 @@ import type {
   GetMessageOptions,
   OperationResult,
   BatchOperationResult,
+  EmptyFolderRole,
   MessageFlag,
   MessageMutationOptions,
   BatchMessageMutationOptions,
@@ -35,6 +36,7 @@ import {
   batchMarkUnreadRouteApi,
   batchDeleteRouteApi,
   batchMoveRouteApi,
+  emptyJunkRouteApi,
   emptyTrashRouteApi,
   deleteEmailFromImapRouteApi,
   moveEmailRouteApi,
@@ -144,8 +146,13 @@ function isError(
   return typeof status === "number" && (status >= 400 || status === 505);
 }
 
-/** An idempotent mutation may have lost a race with the mail server and can simply be sent again. */
-const RETRYABLE_MUTATION_STATUSES = new Set([424, 500, 502, 503, 505]);
+/**
+ * Refusals the server answers before it changes anything, so an idempotent mutation can simply
+ * be sent again. A timeout or dropped connection (505), a crash (500) or a proxy failure (502)
+ * may have reached the server, which is likely still working on it, so those are never resent:
+ * the same rule api-client keeps for every mutation.
+ */
+const RETRYABLE_MUTATION_STATUSES = new Set([424, 503]);
 
 /** Waits between retries of an idempotent mutation: short, then long enough for a worker to free up. */
 const MUTATION_RETRY_DELAYS_MS = [500, 1500];
@@ -723,10 +730,10 @@ export class MessageService implements IMessageOperations {
     if (!ref) return identityFailure();
     try {
       // Marking a message read twice changes nothing, so a request the mail
-      // server momentarily refused (a 424 while it was busy, a dropped
-      // connection) is worth sending again rather than leaving the message
-      // unread. Bounded to two retries with growing waits; every other
-      // failure (identity, permission, lock) returns at once.
+      // server momentarily refused (a 424 while it was busy) is worth sending
+      // again rather than leaving the message unread. Bounded to two retries
+      // with growing waits; every other failure (timeout, identity,
+      // permission, lock) returns at once.
       const response = await this.withBreaker(accountId, () =>
         this.retryTransient(() =>
           apiForm(markEmailAsReadRouteApi, this.buildMessageMutationPayload(ref)),
@@ -1177,11 +1184,12 @@ export class MessageService implements IMessageOperations {
     );
   }
 
-  async emptyTrash(
+  async emptyFolder(
+    role: EmptyFolderRole,
     accountId: string | number,
-    folder = "Trash",
+    folder: string,
   ): Promise<BatchOperationResult> {
-    // The server empties Trash in bounded batches (capped per request to stay under the
+    // The server empties Trash or Junk in bounded batches (capped per request to stay under the
     // gateway timeout) and reports `remaining`. Keep calling until it's drained, or a
     // safety cap, then report partial progress so the user can retry.
     const MAX_PASSES = 50;
@@ -1193,7 +1201,8 @@ export class MessageService implements IMessageOperations {
     };
 
     for (let pass = 0; pass < MAX_PASSES; pass++) {
-      const { result, remaining } = await this.emptyTrashChunk(
+      const { result, remaining } = await this.emptyFolderChunk(
+        role,
         accountId,
         folder,
       );
@@ -1222,17 +1231,26 @@ export class MessageService implements IMessageOperations {
 
     aggregate.success = false;
     aggregate.error =
-      "Trash is not empty yet. Run Empty Trash again to continue.";
+      role === "junk"
+        ? __(
+            "Junk is not empty yet. Run Empty Junk again to continue.",
+            "pressedmail",
+          )
+        : __(
+            "Trash is not empty yet. Run Empty Trash again to continue.",
+            "pressedmail",
+          );
     return aggregate;
   }
 
-  private async emptyTrashChunk(
+  private async emptyFolderChunk(
+    role: EmptyFolderRole,
     accountId: string | number,
     folder: string,
   ): Promise<{ result: BatchOperationResult; remaining: number }> {
     try {
       const response = await this.withBreaker(accountId, () =>
-        apiForm(emptyTrashRouteApi, {
+        apiForm(role === "junk" ? emptyJunkRouteApi : emptyTrashRouteApi, {
           account_id: accountId,
           folder,
         }),
@@ -1261,7 +1279,7 @@ export class MessageService implements IMessageOperations {
         return {
           result: {
             success: false,
-            error: "Invalid empty-trash response: failed_ids must be an array",
+            error: "Invalid empty-folder response: failed_ids must be an array",
             successCount: 0,
             failedIds: [],
             totalCount: 0,
@@ -1298,7 +1316,9 @@ export class MessageService implements IMessageOperations {
           error:
             failedIds.length === 0
               ? undefined
-              : `Failed to empty ${failedIds.length} Trash messages`,
+              : role === "junk"
+                ? __("Some Junk messages could not be deleted.", "pressedmail")
+                : __("Some Trash messages could not be deleted.", "pressedmail"),
         },
         remaining,
       };
@@ -1306,7 +1326,12 @@ export class MessageService implements IMessageOperations {
       return {
         result: {
           success: false,
-          error: error instanceof Error ? error.message : "Empty Trash failed",
+          error:
+            error instanceof Error
+              ? error.message
+              : role === "junk"
+                ? __("Could not empty Junk", "pressedmail")
+                : __("Could not empty Trash", "pressedmail"),
           successCount: 0,
           failedIds: [],
           totalCount: 0,

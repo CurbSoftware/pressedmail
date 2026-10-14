@@ -160,6 +160,13 @@ const WAKE_LOCK_WAIT_MS = 1_000;
 /** Run the FULL background-queue drain every Nth active tick (in addition to remaining===0). */
 const PROCESS_QUEUE_EVERY = 4;
 
+/**
+ * Advances in a row that report work remaining but move none of it (a refused job, a folder the server is retrying on its
+ * own schedule) before the driver stops treating the mailbox as busy. Past this it ticks on the idle cadence, with a full
+ * drain each time, until an advance moves something again.
+ */
+const NO_PROGRESS_LIMIT = 2;
+
 /** Consecutive content turns that stored nothing before the lane rests (a slow server, a full cache). */
 const BODY_STALL_LIMIT = 3;
 
@@ -212,6 +219,8 @@ let blurredAt: number | null = null;
  */
 let lastDrainOverdue: number | null = null;
 let activeTickCount = 0;
+/** Advances in a row that reported work remaining and advanced none of it. */
+let noProgressStreak = 0;
 /** When the last full queue drain ran. */
 let lastDrainAt = 0;
 /** The last tick kept the short interval only because content was queued, not because mail was. */
@@ -793,21 +802,24 @@ async function runTick(): Promise<void> {
     return;
   }
 
-  const active = advance.remaining > 0;
+  // Work the advance keeps reporting but never moves is not a reason to ask again every few seconds: each ask holds one
+  // of a shared host's two PHP workers. After a couple of such answers the driver goes idle until something moves.
+  noProgressStreak =
+    advance.remaining > 0 && advance.advanced === 0 ? noProgressStreak + 1 : 0;
+  const active = advance.remaining > 0 && noProgressStreak < NO_PROGRESS_LIMIT;
   activeTickCount = active ? activeTickCount + 1 : 0;
 
-  // Alternate the FULL background-queue drain: when the head backfill is caught up
-  // (remaining===0, so /sync/advance has nothing to do) or every Nth active tick. Sequential
+  // Alternate the FULL background-queue drain: when the advance has nothing to do (caught up,
+  // or not moving) or every Nth active tick. Sequential
   // (awaited under the inFlight guard) so it never issues a parallel POST; never throws.
   // A tick that is here only because content is queued (the previous one kept its short interval for that, with the
   // mail caught up) drains on the idle cadence, not every few seconds: the content turn below already does the body
   // work, and a second full drain would run the same work again and wake the rests the drain sets.
+  // Mail that is caught up and mail that is not moving count the same here: neither earns a drain every few seconds.
   const contentOnly =
-    contentDriven && advance.remaining === 0 && Date.now() - lastDrainAt < IDLE_INTERVAL_MS;
+    contentDriven && !active && Date.now() - lastDrainAt < IDLE_INTERVAL_MS;
   const shouldDrain =
-    !contentOnly &&
-    (advance.remaining === 0 ||
-      (active && activeTickCount % PROCESS_QUEUE_EVERY === 0));
+    !contentOnly && (!active || activeTickCount % PROCESS_QUEUE_EVERY === 0);
   if (shouldDrain) {
     lastDrainAt = Date.now();
     const drained = await processQueueSync();

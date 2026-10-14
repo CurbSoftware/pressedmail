@@ -369,6 +369,14 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // The Proton Bridge companion's Add Account form. Free has no companion.
+      find: /^@\/components\/setup\/proton-connector\.active$/,
+      replacement: pick(
+        "./src/components/setup/proton-connector.free.ts",
+        "./src/components/setup/proton-connector.pro.ts",
+      ),
+    },
+    {
       // AI auto-tag for an open message. Free builds no classify request.
       find: /^@\/components\/inbox\/message-auto-tag\.active$/,
       replacement: pick(

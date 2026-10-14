@@ -603,7 +603,8 @@ export function operatorLabel(
       ? __("Yes", "pressedmail")
       : __("No", "pressedmail");
   }
-  if (field === "tag") {
+  // The AI-generated tag condition takes the same two comparisons as a plain tag.
+  if (field === "tag" || field === "ai_tag") {
     return operator === "has"
       ? __("Has tag", "pressedmail")
       : __("Does not have tag", "pressedmail");

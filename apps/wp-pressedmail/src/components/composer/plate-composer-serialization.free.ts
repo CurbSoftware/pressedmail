@@ -8,6 +8,7 @@ import {
 import { parseComposerHtmlInert } from "@/lib/composer/composer-html-inert";
 import { serializeComposerValueToPlainText } from "@/lib/composer/plain-text-serialization";
 import { getComposerLinkStyle, readComposerLinkStyle } from "./plate/link-style";
+import { BUTTON_BLOCK, BUTTON_KEY, buttonHtml, readButtonSettings } from "./nodes/button-fields";
 import {
   getTableCellBorderStyleAttribute,
   parseTableCellBorders,
@@ -236,6 +237,8 @@ function serializeNode(node: ComposerNode): string {
         typeof node.icon === "string" ? `${escapeHtml(node.icon)} ` : "";
       return `<div data-pm-block="callout"${optionalAttribute("data-background", background)}${optionalAttribute("data-icon", typeof node.icon === "string" ? node.icon : undefined)} style="background-color:${escapeAttribute(background)};padding:12px">${icon}${children}</div>`;
     }
+    case BUTTON_KEY:
+      return buttonHtml(node);
     case "date": {
       const value = typeof node.date === "string" ? node.date : "";
       return `<span data-pm-block="date"${optionalAttribute("data-date", value)}>${escapeHtml(value)}</span>`;
@@ -488,6 +491,9 @@ function domNodeToComposerNodes(
         children,
       },
     ];
+  }
+  if (pmBlock === BUTTON_BLOCK && tag === "table") {
+    return [{ type: BUTTON_KEY, ...readButtonSettings(node), children: [{ text: "" }] }];
   }
   if (pmBlock === "date") {
     return [

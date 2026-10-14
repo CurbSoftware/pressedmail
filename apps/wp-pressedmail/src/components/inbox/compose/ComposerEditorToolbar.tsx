@@ -83,6 +83,7 @@ import {
   OutdentToolbarButton,
 } from "@/components/composer/plate/indent-toolbar-button";
 import { InsertBlockToolbarButton } from "@/components/composer/plate/composer-blocks-kit.active";
+import { InsertButtonToolbarButton } from "@/components/composer/plate/button-toolbar-button";
 import { HorizontalRuleToolbarButton } from "@/components/composer/plate/horizontal-rule-toolbar-button";
 import { EmojiToolbarButton } from "@/components/composer/plate/emoji-toolbar-button";
 import { LineHeightToolbarButton } from "@/components/composer/plate/line-height-toolbar-button";
@@ -375,6 +376,8 @@ export function ComposerEditorToolbar({
         return <ListToolbarButton key={id} />;
       case "insert_link":
         return <LinkToolbarButton key={id} />;
+      case "insert_button":
+        return <InsertButtonToolbarButton key={id} disabled={disabled} />;
       case "insert_table":
         return <TableToolbarButton key={id} />;
       case "emoji":

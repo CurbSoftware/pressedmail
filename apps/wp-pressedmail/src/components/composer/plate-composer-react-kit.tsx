@@ -101,6 +101,8 @@ import {
   AISuggestionPlugin,
   AttachmentCardNode,
   AttachmentCardPlugin,
+  ButtonElement,
+  ButtonPlugin,
   SignatureBlockPlugin,
   SignatureNode,
 } from './nodes';
@@ -474,6 +476,10 @@ export const ComposerReactPlugins = [
   toPlatePlugin(AttachmentCardPlugin, {
     node: { component: AttachmentCardNode },
   }),
+  // The button is a table in the HTML. Plate tries the plugins last to first,
+  // so it has to come after the table plugins, or their rule for TABLE reads
+  // it as an ordinary table.
+  toPlatePlugin(ButtonPlugin, { node: { component: ButtonElement } }),
   // AI suggestion marks come from Pro AI drafting; Free has no renderer.
   ...(__IS_FREE__
     ? []

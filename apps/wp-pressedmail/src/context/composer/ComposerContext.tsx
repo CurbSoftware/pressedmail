@@ -90,7 +90,7 @@ interface ComposerContextType {
   ) => () => void;
   requestNavigation: (
     action: () => void,
-    options?: { onCancel?: () => void },
+    options?: Omit<NavigationRequest, "action">,
   ) => void;
 
   // Dirty probe for global navigation blockers: the mounted compose form
@@ -121,15 +121,29 @@ interface ComposerDraftSaveDrain {
   latestSavedDraft: ComposerDraftSaveResult | null;
 }
 
+type ComposerDraftSave = (
+  latestSavedDraft: ComposerDraftSaveResult | null,
+) => Promise<ComposerDraftSaveResult>;
+
 interface ComposerDraftSaveQueue {
   composeSessionVersion: number;
+  /** The last save queued: the one waiting if there is one, else the one running. */
   tail: Promise<ComposerDraftSaveResult> | null;
+  /** The save waiting for the running one. A newer request replaces its content. */
+  waiting: { save: ComposerDraftSave } | null;
   latestSavedDraft: ComposerDraftSaveResult | null;
 }
 
 export interface NavigationRequest {
   action: () => void;
   onCancel?: () => void;
+  /**
+   * The destination replaces the open compose session (a template, another
+   * draft, a shared payload) or leaves the page. Unsaved words would have
+   * nowhere to wait there, so the composer saves them before it goes, and
+   * stays put if that save fails.
+   */
+  waitForSave?: boolean;
 }
 
 const ComposerContext = createContext<ComposerContextType | undefined>(
@@ -172,32 +186,45 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
     [],
   );
   const draftSaveQueueRef = useRef<ComposerDraftSaveQueue | null>(null);
+  // At most one save runs and one waits. Chaining every request made a slow
+  // mail server pile saves up behind each other for minutes. A request while
+  // one waits replaces its content (the latest wins), and every caller of the
+  // replaced request gets the result of the save that ran instead. The waiting
+  // save starts from the running one's draft, so it replaces that draft.
   const queueDraftSave = useCallback(
-    (
-      composeSessionVersion: number,
-      save: (
-        latestSavedDraft: ComposerDraftSaveResult | null,
-      ) => Promise<ComposerDraftSaveResult>,
-    ) => {
+    (composeSessionVersion: number, save: ComposerDraftSave) => {
       let queue = draftSaveQueueRef.current;
       if (!queue || queue.composeSessionVersion !== composeSessionVersion) {
         queue = {
           composeSessionVersion,
           tail: null,
+          waiting: null,
           latestSavedDraft: null,
         };
         draftSaveQueueRef.current = queue;
       }
 
       const activeQueue = queue;
+      if (activeQueue.waiting && activeQueue.tail) {
+        activeQueue.waiting.save = save;
+        return activeQueue.tail;
+      }
       const prior = activeQueue.tail;
-      const pending = prior
-        ? prior
-            .catch(() => null)
-            .then((result) =>
-              save(result?.ok ? result : activeQueue.latestSavedDraft),
-            )
-        : save(activeQueue.latestSavedDraft);
+      let pending: Promise<ComposerDraftSaveResult>;
+      if (prior) {
+        const waiting = { save };
+        activeQueue.waiting = waiting;
+        pending = prior
+          .catch(() => null)
+          .then((result) => {
+            if (activeQueue.waiting === waiting) activeQueue.waiting = null;
+            return waiting.save(
+              result?.ok ? result : activeQueue.latestSavedDraft,
+            );
+          });
+      } else {
+        pending = save(activeQueue.latestSavedDraft);
+      }
       activeQueue.tail = pending;
 
       void pending
@@ -305,10 +332,10 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
   );
 
   const requestNavigation = useCallback(
-    (action: () => void, options?: { onCancel?: () => void }) => {
+    (action: () => void, options?: Omit<NavigationRequest, "action">) => {
       const guard = navigationGuardRef.current;
       if (guard) {
-        guard({ action, onCancel: options?.onCancel });
+        guard({ action, ...options });
       } else {
         action();
       }

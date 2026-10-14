@@ -1,5 +1,6 @@
 import { buildApiUrl, routeApiPrefix } from "@/context/Strings";
 import { apiFetch, PermissionError } from "@/lib/api-client";
+import { noteMirrorStamp } from "@/lib/mirror-stamp";
 
 /**
  * Client for the in-app mailbox sync driver (`pressedmail/v1/sync/*`).
@@ -121,6 +122,7 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
       overdue_jobs?: number;
       paused?: boolean;
       bodies_pending?: number;
+      mirror_stamp?: unknown;
     };
   };
   // Any other non-2xx is a failure, not an empty success. Counting it as success used to
@@ -133,6 +135,7 @@ export async function advanceSync(windows = 2): Promise<AdvanceSyncResult> {
     throw new Error(`Sync advance failed with HTTP ${response.status}.`);
   }
   const payload = data.data ?? {};
+  noteMirrorStamp(payload.mirror_stamp);
   return {
     advanced: Number(payload.advanced ?? 0),
     remaining: Number(payload.remaining ?? 0),
@@ -172,8 +175,10 @@ export async function processQueueSync(): Promise<number | null> {
       return null;
     }
     const body = (await response.json().catch(() => ({}))) as {
-      data?: { overdue_remaining?: unknown };
+      data?: { overdue_remaining?: unknown; mirror_stamp?: unknown };
     };
+    // The drain is where queued head checks run, so this is where new mail usually shows up first.
+    noteMirrorStamp(body.data?.mirror_stamp);
     const remaining = Number(body.data?.overdue_remaining);
 
     return Number.isFinite(remaining) ? remaining : null;

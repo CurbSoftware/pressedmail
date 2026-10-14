@@ -120,11 +120,8 @@ export function MobileMailReaderScreen() {
     nextId: string;
     permanent: boolean;
   } | null>(null);
-  const [deleting, setDeleting] = React.useState(false);
-  const [deleteError, setDeleteError] = React.useState(false);
   React.useEffect(() => {
     setPendingDelete(null);
-    setDeleteError(false);
   }, [routeId]);
 
   const routeMessage = React.useMemo(() => {
@@ -342,9 +339,16 @@ export function MobileMailReaderScreen() {
       identityFailure();
       return;
     }
-    void archiveMessage(messageId).then((result) => {
-      if (result.success && !result.requiresRefresh) {
-        finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
+    // The row leaves the list as the archive starts, so the reader moves on
+    // now instead of showing "Message not available" until the server answers.
+    const archived = archiveMessage(messageId);
+    finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
+    void archived.then((result) => {
+      if (!result.success && !result.requiresRefresh) {
+        appMessage(
+          result.error || __("That did not work. Try again.", "pressedmail"),
+          "error",
+        );
       }
     });
   }, [
@@ -368,10 +372,10 @@ export function MobileMailReaderScreen() {
       identityFailure();
       return;
     }
-    void moveMessage(messageId, junkTarget).then((result) => {
-      if (result.success && !result.requiresRefresh) {
-        finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
-      } else if (!result.success && !result.requiresRefresh) {
+    const moved = moveMessage(messageId, junkTarget);
+    finishAfterRemoval(preferences.after_archive_action, messageId, nextId);
+    void moved.then((result) => {
+      if (!result.success && !result.requiresRefresh) {
         appMessage(__("Move to junk failed", "pressedmail"), "error");
       }
     });
@@ -385,56 +389,42 @@ export function MobileMailReaderScreen() {
     preferences.after_archive_action,
   ]);
 
-  const performDelete = async (request: NonNullable<typeof pendingDelete>) => {
-    if (deleting) return;
+  // The dialog closes on confirm and the reader moves on while the delete runs:
+  // the row is already leaving the list. A refusal is a toast, and the list
+  // rereads itself, so the message is back where it was.
+  const performDelete = (request: NonNullable<typeof pendingDelete>) => {
+    setPendingDelete(null);
     if (liveReader.current.displayedIdentity !== request.identity) {
-      setPendingDelete(null);
       identityFailure();
       return;
     }
-    setDeleting(true);
-    setDeleteError(false);
-    try {
-      const result = await deleteMessage(request.identity, request.permanent);
-      if (result.success) {
-        setPendingDelete(null);
-        if (!result.requiresRefresh) {
-          finishAfterRemoval(
-            preferences.after_delete_action,
-            request.identity,
-            request.nextId,
-          );
-        }
-      } else {
-        setDeleteError(true);
-        appMessage(
-          __("Could not delete the message. Try again.", "pressedmail"),
-          "error",
-        );
-      }
-    } catch {
-      setDeleteError(true);
+    const failed = () =>
       appMessage(
         __("Could not delete the message. Try again.", "pressedmail"),
         "error",
       );
-    } finally {
-      setDeleting(false);
-    }
+    const deleted = deleteMessage(request.identity, request.permanent);
+    finishAfterRemoval(
+      preferences.after_delete_action,
+      request.identity,
+      request.nextId,
+    );
+    void deleted.then((result) => {
+      if (!result.success) failed();
+    }, failed);
   };
 
   const handleDelete = () => {
-    if (!displayMessage || deleting) return;
+    if (!displayMessage) return;
     const captured = captureRemoval();
     if (!captured.identity) {
       identityFailure();
       return;
     }
     const request = { ...captured, permanent: isTrashFolder };
-    setDeleteError(false);
     // Trash expunges on the server, irrespective of the confirmation preference.
     if (isTrashFolder || preferences.confirm_delete) setPendingDelete(request);
-    else void performDelete(request);
+    else performDelete(request);
   };
 
   const handleToggleRead = React.useCallback(() => {
@@ -591,10 +581,7 @@ export function MobileMailReaderScreen() {
         }}
         open={pendingDelete !== null}
         onOpenChange={(open) => {
-          if (!open) {
-            setPendingDelete(null);
-            setDeleteError(false);
-          }
+          if (!open) setPendingDelete(null);
         }}
         title={
           pendingDelete?.permanent
@@ -602,16 +589,9 @@ export function MobileMailReaderScreen() {
             : __("Delete email?", "pressedmail")
         }
         description={
-          <>
-            {pendingDelete?.permanent
-              ? __("This cannot be undone.", "pressedmail")
-              : __("This email will be moved to Trash.", "pressedmail")}
-            {deleteError ? (
-              <span role="alert" className="mt-2 block text-destructive">
-                {__("Could not delete the message. Try again.", "pressedmail")}
-              </span>
-            ) : null}
-          </>
+          pendingDelete?.permanent
+            ? __("This cannot be undone.", "pressedmail")
+            : __("This email will be moved to Trash.", "pressedmail")
         }
         confirmText={
           pendingDelete?.permanent
@@ -620,7 +600,6 @@ export function MobileMailReaderScreen() {
         }
         cancelText={__("Cancel", "pressedmail")}
         variant="destructive"
-        loading={deleting}
         onConfirm={() =>
           pendingDelete ? performDelete(pendingDelete) : undefined
         }

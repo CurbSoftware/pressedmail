@@ -32,6 +32,11 @@ export interface ProviderConfig {
   experimental?: boolean;
   /** Absolute URL to provider-specific connection documentation; renders a "Docs" chip on the card. */
   docUrl?: string;
+  /**
+   * The provider's own help page on app passwords. Pro presets only, so the
+   * host never lands in the Free bundle (its declared hosts are fixed).
+   */
+  appPasswordGuideUrl?: string;
 }
 
 export type OutgoingProviderType =

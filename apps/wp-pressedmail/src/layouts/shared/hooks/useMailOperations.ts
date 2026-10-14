@@ -416,9 +416,17 @@ export function useMailOperations(): UseMailOperationsReturn {
       if (blocked) return blocked;
       const source = captureRemoval(ids);
       try {
-        const results = await Promise.allSettled(
+        const settled = Promise.allSettled(
           ids.map((id) => serviceMessageOps.archiveMessage(id)),
         );
+        // The rows left the list as the requests started: move on now, not
+        // when the server answers, or the next message opens seconds later.
+        applyAfterRemoval(
+          getUserPreferencesSnapshot().after_archive_action,
+          ids,
+          source,
+        );
+        const results = await settled;
 
         const failed = results.filter(
           (r) =>
@@ -440,13 +448,6 @@ export function useMailOperations(): UseMailOperationsReturn {
           )
         )
           refreshFolderCounts();
-        if (success) {
-          applyAfterRemoval(
-            getUserPreferencesSnapshot().after_archive_action,
-            ids,
-            source,
-          );
-        }
 
         return {
           success,
@@ -502,31 +503,29 @@ export function useMailOperations(): UseMailOperationsReturn {
             return { success: false };
           }
         }
+        // Started before moving on, as archive does: the rows leave the list
+        // as the request starts.
+        const moveOn = () =>
+          applyAfterRemoval(
+            getUserPreferencesSnapshot().after_delete_action,
+            ids,
+            source,
+          );
         if (ids.length === 1) {
-          const result = await serviceMessageOps.deleteMessage(ids[0]!);
-          if (result.success) {
-            refreshFolderCounts();
-            applyAfterRemoval(
-              getUserPreferencesSnapshot().after_delete_action,
-              ids,
-              source,
-            );
-          }
+          const pending = serviceMessageOps.deleteMessage(ids[0]!);
+          moveOn();
+          const result = await pending;
+          if (result.success) refreshFolderCounts();
           return {
             success: result.success,
             error: result.error,
             requiresRefresh: result.requiresRefresh,
           };
         } else {
-          const result = await serviceMessageOps.batchDelete(ids);
+          const pending = serviceMessageOps.batchDelete(ids);
+          moveOn();
+          const result = await pending;
           if (result.successCount > 0) refreshFolderCounts();
-          if (result.success) {
-            applyAfterRemoval(
-              getUserPreferencesSnapshot().after_delete_action,
-              ids,
-              source,
-            );
-          }
           return {
             success: result.success,
             requiresRefresh: result.requiresRefresh,

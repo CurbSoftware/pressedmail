@@ -10,6 +10,7 @@ import {
   ListOrdered,
   Quote,
   Minus,
+  MousePointerClick,
   Code2,
   Lightbulb,
   CalendarDays,
@@ -30,6 +31,7 @@ import { PlateElement } from '@kit/plate/react';
 import { __ } from '@wordpress/i18n';
 
 import { useBlocksSlashGroups } from '@/components/composer/plate/composer-blocks-kit.active';
+import { insertButtonBlock } from './button-insert';
 import {
   InlineCombobox,
   InlineComboboxContent,
@@ -223,6 +225,13 @@ const getGroups = (editor: PlateEditor): SlashGroup[] => [
           } as never);
           editor.tf.focus();
         },
+      },
+      {
+        icon: <MousePointerClick />,
+        label: __('Button', 'pressedmail'),
+        value: 'pm_button',
+        keywords: ['cta', 'call to action', 'link'],
+        onSelect: (editor) => insertButtonBlock(editor),
       },
       {
         icon: <CalendarDays />,

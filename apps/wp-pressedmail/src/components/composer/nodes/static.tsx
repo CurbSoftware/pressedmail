@@ -12,6 +12,7 @@
  *   signature   → <div  data-pm-block="signature" data-account-id data-signature-id>
  *   attachment  → <span data-pm-block="attachment" data-filename data-size data-attachment-id>
  *   ai-suggestion → <span data-pm-block="ai-suggestion" data-accepted data-suggestion-id>
+ *   button      → <table data-pm-block="button"> (button-fields.ts says why a table)
  */
 
 import type { SlateElementProps } from '@kit/plate/static';
@@ -20,6 +21,7 @@ import { SlateElement } from '@kit/plate/static';
 import type { AISuggestionElement } from './ai-suggestion-node';
 import type { AttachmentCardElement } from './attachment-card-node';
 import type { SignatureElement } from './signature-node';
+import { ButtonTableBody, buttonTableAttributes } from './button-table';
 
 export function SignatureElementStatic(props: SlateElementProps) {
   const el = props.element as SignatureElement;
@@ -84,6 +86,26 @@ export function AISuggestionElementStatic(props: SlateElementProps) {
       }}
     >
       {props.children}
+    </SlateElement>
+  );
+}
+
+export function ButtonElementStatic(props: SlateElementProps) {
+  return (
+    <SlateElement
+      {...props}
+      as="table"
+      attributes={
+        {
+          ...props.attributes,
+          // Only the settings' own attributes and style. SlateElement's
+          // position:relative is the sanitizer's to drop, so it is replaced.
+          ...buttonTableAttributes(props.element),
+        } as SlateElementProps['attributes']
+      }
+    >
+      {/* No void leaf: it would serialize as a zero-width character. */}
+      <ButtonTableBody element={props.element} />
     </SlateElement>
   );
 }

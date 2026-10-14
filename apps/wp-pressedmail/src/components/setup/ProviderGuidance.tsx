@@ -8,7 +8,8 @@ export interface ProviderGuidanceProps {
 
 /**
  * Renders per-provider credential guidance: title, numbered app-password
- * walkthrough, provider deep link, and a "not your normal password" warning.
+ * walkthrough, provider deep link, the provider's own guide (Pro presets),
+ * and a "not your normal password" warning.
  */
 export function ProviderGuidance({ guidance }: ProviderGuidanceProps) {
   return (
@@ -32,15 +33,22 @@ export function ProviderGuidance({ guidance }: ProviderGuidanceProps) {
         <p className="text-muted-foreground">{guidance.note}</p>
       )}
 
-      {guidance.link && (
-        <a
-          href={guidance.link.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-2">
-          {guidance.link.label}
-          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+      {(guidance.link || guidance.guide) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {[guidance.link, guidance.guide].map((link) =>
+            link ? (
+              <a
+                key={link.href}
+                href={link.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-2">
+                {link.label}
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              </a>
+            ) : null,
+          )}
+        </div>
       )}
 
       {guidance.warning && (

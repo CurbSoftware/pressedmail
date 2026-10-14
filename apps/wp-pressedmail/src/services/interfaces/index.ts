@@ -24,6 +24,7 @@ export type {
   OperationResult,
   BatchOperationResult,
   BatchRemovalOptions,
+  EmptyFolderRole,
   MessageFlag,
   MessageIdentifierMode,
   MessageMutationOptions,

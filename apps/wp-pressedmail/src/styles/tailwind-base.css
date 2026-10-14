@@ -1130,7 +1130,8 @@ body :is(#pressedmail-plugin, #pressedmail-plugin-frontend, [data-pm-portal]) .h
     color: var(--pm-email-fg) !important;
   }
 
-  .pm-email-preview-surface :where([data-slate-editor]) :where(a:not([data-pm-authored-link-color])) {
+  /* A button's link carries its own Text color setting. */
+  .pm-email-preview-surface :where([data-slate-editor]) :where(a:not([data-pm-authored-link-color], [data-pm-block="button"] a)) {
     color: var(--pm-email-link) !important;
   }
 
@@ -3311,11 +3312,13 @@ html.dark [data-radix-portal] {
 /* Legacy/pasted tables (quoted reply bodies, raw HTML) get forced to the
    canvas width. The interactive Plate table (.pm-composer-table) manages its
    own capped width, width:100%!important here would stretch narrow tables
-   to full width and fight its min(px, 100%) sizing. */
+   to full width and fight its min(px, 100%) sizing. The Insert button block
+   is a table too, and its width and align attributes are its Width and Align
+   settings: forcing it to 100% made every button full width in the editor. */
 #pressedmail-plugin
   .pm-composer-editor
   [data-slate-editor]
-  table:not(.pm-composer-table) {
+  table:not(.pm-composer-table, [data-pm-block="button"]) {
   position: relative;
   max-width: 100%;
   /* Fixed layout at full width caps explicit colSizes proportionally so a

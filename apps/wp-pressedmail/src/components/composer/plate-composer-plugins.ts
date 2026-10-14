@@ -57,11 +57,13 @@ import { BaseParagraphPlugin, KEYS } from '@kit/plate';
 import {
   AttachmentCardPlugin,
   AISuggestionPlugin,
+  ButtonPlugin,
   SignatureBlockPlugin,
 } from './nodes';
 import {
   AISuggestionElementStatic,
   AttachmentCardElementStatic,
+  ButtonElementStatic,
   SignatureElementStatic,
 } from './nodes/static';
 import { TemplateVariableStaticKit } from '@/components/composer/nodes/template-variable-kit.active';
@@ -324,6 +326,10 @@ export const ComposerEditorPlugins = [
   // parsers.html.serializer path).
   SignatureBlockPlugin.withComponent(SignatureElementStatic),
   AttachmentCardPlugin.withComponent(AttachmentCardElementStatic),
+  // Button (email-safe table with one coloured cell). Plate tries the plugins
+  // last to first, so it has to come after the table plugins, or their rule for
+  // TABLE reads it as an ordinary table.
+  ButtonPlugin.withComponent(ButtonElementStatic),
   // AI suggestion marks are Pro (AI drafting); Free keeps their text only.
   ...(__IS_FREE__
     ? []

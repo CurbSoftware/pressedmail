@@ -572,6 +572,16 @@ interface SaveDraftOptions {
   accountId?: number;
   attachments?: Array<File | EmailAttachment>;
   draftAttachmentManifestComplete?: boolean;
+  /**
+   * A save made as the composer closes or the user leaves. It carries the
+   * editor value and the draft it replaces, read when it was queued, so it
+   * still saves these words over that draft if another compose session has
+   * taken the pane by the time it runs (see captureLeavingSave).
+   */
+  leaving?: {
+    priorDraft: DraftServerIdentity | null;
+    editorValue: DraftDocument["value"] | undefined;
+  };
 }
 
 interface DraftServerIdentity {
@@ -651,7 +661,7 @@ export function useComposeForm({
   autoSaveOnClose = false,
   gateNavigation = false,
   extras,
-  onClose,
+  onClose: onCloseProp,
   onSendSuccess,
   onDraftSaved,
   onDraftDiscarded,
@@ -900,13 +910,28 @@ export function useComposeForm({
       pendingConfirmationRef.current = null;
     };
   }, []);
+  // Set when the user leaves while a send, save or discard of this composer
+  // runs (the navigation guard below). That work then finishes after the pane
+  // unmounts and still reports itself: the compose data lives in
+  // ComposerContext, so only a newer compose session takes it over.
+  const leftRunningRef = useRef(false);
+  // There is no pane left to close once the composer unmounts, and a late
+  // close could move the user (the phone compose screen pops the route).
+  const onClose = useMemo(
+    () =>
+      onCloseProp &&
+      (() => {
+        if (mountedRef.current) onCloseProp();
+      }),
+    [onCloseProp],
+  );
   const getComposeSessionVersion = useCallback(
     () => composerContext?.getComposeSessionVersion() ?? null,
     [composerContext],
   );
   const ownsComposeSession = useCallback(
     (composeSessionVersion: number | null) =>
-      mountedRef.current &&
+      (mountedRef.current || leftRunningRef.current) &&
       (!isContextMode || getComposeSessionVersion() === composeSessionVersion),
     [getComposeSessionVersion, isContextMode],
   );
@@ -926,7 +951,11 @@ export function useComposeForm({
       details: ComposeConfirmation,
       session: number | null,
     ): Promise<boolean> => {
-      if (!ownsComposeSession(session) || pendingConfirmationRef.current)
+      if (
+        !mountedRef.current ||
+        !ownsComposeSession(session) ||
+        pendingConfirmationRef.current
+      )
         return Promise.resolve(false);
       return new Promise((resolve) => {
         pendingConfirmationRef.current = { session, resolve };
@@ -1980,7 +2009,14 @@ export function useComposeForm({
         return { ok: false, draft: null };
       }
 
-      const priorDraft = priorDraftRef.current;
+      // A save made on the way out still runs once another compose session
+      // owns this pane, with the draft it captured: the pane's refs belong to
+      // the new session now.
+      const owned = ownsComposeSession(composeSessionVersion);
+      const priorDraft =
+        opts?.leaving && !owned
+          ? opts.leaving.priorDraft
+          : priorDraftRef.current;
       if (
         priorDraft &&
         (priorDraft.accountId === null || priorDraft.accountId !== accountId)
@@ -2001,7 +2037,7 @@ export function useComposeForm({
         );
         return { ok: false, draft: null };
       }
-      if (!ownsComposeSession(composeSessionVersion)) {
+      if (!owned && !opts?.leaving) {
         return { ok: false, draft: null };
       }
 
@@ -2046,7 +2082,9 @@ export function useComposeForm({
       const draftIsPlain = (opts?.contentType ?? contentType) === "plain";
       const editorValue = draftIsPlain
         ? undefined
-        : (editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value);
+        : opts?.leaving
+          ? opts.leaving.editorValue
+          : (editorRef.current?.getValue?.() ?? draftDocumentRef.current?.value);
       const value =
         editorValue ??
         (hasListRecipients || (opts?.listDelivery ?? listDelivery)
@@ -2090,7 +2128,9 @@ export function useComposeForm({
         );
       }
 
-      setIsSavingDraft(true);
+      // Only a save someone asked for spins the Save button. A timed save shows
+      // in the footer and leaves Save free to click, which queues behind it.
+      if (!opts?.background) setIsSavingDraft(true);
       try {
         const response = (await apiForm(saveDraftRouteApi, formData)) as {
           status?: string;
@@ -2107,11 +2147,18 @@ export function useComposeForm({
         };
 
         if (!response || response.status !== "success") {
-          if (ownsComposeSession(composeSessionVersion)) {
+          const stillOwned = ownsComposeSession(composeSessionVersion);
+          // A save on the way out says it failed even once the pane holds
+          // another session; only the session it belongs to is closed.
+          if (stillOwned || opts?.leaving) {
             // A timed save runs while somebody is typing, and closing would
             // throw their words away. It reports through the footer and leaves
             // the composer open; Save and closing still close it.
-            if (response?.code === "DRAFT_DELETED" && !opts?.background) {
+            if (
+              stillOwned &&
+              response?.code === "DRAFT_DELETED" &&
+              !opts?.background
+            ) {
               closeDeletedDraft();
             } else {
               notify(
@@ -2134,7 +2181,7 @@ export function useComposeForm({
           !draftUidValidity ||
           !draftMessageId
         ) {
-          if (ownsComposeSession(composeSessionVersion)) {
+          if (ownsComposeSession(composeSessionVersion) || opts?.leaving) {
             notify(
               __(
                 "Reload the saved draft before editing it again.",
@@ -2186,12 +2233,12 @@ export function useComposeForm({
         }
         return result;
       } catch (error) {
-        if (ownsComposeSession(composeSessionVersion)) {
+        if (ownsComposeSession(composeSessionVersion) || opts?.leaving) {
           notify(__("Failed to save draft", "pressedmail"), "error");
         }
         return { ok: false, draft: null };
       } finally {
-        if (mountedRef.current) {
+        if (mountedRef.current && !opts?.background) {
           setIsSavingDraft(false);
         }
       }
@@ -2232,6 +2279,9 @@ export function useComposeForm({
   // Saves running now, manual and timed alike. The footer says "Saving" until
   // the last one settles, and a timed save never starts beside another.
   const activeSavesRef = useRef(0);
+  // The content of the last save queued, so leaving while it runs knows
+  // whether that save already holds every word.
+  const queuedSnapshotRef = useRef<string | null>(null);
 
   const trackDraftSave = useCallback(
     (
@@ -2343,15 +2393,24 @@ export function useComposeForm({
         inReplyTo: opts?.inReplyTo ?? inReplyTo,
         references: opts?.references ?? references,
       };
+      queuedSnapshotRef.current = getDraftSnapshot({
+        subject: capturedOptions.subject,
+        body: capturedOptions.body,
+        inReplyTo: capturedOptions.inReplyTo,
+        references: capturedOptions.references,
+      });
       if (composerContext && composeSessionVersion !== null) {
         return trackDraftSave(
           composerContext.queueDraftSave(
             composeSessionVersion,
             async (latestSavedDraft) => {
-              if (!ownsComposeSession(composeSessionVersion)) {
+              const owned = ownsComposeSession(composeSessionVersion);
+              const leaving = capturedOptions.leaving;
+              if (!owned && !leaving) {
                 return { ok: false, draft: null };
               }
               if (
+                owned &&
                 latestSavedDraft &&
                 !applySavedDraftResult(
                   latestSavedDraft,
@@ -2361,7 +2420,27 @@ export function useComposeForm({
               ) {
                 return { ok: false, draft: null };
               }
-              return performSaveDraft(capturedOptions, composeSessionVersion);
+              // Another session owns the pane: replace the draft the save
+              // before this one left, which only the queue still knows.
+              const latest = owned ? null : latestSavedDraft?.draft;
+              return performSaveDraft(
+                latest && leaving
+                  ? {
+                      ...capturedOptions,
+                      leaving: {
+                        ...leaving,
+                        priorDraft: {
+                          uid: latest.draft_uid,
+                          folder: latest.draft_folder,
+                          accountId: latest.draft_account_id,
+                          uidValidity: latest.draft_uidvalidity,
+                          messageId: latest.draft_message_id,
+                        },
+                      },
+                    }
+                  : capturedOptions,
+                composeSessionVersion,
+              );
             },
           ),
           composeSessionVersion,
@@ -2389,6 +2468,7 @@ export function useComposeForm({
     [
       applySavedDraftResult,
       composerContext,
+      getDraftSnapshot,
       ownsComposeSession,
       performSaveDraft,
       trackDraftSave,
@@ -2863,20 +2943,20 @@ export function useComposeForm({
           },
         });
       } catch (error) {
-        if (ownsComposeSession(composeSessionVersion))
-          appMessage(
-            error instanceof Error
-              ? error.message
-              : __(
-                  "Delivery status is unavailable. Keep this draft and check again before sending.",
-                  "pressedmail",
-                ),
-            "error",
-          );
+        // Said even after the user left the composer: it is their message.
+        appMessage(
+          error instanceof Error
+            ? error.message
+            : __(
+                "Delivery status is unavailable. Keep this draft and check again before sending.",
+                "pressedmail",
+              ),
+          "error",
+        );
         return;
       }
-      if (!ownsComposeSession(composeSessionVersion)) return;
-
+      // The outcome is reported whether or not the user stayed. Only clearing
+      // the composer below waits on this compose session still being theirs.
       if (response.outcome !== "accepted" && response.outcome !== "queued") {
         appMessage(
           response?.message ||
@@ -2976,7 +3056,7 @@ export function useComposeForm({
       // sendNormalEmail reports its own failures, so anything caught here
       // happened before the send started (nothing went out) or after the
       // server accepted it (it did). Only the first needs telling.
-      if (!accepted && ownsComposeSession(composeSessionVersion)) {
+      if (!accepted) {
         appMessage(
           error instanceof Error && error.message
             ? sprintf(
@@ -3803,6 +3883,53 @@ export function useComposeForm({
     toRecipients,
   ]);
 
+  // What a save on the way out needs, read now. By the time it runs the user
+  // may have left and another compose session may hold this pane, so it must
+  // not read the editor, the recipients or the draft identity then.
+  const captureLeavingSave = useCallback(
+    (): SaveDraftOptions => ({
+      to: recipientsToString(uniqueRecipientGroups.to),
+      cc: recipientsToString(uniqueRecipientGroups.cc),
+      bcc: recipientsToString(uniqueRecipientGroups.bcc),
+      ...(__ENABLE_CONTACT_LISTS__
+        ? {
+            contactListIds: getRecipientGroupContactLists(
+              uniqueRecipientGroups,
+            ).map((list) => list.id),
+            recipientListFields: getRecipientListFields(uniqueRecipientGroups),
+            listDelivery,
+          }
+        : {}),
+      subject,
+      body: resolveOutgoingBody(),
+      contentType,
+      accountId: getSendingAccountId() ?? undefined,
+      attachments: [...attachmentsRef.current],
+      draftAttachmentManifestComplete:
+        !isContextMode ||
+        composerContext!.composeData.draftAttachmentManifestComplete !== false,
+      leaving: {
+        priorDraft: priorDraftRef.current ? { ...priorDraftRef.current } : null,
+        editorValue:
+          contentType === "plain"
+            ? undefined
+            : (editorRef.current?.getValue?.() ??
+              draftDocumentRef.current?.value),
+      },
+    }),
+    [
+      composerContext,
+      contentType,
+      editorRef,
+      getSendingAccountId,
+      isContextMode,
+      listDelivery,
+      resolveOutgoingBody,
+      subject,
+      uniqueRecipientGroups,
+    ],
+  );
+
   // Resolves true when there is nothing to save or the save landed. The caller
   // clears the composer on true, so a failed save must report false: the local
   // copy is the only copy left at that point.
@@ -3812,23 +3939,33 @@ export function useComposeForm({
     }
     const composeSessionVersion = getComposeSessionVersion();
     try {
-      if (!(await waitForPendingSaves(composeSessionVersion))) {
-        return false;
-      }
-      if (!hasUnsavedDraftChanges()) {
-        return true;
-      }
       if (isScheduledEdit) {
-        return saveScheduledEdits(true);
+        if (!(await waitForPendingSaves(composeSessionVersion))) {
+          return false;
+        }
+        return hasUnsavedDraftChanges() ? saveScheduledEdits(true) : true;
       }
-      const result = await saveDraftToServer(undefined, true);
+      // Nothing new since the last save landed, or the save still running
+      // holds every word: closing only waits for it.
+      if (
+        !hasUnsavedDraftChanges() ||
+        (activeSavesRef.current > 0 &&
+          queuedSnapshotRef.current === getDraftSnapshot())
+      ) {
+        return await waitForPendingSaves(composeSessionVersion);
+      }
+      // Queued before any wait, with everything it needs: the user may leave,
+      // and another session take this pane, before it runs.
+      const result = await saveDraftToServer(captureLeavingSave(), true);
       return result.ok;
     } finally {
       releaseComposeOperation("save-close");
     }
   }, [
+    captureLeavingSave,
     claimComposeOperation,
     getComposeSessionVersion,
+    getDraftSnapshot,
     hasUnsavedDraftChanges,
     isScheduledEdit,
     releaseComposeOperation,
@@ -3999,12 +4136,15 @@ export function useComposeForm({
         }
 
         closeAutoSaveStartedRef.current = true;
+        const session = getComposeSessionVersion();
         if (!(await saveDraftOnExplicitClose())) {
           // Nothing reached the server, so keep the composer and let the user
           // retry instead of dropping the message on the floor.
           closeAutoSaveStartedRef.current = false;
           return;
         }
+        // The user may have left and opened another compose session meanwhile.
+        if (!ownsComposeSession(session)) return;
         clearForm();
         onClose?.();
         return;
@@ -4041,6 +4181,8 @@ export function useComposeForm({
     discardComposeTarget,
     clearForm,
     onClose,
+    getComposeSessionVersion,
+    ownsComposeSession,
     composerPreferences.composer_confirm_unsaved_close,
   ]);
 
@@ -4374,12 +4516,26 @@ export function useComposeForm({
     const guard = ({
       action,
       onCancel,
+      waitForSave,
     }: {
       action: () => void;
       onCancel?: () => void;
+      waitForSave?: boolean;
     }) => {
+      // A send, save or discard already running finishes behind the user and
+      // reports itself. Leaving never waits on it: swallowing the click left
+      // Back to list dead for as long as the mail server took. A navigation
+      // still waiting on that operation is dropped for this newer one.
       if (operationGateRef.current) {
-        onCancel?.();
+        // Unless this destination would replace the words that operation may
+        // still need if it fails: that one waits, as it always did.
+        if (waitForSave) {
+          onCancel?.();
+          return;
+        }
+        leftRunningRef.current = true;
+        abandonPendingNavigation();
+        action();
         return;
       }
       if (!dirtyRef.current && pendingInlineImageUploadsRef.current === 0) {
@@ -4391,27 +4547,62 @@ export function useComposeForm({
         return;
       }
 
-      if (autoSaveOnCloseRef.current) {
-        if (closeAutoSaveStartedRef.current) return;
-        closeAutoSaveStartedRef.current = true;
-        void saveDraftOnExplicitCloseRef.current().then((saved) => {
-          if (!saved) {
-            closeAutoSaveStartedRef.current = false;
-            // The draft was deleted and the composer already closed: go on.
-            if (draftGoneRef.current) {
-              draftGoneRef.current = false;
-              action();
+      // The save still running holds every word: nothing is at risk.
+      const savingAll =
+        activeSavesRef.current > 0 &&
+        queuedSnapshotRef.current === getDraftSnapshotRef.current();
+      if (autoSaveOnCloseRef.current || savingAll) {
+        // An image still uploading is not in the draft yet, so stay for it.
+        if (pendingInlineImageUploadsRef.current > 0) {
+          appMessage(
+            __("Wait for the image upload to finish.", "pressedmail"),
+            "error",
+          );
+          onCancel?.();
+          return;
+        }
+        const session = composerContext.getComposeSessionVersion();
+        if (waitForSave) {
+          // The destination replaces this compose session or leaves the page,
+          // so a save that failed after it had gone would lose the words.
+          // Save first, then go; stay if the save fails.
+          pendingNavigationRef.current = action;
+          pendingNavigationCancelRef.current = onCancel ?? null;
+          void saveDraftOnExplicitCloseRef.current().then((saved) => {
+            if (!saved) {
+              // The draft was deleted and the composer already closed: go on.
+              if (draftGoneRef.current) {
+                draftGoneRef.current = false;
+                consumePendingNavigation();
+                return;
+              }
+              abandonPendingNavigation();
               return;
             }
-            onCancel?.();
+            if (composerContext.getComposeSessionVersion() !== session) {
+              abandonPendingNavigation();
+              return;
+            }
+            dirtyRef.current = false;
+            clearFormRef.current();
+            onCloseRef.current?.();
+            consumePendingNavigation();
+          });
+          return;
+        }
+        // Save and leave at once; the save holds its words from here. They
+        // also stay in the stored compose data until it lands, so a save
+        // that fails (it says so) loses nothing.
+        leftRunningRef.current = true;
+        void saveDraftOnExplicitCloseRef.current().then((saved) => {
+          // Never clear a compose session the user has opened since.
+          if (!saved || composerContext.getComposeSessionVersion() !== session)
             return;
-          }
-
           dirtyRef.current = false;
           clearFormRef.current();
           onCloseRef.current?.();
-          action();
         });
+        action();
         return;
       }
 
@@ -4432,7 +4623,12 @@ export function useComposeForm({
       unregisterDirty();
       unregisterDelete();
     };
-  }, [gateNavigation, composerContext]);
+  }, [
+    abandonPendingNavigation,
+    consumePendingNavigation,
+    gateNavigation,
+    composerContext,
+  ]);
 
   // The mount effect composes the body (leading blanks + default signature)
   // and tries to push it into the editor. When signatures

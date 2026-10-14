@@ -137,6 +137,11 @@ export interface RightPaneContainerProps {
   forceDisabledActionBar?: boolean;
   /** Notify parent layouts when this pane switches between reading and compose. */
   onPaneModeChange?: (mode: "reading" | "compose") => void;
+  /**
+   * Rendered at the start of the inline reading-mode action bar row, before
+   * Reply. PressedG puts its Back to list button here. Other modes ignore it.
+   */
+  leadingAction?: React.ReactNode;
   /** Options only an edition with those features reads. */
   extras?: RightPaneExtras;
 }
@@ -160,6 +165,7 @@ export function RightPaneContainer({
   showOrganizeActions = true,
   forceDisabledActionBar,
   onPaneModeChange,
+  leadingAction,
   extras,
 }: RightPaneContainerProps) {
   const scheduledEmailProp = __IS_FREE__
@@ -200,8 +206,6 @@ export function RightPaneContainer({
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<PendingDelete | null>(null);
-  /** Why the last delete attempt failed, shown inside the open dialog. */
-  const [deleteError, setDeleteError] = React.useState<string | null>(null);
   const [isScheduledActionLoading, setIsScheduledActionLoading] =
     React.useState(false);
   // Expanded ("pop out") reading view, shows the message in a large in-app modal.
@@ -345,7 +349,6 @@ export function RightPaneContainer({
   }, []);
   React.useEffect(() => {
     setPendingDelete(null);
-    setDeleteError(null);
     setIsDeleting(false);
     setIsScheduledActionLoading(false);
   }, [operationScope, paneIdentity]);
@@ -391,7 +394,8 @@ export function RightPaneContainer({
    * their result away, so a rate limit, a credentials error or a dropped
    * connection left the message sitting there with no explanation and the user
    * clicking again. A refresh-requiring failure has already reported its own
-   * identity conflict, so it stays quiet here.
+   * identity conflict, so it stays quiet here. The pane moves on before the
+   * server answers, so a refusal is reported even after it has unmounted.
    */
   const reportOperationFailure = React.useCallback(
     (
@@ -402,7 +406,7 @@ export function RightPaneContainer({
       } | void,
     ) => {
       // An operation that reports nothing at all cannot be called a failure.
-      if (!result || !mounted.current) return;
+      if (!result) return;
       if (result.success || result.requiresRefresh) return;
       appMessage(
         result.error || __("That did not work. Try again.", "pressedmail"),
@@ -943,13 +947,11 @@ export function RightPaneContainer({
     // Promise.resolve, not a bare .then: these operations are promise-returning
     // by contract, and a handler that explodes on a contract slip is a worse
     // failure than the one it was added to report.
-    void Promise.resolve(archiveMessage(selectedIdentity)).then((result) => {
-      if (result?.success && !result.requiresRefresh) {
-        finishAfterRemoval(preferences.after_archive_action, source);
-        return;
-      }
-      reportOperationFailure(result);
-    });
+    const archived = Promise.resolve(archiveMessage(selectedIdentity));
+    // The row left the list as the archive started, so move on now. Waiting
+    // for the server opened the next message seconds after the list showed.
+    finishAfterRemoval(preferences.after_archive_action, source);
+    void archived.then(reportOperationFailure);
   }, [
     selectedIdentity,
     identityFailure,
@@ -967,7 +969,6 @@ export function RightPaneContainer({
     }
     const source = captureSelection();
     if (permanentlyDeletes || preferences.confirm_delete) {
-      setDeleteError(null);
       setPendingDelete({
         selection: source,
         permanent: permanentlyDeletes,
@@ -975,15 +976,9 @@ export function RightPaneContainer({
       });
       return;
     }
-    void Promise.resolve(deleteMessage(selectedIdentity, false)).then(
-      (result) => {
-        if (result?.success && !result.requiresRefresh) {
-          finishAfterRemoval(preferences.after_delete_action, source);
-          return;
-        }
-        reportOperationFailure(result);
-      },
-    );
+    const deleted = Promise.resolve(deleteMessage(selectedIdentity, false));
+    finishAfterRemoval(preferences.after_delete_action, source);
+    void deleted.then(reportOperationFailure);
   }, [
     selectedIdentity,
     identityFailure,
@@ -996,51 +991,33 @@ export function RightPaneContainer({
     reportOperationFailure,
   ]);
 
-  const handleConfirmTrash = React.useCallback(async () => {
+  // The dialog closes on confirm and the delete runs behind it: the row is
+  // already leaving the list. A dialog held open for the answer covered the
+  // header, Back to list included, for as long as the server took.
+  const handleConfirmTrash = React.useCallback(() => {
     const pending = pendingDelete;
     if (!pending) return;
+    setPendingDelete(null);
     if (!isCurrentSelection(pending.selection, false)) {
-      setPendingDelete(null);
       identityFailure();
       return;
     }
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
-      const result = await deleteMessage(
-        pending.selection.identity,
-        pending.permanent,
-      );
-      if (
-        result.success &&
-        !result.requiresRefresh &&
-        isCurrentSelection(pending.selection)
-      ) {
-        if (result.warning) appMessage(result.warning, "warning");
-        setPendingDelete(null);
-        finishAfterRemoval(pending.afterAction, pending.selection);
-        return;
-      }
-      // A failed delete used to close nothing and say nothing: the dialog sat
-      // there and the message stayed put. Keep it open and say why.
-      if (
-        !result.success &&
-        !result.requiresRefresh &&
-        isCurrentSelection(pending.selection, false)
-      ) {
-        setDeleteError(
-          result.error || __("That did not work. Try again.", "pressedmail"),
-        );
-      }
-    } finally {
-      if (isCurrentSelection(pending.selection)) setIsDeleting(false);
-    }
+    const deleted = Promise.resolve(
+      deleteMessage(pending.selection.identity, pending.permanent),
+    );
+    finishAfterRemoval(pending.afterAction, pending.selection);
+    void deleted.then((result) => {
+      if (result?.success && result.warning)
+        appMessage(result.warning, "warning");
+      reportOperationFailure(result);
+    });
   }, [
     pendingDelete,
     isCurrentSelection,
     identityFailure,
     deleteMessage,
     finishAfterRemoval,
+    reportOperationFailure,
   ]);
 
   const handleMarkUnread = React.useCallback(() => {
@@ -1539,7 +1516,19 @@ export function RightPaneContainer({
       disabledPressedOutActionBar
     ) : !showActionBar ? null : actionBarContainer === undefined ? (
       <div className="shrink-0 border-b bg-card px-3 py-2">
-        {dockedActionBar}
+        {leadingAction ? (
+          <div
+            className="flex items-center gap-2"
+            data-test="reading-pane-action-row"
+            data-testid="reading-pane-action-row">
+            <div className="flex shrink-0 items-center gap-2">
+              {leadingAction}
+            </div>
+            <div className="min-w-0 flex-1">{dockedActionBar}</div>
+          </div>
+        ) : (
+          dockedActionBar
+        )}
       </div>
     ) : actionBarContainer ? (
       createPortal(dockedActionBar, actionBarContainer)
@@ -1566,10 +1555,7 @@ export function RightPaneContainer({
       <ConfirmationPanel
         open={pendingDelete != null}
         onOpenChange={(open) => {
-          if (!open) {
-            setPendingDelete(null);
-            setDeleteError(null);
-          }
+          if (!open) setPendingDelete(null);
         }}
         title={
           pendingDelete?.permanent
@@ -1577,20 +1563,9 @@ export function RightPaneContainer({
             : __("Delete email?", "pressedmail")
         }
         description={
-          <>
-            {pendingDelete?.permanent
-              ? __("This cannot be undone.", "pressedmail")
-              : __("This email will be moved to Trash.", "pressedmail")}
-            {deleteError ? (
-              <span
-                role="alert"
-                data-test="reading-pane-delete-error"
-                data-testid="reading-pane-delete-error"
-                className="mt-2 block text-destructive">
-                {deleteError}
-              </span>
-            ) : null}
-          </>
+          pendingDelete?.permanent
+            ? __("This cannot be undone.", "pressedmail")
+            : __("This email will be moved to Trash.", "pressedmail")
         }
         confirmText={__("Delete", "pressedmail")}
         cancelText={__("Cancel", "pressedmail")}

@@ -17,6 +17,7 @@ import { EmailComposeNewIcon } from "@/components/icons/MailActionIcons";
 import { LayoutNavigationShell } from "./LayoutNavigationShell";
 import { MobileNotificationsSheet } from "./MobileNotificationsSheet";
 import { UpgradeModal } from "@/components/features/UpgradeModal.active";
+import { WhatsNewDialog } from "@/components/whats-new/WhatsNewDialog";
 import { TemplatePickerHost } from "@/components/templates/TemplatePickerHost";
 import { PressedTooltipProvider } from "@/components/ui/pressed-tooltip";
 import { PaneComposeProvider } from "@/context/composer";
@@ -387,6 +388,8 @@ const ApplicationLayout = () => {
           </LayoutUiProvider>
         </PaneComposeProvider>
         <UpgradeModal />
+        {/* After setup, so a fresh install meets the wizard first. */}
+        {!showSetupWizard && <WhatsNewDialog />}
         {/* Single activity/process panel for the whole app, driven by the shared
             open-state store so the header icon + the footer status-bar toggle both
             control it. Mounted at the frame root (not inside a trigger) so it works

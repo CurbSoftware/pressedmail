@@ -96,6 +96,7 @@ export const COMPOSER_TOOLBAR_GROUPS: ComposerToolbarGroupDefinition[] = [
     label: "Insert tools",
     items: [
       { id: "insert_link", label: "Insert link" },
+      { id: "insert_button", label: "Insert button" },
       { id: "horizontal_rule", label: "Horizontal rule" },
       { id: "insert_table", label: "Insert table" },
       { id: "emoji", label: "Emoji" },
@@ -266,6 +267,7 @@ const AUTHORING_SURFACE_TOOLBAR_ITEM_IDS = new Set<ComposerToolbarItemId>([
   "indent",
   "outdent",
   "insert_link",
+  "insert_button",
   "horizontal_rule",
   "insert_table",
   "emoji",
@@ -474,6 +476,7 @@ function toolbarLabels(): Record<string, string> {
     list_menu: __("Lists", "pressedmail"),
     insert_tools: __("Insert tools", "pressedmail"),
     insert_link: __("Insert link", "pressedmail"),
+    insert_button: __("Insert button", "pressedmail"),
     horizontal_rule: __("Horizontal rule", "pressedmail"),
     insert_table: __("Insert table", "pressedmail"),
     emoji: __("Emoji", "pressedmail"),

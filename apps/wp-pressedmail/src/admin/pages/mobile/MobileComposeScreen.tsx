@@ -227,7 +227,8 @@ export function MobileComposeScreen({
         });
         finish();
       },
-      { onCancel: finish },
+      // The payload replaces the open draft: unsaved words are saved first.
+      { onCancel: finish, waitForSave: true },
     );
   }, [composerCtx, hasIncomingRoute, location, navigate, routeFields]);
 

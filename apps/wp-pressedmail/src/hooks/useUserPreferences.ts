@@ -243,6 +243,7 @@ export type ComposerToolbarItemId =
   | "indent"
   | "outdent"
   | "insert_link"
+  | "insert_button"
   | "horizontal_rule"
   | "insert_table"
   | "emoji"
@@ -449,6 +450,11 @@ export interface UserPreferences {
    * account.
    */
   account_badges: Record<string, { alias?: string; color?: string }>;
+  /**
+   * The newest What's New release this person has closed, as "X.Y.Z", or "" when
+   * none yet. The popup shows once per release and writes this on close.
+   */
+  whats_new_seen_version: string;
 }
 
 /**
@@ -547,6 +553,7 @@ const DEFAULT_PREFERENCES = {
   composer_palette_level: "reduced",
   contact_flag_colors: {},
   account_badges: {},
+  whats_new_seen_version: "",
 } as UserPreferences;
 
 function normalizePreferences(

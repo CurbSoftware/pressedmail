@@ -46,6 +46,7 @@ import {
   dispatchNewMailAlerts,
 } from "@/lib/inbox-alert-dispatch";
 import { isProBuild } from "@/lib/build-variant";
+import { subscribeMirrorChanges } from "@/lib/mirror-stamp";
 import {
   isCoveredByLeader,
   isFollowingLeader,
@@ -1281,13 +1282,18 @@ export function useInboxSurfaceBoot({
     let timer: number | null = null;
     let lastRun = 0;
     let lastRelayed = "";
+    // A refresh due while the tab was hidden is kept for when it shows again: the
+    // news that asked for it (a mirror stamp, another tab's message) is not repeated.
+    let missedWhileHidden = false;
     const refresh = () => {
       timer = null;
-      lastRun = Date.now();
       const [, load, loadConsolidated, ctx] = settleRef.current;
-      if (!ctx || (typeof document !== "undefined" && document.hidden)) {
+      if (!ctx) return;
+      if (typeof document !== "undefined" && document.hidden) {
+        missedWhileHidden = true;
         return;
       }
+      lastRun = Date.now();
       void syncNowRef.current({ fromTab: true });
       void reloadScopeFolders(ctx, inbox.cache, load, loadConsolidated).catch(
         () => {},
@@ -1301,6 +1307,20 @@ export function useInboxSurfaceBoot({
       );
       timer = window.setTimeout(refresh, wait);
     };
+    // The sync this tab drives changed what the mirror holds for a reader (new mail, counts, a
+    // folder that finished): show it now instead of on the next poll. The other tabs hear it
+    // from the stamp module as a `mail-changed` message.
+    const unsubscribeMirror = subscribeMirrorChanges(() => {
+      if (!autoSyncDisabledRef.current) schedule();
+    });
+    const onVisible = () => {
+      if (typeof document === "undefined" || document.hidden || !missedWhileHidden) return;
+      missedWhileHidden = false;
+      schedule();
+    };
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", onVisible);
+    }
     const unsubscribe = subscribeTabMessages((message) => {
       if (
         (message.type !== "mail-changed" && message.type !== "folders") ||
@@ -1356,6 +1376,10 @@ export function useInboxSurfaceBoot({
     });
     return () => {
       unsubscribe();
+      unsubscribeMirror();
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", onVisible);
+      }
       if (timer !== null) window.clearTimeout(timer);
     };
   }, []);

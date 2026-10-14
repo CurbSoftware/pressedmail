@@ -140,6 +140,10 @@ interface PressedMailPluginGlobal {
     gmailOAuth?: boolean;
     comingSoonProviders?: string[];
   };
+  /** Set by a companion plugin that supplies its own Add Account form. */
+  providerExtensions?: {
+    protonmail?: { restBase?: string; canManage?: boolean };
+  };
   systemDiagnostics?: {
     warnings: string[];
     imapDriver: {

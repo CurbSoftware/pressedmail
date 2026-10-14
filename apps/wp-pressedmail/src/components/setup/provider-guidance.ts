@@ -1,6 +1,8 @@
 import { __ } from "@wordpress/i18n";
 
-import type { SetupFormData } from "./types";
+import { PROVIDERS } from "@/components/setup/providers";
+
+import type { ProviderKey, SetupFormData } from "./types";
 
 export interface ProviderGuidanceEntry {
   /** Short heading, e.g. "Yahoo needs an app password". */
@@ -9,6 +11,8 @@ export interface ProviderGuidanceEntry {
   steps: string[];
   /** External deep link into the provider's security settings. */
   link?: { href: string; label: string };
+  /** The provider's own help page on its app passwords (Pro presets only). */
+  guide?: { href: string; label: string };
   /** Highlighted "not your normal password" style warning. */
   warning?: string;
   /** Plain supporting text rendered below the steps. */
@@ -24,6 +28,11 @@ export function getProviderGuidance(
   email: string,
 ): ProviderGuidanceEntry | null {
   const domain = email.split("@")[1]?.toLowerCase() ?? "";
+  // Free resolves PROVIDERS to providers.free.ts, which has no guide URLs.
+  const guide = (key: ProviderKey, label: string) => {
+    const href = PROVIDERS[key]?.appPasswordGuideUrl;
+    return href ? { href, label } : undefined;
+  };
 
   if (provider === "gmail") {
     if (domain && domain !== "gmail.com" && domain !== "googlemail.com") {
@@ -72,7 +81,7 @@ export function getProviderGuidance(
       steps: [
         __("Sign in to Yahoo and open Account Security.", "pressedmail"),
         __(
-          'Under "External connections", choose Create app password and name it "PressedMail".',
+          'Choose Generate app password, name it "PressedMail", then select Generate password.',
           "pressedmail",
         ),
         __("Copy the generated password and paste it below.", "pressedmail"),
@@ -81,6 +90,10 @@ export function getProviderGuidance(
         href: "https://login.yahoo.com/account/security",
         label: __("Yahoo Account Security", "pressedmail"),
       },
+      guide: guide(
+        "yahoo",
+        __("Yahoo's guide to app passwords", "pressedmail"),
+      ),
       warning: __(
         "Use the generated app password, not your regular Yahoo password.",
         "pressedmail",
@@ -109,6 +122,10 @@ export function getProviderGuidance(
         href: "https://account.apple.com/account/manage",
         label: __("Apple Account", "pressedmail"),
       },
+      guide: guide(
+        "icloud",
+        __("Apple's guide to app-specific passwords", "pressedmail"),
+      ),
       warning: __(
         "Use the app-specific password, not your Apple Account password.",
         "pressedmail",

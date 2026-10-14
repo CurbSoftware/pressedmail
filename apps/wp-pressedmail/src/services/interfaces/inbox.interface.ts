@@ -276,8 +276,10 @@ export interface IInboxOperations {
    * Used for optimistic updates after deletion.
    *
    * @param messageId - ID of message to remove
+   * @param options.quiet - Hide the row without telling removal listeners (a
+   *   composer bound to that draft). For a removal the server has not confirmed.
    */
-  removeMessage(messageId: string | number): void;
+  removeMessage(messageId: string | number, options?: { quiet?: boolean }): void;
 
   /**
    * Get the current request generation counter.

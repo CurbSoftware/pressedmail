@@ -6,7 +6,7 @@ this tree is the complete, human-readable source that produces those
 files, as required by the WordPress.org Plugin Directory.
 
 Canonical location: https://github.com/CurbSoftware/pressedmail
-Public tag: `v1.7.1`
+Public tag: `v1.7.2`
 
 ## Layout
 
@@ -67,6 +67,10 @@ builder applies
 `ImapProtocol::decodeLine`, whose upstream form splits a quoted string
 on spaces alone and so merges BODYSTRUCTURE and ENVELOPE values that end
 just before `)`, or that sit either side of a `)(` list boundary.
+It also applies `scripts/releases/patches/webklex-6.2.0-connection-window.patch`,
+which lets `Client::isConnected()` trust a session that logged in or
+answered a NOOP within the last minute instead of sending a NOOP before
+almost every command.
 
 The zip ships that `vendor/` tree. To assemble the same one from this
 tree, from the repository root:
@@ -83,12 +87,12 @@ ships. One of those dependencies, `curbsoftware/wp-eloquent`, comes from
 than from Packagist, which is what the `path` repository in
 `composer-free.json` points at.
 
-The one file this tree cannot reproduce is the webklex/php-imap patch: the
-install above gives the upstream 6.2.0 file, and the packaging step
-rewrites `ImapProtocol::decodeLine` afterwards. The zip ships the patched
-file, and `scripts/releases/patch-pressedmail-webklex.mjs` records its
-SHA-256 as `PATCHED_FILE_SHA256`, so a distributed copy can be checked
-against the reviewed bytes without running Composer.
+The two files this tree cannot reproduce are the webklex/php-imap patches:
+the install above gives the upstream 6.2.0 files, and the packaging step
+rewrites them afterwards. The zip ships the patched files, and
+`scripts/releases/patch-pressedmail-webklex.mjs` records their SHA-256 as
+`PATCHED_FILE_SHA256` and `CLIENT_PATCHED_FILE_SHA256`, so a distributed
+copy can be checked against the reviewed bytes without running Composer.
 
 The diff, its rationale and the licensing note are published in
 `scripts/releases/patches/`, alongside Webklex's MIT license. The

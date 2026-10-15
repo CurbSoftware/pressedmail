@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { sanitizeEmailHtml, blockExternalImages } from "@/lib/sanitize-email";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
 import { subscribeRuntimeNonce } from "@/lib/nonce";
+import type { EmailMessage } from "@/types";
 
 interface EmailSandboxProps {
   /**
@@ -17,6 +18,13 @@ interface EmailSandboxProps {
   uid?: string | number | null;
   uidValidity?: string | number | null;
   folder?: string | null;
+  /**
+   * The message as the detail route returned it. When it carries an
+   * `iframeRender` seal (a body read live from IMAP), the endpoint is loaded
+   * by a POST of that body instead of a GET, so the server renders it without
+   * reading the mailbox a second time. Same URL, headers and sandbox.
+   */
+  sealedMessage?: SealedMessageSource | null;
   /**
    * Preview mode: raw HTML for in-memory previews (composer, signatures).
    * Will be DOMPurify-sanitized and rendered via srcdoc. Ignored when
@@ -55,6 +63,7 @@ export function EmailSandbox({
   uid,
   uidValidity,
   folder,
+  sealedMessage,
   html,
   className,
   showExternalImages = false,
@@ -151,6 +160,33 @@ export function EmailSandbox({
     useEndpoint,
   ]);
 
+  const sealedPayload = React.useMemo(
+    () => (useEndpoint ? buildSealedRenderPayload(sealedMessage) : ""),
+    [sealedMessage, useEndpoint],
+  );
+  const frameName = `pm-email-${React.useId().replace(/[^A-Za-z0-9-]/g, "")}`;
+
+  // A sealed body is posted into the frame by name. The form lives in this
+  // page, so the frame's own sandbox (no allow-forms) is unchanged.
+  React.useEffect(() => {
+    if (!src || !sealedPayload) return;
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = src;
+    form.target = frameName;
+    form.enctype = "multipart/form-data";
+    form.acceptCharset = "utf-8";
+    form.hidden = true;
+    const field = document.createElement("input");
+    field.type = "hidden";
+    field.name = "render";
+    field.value = sealedPayload;
+    form.appendChild(field);
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  }, [frameName, sealedPayload, src]);
+
   if (accountId != null && !reference)
     return (
       <p role="status">
@@ -164,7 +200,11 @@ export function EmailSandbox({
         data-test="email-sandbox-iframe"
         sandbox="allow-popups allow-popups-to-escape-sandbox"
         referrerPolicy="no-referrer"
-        {...(useEndpoint ? { src } : { srcDoc: srcdoc })}
+        {...(!useEndpoint
+          ? { srcDoc: srcdoc }
+          : sealedPayload
+            ? { name: frameName }
+            : { src })}
         title={__("Email content", "pressedmail")}
         style={{
           width: "100%",
@@ -176,6 +216,55 @@ export function EmailSandbox({
       />
     </div>
   );
+}
+
+type SealedMessageSource = Pick<
+  EmailMessage,
+  "iframeRender" | "htmlBody" | "body" | "attachments" | "attachmentsMeta"
+>;
+
+interface CidSource {
+  contentId?: string | null;
+  content_id?: string | null;
+  mimeType?: string;
+  mime?: string;
+  content?: string;
+}
+
+/**
+ * The POST body for a sealed render: the HTML and inline images exactly as the
+ * server sealed them (MessageIframeRenderToken). The server rebuilds its
+ * Content-ID map from these entries, so they follow its field order. Anything
+ * that differs fails the seal and the server reads the message instead.
+ */
+export function buildSealedRenderPayload(
+  message?: SealedMessageSource | null,
+): string {
+  const seal = message?.iframeRender;
+  if (!message || !seal?.signature) return "";
+  const meta = (message.attachmentsMeta ?? []) as CidSource[];
+  const attachments = (message.attachments ?? []).flatMap(
+    (attachment, index) => {
+      const part = attachment as CidSource;
+      const contentId =
+        part.contentId ??
+        part.content_id ??
+        meta[index]?.contentId ??
+        meta[index]?.content_id;
+      const mimeType = part.mimeType ?? part.mime ?? meta[index]?.mime ?? "";
+      return contentId &&
+        part.content &&
+        mimeType.trim().toLowerCase().startsWith("image/")
+        ? [{ contentId, mimeType, content: part.content }]
+        : [];
+    },
+  );
+  return JSON.stringify({
+    html: message.htmlBody ?? message.body ?? "",
+    attachments,
+    expires: seal.expires,
+    signature: seal.signature,
+  });
 }
 
 interface IframeUrlOpts {

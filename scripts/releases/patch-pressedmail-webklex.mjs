@@ -9,6 +9,10 @@ export const TARGET =
 const PATCH = fileURLToPath(
   new URL('./patches/webklex-6.2.0-imap-values.patch', import.meta.url),
 );
+export const CLIENT_TARGET = 'vendor/webklex/php-imap/src/Client.php';
+const CLIENT_PATCH = fileURLToPath(
+  new URL('./patches/webklex-6.2.0-connection-window.patch', import.meta.url),
+);
 
 /**
  * Hash of the decodeLine slice, before and after the patch. The slice is what
@@ -43,6 +47,31 @@ export function decoderHash(source) {
   return createHash('sha256').update(source.slice(start, end)).digest('hex');
 }
 
+/**
+ * The Client patch: isConnected() through disconnect(), where Webklex sends the
+ * NOOP it asks before almost every command. Hashed the same way as decodeLine.
+ */
+export const CLIENT_ORIGINAL =
+  '0fa5ea36f3395321b27414032fbf5389436e4084c09aab51496795612a872dcb';
+export const CLIENT_PATCHED =
+  'c7bdec96007bbe37398300598d9eb6911b3517753369cc61314c747e080bfffa';
+/** Whole-file hashes: ORIGINAL from the upstream 6.2.0 dist archive. */
+export const CLIENT_ORIGINAL_FILE_SHA256 =
+  'b7cecc84ba5dcae5e50abfa655977a66df349a496b18ddc01d1d8366424179f9';
+export const CLIENT_PATCHED_FILE_SHA256 =
+  '8570d8cb64812ae7760b8be787f22883f7298dd69829da1ffa4ed99a604d7da4';
+
+export function connectionCheckHash(source) {
+  const start = source.indexOf('    public function isConnected(): bool {');
+  const end = source.indexOf(
+    '\n    /**\n     * Get a folder instance by a folder name',
+    start,
+  );
+  if (start < 0 || end < 0)
+    throw new Error('Webklex Client connection check source is missing.');
+  return createHash('sha256').update(source.slice(start, end)).digest('hex');
+}
+
 export function fileHash(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -55,14 +84,45 @@ export function fileHash(path) {
  * real release always starts from Composer's 6.2.0 dist, so every packaged
  * build is held to the whole-file hash.
  */
-export function assertPatchedFile(path) {
+export function assertPatchedFile(
+  path,
+  expected = PATCHED_FILE_SHA256,
+  target = TARGET,
+) {
   const actual = fileHash(path);
-  if (actual !== PATCHED_FILE_SHA256) {
+  if (actual !== expected) {
     throw new Error(
-      `The packaged Webklex decoder is not the reviewed file: expected ${PATCHED_FILE_SHA256}, found ${actual} in ${TARGET}.`,
+      `The packaged Webklex file is not the reviewed file: expected ${expected}, found ${actual} in ${target}.`,
     );
   }
 }
+
+const PATCHES = [
+  {
+    target: TARGET,
+    patch: PATCH,
+    hash: decoderHash,
+    original: ORIGINAL,
+    patched: PATCHED,
+    originalFile: ORIGINAL_FILE_SHA256,
+    patchedFile: PATCHED_FILE_SHA256,
+    changed: 'Webklex decodeLine changed; review the PressedMail IMAP patch.',
+    failed: 'The PressedMail IMAP patch did not produce the reviewed decoder.',
+  },
+  {
+    target: CLIENT_TARGET,
+    patch: CLIENT_PATCH,
+    hash: connectionCheckHash,
+    original: CLIENT_ORIGINAL,
+    patched: CLIENT_PATCHED,
+    originalFile: CLIENT_ORIGINAL_FILE_SHA256,
+    patchedFile: CLIENT_PATCHED_FILE_SHA256,
+    changed:
+      'Webklex Client connection check changed; review the PressedMail connection patch.',
+    failed:
+      'The PressedMail connection patch did not produce the reviewed Client.',
+  },
+];
 
 /** Apply only in the disposable release tree, after Composer and before integrity hashes. */
 export function patchPressedMailWebklex(directory) {
@@ -82,28 +142,34 @@ export function patchPressedMailWebklex(directory) {
       `Review the PressedMail IMAP patch for Webklex ${version ?? 'missing'}.`,
     );
   }
-  const target = join(directory, TARGET);
-  const current = decoderHash(readFileSync(target, 'utf8'));
-  if (current === PATCHED) return false;
-  if (current !== ORIGINAL) {
-    throw new Error(
-      'Webklex decodeLine changed; review the PressedMail IMAP patch.',
+  // Judge every file before writing any, so a refusal leaves vendor untouched.
+  const pending = PATCHES.filter((entry) => {
+    const current = entry.hash(
+      readFileSync(join(directory, entry.target), 'utf8'),
     );
-  }
-  const startsFromReviewedUpstream = fileHash(target) === ORIGINAL_FILE_SHA256;
-  // Git is already a release prerequisite. Apply atomically, without fuzzy matching.
-  execFileSync('git', ['apply', '--check', PATCH], {
-    cwd: directory,
-    stdio: 'pipe',
+    if (current === entry.patched) return false;
+    if (current !== entry.original) throw new Error(entry.changed);
+    return true;
   });
-  execFileSync('git', ['apply', PATCH], { cwd: directory, stdio: 'pipe' });
-  if (decoderHash(readFileSync(target, 'utf8')) !== PATCHED) {
-    throw new Error(
-      'The PressedMail IMAP patch did not produce the reviewed decoder.',
-    );
+  for (const entry of pending) {
+    const target = join(directory, entry.target);
+    const startsFromReviewedUpstream = fileHash(target) === entry.originalFile;
+    // Git is already a release prerequisite. Apply atomically, without fuzzy matching.
+    execFileSync('git', ['apply', '--check', entry.patch], {
+      cwd: directory,
+      stdio: 'pipe',
+    });
+    execFileSync('git', ['apply', entry.patch], {
+      cwd: directory,
+      stdio: 'pipe',
+    });
+    if (entry.hash(readFileSync(target, 'utf8')) !== entry.patched) {
+      throw new Error(entry.failed);
+    }
+    if (startsFromReviewedUpstream)
+      assertPatchedFile(target, entry.patchedFile, entry.target);
   }
-  if (startsFromReviewedUpstream) assertPatchedFile(target);
-  return true;
+  return pending.length > 0;
 }
 
 /**
@@ -130,7 +196,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const applied = patchPressedMailWebklex(directory);
   console.log(
     applied
-      ? `PressedMail IMAP decoder patched in ${directory}.`
-      : `PressedMail IMAP decoder in ${directory} needed no patch.`,
+      ? `PressedMail Webklex patches applied in ${directory}.`
+      : `PressedMail Webklex in ${directory} needed no patch.`,
   );
 }

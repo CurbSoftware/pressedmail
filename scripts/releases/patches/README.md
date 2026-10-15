@@ -34,6 +34,24 @@ real vendor decoder and the actual PressedMail structure/address consumers, plus
 quoted delimiters, escaped quotes/backslashes, lists, flags and binary literals.
 The existing vendor PEEK fetch fix is a separate driver change.
 
+## Connection window
+
+`webklex-6.2.0-connection-window.patch` changes `Client::isConnected()`,
+`connect()` and `disconnect()`. Upstream `isConnected()` sends a NOOP, and
+`checkConnection()`, a same-folder `openFolder()` and `Message` call it before
+almost every command: about eleven extra round trips for one unprimed message
+open, where Gmail charges up to a second each. The patched `isConnected()`
+trusts a session that logged in or answered a NOOP within the last 60 seconds
+(the driver's own `CONNECTION_VERIFY_INTERVAL_SECONDS`), unless its stream
+already reports EOF or a timeout. `disconnect()` clears the window. A socket
+that dies inside the window fails its next command with `empty response` or
+`failed to write - connection closed?`, which `WebklexImapDriver` treats as a
+connection failure: it poisons the socket and the next operation reconnects.
+`plugin-files/tests/test-webklex-connection-window-runtime.php` runs the patched
+Client against a scripted wire and counts the NOOPs.
+
+## Tests
+
 `node --test scripts/releases/patch-pressedmail-webklex.test.mjs` verifies source
 and version refusal, idempotent fallback, a nested Git worktree, and the real
 Free/Pro copy/patch/prune/hash/ZIP pipeline. Only Composer execution is stubbed in

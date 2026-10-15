@@ -99,6 +99,11 @@ export interface EmailMessage {
   attachments?: EmailAttachment[];
   attachmentsMeta?: EmailAttachmentMeta[];
   hasAttachments?: boolean;
+  /**
+   * Seal over a body the server just read live. The reading pane posts the body
+   * back to the iframe route with it, so the iframe does not read IMAP again.
+   */
+  iframeRender?: { expires: number; signature: string };
   snippet?: string;
   preview?: string;
   folder?: string;

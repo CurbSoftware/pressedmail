@@ -168,6 +168,7 @@ import { refreshProcessQueue } from "@/hooks/useProcessQueue";
 import type { EmailMessage, EmailMessageTag } from "@/types";
 import {
   applyDeferredRemoval,
+  clearBulkActionStatuses,
   drainBulkActionRemovals,
   markBulkActionStatuses,
   type BulkActionKind,
@@ -616,9 +617,9 @@ export function BulkActionBar({
       const captured = captureBulkScope();
       if (!captured.isCurrent()) return;
       setIsLoading(true);
-      // Deferred removal means rows stay listed (with their indicator) until
-      // the whole operation finishes. Apply them on every exit path past the
-      // first request: the messages really moved server-side.
+      // Only scheduled deletes still defer removal: their rows stay listed (with
+      // their indicator) until the whole operation finishes. Apply them on every
+      // exit path past the first request: those messages really went.
       const applyRemovals = (result?: BatchOperationResult) => {
         if (result?.removableLocalIds?.length) {
           applyDeferredRemoval(result.removableLocalIds);
@@ -649,9 +650,10 @@ export function BulkActionBar({
           keys.filter((key) => failedKeys.has(key)),
           { action: bulkAction, phase: "failed" },
         );
-        markBulkActionStatuses(
+        // Every action with an indicator removes its rows, most of them as it
+        // starts, so a row that went through has nothing left to show.
+        clearBulkActionStatuses(
           keys.filter((key) => key !== "" && !failedKeys.has(key)),
-          { action: bulkAction, phase: "done" },
         );
       };
       try {
@@ -842,13 +844,14 @@ export function BulkActionBar({
       );
     }
 
+    // IMAP deletes leave the list as they start; a refusal puts them back
+    // (InboxContext) and marks them failed. A slow server never holds a row.
     if (currentFolderRole === "drafts") {
       return handleBatchOp(
-        (ids) => batchDelete(ids, false, { deferRemoval: true }),
+        (ids) => batchDelete(ids, false),
         __("Messages deleted", "pressedmail"),
         {
-          messageOp: (messages) =>
-            batchDeleteMessages(messages, false, { deferRemoval: true }),
+          messageOp: (messages) => batchDeleteMessages(messages, false),
           refetchFromStart: true,
           bulkAction: "delete",
         },
@@ -856,13 +859,11 @@ export function BulkActionBar({
     }
 
     return handleBatchOp(
-      (ids) => batchMove(ids, trashPath, { deferRemoval: true }),
+      (ids) => batchMove(ids, trashPath),
       __("Messages deleted", "pressedmail"),
       {
         messageOp: (selectedMessages) =>
-          batchMoveMessages(selectedMessages, trashPath, {
-            deferRemoval: true,
-          }),
+          batchMoveMessages(selectedMessages, trashPath),
         refetchFromStart: true,
         bulkAction: "delete",
       },
@@ -1239,13 +1240,11 @@ export function BulkActionBar({
     setIsMovingJunk(true);
     try {
       await handleBatchOp(
-        (ids) => batchMove(ids, target, { deferRemoval: true }),
+        (ids) => batchMove(ids, target),
         __("Messages moved to junk", "pressedmail"),
         {
           messageOp: (selectedMessages) =>
-            batchMoveMessages(selectedMessages, target, {
-              deferRemoval: true,
-            }),
+            batchMoveMessages(selectedMessages, target),
           failureMsg: __("Failed to move messages to junk", "pressedmail"),
           refetchFromStart: true,
           bulkAction: "mark-spam",
@@ -1265,13 +1264,11 @@ export function BulkActionBar({
       bulkAction: BulkActionKind,
     ) => {
       await handleBatchOp(
-        (ids) => batchMove(ids, "INBOX", { deferRemoval: true }),
+        (ids) => batchMove(ids, "INBOX"),
         successMessage,
         {
           messageOp: (selectedMessages) =>
-            batchMoveMessages(selectedMessages, "INBOX", {
-              deferRemoval: true,
-            }),
+            batchMoveMessages(selectedMessages, "INBOX"),
           failureMsg: failureMessage,
           refetchFromStart: true,
           bulkAction,

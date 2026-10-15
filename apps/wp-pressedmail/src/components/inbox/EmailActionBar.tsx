@@ -126,6 +126,13 @@ import { resolveEmailBody } from "@/lib/email-content-normalization";
 import { applyMessageTagSteps } from "@/lib/message-tag-apply";
 
 /**
+ * A ribbon group divider. The shared Separator stretches vertically, which
+ * pins a fixed-height line to the top of the 52px ribbon row; centre it the way
+ * the list toolbar's plain dividers sit.
+ */
+const RIBBON_SEPARATOR_CLASS = "mx-1 h-9 data-[orientation=vertical]:self-center";
+
+/**
  * Build a readable move-target label. Nested folders are shown with their
  * parent path ("Clients / Acme") so subfolders that share a leaf name with a
  * sibling elsewhere in the tree stay distinguishable; a leading INBOX root is
@@ -256,7 +263,7 @@ export function PressedOutDisabledMessageActions({
 
       {showOrganizeActions && (
         <>
-          <Separator orientation="vertical" className="mx-1 h-9" />
+          <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
           <div
             role="group"
             aria-label={__("Organize", "pressedmail")}
@@ -320,7 +327,7 @@ export function PressedOutDisabledMessageActions({
 
       {!__IS_FREE__ && __ENABLE_PHISHING_DETECTION__ && phishingEnabled && (
         <>
-          <Separator orientation="vertical" className="mx-1 h-9" />
+          <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
           <div
             role="group"
             aria-label={__("Protect", "pressedmail")}
@@ -338,7 +345,7 @@ export function PressedOutDisabledMessageActions({
         </>
       )}
 
-      <Separator orientation="vertical" className="mx-1 h-9" />
+      <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
       <div
         role="group"
         aria-label={__("More message actions", "pressedmail")}
@@ -1537,7 +1544,7 @@ export function EmailActionBar({
 
           {showOrganizeActions && (
             <>
-              <Separator orientation="vertical" className="mx-1 h-9" />
+              <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
               <div
                 role="group"
                 aria-label={__("Organize", "pressedmail")}
@@ -1598,7 +1605,7 @@ export function EmailActionBar({
 
           {showProtect && (
             <>
-              <Separator orientation="vertical" className="mx-1 h-9" />
+              <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
               <div
                 role="group"
                 aria-label={__("Protect", "pressedmail")}
@@ -1624,7 +1631,7 @@ export function EmailActionBar({
             </>
           )}
 
-          <Separator orientation="vertical" className="mx-1 h-9" />
+          <Separator orientation="vertical" className={RIBBON_SEPARATOR_CLASS} />
           <div
             role="group"
             aria-label={__("More message actions", "pressedmail")}
@@ -1724,7 +1731,7 @@ export function EmailActionBar({
 
             <Separator
               orientation="vertical"
-              className="mx-1 h-12 self-center"
+              className="mx-1 h-12 data-[orientation=vertical]:self-center"
             />
           </>
         )}
@@ -1861,7 +1868,7 @@ export function EmailActionBar({
               </Button>
             </div>
 
-            <Separator orientation="vertical" className="h-5" />
+            <Separator orientation="vertical" className="h-5 data-[orientation=vertical]:self-center" />
           </>
         )}
 
@@ -1941,7 +1948,7 @@ export function EmailActionBar({
 
         {showProtect && (
           <>
-            <Separator orientation="vertical" className="h-5" />
+            <Separator orientation="vertical" className="h-5 data-[orientation=vertical]:self-center" />
 
             <span className="sr-only">{__("Protect", "pressedmail")}</span>
             <div
@@ -1969,7 +1976,7 @@ export function EmailActionBar({
           </>
         )}
 
-        <Separator orientation="vertical" className="h-5" />
+        <Separator orientation="vertical" className="h-5 data-[orientation=vertical]:self-center" />
 
         <span className="sr-only">{__("Inspect", "pressedmail")}</span>
         <div

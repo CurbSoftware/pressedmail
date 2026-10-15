@@ -1406,6 +1406,7 @@ export function MailDisplay({
             uid={mail.uid ?? null}
             uidValidity={mail.uidValidity ?? mail.uid_validity}
             folder={mail.folder ?? ""}
+            sealedMessage={mail}
             html={body}
             className="email-html-container pm-email-sandbox-frame"
             showExternalImages={effectiveShowImages}

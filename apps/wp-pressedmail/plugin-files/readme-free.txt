@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.7.3
+Stable tag: 1.7.4
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.7.3](https://github.com/CurbSoftware/pressedmail/tree/v1.7.3)
-* [Build instructions for version 1.7.3](https://github.com/CurbSoftware/pressedmail/blob/v1.7.3/BUILD.md)
+* [Source for version 1.7.4](https://github.com/CurbSoftware/pressedmail/tree/v1.7.4)
+* [Build instructions for version 1.7.4](https://github.com/CurbSoftware/pressedmail/blob/v1.7.4/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,11 +142,12 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.7.3/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.7.4/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
-= 1.7.3 =
-* Empty Junk and Empty Trash work when the folder goes by another name, such as Gmail's Spam.
+= 1.7.4 =
+* The button works in Signature and Auto-reply editors, and has no alignment setting; use Columns to place it.
+* Signature and Auto-reply editors use your theme and have Preview.

@@ -21,10 +21,7 @@ import { findReadOnlyBlockNodeLabels } from "@/components/composer/plate-compose
 import { ComposerPlainTextToolbar } from "./ComposerEditorToolbar";
 import { ComposerAuthoringEditor } from "./ComposerAuthoringEditor";
 import { buildComposerSurfaceStyle } from "./composer-background-style";
-import {
-  composerDefaultFormatToDialect,
-  composerFontFamilyCss,
-} from "@/lib/preference-behavior";
+import { composerDefaultFormatToDialect } from "@/lib/preference-behavior";
 import { ComposerFooter } from "./ComposerFooter";
 import {
   ComposerHeaderCloseButton,
@@ -119,11 +116,6 @@ export function ComposerContent({
   const { preferences } = useUserPreferences();
   const preferredDialect = composerDefaultFormatToDialect(
     preferences.composer_default_format,
-  );
-  const composerFontSizePx =
-    Number(preferences.composer_default_font_size) || 14;
-  const composerFontFamily = composerFontFamilyCss(
-    preferences.composer_default_font,
   );
   const [previewMode, setPreviewMode] = useState(false);
   const [showPlainTextWarning, setShowPlainTextWarning] = useState(false);
@@ -662,8 +654,6 @@ export function ComposerContent({
               contentStyle={buildComposerSurfaceStyle({
                 bodyBackgroundColor: form.bodyBackgroundColor,
                 canvasBackgroundColor: form.canvasBackgroundColor,
-                fontSizePx: composerFontSizePx,
-                fontFamily: composerFontFamily,
               })}
               editorStyle={
                 form.bodyBackgroundColor

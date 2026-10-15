@@ -7,7 +7,7 @@
  * code. components/templates/template-fields.ts re-exports it for the editor.
  */
 
-/** The nine namespaces the server fills or blanks. Anything else is the author's own text. */
+/** The ten namespaces the server fills or blanks. Anything else is the author's own text. `post` is filled inside a posts block (Pro). */
 export const TEMPLATE_NAMESPACES = [
   "contact",
   "sender",
@@ -18,6 +18,7 @@ export const TEMPLATE_NAMESPACES = [
   "link",
   "event",
   "date",
+  "post",
 ] as const;
 
 const NAMESPACES: ReadonlySet<string> = new Set(TEMPLATE_NAMESPACES);

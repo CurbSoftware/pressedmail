@@ -219,8 +219,7 @@ export function ComposerEditorToolbar({
   const isEmailSurface = surface === "email";
   const surfacePreset = getPlateEmailEditorSurfacePreset(surface);
   const surfaceFeatures = surfacePreset.features;
-  const hasPreviewToggle = previewEnabled && surfaceFeatures.preview &&
-    (isEmailSurface || surface === "template" || surface === "content_block");
+  const hasPreviewToggle = previewEnabled && surfaceFeatures.preview;
   // Preview locks authoring, but its Edit control must stay reachable. Native
   // inert on the whole toolbar overrides even an explicitly enabled button.
   const toolbarDisabled = disabled && (!hasPreviewToggle || previewDisabled);
@@ -469,8 +468,8 @@ export function ComposerEditorToolbar({
               </ToolbarGroup>
             )}
 
-          {/* Preview, on the surfaces that become an email (the
-              signature parity tests pin it off everywhere else) */}
+          {/* Preview, on every surface whose preset offers it: the
+              composer, templates, blocks, signatures and auto-replies */}
           {hasPreviewToggle && (
             <ToolbarGroup>
               <ToolbarButton

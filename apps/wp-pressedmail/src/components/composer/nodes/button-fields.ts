@@ -8,7 +8,7 @@
  * padding and fill sit on the cell, and the link inside carries only its colour
  * and weight.
  *
- *   <table data-pm-block="button" [width="100%" | align="center|right"] style="border-collapse:separate">
+ *   <table data-pm-block="button" [width="100%"] style="border-collapse:separate">
  *     <td bgcolor style="background-color;padding;border-radius">
  *       <a href style="color;font-weight;text-decoration:none">label</a>
  *
@@ -30,9 +30,7 @@ export const BUTTON_DEFAULT_TEXT = "#ffffff";
 export const BUTTON_LABEL_MAX = 200;
 
 export const BUTTON_WIDTHS = ["fit", "full"] as const;
-export const BUTTON_ALIGNS = ["left", "center", "right"] as const;
 export type ButtonWidth = (typeof BUTTON_WIDTHS)[number];
-export type ButtonAlign = (typeof BUTTON_ALIGNS)[number];
 
 export interface ButtonSettings {
   label: string;
@@ -40,9 +38,12 @@ export interface ButtonSettings {
   /** Not `backgroundColor`: that key is the font-background mark, which Plate would inject as a style. */
   buttonColor: string;
   textColor: string;
+  /**
+   * There is no alignment setting: a button sits at the start of its line, and
+   * the Columns block places it anywhere else. A button saved with one (an
+   * `align` attribute or node key) is read without it.
+   */
   width: ButtonWidth;
-  /** Where a fit-width button sits on its line. A full-width one has no room to move. */
-  align: ButtonAlign;
 }
 
 /** `#rrggbb` in lower case (a short `#rgb` is widened), or the fallback. */
@@ -95,7 +96,6 @@ export function normalizeButton(input: ButtonInput = {}): ButtonSettings {
     buttonColor: cleanHexColor(patch.buttonColor, BUTTON_DEFAULT_BACKGROUND),
     textColor: cleanHexColor(patch.textColor, BUTTON_DEFAULT_TEXT),
     width: patch.width === "full" ? "full" : "fit",
-    align: BUTTON_ALIGNS.find((align) => align === patch.align) ?? "left",
   };
 }
 
@@ -110,7 +110,6 @@ export interface ButtonParts {
     cellspacing: "0";
     border: "0";
     width?: "100%";
-    align?: "center" | "right";
   };
   tableStyle: Declarations;
   cellAttributes: { align: "center"; bgcolor: string };
@@ -131,7 +130,7 @@ export function buttonParts(element: ButtonInput): ButtonParts {
       cellpadding: "0",
       cellspacing: "0",
       border: "0",
-      ...(full ? { width: "100%" as const } : button.align === "left" ? {} : { align: button.align }),
+      ...(full ? { width: "100%" as const } : {}),
     },
     // A collapsed table drops the cell's rounded corners, and both the send
     // step and the editor's base styles collapse every table that does not say otherwise.
@@ -203,6 +202,5 @@ export function readButtonSettings(table: HTMLElement): ButtonSettings {
     buttonColor: styleColor(cell?.getAttribute("style"), "background-color") || cell?.getAttribute("bgcolor"),
     textColor: styleColor(link?.getAttribute("style"), "color"),
     width: table.getAttribute("width") === "100%" ? "full" : "fit",
-    align: table.getAttribute("align"),
   });
 }

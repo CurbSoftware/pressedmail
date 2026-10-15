@@ -1,14 +1,12 @@
 'use client';
 
 /**
- * The Insert button form: text, link, colours, width and, for a fit-width
- * button, where it sits on its line. It is the editing surface of the button
+ * The Insert button form: text, link, colours and width. It is the editing surface of the button
  * block (nodes/button-node.tsx) and nothing else; the toolbar and the slash menu
  * only drop a button in, and its form opens on it.
  */
 
 import * as React from 'react';
-import { AlignCenter, AlignLeft, AlignRight } from 'lucide-react';
 import { BaseLinkPlugin, validateUrl } from '@kit/plate/link';
 import { LinkPlugin } from '@kit/plate/link/react';
 import type { PlateEditor } from '@kit/plate/react';
@@ -24,7 +22,6 @@ import {
   cleanButtonLabel,
   cleanButtonUrl,
   normalizeButton,
-  type ButtonAlign,
   type ButtonSettings,
   type ButtonWidth,
 } from '../nodes/button-fields';
@@ -126,7 +123,7 @@ function Choice<T extends string>({
 }: {
   label: string;
   value: T;
-  options: Array<{ value: T; label: string; icon?: React.ReactNode }>;
+  options: Array<{ value: T; label: string }>;
   onChange: (value: T) => void;
 }) {
   const id = React.useId();
@@ -143,10 +140,9 @@ function Choice<T extends string>({
             size="sm"
             variant={value === option.value ? 'default' : 'outline'}
             aria-pressed={value === option.value}
-            aria-label={option.icon ? option.label : undefined}
             onClick={() => onChange(option.value)}
           >
-            {option.icon ?? option.label}
+            {option.label}
           </Button>
         ))}
       </div>
@@ -170,6 +166,10 @@ export function ButtonForm({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
+    // The form renders in a portal, but React bubbles its submit up the
+    // component tree: inside the signature editor's form it saved and closed
+    // the whole signature. A button's form answers for itself only.
+    event.stopPropagation();
     const label = cleanButtonLabel(form.label);
     const url = resolveButtonAddress(editor, form.url);
     setLabelMissing(!label);
@@ -241,18 +241,6 @@ export function ButtonForm({
           ]}
           onChange={(width) => setForm({ ...form, width })}
         />
-        {form.width === 'fit' ? (
-          <Choice<ButtonAlign>
-            label={__('Align', 'pressedmail')}
-            value={form.align}
-            options={[
-              { value: 'left', label: __('Align left', 'pressedmail'), icon: <AlignLeft className="size-4" aria-hidden="true" /> },
-              { value: 'center', label: __('Align center', 'pressedmail'), icon: <AlignCenter className="size-4" aria-hidden="true" /> },
-              { value: 'right', label: __('Align right', 'pressedmail'), icon: <AlignRight className="size-4" aria-hidden="true" /> },
-            ]}
-            onChange={(align) => setForm({ ...form, align })}
-          />
-        ) : null}
       </div>
       <div className="flex justify-end">
         <Button type="submit" size="sm">

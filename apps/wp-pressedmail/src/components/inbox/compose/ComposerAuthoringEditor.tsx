@@ -12,8 +12,13 @@
  *
  * What legitimately differs between surfaces is declared once, in
  * `PLATE_EMAIL_EDITOR_SURFACE_PRESETS` (`@kit/plate/email-surfaces`): the
- * feature flags, the minimum height, and which canvas the surface edits on.
- * Templates and full-list emails retain block fields for later resolution.
+ * feature flags and the minimum height. Templates and full-list emails retain
+ * block fields for later resolution.
+ *
+ * Every surface wears the composer's theme: the app's light or dark canvas,
+ * the author's default font and size, and Preview to see it as the recipient
+ * will. The preset's `editingCanvas` is not read here; PressedMail dropped the
+ * fixed-light signature and auto-reply canvas (Curb.Email still reads it).
  *
  * The email composer has more around the canvas than the authoring surfaces do
  * (plain-text mode, recipients, attachments, its own media-upload session
@@ -50,6 +55,8 @@ import {
   useCanUseMediaLibraryAttachments,
   useMaxAttachmentSizeMb,
 } from "@/context/admin-settings";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { composerFontFamilyCss } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 import { uploadImage, validateImage } from "@/services/image-upload.service";
 import type { Signature } from "@/types/signatures";
@@ -60,6 +67,7 @@ import {
 import { useContentBlocksEnabled } from "./use-content-blocks-enabled";
 import { useMediaLibraryPicker } from "./useMediaLibraryPicker";
 import { normalizeRichEditorHtml } from "./compose-utils";
+import { buildComposerSurfaceStyle } from "./composer-background-style";
 
 export interface ComposerAuthoringEditorProps {
   surface: PlateEmailEditorSurface;
@@ -120,8 +128,8 @@ export interface ComposerAuthoringEditorProps {
   previewDisabled?: boolean;
   previewControl?: { testId: string };
   /**
-   * Inline style for the outer canvas wrapper. The composer publishes its
-   * user-picked colours and font as inherited CSS variables here.
+   * Inline style for the outer canvas wrapper, laid over the author's default
+   * font and size. The composer publishes its user-picked colours here.
    */
   contentStyle?: React.CSSProperties;
   /**
@@ -246,8 +254,14 @@ export const ComposerAuthoringEditor = forwardRef<
 
   const surfacePreset = getPlateEmailEditorSurfacePreset(surface);
   const surfaceFeatures = surfacePreset.features;
-  // The host card draws the boundary, so the canvas draws none of its own.
-  const flushCanvas = surfacePreset.editingCanvas === "email-canvas";
+  const { preferences } = useUserPreferences();
+  const surfaceStyle = {
+    ...buildComposerSurfaceStyle({
+      fontSizePx: Number(preferences.composer_default_font_size) || 14,
+      fontFamily: composerFontFamilyCss(preferences.composer_default_font),
+    }),
+    ...contentStyle,
+  };
 
   // Controlled when the caller owns the state (the composer does, because its
   // preview also drives the plain-text branch), self-managed otherwise.
@@ -460,22 +474,19 @@ export const ComposerAuthoringEditor = forwardRef<
       id={id}
       className={cn(
         "flex flex-1 flex-col min-h-0",
-        // Preview always shows the email canvas, so the recipient's view does
-        // not change with the author's UI theme. Before Preview, the surface
-        // decides: the composer and templates edit on the app theme, the
-        // signature and auto-reply surfaces write on the email canvas their
-        // surrounding card already bounds.
-        (previewActive && !previewContent) || flushCanvas
+        // Every surface edits on the app theme, like the composer. Preview
+        // shows the email canvas, so the recipient's view does not change
+        // with the author's UI theme.
+        previewActive && !previewContent
           ? "pm-email-content-surface"
           : "pm-composer-edit-surface",
-        flushCanvas && "overflow-hidden rounded-none border-0",
         className,
       )}
       data-preview={previewActive ? "true" : "false"}
       data-dialect={dialect}
       data-test={testId}
       data-testid={testId}
-      style={contentStyle}>
+      style={surfaceStyle}>
       <div
         className={cn(
           "flex flex-1 flex-col min-h-0",

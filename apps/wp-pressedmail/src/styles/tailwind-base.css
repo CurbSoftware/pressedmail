@@ -3209,12 +3209,11 @@ html.dark [data-radix-portal] {
   }
 }
 
-/* Default writing/editing size for the email composer body. Reads the per-user
-   "Composer default font size" preference (--pm-composer-font-size, published on
-   the compose surface by ComposerContent) and falls back to 14px. Scoped
-   to the email surface so other editors (e.g. signatures) keep their own size.
-   Per-selection font-size marks (toolbar stepper) render as inline spans that
-   override this base. */
+/* Default writing/editing size for every authoring surface (composer,
+   templates, signatures, auto-replies). Reads the per-user "Composer default
+   font size" preference (--pm-composer-font-size, published on the surface by
+   ComposerAuthoringEditor) and falls back to 14px. Per-selection font-size
+   marks (toolbar stepper) render as inline spans that override this base. */
 #pressedmail-plugin
   .pm-composer-edit-surface
   .pm-composer-editor

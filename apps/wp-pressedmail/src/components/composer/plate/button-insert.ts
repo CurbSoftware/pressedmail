@@ -39,5 +39,9 @@ export function insertButtonBlock(editor: PlateEditor) {
     editor.tf.insertNodes(node as never, { at: PathApi.next(path), select: true });
     if (isEmpty) editor.tf.removeNodes({ at: path });
   });
-  editor.tf.focus();
+  // No editor.tf.focus() here: the block's form opens and takes focus, and
+  // gives it back to the editor when it closes. An editor that was not focused
+  // (a signature or an auto-reply before anyone clicked into it) focuses on a
+  // timer once its operations flush, which landed after the form had opened and
+  // closed it as a focus-outside, so the button could never be filled in.
 }

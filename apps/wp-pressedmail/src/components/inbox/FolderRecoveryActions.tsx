@@ -81,8 +81,13 @@ export function FolderRecoveryActions() {
   }
 
   const copy = emptyFolderCopy(role);
+  // The list may be open on an alias ("Junk" for "[Gmail]/Spam"), so name the
+  // real folder: the one being viewed, else the account's Junk folder.
+  const junkFolder = folders.includes(currentFolder)
+    ? currentFolder
+    : folders.find((folder) => emptyRoleFor(folder) === "junk");
   const path =
-    (role === "trash" ? getTrashFolder()?.path : undefined) ||
+    (role === "trash" ? getTrashFolder()?.path : junkFolder?.path) ||
     currentFolder.path;
 
   const handleEmpty = async () => {

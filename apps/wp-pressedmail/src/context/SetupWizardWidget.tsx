@@ -38,6 +38,7 @@ import {
 } from "@/components/setup/managed-domain-setup.active";
 import {
   ProtonBridgeStep,
+  ProtonCompanionStep,
   useProtonConnector,
 } from "@/components/setup/proton-connector.active";
 import {
@@ -300,15 +301,13 @@ export default function SetupWizard({
   if (initialFormDataRef.current === null) {
     initialFormDataRef.current = formData;
   }
-  // The Proton Bridge companion supplies its own sign-in form. It replaces the
-  // credentials and server steps for a new Proton account, and creates the
-  // account itself, so none of the generic test-and-save machinery applies.
+  // A new Proton account connects only through the Proton Bridge companion.
+  // Its own sign-in form replaces the credentials and server steps and creates
+  // the account itself, so none of the generic test-and-save machinery
+  // applies. Without the companion, the step says how to get it.
   const protonConnector = useProtonConnector();
   const protonMode =
-    !__IS_FREE__ &&
-    protonConnector !== null &&
-    formData.provider === "protonmail" &&
-    !isEditing;
+    !__IS_FREE__ && formData.provider === "protonmail" && !isEditing;
   const [errors, setErrors] = useState<SetupFormErrors>({});
   const [oauthConnected, setOauthConnected] = useState<boolean>(false);
   // Either/or auth method for OAuth-capable providers (gmail/outlook).
@@ -527,7 +526,8 @@ export default function SetupWizard({
       return managed.validate().valid;
     }
 
-    // The companion's form validates and submits itself.
+    // The companion's form validates and submits itself, and without the
+    // companion there is nothing to submit.
     if (protonMode && step === 2) return true;
 
     const newErrors: SetupFormErrors = {};
@@ -1190,7 +1190,8 @@ export default function SetupWizard({
           />
         );
       case 2:
-        if (protonMode && protonConnector) {
+        if (protonMode) {
+          if (!protonConnector) return <ProtonCompanionStep />;
           return (
             <ProtonBridgeStep
               restBase={protonConnector.restBase}

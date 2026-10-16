@@ -144,6 +144,13 @@ interface PressedMailPluginGlobal {
   providerExtensions?: {
     protonmail?: { restBase?: string; canManage?: boolean };
   };
+  /** Pro: whether the Proton Bridge companion plugin is installed and active. */
+  protonCompanion?: {
+    installed?: boolean;
+    active?: boolean;
+    /** Plugins screen filtered to the companion, for users who may activate it. */
+    activateUrl?: string;
+  };
   systemDiagnostics?: {
     warnings: string[];
     imapDriver: {

@@ -181,14 +181,10 @@ export function ComposerToolbarCustomizeDialog({
     void updatePreferences(updates);
   };
 
-  const toggleItem = (itemId: ComposerToolbarItemId, checked: boolean) => {
-    // Preview and the always-shown items are non-removable.
-    if (
-      itemId === "preview" ||
-      alwaysShownComposerToolbarItemIds(surface).includes(itemId)
-    )
-      return;
-
+  // Saves a new item set. `change` edits the set after the rules below have run:
+  // what this dialog does not offer stays as saved, and a forced item is saved
+  // only if the user already chose it.
+  const updateItems = (change: (next: Set<ComposerToolbarItemId>) => void) => {
     const next = new Set(selectedItems);
     next.add("preview");
     // The dialog edits only what this surface and licence offer. Whatever else
@@ -223,11 +219,7 @@ export function ComposerToolbarCustomizeDialog({
     for (const forced of alwaysShownComposerToolbarItemIds(surface)) {
       if (!savedCustom.includes(forced)) next.delete(forced);
     }
-    if (checked) {
-      next.add(itemId);
-    } else {
-      next.delete(itemId);
-    }
+    change(next);
 
     const nextItems = ALL_COMPOSER_TOOLBAR_ITEM_IDS.filter((id) =>
       next.has(id),
@@ -243,6 +235,42 @@ export function ComposerToolbarCustomizeDialog({
             composer_toolbar_items: nextItems,
           },
     );
+  };
+
+  const toggleItem = (itemId: ComposerToolbarItemId, checked: boolean) => {
+    // Preview and the always-shown items are non-removable.
+    if (
+      itemId === "preview" ||
+      alwaysShownComposerToolbarItemIds(surface).includes(itemId)
+    )
+      return;
+
+    updateItems((next) => {
+      if (checked) {
+        next.add(itemId);
+      } else {
+        next.delete(itemId);
+      }
+    });
+  };
+
+  // Every function this dialog lists that can be switched. The always-shown
+  // items are already on for this surface and are not saved, and AI stays as
+  // saved while it cannot be used.
+  const switchableItemIds = groups
+    .flatMap((group) => group.items.map((item) => item.id))
+    .filter(
+      (id) =>
+        id !== "preview" &&
+        !alwaysShownComposerToolbarItemIds(surface).includes(id) &&
+        (id !== "ai" || aiInteractive),
+    );
+  const allSwitchedOn = switchableItemIds.every((id) => selectedItems.has(id));
+
+  const selectAll = () => {
+    updateItems((next) => {
+      for (const id of switchableItemIds) next.add(id);
+    });
   };
 
   const resetToDefault = () => {
@@ -361,6 +389,13 @@ export function ComposerToolbarCustomizeDialog({
             ))}
           </div>
           <PressedOverlayFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving || allSwitchedOn}
+              onClick={selectAll}>
+              {__("Select all", "pressedmail")}
+            </Button>
             <Button type="button" variant="outline" onClick={resetToDefault}>
               {isMobileTarget
                 ? __("Reset Mobile", "pressedmail")

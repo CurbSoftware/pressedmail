@@ -72,6 +72,25 @@ body.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuback {
   pointer-events: none !important;
 }
 
+/* RTL: the menu sits on the right, so it leaves to the right. */
+body.rtl.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuwrap,
+body.rtl.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuback {
+  transform: translateX(100%) !important;
+}
+
+/* A transform moves the menu's paint, not its box. Core floats #adminmenuwrap
+   beside #wpcontent and only pins it (body.sticky-menu, position: fixed) while
+   the whole menu fits the window. Expanding it opens the current submenu
+   inline, the menu outgrows the window, core drops sticky-menu, and the float
+   comes back into the flow. With #wpcontent's margin zeroed below, the
+   full-width #wpbody-content float no longer fits beside it and drops under
+   it: the app slides down by the menu's height. Keep the hidden menu out of
+   the flow in every state (folded, expanded, auto-fold, RTL). */
+body.toplevel_page_pressedmail-plugin.pressedmail-immersive #adminmenuwrap {
+  position: fixed !important;
+  top: 0 !important;
+}
+
 body.toplevel_page_pressedmail-plugin.pressedmail-immersive #wpcontent {
   margin-left: 0 !important;
   padding-left: 0 !important;

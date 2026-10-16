@@ -1,5 +1,6 @@
 "use client";
 
+import { __ } from "@wordpress/i18n";
 import { MoveDiagonal } from "lucide-react";
 import { Button } from "@kit/ui/plugin";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
@@ -23,7 +24,9 @@ export function HeaderLogoButton({
   tooltipSide?: TooltipSide;
 }) {
   const { isImmersive, toggle } = useImmersiveMode(false);
-  const label = isImmersive ? "Show WordPress admin" : "Immersive mode";
+  const label = isImmersive
+    ? __("Show WordPress admin", "pressedmail")
+    : __("Immersive mode", "pressedmail");
 
   return (
     <PressedTooltip content={label} side={tooltipSide}>

@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { createInertHtmlDeserializer } from "@/lib/composer/composer-html-inert";
 import { buildComposerReactPlugins } from "./plate-composer-dialect";
 import { getComposerDomHtml } from "./plate-composer-dom";
+import { selectInText } from "./plate-composer-selection";
 import {
   insertSignatureBlockInDocument,
   removeSignatureBlockInDocument,
@@ -225,7 +226,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
         insertNodes: (value) => editor.tf.insertNodes(value),
         insertText: (text) => editor.tf.insertText(text),
         getSelection: () => editor.selection,
-        select: (range) => editor.tf.select(range),
+        select: (range) => selectInText(editor, range),
         insertInlineNode: (node) =>
           editor.tf.insertNodes(node as unknown as Descendant),
       });
@@ -259,7 +260,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
             : null;
         },
         restoreFocus: () => {
-          if (previewSelection) editor.tf.select(previewSelection);
+          if (previewSelection) selectInText(editor, previewSelection);
           editor.tf.focus();
         },
       };

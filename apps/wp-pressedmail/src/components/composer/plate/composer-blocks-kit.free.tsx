@@ -33,6 +33,8 @@ export interface ContentBlocksProviderProps {
   preserveFields?: boolean;
   /** Full-list emails resolve preserved fields for each recipient at delivery. */
   listDelivery?: boolean;
+  /** The email composer fills a posts block into the message. A template keeps the query. */
+  snapshotPosts?: boolean;
   children: React.ReactNode;
 }
 
@@ -44,6 +46,10 @@ export function ContentBlocksProvider({ children }: ContentBlocksProviderProps) 
 }
 
 export function InsertBlockToolbarButton() {
+  return null;
+}
+
+export function InsertPostsToolbarButton() {
   return null;
 }
 

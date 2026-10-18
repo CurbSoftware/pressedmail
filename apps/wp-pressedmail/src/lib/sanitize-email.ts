@@ -399,7 +399,26 @@ export function sanitizePreviewHtml(html: string): string {
  *
  * Skips inline images (data: and cid: URIs) which are embedded in the email.
  */
-export function blockExternalImages(html: string): {
+/** A picture hosted on this site, including a Media Library file. Relative addresses count. */
+export function isSameSiteImageUrl(src: string, origin: string): boolean {
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.startsWith("//") || !origin) return false;
+  if (trimmed.startsWith("/")) return true;
+  try {
+    const url = new URL(trimmed);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.origin === origin
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function blockExternalImages(
+  html: string,
+  options?: { keepSiteOrigin?: string },
+): {
   html: string;
   blockedCount: number;
 } {
@@ -414,6 +433,12 @@ export function blockExternalImages(html: string): {
   images.forEach((img) => {
     const src = img.getAttribute("src") || "";
     const normalizedSrc = src.trim().toLowerCase();
+    if (
+      options?.keepSiteOrigin &&
+      isSameSiteImageUrl(src, options.keepSiteOrigin)
+    ) {
+      return;
+    }
     // Only block external URLs, skip data: and cid: (inline/embedded images)
     if (
       normalizedSrc.startsWith("http://") ||

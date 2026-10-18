@@ -647,6 +647,7 @@ export function ComposerContent({
               ref={editorRef}
               disabled={isExclusiveOperationPending}
               enableAiCommands={aiEnabled}
+              variablesEnabled
               ariaLabel={__("Message body", "pressedmail")}
               placeholder={__("Write your message…", "pressedmail")}
               previewActive={previewMode}

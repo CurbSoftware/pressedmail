@@ -505,7 +505,8 @@ export const ComposerAuthoringEditor = forwardRef<
           recipient={soleRecipientEmail(toolbarForm)}
           accountId={toolbarForm.sendingAccountId ?? undefined}
           preserveFields={surface === "template" || blockListDelivery}
-          listDelivery={blockListDelivery}>
+          listDelivery={blockListDelivery}
+          snapshotPosts={surface === "email"}>
           <PressedMailRichTextEditor
             key={editorKey}
             ref={attachEditorRef}
@@ -572,3 +573,4 @@ export const ComposerAuthoringEditor = forwardRef<
     </div>
   );
 });
+

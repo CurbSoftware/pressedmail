@@ -82,7 +82,7 @@ import {
   IndentToolbarButton,
   OutdentToolbarButton,
 } from "@/components/composer/plate/indent-toolbar-button";
-import { InsertBlockToolbarButton } from "@/components/composer/plate/composer-blocks-kit.active";
+import { InsertBlockToolbarButton, InsertPostsToolbarButton } from "@/components/composer/plate/composer-blocks-kit.active";
 import { InsertButtonToolbarButton } from "@/components/composer/plate/button-toolbar-button";
 import { HorizontalRuleToolbarButton } from "@/components/composer/plate/horizontal-rule-toolbar-button";
 import { EmojiToolbarButton } from "@/components/composer/plate/emoji-toolbar-button";
@@ -399,9 +399,14 @@ export function ComposerEditorToolbar({
       case "indent":
         return <IndentToolbarButton key={id} />;
       case "content_blocks":
-        // Saved blocks are Pro: Free resolves this to a button that renders
-        // nothing, and its registry item is already filtered out.
-        return <InsertBlockToolbarButton key={id} />;
+        // Saved blocks and the posts loop are Pro: Free resolves these to
+        // buttons that render nothing, and the registry item is already filtered out.
+        return (
+          <React.Fragment key={id}>
+            <InsertPostsToolbarButton />
+            <InsertBlockToolbarButton />
+          </React.Fragment>
+        );
       case "more_menu":
         return (
           <MoreToolbarButton

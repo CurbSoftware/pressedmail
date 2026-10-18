@@ -35,6 +35,11 @@ interface EmailSandboxProps {
   className?: string;
   /** When true, external images are shown. Default: false (blocked). */
   showExternalImages?: boolean;
+  /**
+   * When true, pictures on this site stay visible. Remote addresses stay
+   * blocked. Template preview uses this so a Media Library image shows.
+   */
+  showSiteImages?: boolean;
   /** Fires when blocked image count changes (preview mode only). */
   onBlockedImageCount?: (count: number) => void;
   /**
@@ -67,6 +72,7 @@ export function EmailSandbox({
   html,
   className,
   showExternalImages = false,
+  showSiteImages = false,
   onBlockedImageCount,
   bodyBackgroundColor,
 }: EmailSandboxProps) {
@@ -88,9 +94,15 @@ export function EmailSandbox({
 
   // ---- Preview / srcdoc fallback ----
   const sanitized = React.useMemo(() => sanitizeEmailHtml(html ?? ""), [html]);
+  const siteOrigin =
+    showSiteImages && typeof window !== "undefined" ? window.location.origin : "";
   const blockedImageResult = React.useMemo(
-    () => blockExternalImages(sanitized),
-    [sanitized],
+    () =>
+      blockExternalImages(
+        sanitized,
+        siteOrigin ? { keepSiteOrigin: siteOrigin } : undefined,
+      ),
+    [sanitized, siteOrigin],
   );
   const { processedHtml, blockedCount } = React.useMemo(() => {
     if (useEndpoint) {
@@ -123,12 +135,14 @@ export function EmailSandbox({
       bodyBackgroundColor,
       chromeColors,
       showExternalImages,
+      siteOrigin,
     );
   }, [
     bodyBackgroundColor,
     chromeColors,
     processedHtml,
     showExternalImages,
+    siteOrigin,
     themeColors,
     useEndpoint,
   ]);
@@ -426,10 +440,15 @@ export function buildSandboxDocument(
   bodyBackgroundColor?: string,
   chromeColors: SandboxChromeColors = DEFAULT_SANDBOX_CHROME_COLORS,
   showExternalImages = false,
+  siteOrigin = "",
 ): string {
   // CSS images obey img-src too. Remote stylesheets and fonts stay blocked even
   // after image reveal because they have no authenticated proxy transformation.
-  const imageSources = showExternalImages ? "data: cid: https:" : "data: cid:";
+  const imageSources = showExternalImages
+    ? "data: cid: https:"
+    : siteOrigin
+      ? `data: cid: ${siteOrigin}`
+      : "data: cid:";
   const explicitBodyBg =
     typeof bodyBackgroundColor === "string" &&
     HEX_COLOR_PATTERN.test(bodyBackgroundColor)

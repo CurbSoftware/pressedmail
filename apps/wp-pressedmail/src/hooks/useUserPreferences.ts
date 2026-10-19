@@ -429,6 +429,10 @@ export interface UserPreferences {
   composer_toolbar_items: ComposerToolbarItemId[];
   composer_mobile_toolbar_preset: ComposerToolbarPreset;
   composer_mobile_toolbar_items: ComposerToolbarItemId[];
+  /** Light line under each block while editing. Never written into the email. */
+  composer_show_lines: boolean;
+  /** Field groups hidden from the Fields menu. Empty shows every group. */
+  composer_hidden_field_groups: string[];
   // Composer color palette (per-user). The 12 x 11 default grid is locked
   // and lives in @/lib/composer-color-palettes. Only the right-most custom
   // column and the recently-used row are stored here. Both lists are
@@ -548,6 +552,8 @@ const DEFAULT_PREFERENCES = {
   composer_toolbar_items: [],
   composer_mobile_toolbar_preset: "recommended_mobile",
   composer_mobile_toolbar_items: [],
+  composer_show_lines: false,
+  composer_hidden_field_groups: [],
   palette_custom_colors: [],
   palette_recent_colors: [],
   composer_palette_level: "reduced",

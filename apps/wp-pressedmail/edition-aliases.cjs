@@ -511,6 +511,15 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // The Fields toolbar button, the email composer's catalog, and the
+      // field-group switches. Free has no merge fields.
+      find: /^@\/components\/inbox\/compose\/composer-fields\.active$/,
+      replacement: pick(
+        "./src/components/inbox/compose/composer-fields.free.tsx",
+        "./src/components/inbox/compose/composer-fields.tsx",
+      ),
+    },
+    {
       // The header's Templates button. Free has no templates, forms or campaigns.
       find: /^@\/components\/application-layout\/HeaderTemplatesMenu$/,
       replacement: pick(

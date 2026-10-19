@@ -99,6 +99,7 @@ import {
   ComposerToolbarCustomizeDialog,
   type ComposerToolbarCustomizeDialogProps,
 } from "./ComposerToolbarCustomizeDialog";
+import { FieldsToolbarButton } from "@/components/inbox/compose/composer-fields.active";
 import { cn } from "@/lib/utils";
 import { composerDialectLabel } from "@/components/composer/plate-composer-dialect";
 import {
@@ -472,6 +473,10 @@ export function ComposerEditorToolbar({
                 />
               </ToolbarGroup>
             )}
+
+          <ToolbarGroup>
+            <FieldsToolbarButton surface={surface} disabled={disabled} />
+          </ToolbarGroup>
 
           {/* Preview, on every surface whose preset offers it: the
               composer, templates, blocks, signatures and auto-replies */}

@@ -188,9 +188,9 @@ export const COMPOSER_STANDARD_TOOLBAR_ITEMS: ComposerToolbarItemId[] = [
   "content_blocks",
   "more_menu",
   "clear_formatting",
-  // Insert field stays out: the row has at most 12 buttons (PF-046).
-  // Clear formatting is inside More, so its marker costs no toolbar space.
-  // Authors reach fields with `{{`, and the template editor gets the full set.
+  // The Fields button sits with the right-side actions, so this row stays
+  // at 12. Clear formatting is inside More, so its marker costs no space.
+  // Authors can also type `{{`.
   // Right-side actions: listed so the Customize switches show them as on.
   "signature",
   "preview",

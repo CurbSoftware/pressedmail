@@ -64,6 +64,7 @@ import {
   ComposerEditorToolbar,
   type ComposerToolbarForm,
 } from "./ComposerEditorToolbar";
+import { ComposerFieldCatalog } from "@/components/inbox/compose/composer-fields.active";
 import { useContentBlocksEnabled } from "./use-content-blocks-enabled";
 import { useMediaLibraryPicker } from "./useMediaLibraryPicker";
 import { normalizeRichEditorHtml } from "./compose-utils";
@@ -96,10 +97,9 @@ export interface ComposerAuthoringEditorProps {
    */
   enableAiCommands?: boolean;
   /**
-   * Show fields as chips and open the `{{` field list. Opt-in, so the message
-   * composer never turns text it was handed into chips: only the template and
-   * block editors set it. Multiplied by the surface's own `templateVariables`
-   * flag, and false in Free, whose kit is empty.
+   * Show fields as chips and open the `{{` field list. The email composer
+   * turns this on in Pro. Templates and blocks opt in. Multiplied by the
+   * surface's own `templateVariables` flag, and false in Free, whose kit is empty.
    */
   variablesEnabled?: boolean;
   canUseMediaLibraryImages?: boolean;
@@ -293,7 +293,9 @@ export const ComposerAuthoringEditor = forwardRef<
   const blockListDelivery =
     surface === "email" && __ENABLE_CONTACT_LISTS__ && form?.listDelivery === true;
   const variablesEnabled =
-    !__IS_FREE__ && variablesEnabledProp && surfaceFeatures.templateVariables;
+    !__IS_FREE__ &&
+    surfaceFeatures.templateVariables &&
+    (variablesEnabledProp || surface === "email");
   const maxAttachmentSizeMb = useMaxAttachmentSizeMb();
   // The admin media policy applies to every authoring surface (templates,
   // signatures, auto-replies), not only the composer that passes it in.
@@ -468,6 +470,7 @@ export const ComposerAuthoringEditor = forwardRef<
     [aiEnabled, bodyBackgroundColor, content, subject],
   );
   const toolbarForm = form ?? assembledToolbarForm;
+  const inlinePreview = Boolean(previewContent && previewActive);
 
   return (
     <div
@@ -480,6 +483,9 @@ export const ComposerAuthoringEditor = forwardRef<
         previewActive && !previewContent
           ? "pm-email-content-surface"
           : "pm-composer-edit-surface",
+        preferences.composer_show_lines &&
+          !previewActive &&
+          "pm-composer-show-lines",
         className,
       )}
       data-preview={previewActive ? "true" : "false"}
@@ -500,6 +506,7 @@ export const ComposerAuthoringEditor = forwardRef<
         // live E2E specs and PMQA states address the canvas by it.
         data-test="body-editor-content"
         data-testid="body-editor-content">
+        <ComposerFieldCatalog surface={surface} enabled={variablesEnabled}>
         <ContentBlocksProvider
           enabled={contentBlocksEnabled && surfaceFeatures.contentBlocks}
           recipient={soleRecipientEmail(toolbarForm)}
@@ -519,7 +526,7 @@ export const ComposerAuthoringEditor = forwardRef<
             onChange={handleChange}
             onValueChange={onDocumentChange}
             disabled={disabled}
-            contentHidden={Boolean(previewContent && previewActive)}
+            contentHidden={inlinePreview}
             aiEnabled={aiEnabled}
             variablesEnabled={variablesEnabled}
             onReady={onEditorReady}
@@ -530,7 +537,7 @@ export const ComposerAuthoringEditor = forwardRef<
                 key={disabled ? "locked" : "ready"}
                 surface={surface}
                 form={toolbarForm}
-                disabled={disabled || Boolean(previewContent && previewActive)}
+                disabled={disabled || inlinePreview}
                 editorRef={editorRef}
                 signaturesEnabled={signaturesEnabled}
                 signatures={signatures ?? []}
@@ -553,11 +560,12 @@ export const ComposerAuthoringEditor = forwardRef<
                 toolbarVariant={toolbarVariant}
               />
             </div>
-            {previewActive && previewContent ? (
+            {inlinePreview ? (
               <div className="flex min-h-0 flex-1 flex-col p-3">{previewContent}</div>
             ) : null}
           </PressedMailRichTextEditor>
         </ContentBlocksProvider>
+        </ComposerFieldCatalog>
       </div>
       {!callerOwnsUpload && (
         <input

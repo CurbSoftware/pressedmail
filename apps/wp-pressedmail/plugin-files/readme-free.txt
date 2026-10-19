@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.7.8
+Stable tag: 1.7.9
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.7.8](https://github.com/CurbSoftware/pressedmail/tree/v1.7.8)
-* [Build instructions for version 1.7.8](https://github.com/CurbSoftware/pressedmail/blob/v1.7.8/BUILD.md)
+* [Source for version 1.7.9](https://github.com/CurbSoftware/pressedmail/tree/v1.7.9)
+* [Build instructions for version 1.7.9](https://github.com/CurbSoftware/pressedmail/blob/v1.7.9/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,11 +142,14 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.7.8/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.7.9/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
+
+= 1.7.9 =
+* The composer toolbar settings include Show lines, which draws paragraph guides while you write.
 
 = 1.7.8 =
 * No change for the Free edition.
@@ -154,5 +157,3 @@ Older releases: https://pressedmail.com/changelog
 = 1.7.7 =
 * The composer no longer errors when a message starts with a table, columns or a quote.
 
-= 1.7.6 =
-* Select all in the composer toolbar settings, next to Reset to default.

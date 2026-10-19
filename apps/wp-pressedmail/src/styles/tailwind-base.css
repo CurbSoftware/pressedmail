@@ -3301,6 +3301,29 @@ html.dark [data-radix-portal] {
   line-height: 1.25 !important;
 }
 
+/* Edit-mode guide only. The class is left off in preview, and it is not
+   part of the serialized message, so sent mail never carries the line. */
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  .pm-composer-show-lines
+  .pm-composer-editor
+  [data-slate-editor]
+  > * {
+  border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+}
+
+:is(#pressedmail-plugin, #pressedmail-plugin-frontend, .pressedmail-frontend)
+  textarea.pm-composer-show-lines {
+  line-height: 1.5rem;
+  background-image: linear-gradient(
+    to bottom,
+    transparent calc(1.5rem - 1px),
+    color-mix(in srgb, currentColor 16%, transparent) 0
+  );
+  background-size: 100% 1.5rem;
+  background-attachment: local;
+  background-position: 0 1rem;
+}
+
 /* Plate renders unordered list items as block elements with
    display:list-item (no <ul> wrapper) and ordered items inside a real
    <ol><li>; the bare ::marker selector covers both shapes. */

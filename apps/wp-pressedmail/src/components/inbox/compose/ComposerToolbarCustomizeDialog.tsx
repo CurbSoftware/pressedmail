@@ -5,6 +5,9 @@ import { Sliders } from "lucide-react";
 import {
   Button,
   Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogTitleRow,
   Label,
   Switch,
   Tabs,
@@ -14,9 +17,9 @@ import {
 } from "@kit/ui/plugin";
 import {
   PressedDialogContent,
-  PressedDialogHeader,
   PressedOverlayFooter,
 } from "@/components/ui/pressed-overlay";
+import { FieldGroupSettings } from "@/components/inbox/compose/composer-fields.active";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useComposerPalettesEnabled } from "@/hooks/useComposerPalettesEnabled";
 import type {
@@ -104,10 +107,13 @@ export function ComposerToolbarCustomizeDialog({
   const [localOpen, setLocalOpen] = useState(false);
   const open = controlledOpen ?? localOpen;
   const setOpen = onOpenChange ?? setLocalOpen;
-  const [selectedTarget, setSelectedTarget] = useState<"desktop" | "mobile">(
-    target,
-  );
+  const [selectedTarget, setSelectedTarget] = useState<
+    "desktop" | "mobile" | "other"
+  >(target);
   const isMobileTarget = selectedTarget === "mobile";
+  const isOtherTarget = selectedTarget === "other";
+  const showLines = Boolean(preferences.composer_show_lines);
+  const hiddenFieldGroups = preferences.composer_hidden_field_groups ?? [];
   const palettesEnabled = useComposerPalettesEnabled();
   // List every function this build can render. AI is listed only where the
   // build ships it (never in Free, where a locked Pro switch would breach
@@ -137,8 +143,11 @@ export function ComposerToolbarCustomizeDialog({
     ],
   );
   const groupColumns = useMemo(() => {
-    const midpoint = Math.ceil(groups.length / 2);
-    return [groups.slice(0, midpoint), groups.slice(midpoint)];
+    const columnCount = 3;
+    const size = Math.ceil(groups.length / columnCount);
+    return Array.from({ length: columnCount }, (_, index) =>
+      groups.slice(index * size, (index + 1) * size),
+    ).filter((column) => column.length > 0);
   }, [groups]);
 
   const selectedItems = useMemo(
@@ -274,6 +283,13 @@ export function ComposerToolbarCustomizeDialog({
   };
 
   const resetToDefault = () => {
+    if (isOtherTarget) {
+      void updatePreferences({
+        composer_show_lines: false,
+        composer_hidden_field_groups: [],
+      });
+      return;
+    }
     applyToolbarPreferences(
       isMobileTarget
         ? {
@@ -305,34 +321,79 @@ export function ComposerToolbarCustomizeDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <PressedDialogContent
           size="compactForm"
-          className="h-[min(82vh,42rem)] grid-rows-[auto_auto_minmax(0,1fr)_auto]"
+          className="h-[min(82vh,42rem)] w-[min(calc(100vw-2rem),54rem)] grid-rows-[auto_minmax(0,1fr)_auto]"
           data-test="composer-toolbar-customize-dialog">
-          <PressedDialogHeader
-            icon={Sliders}
-            title={
-              isMobileTarget
-                ? __("Customize mobile toolbar", "pressedmail")
-                : __("Customize desktop toolbar", "pressedmail")
-            }
-          />
           <Tabs
             value={selectedTarget}
             onValueChange={(value) =>
-              setSelectedTarget(value === "mobile" ? "mobile" : "desktop")
+              setSelectedTarget(
+                value === "mobile" || value === "other" ? value : "desktop",
+              )
             }
-            className="min-w-0 px-6 pt-5">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="desktop">
-                {__("Desktop", "pressedmail")}
-              </TabsTrigger>
-              <TabsTrigger value="mobile">
-                {__("Mobile", "pressedmail")}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+            className="contents">
+            <DialogHeader
+              data-pm-overlay-section="header"
+              className="flex-row items-center gap-3 space-y-0 border-b border-border px-6 py-3 pr-14">
+              <DialogTitle className="min-w-0">
+                <DialogTitleRow>
+                  <Sliders aria-hidden="true" />
+                  <span className="truncate">
+                    {__("Customize toolbar", "pressedmail")}
+                  </span>
+                </DialogTitleRow>
+              </DialogTitle>
+              <TabsList className="ml-auto grid h-8 w-auto shrink-0 grid-cols-3">
+                <TabsTrigger value="desktop">
+                  {__("Desktop", "pressedmail")}
+                </TabsTrigger>
+                <TabsTrigger value="mobile">
+                  {__("Mobile", "pressedmail")}
+                </TabsTrigger>
+                <TabsTrigger value="other">
+                  {__("Other", "pressedmail")}
+                </TabsTrigger>
+              </TabsList>
+            </DialogHeader>
+          {isOtherTarget ? (
+            <div
+              data-test="composer-toolbar-customize-other"
+              className="grid min-h-0 min-w-0 content-start gap-x-4 gap-y-1 overflow-x-hidden overflow-y-auto px-6 py-4 sm:grid-cols-3">
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-1">
+                <div className="min-w-0">
+                  <Label
+                    htmlFor="composer-show-lines"
+                    className="text-sm font-normal">
+                    {__("Show lines", "pressedmail")}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {__(
+                      "A light line under each paragraph while you edit. Preview and sent mail leave it out.",
+                      "pressedmail",
+                    )}
+                  </p>
+                </div>
+                <Switch
+                  id="composer-show-lines"
+                  data-test="composer-show-lines"
+                  checked={showLines}
+                  disabled={saving}
+                  onCheckedChange={(value) =>
+                    void updatePreferences({ composer_show_lines: Boolean(value) })
+                  }
+                />
+              </div>
+              <FieldGroupSettings
+                hidden={hiddenFieldGroups}
+                disabled={saving}
+                onChange={(hidden) =>
+                  void updatePreferences({ composer_hidden_field_groups: hidden })
+                }
+              />
+            </div>
+          ) : (
           <div
             data-test="composer-toolbar-customize-grid"
-            className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden overflow-y-auto px-6 py-4 sm:grid-cols-2">
+            className="grid min-h-0 min-w-0 gap-4 overflow-x-hidden overflow-y-auto px-6 py-4 sm:grid-cols-3">
             {groupColumns.map((columnGroups, columnIndex) => (
               <div key={columnIndex} className="min-w-0 space-y-4">
                 {columnGroups.map((group) => (
@@ -388,7 +449,10 @@ export function ComposerToolbarCustomizeDialog({
               </div>
             ))}
           </div>
+          )}
+          </Tabs>
           <PressedOverlayFooter>
+            {isOtherTarget ? null : (
             <Button
               type="button"
               variant="outline"
@@ -396,6 +460,7 @@ export function ComposerToolbarCustomizeDialog({
               onClick={selectAll}>
               {__("Select all", "pressedmail")}
             </Button>
+            )}
             <Button type="button" variant="outline" onClick={resetToDefault}>
               {isMobileTarget
                 ? __("Reset Mobile", "pressedmail")

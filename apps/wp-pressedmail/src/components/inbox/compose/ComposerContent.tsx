@@ -620,6 +620,7 @@ export function ComposerContent({
                 disabled={isExclusiveOperationPending}
                 className={cn(
                   "pm-composer-text-surface flex-1 resize-none whitespace-pre-wrap break-words border-0 p-4 font-mono text-sm",
+                  preferences.composer_show_lines && "pm-composer-show-lines",
                   variant === "floating"
                     ? "min-h-[300px]"
                     : variant === "mobile"

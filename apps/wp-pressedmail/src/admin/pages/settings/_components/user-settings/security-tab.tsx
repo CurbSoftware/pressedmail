@@ -9,7 +9,9 @@ import { SecuritySettingsCard } from "../../security-settings-card";
  */
 export function SecurityTab() {
   return (
-    <div className="space-y-4" data-test="user-security-page">
+    <div
+      className="w-full min-w-0 max-w-6xl space-y-4"
+      data-test="user-security-page">
       <SecuritySettingsCard />
     </div>
   );

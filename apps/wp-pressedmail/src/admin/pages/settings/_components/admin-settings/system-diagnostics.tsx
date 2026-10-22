@@ -32,20 +32,22 @@ function HealthRow({
   const normalized = value.replace(/^(\d+(?:\.\d+)?)\s*([KMG])$/i, "$1 $2B");
   return (
     <div
-      className="flex min-w-0 items-start justify-between gap-3 border-b border-border py-3 text-sm last:border-b-0"
+      className="flex min-w-0 items-center justify-between gap-3 border-b border-border/60 py-3 text-sm last:border-b-0"
       data-test="system-health-row"
       data-testid="system-health-row">
       <dt className="min-w-0 text-muted-foreground">{label}</dt>
-      <dd className="flex shrink-0 flex-col items-end gap-1 text-right">
-        <span>{normalized}</span>
+      <dd className="flex shrink-0 flex-wrap items-center justify-end gap-2 text-right">
+        <span className="font-medium text-foreground tabular-nums">
+          {normalized}
+        </span>
         {ok !== undefined ? (
           <span
             className={
               ok
-                ? "text-success"
+                ? "rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success"
                 : recommended
-                  ? "text-warning"
-                  : "text-destructive"
+                  ? "rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning"
+                  : "rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive"
             }>
             {ok
               ? __("Good", "pressedmail")
@@ -69,7 +71,7 @@ function PluginStatusRow({
   destructive?: boolean;
 }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border p-3 text-sm">
+    <div className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/80 bg-muted/15 p-3 text-sm">
       <dt className="min-w-0 text-muted-foreground">{label}</dt>
       <dd>
         <Badge variant={destructive ? "destructive" : "outline"}>{value}</Badge>
@@ -222,7 +224,7 @@ export function SystemDiagnostics() {
         title={__("Plugin Status", "pressedmail")}
         dataTest="plugin-status-diagnostics"
         contentClassName="space-y-3">
-        <dl className="divide-y divide-border">
+        <dl className="grid gap-2.5 sm:grid-cols-2">
           <PluginStatusRow
             label={__("Current installed version", "pressedmail")}
             value={currentVersion}
@@ -375,7 +377,7 @@ export function SystemDiagnostics() {
                   key={key}
                   data-test={`php-extension-${key}`}
                   data-testid={`php-extension-${key}`}
-                  className="flex min-w-0 items-center gap-2 rounded-md border p-3 text-sm">
+                  className="flex min-w-0 items-center gap-2.5 rounded-md border border-border/80 bg-muted/15 p-3 text-sm">
                   {ext.loaded ? (
                     <CheckCircle
                       data-test="php-extension-status-icon"

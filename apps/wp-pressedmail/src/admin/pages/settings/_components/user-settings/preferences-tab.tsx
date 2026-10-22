@@ -266,18 +266,17 @@ export function PreferencesTabView({
       </div>
 
       <Tabs
-        orientation="vertical"
         value={selectedCategory}
         onValueChange={(value) => selectCategory(value as PreferenceCategoryId)}
-        className="block w-full min-w-0 @3xl/preferences-nav:grid @3xl/preferences-nav:grid-cols-[12rem_minmax(0,1fr)] @3xl/preferences-nav:items-start @3xl/preferences-nav:gap-5">
+        className="w-full min-w-0 gap-4 @3xl/preferences-nav:grid @3xl/preferences-nav:grid-cols-[12rem_minmax(0,1fr)] @3xl/preferences-nav:items-start @3xl/preferences-nav:gap-6">
         <TabsList
           aria-label={__("Preference categories", "pressedmail")}
-          className="flex h-auto w-full flex-col items-stretch gap-1 bg-muted/40 p-1 @max-3xl/preferences-nav:hidden">
+          className="flex h-auto w-full flex-col items-stretch gap-1 rounded-lg border border-border/70 bg-card p-1.5 shadow-xs @max-3xl/preferences-nav:hidden">
           {categories.map((category) => (
             <TabsTrigger
               key={category.id}
               value={category.id}
-              className="min-h-11 w-full justify-start px-3 text-left">
+              className="min-h-11 w-full justify-start rounded-md px-3 py-2 text-start text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground data-[state=active]:bg-primary/10 data-[state=active]:font-medium data-[state=active]:text-foreground data-[state=active]:shadow-none @3xl/preferences-nav:min-h-9">
               {category.label}
             </TabsTrigger>
           ))}
@@ -285,7 +284,7 @@ export function PreferencesTabView({
 
         <TabsContent
           value={selectedCategory}
-          className="w-full min-w-0 space-y-4 outline-none">
+          className="w-full min-w-0 max-w-5xl space-y-4 outline-none">
           {activeSections.map((section) => {
             const Section = section.Component;
             return (

@@ -35,7 +35,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "grid gap-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center",
+        "grid gap-3 py-3.5 first:pt-1 last:pb-1 sm:grid-cols-[1fr_auto] sm:items-center [&+[data-test=settings-row]]:border-t [&+[data-test=settings-row]]:border-border/60",
         inline && "grid-cols-[1fr_auto] items-center",
         className,
       )}
@@ -52,7 +52,7 @@ export function SettingsRow({
           {meta}
         </div>
         {description ? (
-          <div className="max-w-3xl text-xs leading-5 text-muted-foreground">
+          <div className="max-w-2xl text-xs leading-relaxed text-muted-foreground">
             {description}
           </div>
         ) : null}

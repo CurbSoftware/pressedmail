@@ -50,7 +50,7 @@ export function SettingsSectionCard({
       data-testid={dataTest}
       aria-busy={ariaBusy}
       size="sm">
-      <CardHeader className="grid-cols-[1fr_auto] gap-2 px-0 sm:px-4">
+      <CardHeader className="grid-cols-[1fr_auto] items-start gap-3 border-b border-border/60 px-0 pb-3 sm:px-5">
         <div className="min-w-0 space-y-1">
           <CardTitle className="flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-6">
             <span className="min-w-0">{title}</span>
@@ -66,7 +66,7 @@ export function SettingsSectionCard({
         </div>
         {actions ? <div className="justify-self-end">{actions}</div> : null}
       </CardHeader>
-      <CardContent className={cn("px-0 sm:px-4", contentClassName)}>
+      <CardContent className={cn("px-0 sm:px-5", contentClassName)}>
         {children}
       </CardContent>
     </Card>

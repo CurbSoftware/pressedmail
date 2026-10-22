@@ -324,7 +324,7 @@ export function WpMailTab() {
 
   return (
     <div
-      className="space-y-4"
+      className="w-full min-w-0 max-w-6xl space-y-4"
       data-test="wp-mail-tab"
       data-testid="wp-mail-tab">
       {error ? (
@@ -383,25 +383,32 @@ export function WpMailTab() {
       <Tabs
         value={panel}
         onValueChange={(value) => setPanel(String(value) as WpMailPanel)}
+        className="gap-4"
         data-test="wp-mail-panels"
         data-testid="wp-mail-panels">
-        <TabsList aria-label={__("WordPress email sections", "pressedmail")}>
+        <TabsList
+          variant="line"
+          aria-label={__("WordPress email sections", "pressedmail")}
+          className="w-full justify-start rounded-none border-b px-0 max-sm:h-auto! pointer-coarse:h-auto!">
           {__IS_PRO__ ? (
             <>
               <TabsTrigger
                 value="mail-servers"
+                className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-mail-servers"
                 data-testid="wp-mail-panel-mail-servers">
                 {__("SMTP Accounts", "pressedmail")}
               </TabsTrigger>
               <TabsTrigger
                 value="default-smtp"
+                className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-default-smtp"
                 data-testid="wp-mail-panel-default-smtp">
                 {__("Default SMTP", "pressedmail")}
               </TabsTrigger>
               <TabsTrigger
                 value="system-emails"
+                className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-system-emails"
                 data-testid="wp-mail-panel-system-emails">
                 {__("System Emails", "pressedmail")}
@@ -411,12 +418,14 @@ export function WpMailTab() {
             <>
               <TabsTrigger
                 value="system-emails"
+                className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-system-emails"
                 data-testid="wp-mail-panel-system-emails">
                 {__("System Emails", "pressedmail")}
               </TabsTrigger>
               <TabsTrigger
                 value="mail-servers"
+                className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-mail-servers"
                 data-testid="wp-mail-panel-mail-servers">
                 {__("Mail servers", "pressedmail")}

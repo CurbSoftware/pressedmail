@@ -31,6 +31,35 @@ export interface WhatsNewRelease {
 export function getWhatsNewReleases(): WhatsNewRelease[] {
   return [
     {
+      version: "1.8.0",
+      items: [
+        {
+          id: "show-lines",
+          title: __("See your paragraphs", "pressedmail"),
+          body: __(
+            "Turn on Show lines in the composer toolbar settings to see where each paragraph starts and ends while you write.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "signature-preview",
+          title: __("Preview signatures and auto-replies", "pressedmail"),
+          body: __(
+            "The Signature and Auto-reply editors use your theme, and Preview shows the result before you save.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "immersive-top",
+          title: __("Immersive mode stays in view", "pressedmail"),
+          body: __(
+            "With immersive mode on, the top of PressedMail is no longer cut off.",
+            "pressedmail",
+          ),
+        },
+      ],
+    },
+    {
       version: "1.7.1",
       items: [
         {

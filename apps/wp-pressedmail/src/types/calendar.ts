@@ -490,16 +490,8 @@ export interface CalendarContextValue {
     calendars?: ConnectedCalendar[];
     error?: string;
   }>;
-  /** Get OAuth auth URL for provider */
-  getAuthUrl: (
-    provider: CalendarSyncProvider,
-  ) => Promise<{ success: boolean; url?: string; error?: string }>;
-  /** Connect calendar provider */
-  connectProvider: (
-    provider: CalendarSyncProvider,
-    authCode: string,
-    state: string,
-  ) => Promise<{
+  /** Finish connecting a provider after its relay sign-in */
+  connectProvider: (provider: CalendarSyncProvider) => Promise<{
     success: boolean;
     calendars?: ConnectedCalendar[];
     error?: string;
@@ -643,6 +635,8 @@ export interface CalendarSyncResult {
   pushed: number;
   failed: number;
   conflicts: number;
+  /** Events the calendar cannot represent yet (for example a repeating event with a moved or cancelled date). */
+  skipped?: number;
 }
 
 /**

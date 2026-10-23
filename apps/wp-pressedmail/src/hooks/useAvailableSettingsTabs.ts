@@ -125,9 +125,8 @@ export function useAvailableSettingsTabs() {
       });
     }
 
-    // External contact-provider sync remains disabled in the production source.
-    // The flag stays as the compile-time tree-shaking boundary for its archived
-    // feature work.
+    // Contacts Sync (Pro): import from Google/Outlook/CardDAV. Gated on the pro
+    // edition and the contacts_sync build flag.
     const contactsSyncEnabled =
       typeof __ENABLE_CONTACTS_SYNC__ === "boolean"
         ? __ENABLE_CONTACTS_SYNC__

@@ -18,6 +18,8 @@ export interface OAuthConnectButtonProps {
   email?: string;
   /** Existing account id for reconnect flows (0/undefined = setup). */
   accountId?: number;
+  /** A contacts or calendar grant instead of a mailbox (Pro sync). */
+  purpose?: "contacts" | "calendar";
   /** Called on completion with the provider-verified mailbox address ('' when unknown). */
   onConnected: (email: string) => void;
   onError?: (message: string) => void;
@@ -42,6 +44,7 @@ export function OAuthConnectButton({
   connected,
   email,
   accountId,
+  purpose,
   onConnected,
   onError,
 }: OAuthConnectButtonProps) {
@@ -206,9 +209,11 @@ export function OAuthConnectButton({
       let attempts = 0;
       const statusUrl =
         oauthStatusRouteApi(provider) +
-        (typeof accountId === "number" && accountId > 0
-          ? `?accountId=${accountId}`
-          : "");
+        (purpose
+          ? `?purpose=${purpose}`
+          : typeof accountId === "number" && accountId > 0
+            ? `?accountId=${accountId}`
+            : "");
       pollTimerRef.current = setInterval(() => {
         if (!isCurrentSession(generation)) {
           clearPollTimer();
@@ -257,7 +262,15 @@ export function OAuthConnectButton({
         }
       }, STATUS_POLL_INTERVAL_MS);
     },
-    [accountId, clearPollTimer, fail, finish, isCurrentSession, provider],
+    [
+      accountId,
+      clearPollTimer,
+      fail,
+      finish,
+      isCurrentSession,
+      provider,
+      purpose,
+    ],
   );
 
   const handleConnect = () => {
@@ -293,7 +306,9 @@ export function OAuthConnectButton({
         const response = await apiFetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountId: accountId ?? 0 }),
+          body: JSON.stringify(
+            purpose ? { accountId: 0, purpose } : { accountId: accountId ?? 0 },
+          ),
           signal: controller.signal,
         });
         if (!isCurrentSession(generation)) {

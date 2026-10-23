@@ -578,23 +578,17 @@ export interface ContactsContextValue {
     status?: ContactSyncStatus;
     error?: string;
   }>;
-  /** Get the OAuth authorization URL for a contacts provider */
-  getSyncAuthUrl: (
-    provider: SyncProvider,
-  ) => Promise<{ success: boolean; url?: string; error?: string }>;
-  /** Connect to sync provider */
+  /** Finish connecting a provider after its relay sign-in */
   connectSyncProvider: (
     provider: SyncProvider,
-    authCode: string,
-    password?: string,
-  ) => Promise<{ success: boolean; error?: string }>;
+  ) => Promise<{ success: boolean; result?: SyncResult; error?: string }>;
   /** Connect a CardDAV server with URL + Basic Auth credentials (no OAuth). */
   connectCardDAV: (params: {
     url: string;
     username: string;
     password: string;
     displayName?: string;
-  }) => Promise<{ success: boolean; error?: string }>;
+  }) => Promise<{ success: boolean; result?: SyncResult; error?: string }>;
   /** Disconnect sync provider */
   disconnectSyncProvider: (
     provider: SyncProvider,
@@ -602,7 +596,7 @@ export interface ContactsContextValue {
   /** Trigger sync */
   triggerSync: (
     provider: SyncProvider,
-    direction?: "push" | "pull" | "both",
+    direction?: "pull",
   ) => Promise<{ success: boolean; result?: SyncResult; error?: string }>;
 
   // Contact keyword library (string-based)
@@ -767,6 +761,11 @@ export interface SyncResult {
   imported: number;
   exported: number;
   updated: number;
+  /** Local contacts linked to a provider contact with the same address. */
+  adopted?: number;
+  /** Provider contacts left alone because the local copy wins. */
+  conflicts?: number;
+  /** Records the provider sent that PressedMail could not read. */
   skipped: number;
   errors: string[];
 }

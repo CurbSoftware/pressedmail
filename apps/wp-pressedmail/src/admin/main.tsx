@@ -1,7 +1,6 @@
 import ReactDOM from "react-dom/client";
 
 import { EditionApp } from "@/admin/EditionApp.active";
-import { maybeForwardCalendarOAuthCallback } from "@/lib/calendar-oauth-callback";
 
 import { initializePrincipalStorage } from "@/lib/principal-storage";
 import { installStaleChunkReload } from "@/lib/stale-chunk-reload";
@@ -24,13 +23,9 @@ initializePrincipalStorage(() => {
   });
 });
 
-// If this window is an OAuth popup returning to the plugin page, hand the code
-// back to the opener and close instead of booting the whole app.
-if (!maybeForwardCalendarOAuthCallback()) {
-  const rootElement = document.getElementById("pressedmail-plugin");
+const rootElement = document.getElementById("pressedmail-plugin");
 
-  if (rootElement) {
-    appRoot = ReactDOM.createRoot(rootElement);
-    appRoot.render(<EditionApp />);
-  }
+if (rootElement) {
+  appRoot = ReactDOM.createRoot(rootElement);
+  appRoot.render(<EditionApp />);
 }

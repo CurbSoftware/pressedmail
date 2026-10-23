@@ -278,15 +278,6 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
-      // Free ships no calendar or contacts sync, so no popup can post a
-      // callback back to the opener.
-      find: /^@\/lib\/calendar-oauth-callback$/,
-      replacement: pick(
-        "./src/lib/calendar-oauth-callback.free.ts",
-        "./src/lib/calendar-oauth-callback.ts",
-      ),
-    },
-    {
       // Auto-tagging is Pro-only, so the tag menu carries the entry only there.
       find: /^@\/components\/inbox\/MailTagAutoTagItem$/,
       replacement: pick(

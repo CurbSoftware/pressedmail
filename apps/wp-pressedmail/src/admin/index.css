@@ -336,6 +336,14 @@ body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
+
+  /* `hidden` still lets script and focus scroll the box. The app root can be
+     taller than this container for the 250ms the height transitions between
+     the admin-bar and immersive sizes, and a scroll in that window stays
+     behind (a live site settled at scrollTop 12, the app header clipped).
+     `clip` has no scroll position to leave behind; older browsers keep
+     `hidden` above. */
+  overflow: clip !important;
 }
 
 /* ============================================================================

@@ -64,7 +64,10 @@ const FEATURE_VARIANTS = Object.freeze({
   'audit_logs': 'pro',
   'templates': 'pro',
 });
-const DISABLED_FEATURES = Object.freeze([]);
+const DISABLED_FEATURES = Object.freeze([
+  'calendar_sync',
+  'contacts_sync',
+]);
 
 module.exports = {
   FEATURE_GROUPS,

@@ -125,8 +125,8 @@ export function useAvailableSettingsTabs() {
       });
     }
 
-    // Contacts Sync (Pro): import from Google/Outlook/CardDAV. Gated on the pro
-    // edition and the contacts_sync build flag.
+    // Contacts Sync (Pro) is on hold and in DISABLED_FEATURES, so no build
+    // offers it. The contacts_sync build flag stays the tree-shaking boundary.
     const contactsSyncEnabled =
       typeof __ENABLE_CONTACTS_SYNC__ === "boolean"
         ? __ENABLE_CONTACTS_SYNC__

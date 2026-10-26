@@ -191,7 +191,9 @@ export default function AppProvider({ children }: AppProviderProps) {
   const [defaultAccountId, setDefaultAccountId] = useLocalStorage<
     number | null
   >("defaultAccountId", null, { principalScoped: true });
-  const [isLoading, setIsLoading] = React.useState<boolean>(false);
+  // True from the start: the account list loads on mount, and a first paint that said otherwise
+  // showed the setup wizard for a moment to someone who has accounts.
+  const [isLoading, setIsLoading] = React.useState<boolean>(true);
   const [error, setError] = React.useState<string | null>(null);
   const [isAddAccount, setIsAddAccount] = React.useState<boolean>(false);
   const [editingAccount, setEditingAccount] =
@@ -528,6 +530,9 @@ export default function AppProvider({ children }: AppProviderProps) {
     async (accountId: string | number): Promise<void> => {
       setIsLoading(true);
       setError(null);
+      const removedEmail = accounts.find(
+        (account) => String(account.id) === String(accountId),
+      )?.email;
       const formData = new FormData();
       formData.append("id", accountId.toString());
 
@@ -547,7 +552,11 @@ export default function AppProvider({ children }: AppProviderProps) {
           setDefaultAccountId(nextState.defaultAccountId);
           return nextState.accounts;
         });
-        setSelectedAccount(null);
+        // Only the mailbox on screen moves on. Removing another one in settings
+        // used to send the inbox to the first account.
+        setSelectedAccount((current) =>
+          current === removedEmail ? null : current,
+        );
         if ((response as any)?.message || (response as any)?.data?.message) {
           appMessage(
             (response as any)?.message || (response as any)?.data?.message,
@@ -562,7 +571,13 @@ export default function AppProvider({ children }: AppProviderProps) {
         setIsLoading(false);
       }
     },
-    [defaultAccountId, setAccounts, setDefaultAccountId, setSelectedAccount],
+    [
+      accounts,
+      defaultAccountId,
+      setAccounts,
+      setDefaultAccountId,
+      setSelectedAccount,
+    ],
   );
 
   const onComplete = React.useCallback(
@@ -883,11 +898,6 @@ export default function AppProvider({ children }: AppProviderProps) {
 
         if (signal?.aborted) return null;
 
-        if (response.status === 404) {
-          setAccounts([]);
-          return [];
-        }
-
         if (!response.ok) {
           serverFailed = response.status >= 500;
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -954,8 +964,8 @@ export default function AppProvider({ children }: AppProviderProps) {
         );
         // Surface the failure instead of silently rendering the empty/setup
         // state. Existing accounts are intentionally left intact here, only an
-        // explicit 404/empty response clears them, so a transient auth/network
-        // failure does not look like "no accounts".
+        // empty list clears them, so a transient auth/network failure, or a
+        // 404 from a route that is not there, does not look like "no accounts".
         appMessage(__("Failed to load accounts", "pressedmail"), "error");
         return null;
       } finally {

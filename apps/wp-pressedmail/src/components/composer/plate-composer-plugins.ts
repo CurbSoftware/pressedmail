@@ -7,6 +7,7 @@ import {
   BaseH2Plugin,
   BaseH3Plugin,
   BaseHighlightPlugin,
+  BaseHorizontalRulePlugin,
   BaseItalicPlugin,
   BaseKbdPlugin,
   BaseStrikethroughPlugin,
@@ -82,7 +83,8 @@ import {
   CommentLeafStatic,
   SuggestionLeafStatic,
 } from './plate/comment-suggestion-static';
-import { DateElementStatic } from './plate/date-node-static';
+import { DateElementStatic, dateChipHtmlParsers } from './plate/date-node-static';
+import { HrElementStatic } from './plate/hr-node-static';
 import {
   EquationElementStatic,
   InlineEquationElementStatic,
@@ -140,6 +142,7 @@ export const ComposerEditorPlugins = [
   BaseH2Plugin,
   BaseH3Plugin,
   BaseBlockquotePlugin,
+  BaseHorizontalRulePlugin.withComponent(HrElementStatic),
   // Media: image keeps width/caption as inline styles; video/audio/file and
   // embeds downgrade to links; transient upload placeholders vanish.
   BaseImagePlugin.withComponent(ImageElementStatic),
@@ -181,7 +184,9 @@ export const ComposerEditorPlugins = [
     },
   })),
   // Inline date (email-safe formatted text)
-  BaseDatePlugin.withComponent(DateElementStatic),
+  BaseDatePlugin.withComponent(DateElementStatic).extend(() => ({
+    parsers: dateChipHtmlParsers,
+  })),
   // Toggle (email-safe → renders expanded, no collapse chrome)
   BaseTogglePlugin.withComponent(ToggleElementStatic).extend(() => ({
     parsers: {

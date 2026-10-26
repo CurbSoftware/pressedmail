@@ -1,4 +1,4 @@
-import type { TElement } from "@kit/plate";
+import { PathApi, type TElement } from "@kit/plate";
 import {
   expandListItemsWithChildren,
   getNextList,
@@ -93,6 +93,27 @@ export function moveBlockOut(editor: PlateEditor, element: TElement) {
     // The old container shifted down by however many blocks moved above it.
     refillIfEmpty(editor, [top + taken.moving.length, ...taken.parent.slice(1)]);
   });
+}
+
+/**
+ * Put an empty line directly above (-1) or below (1) a block, in the same
+ * column, cell or quote, with the caret in it. Without this an image at the
+ * top of a message, or two images in a row, leave nowhere to type.
+ */
+export function insertLine(
+  editor: PlateEditor,
+  element: TElement,
+  direction: -1 | 1,
+) {
+  const taken = takeBlock(editor, element);
+  if (!taken) return;
+  // Below a list item means below its nested children too.
+  const last = taken.path.slice(0, -1).concat(
+    taken.path[taken.path.length - 1]! + taken.moving.length - 1,
+  );
+  const at = direction === -1 ? taken.path : PathApi.next(last);
+  editor.tf.insertNodes(editor.api.create.block(), { at, select: true });
+  editor.tf.focus();
 }
 
 /**

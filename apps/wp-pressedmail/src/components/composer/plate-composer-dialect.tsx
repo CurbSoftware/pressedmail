@@ -42,6 +42,7 @@ import {
   ColumnGroupElementStatic,
 } from "./plate/column-node-static";
 import { DndKit } from "./plate/dnd-kit";
+import { VoidLinePlugin } from "./plate/void-line-plugin";
 import {
   EquationElementStatic,
   InlineEquationElementStatic,
@@ -242,6 +243,13 @@ export function buildComposerReactPlugins(
 
   return ComposerReactPlugins.filter((plugin) => !dropped.has(plugin)).map(
     (plugin) => {
+      // Blocks shown read-only take no caret either, so they get the same
+      // lines above and below as an image.
+      if (plugin === VoidLinePlugin && preset.readOnlyBlockNodes) {
+        return VoidLinePlugin.configure({
+          options: { readOnlyTypes: getReadOnlyBlockNodeTypes() },
+        }) as unknown as ComposerReactPlugin;
+      }
       const nodeType = (plugin as { node?: { type?: string } }).node?.type;
       const component = nodeType
         ? preset.readOnlyBlockNodes

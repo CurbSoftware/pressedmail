@@ -16,6 +16,8 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpLeft,
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
   ChevronRight,
   GripVertical,
   RemoveFormatting,
@@ -54,6 +56,7 @@ import {
   canUnwrapBlock,
   deleteBlock,
   getBlockMoveTarget,
+  insertLine,
   isInsideQuote,
   moveBlock,
   moveBlockOut,
@@ -254,6 +257,11 @@ function Draggable(props: PlateElementProps) {
                 side={menuSide}
                 align="start"
                 aria-label={__('Block actions', 'pressedmail')}
+                // Insert line puts the caret in the new line; leave it there
+                // instead of handing focus back to the grip.
+                onCloseAutoFocus={(event) => {
+                  if (editor.api.isFocused()) event.preventDefault();
+                }}
               >
                 {([-1, 1] as const).map((direction) => (
                   <Button
@@ -275,6 +283,24 @@ function Draggable(props: PlateElementProps) {
                     {direction === -1
                       ? __('Move up', 'pressedmail')
                       : __('Move down', 'pressedmail')}
+                  </Button>
+                ))}
+                {([-1, 1] as const).map((direction) => (
+                  <Button
+                    key={`line${direction}`}
+                    type="button"
+                    variant="ghost"
+                    className={menuItemClass}
+                    onClick={() => runAndClose(() => insertLine(editor, element, direction))}
+                  >
+                    {direction === -1 ? (
+                      <BetweenHorizontalStart aria-hidden="true" className="size-4" />
+                    ) : (
+                      <BetweenHorizontalEnd aria-hidden="true" className="size-4" />
+                    )}
+                    {direction === -1
+                      ? __('Insert line above', 'pressedmail')
+                      : __('Insert line below', 'pressedmail')}
                   </Button>
                 ))}
                 <Button

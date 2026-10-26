@@ -58,7 +58,18 @@ function mergeStyle(
     );
 
     if (!existing) {
-      declarations.push({ prop, value });
+      // A default shorthand written after the author's longhand would undo it
+      // (`margin: 0 0 12px` after an indent's `margin-left`, a cell's `border`
+      // after its own per-side borders), so it goes first and only fills in.
+      const longhand = new RegExp(
+        `^${prop}-(?:top|right|bottom|left|width|style|color)\\b`,
+        "i",
+      );
+      if (declarations.some((declaration) => longhand.test(declaration.prop))) {
+        declarations.unshift({ prop, value });
+      } else {
+        declarations.push({ prop, value });
+      }
       continue;
     }
 

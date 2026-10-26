@@ -29,7 +29,7 @@ export const ImageElement = withHOC(
     const { align = 'center', focused, readOnly, selected } = useMediaState();
     const width = useResizableValue('width');
 
-    const { isDragging, handleRef } = useDraggable({
+    const { isDragging, handleRef, previewRef } = useDraggable({
       element: props.element,
     });
 
@@ -77,6 +77,25 @@ export const ImageElement = withHOC(
               />
             </Caption>
           </figure>
+
+          {/* What the pointer carries while dragging (Markdown only): a small
+              thumbnail, so a tall picture does not hide where it will land. */}
+          {previewRef ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none fixed top-0 -left-[9999px] size-24 overflow-hidden rounded-sm"
+              contentEditable={false}
+              data-pm-editor-chrome
+              ref={previewRef}
+            >
+              <img
+                alt=""
+                className="size-full object-cover"
+                draggable={false}
+                src={props.element.url}
+              />
+            </div>
+          ) : null}
 
           {props.children}
         </PlateElement>

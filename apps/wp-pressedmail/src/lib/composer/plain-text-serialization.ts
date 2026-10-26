@@ -1,5 +1,7 @@
 import type { Value } from "@kit/plate";
 
+import { emailDateLabel } from "./email-date-label";
+
 type ComposerNode = {
   type?: string;
   text?: string;
@@ -128,7 +130,7 @@ function serializeInlineNode(node: ComposerNode): string {
       return mention && !mention.startsWith("@") ? `@${mention}` : mention;
     }
     case "date":
-      return stringProperty(node.date) || children;
+      return emailDateLabel(node) || children;
     case "inline_equation":
       return stringProperty(node.texExpression) || children || "[equation]";
     default:

@@ -81,6 +81,8 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
   const canManageSettings = Boolean(
     window.pressedmailPlugin?.canManageSettings,
   );
+  // The uninstall purge is an administrator's alone; the route refuses it from anyone else.
+  const canManageAccess = Boolean(window.pressedmailPlugin?.canManageAccess);
 
   return useMemo(() => {
     const sections: Omit<FreeSettingsSection, "description">[] = tabs.flatMap(
@@ -143,18 +145,20 @@ export function useFreeSettingsSections(): FreeSettingsSection[] {
           content: <SecurityAccessTab section="sync" />,
           group: "admin",
         },
-        {
+      );
+      if (canManageAccess) {
+        sections.push({
           id: "admin-data",
           label: __("Data and uninstall", "pressedmail"),
           icon: Shield,
           content: <SecurityAccessTab section="data" />,
           group: "admin",
-        },
-      );
+        });
+      }
     }
     return sections.map((section) => ({
       ...section,
       description: settingsSectionDescription(section.id),
     }));
-  }, [canManageSettings, tabs]);
+  }, [canManageAccess, canManageSettings, tabs]);
 }

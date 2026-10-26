@@ -26,13 +26,20 @@ export function formatCurrency(params: {
  * @name isSafeRedirectPath
  * @description Checks if a path is safe for redirects (prevents open redirect attacks).
  * Safe paths must:
+ * - Contain no control characters. URL parsers drop tab, CR and LF, so
+ *   "/\t/evil.com" would otherwise become "//evil.com" in the browser.
  * - Start with a single `/`
  * - NOT start with `//` (protocol-relative URLs)
  * - NOT contain `://` (absolute URLs)
  * - NOT contain backslash (URL normalization attacks)
+ * - Resolve to the origin they are resolved against, with a path that does
+ *   not normalise into a protocol-relative `//`.
  */
 export function isSafeRedirectPath(path: string): boolean {
   if (!path || typeof path !== 'string') return false;
+
+  // C0 controls and DEL: parsers strip or reinterpret them.
+  if (/[\u0000-\u001f\u007f]/.test(path)) return false;
 
   // Must start with exactly one forward slash (relative path)
   if (!path.startsWith('/') || path.startsWith('//')) return false;
@@ -42,6 +49,17 @@ export function isSafeRedirectPath(path: string): boolean {
 
   // Must not contain backslashes (can be normalized to forward slashes)
   if (path.includes('\\')) return false;
+
+  // Whatever the string tricks, it has to stay on the same origin.
+  const base = 'https://redirect-check.invalid';
+  try {
+    const resolved = new URL(path, base);
+    if (resolved.origin !== base || resolved.pathname.startsWith('//')) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
 
   return true;
 }

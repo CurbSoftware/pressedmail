@@ -5,6 +5,7 @@ import type { TDateElement } from "@kit/plate";
 import type { PlateElementProps } from "@kit/plate/react";
 import { PlateElement, useReadOnly } from "@kit/plate/react";
 import { useId } from "react";
+import { __ } from "@wordpress/i18n";
 
 import { DateTimeSelector } from "@/components/ui/date-time-selector";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,7 @@ export function DateElement(props: PlateElementProps<TDateElement>) {
   const label =
     element.date || element.rawDate
       ? getDateDisplayLabel(element)
-      : "Pick a date";
+      : __("Pick a date", "pressedmail");
 
   const trigger = (
     <span

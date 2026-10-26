@@ -975,9 +975,9 @@ export function useFolderOperations(): UseFolderOperationsReturn {
         return;
       }
 
-      // "Context changed during request" is expected when user switches
-      // folders/accounts mid-fetch, the result was cached, not an error.
-      if (result.error === "Context changed during request. Result cached") {
+      // A load the user moved on from (another folder, account or a newer
+      // load) is cached, not an error.
+      if (result.superseded) {
         return;
       }
 

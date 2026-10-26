@@ -3361,10 +3361,14 @@ export function useComposeForm({
           sender_alias_id: null,
           sender_alias_email: null,
           to_addresses: recipientsToString(uniqueRecipientGroups.to),
+          // An edit sends "" for an emptied field so the server clears it;
+          // a missing key means "unchanged" there.
           cc_addresses:
-            recipientsToString(uniqueRecipientGroups.cc) || undefined,
+            recipientsToString(uniqueRecipientGroups.cc) ||
+            (isScheduledEdit ? "" : undefined),
           bcc_addresses:
-            recipientsToString(uniqueRecipientGroups.bcc) || undefined,
+            recipientsToString(uniqueRecipientGroups.bcc) ||
+            (isScheduledEdit ? "" : undefined),
           contact_list_ids: getRecipientGroupContactLists(
             uniqueRecipientGroups,
           ).map((list) => list.id),

@@ -54,6 +54,7 @@ interface AdminSecuritySettings {
   purge_data_on_uninstall: boolean;
   sync_interval_minutes: number;
   timed_wake_enabled: boolean;
+  allow_user_mailbox_lock: boolean;
   // Pro: who may reach the Templates page. Pro's own settings filters add
   // them to the payload; Free never sends them, so the defaults stand.
   allow_templates_admin: boolean;
@@ -70,6 +71,7 @@ const DEFAULT_SETTINGS: AdminSecuritySettings = {
   purge_data_on_uninstall: false,
   sync_interval_minutes: 5,
   timed_wake_enabled: true,
+  allow_user_mailbox_lock: false,
   allow_templates_admin: true,
   allow_templates_user: true,
 };
@@ -146,6 +148,9 @@ export function SecurityAccessTab({
             timed_wake_enabled:
               data.settings.timed_wake_enabled ??
               DEFAULT_SETTINGS.timed_wake_enabled,
+            allow_user_mailbox_lock:
+              data.settings.allow_user_mailbox_lock ??
+              DEFAULT_SETTINGS.allow_user_mailbox_lock,
             allow_templates_admin:
               data.settings.allow_templates_admin ??
               DEFAULT_SETTINGS.allow_templates_admin,
@@ -330,7 +335,9 @@ export function SecurityAccessTab({
     const savedMessage =
       !__SINGLE_SEAT__ &&
       !coreDirty &&
-      childDrafts.every((draft) => draft === peopleDraft || draft === rolesDraft)
+      childDrafts.every(
+        (draft) => draft === peopleDraft || draft === rolesDraft,
+      )
         ? accessSavedMessage({
             people: staged(peopleDraft),
             roles: staged(rolesDraft),
@@ -857,6 +864,48 @@ export function SecurityAccessTab({
               </AlertDescription>
             </Alert>
           )}
+        </SettingsSectionCard>
+
+        <SettingsSectionCard
+          title={
+            <span role="heading" aria-level={2}>
+              {__("Password lock", "pressedmail")}
+            </span>
+          }
+          contentClassName="space-y-1">
+          <SettingsRow
+            inline
+            title={__(
+              "Let users lock PressedMail with a password",
+              "pressedmail",
+            )}
+            description={__(
+              "Each user can set a passphrase that PressedMail asks for in every browser. A forgotten one is reset by email, so this site needs working outgoing mail. Turning this off removes every user's lock.",
+              "pressedmail",
+            )}
+            control={
+              <>
+                <Label htmlFor="allow-user-mailbox-lock" className="sr-only">
+                  {__(
+                    "Let users lock PressedMail with a password",
+                    "pressedmail",
+                  )}
+                </Label>
+                <Switch
+                  id="allow-user-mailbox-lock"
+                  aria-label={__(
+                    "Let users lock PressedMail with a password",
+                    "pressedmail",
+                  )}
+                  data-test="allow-user-mailbox-lock-toggle"
+                  checked={settings.allow_user_mailbox_lock}
+                  onCheckedChange={(checked) =>
+                    updateSetting("allow_user_mailbox_lock", checked)
+                  }
+                />
+              </>
+            }
+          />
         </SettingsSectionCard>
       </div>
     </div>

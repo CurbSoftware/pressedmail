@@ -21,6 +21,14 @@ export interface MailboxLockRuntimeStatus {
   locked?: boolean;
   timeout_seconds?: number;
   migration_prompt?: boolean;
+  /** Seconds left on an active passphrase lockout. */
+  retry_after?: number;
+  /** Whether the site lets users set a lock at all. */
+  allowed?: boolean;
+  /** Whether the site can email a reset link. */
+  mail_ready?: boolean;
+  /** The user's own mailbox addresses a reset link may go to. */
+  reset_addresses?: string[];
 }
 
 export interface MailboxLockState {
@@ -28,6 +36,9 @@ export interface MailboxLockState {
   locked: boolean;
   timeoutSeconds: number;
   migrationPrompt: boolean;
+  retryAfter: number;
+  mailReady: boolean;
+  resetAddresses: string[];
 }
 
 type Listener = (state: MailboxLockState) => void;
@@ -43,6 +54,16 @@ function normalize(
     timeoutSeconds:
       typeof status?.timeout_seconds === "number" ? status.timeout_seconds : 0,
     migrationPrompt: status?.migration_prompt === true,
+    retryAfter:
+      typeof status?.retry_after === "number" && status.retry_after > 0
+        ? status.retry_after
+        : 0,
+    mailReady: status?.mail_ready === true,
+    resetAddresses: Array.isArray(status?.reset_addresses)
+      ? status.reset_addresses.filter(
+          (address): address is string => typeof address === "string",
+        )
+      : [],
   };
 }
 

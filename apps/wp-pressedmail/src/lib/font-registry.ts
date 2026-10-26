@@ -167,6 +167,13 @@ const FONT_OPTIONS: PressedMailFontOption[] = [
 
 const OPTION_BY_ID = new Map(FONT_OPTIONS.map((option) => [option.id, option]));
 
+/**
+ * The stack code and key caps are set in. It is an approved composer family,
+ * so send preparation (which drops any other stack) keeps it.
+ */
+export const COMPOSER_CODE_FONT_FAMILY =
+  OPTION_BY_ID.get("monospace-code")?.cssFontFamily ?? "monospace";
+
 const UI_FONT_IDS = [
   "system-ui",
   "neo-grotesque-sans",

@@ -113,9 +113,11 @@ import {
   CodeSyntaxLeaf,
 } from './plate/code-block-node';
 import { DndKit } from './plate/dnd-kit';
+import { imageOnlyPasteFiles } from './plate/image-only-paste';
 import { StripDecorationsOnCopyPlugin } from './plate/strip-decorations-on-copy';
 import { ColumnElement, ColumnGroupElement } from './plate/column-node';
 import { DateElement } from './plate/date-node';
+import { dateChipHtmlParsers } from './plate/date-node-static';
 import { EquationElement, InlineEquationElement } from './plate/equation-node';
 import { ExcalidrawElement } from './plate/excalidraw-node';
 import { KbdLeaf } from './plate/kbd-node';
@@ -144,6 +146,7 @@ import { SuggestionKit } from './plate/suggestion-kit';
 import { BlockPlaceholderKit } from './plate/block-placeholder-kit';
 import { EmojiKit } from './plate/emoji-kit';
 import { ExitBreakKit } from './plate/exit-break-kit';
+import { VoidLinePlugin } from './plate/void-line-plugin';
 import { CursorOverlayKit } from './plate/cursor-overlay-kit';
 import { FloatingToolbarKit } from './plate/floating-toolbar-kit';
 import { LinkFloatingToolbar } from './plate/link-toolbar';
@@ -220,7 +223,9 @@ export const ComposerReactPlugins = [
   // Callout (coloured info box; email-safe via inline-style table on serialize)
   CalloutPlugin.withComponent(CalloutElement),
   // Inline date chip (email-safe → plain formatted text)
-  DatePlugin.withComponent(DateElement),
+  DatePlugin.withComponent(DateElement).extend(() => ({
+    parsers: dateChipHtmlParsers,
+  })),
   // Collapsible toggle (email-safe → renders expanded)
   TogglePlugin.withComponent(ToggleElement),
   // Columns (email-safe → fixed-layout table on serialize)
@@ -243,7 +248,20 @@ export const ComposerReactPlugins = [
   PlaceholderPlugin.configure({
     options: { disableEmptyPlaceholder: true },
     render: { afterEditable: MediaUploadToast, node: PlaceholderElement },
-  }),
+  }).extend(() => ({
+    handlers: {
+      // Replaces the plugin's own paste handler, which ignored a copied
+      // image whenever the clipboard also carried HTML.
+      onPaste: ({ event, tf }) => {
+        const files = imageOnlyPasteFiles(event.clipboardData);
+        if (!files) return false;
+        event.preventDefault();
+        event.stopPropagation();
+        tf.insert.media(files, { nextBlock: false });
+        return true;
+      },
+    },
+  })),
   CaptionPlugin.configure({
     options: {
       query: {
@@ -451,6 +469,8 @@ export const ComposerReactPlugins = [
   // ":" emoji autocomplete
   ...AutoformatKit,
   ...ExitBreakKit,
+  // Enter, arrows and a click above give every image or rule a line to type on
+  VoidLinePlugin,
   ...BlockPlaceholderKit,
   ...EmojiKit,
 

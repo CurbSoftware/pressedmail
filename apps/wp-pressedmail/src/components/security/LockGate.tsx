@@ -1,13 +1,29 @@
 import * as React from "react";
 import { useEffect, useState, type CSSProperties } from "react";
 import { __, _n, sprintf } from "@wordpress/i18n";
-import { Lock, Loader2, AlertCircle, Eye, EyeOff } from "lucide-react";
+import {
+  Lock,
+  Loader2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  MailCheck,
+} from "lucide-react";
 
-import { Alert, AlertDescription, Button, Input, Label } from "@kit/ui/plugin";
+import {
+  Alert,
+  AlertDescription,
+  Button,
+  Input,
+  Label,
+  NativeSelect,
+  NativeSelectOption,
+} from "@kit/ui/plugin";
 
 import { useApplyShellMode } from "@/components/mobile-shell";
 import Logo from "../Icons/Logo";
 import { apiFetch } from "@/lib/api-client";
+import { appMessage } from "@/context/toast";
 import {
   getMailboxLockState,
   setMailboxLockStatus,
@@ -18,6 +34,7 @@ import {
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
 
+import { LockFieldsForm } from "./LockFieldsForm";
 import { LockMigrationPrompt } from "./LockMigrationPrompt";
 
 interface LockGateProps {
@@ -29,7 +46,23 @@ interface LockActionResponse {
   message?: string;
   code?: string;
   retry_after?: number;
+  address?: string;
   lock?: MailboxLockRuntimeStatus;
+}
+
+/** The query parameter the emailed reset link carries. */
+export const LOCK_RESET_PARAM = "pm_lock_reset";
+
+/** Take the reset token out of the address bar, so it is never bookmarked or shared. */
+function takeResetToken(): string {
+  if (typeof window === "undefined") return "";
+  const url = new URL(window.location.href);
+  const token = url.searchParams.get(LOCK_RESET_PARAM) ?? "";
+  if (token !== "") {
+    url.searchParams.delete(LOCK_RESET_PARAM);
+    window.history.replaceState(window.history.state, "", url.toString());
+  }
+  return token;
 }
 
 const getApiUrl = (): string =>
@@ -55,9 +88,17 @@ export function LockGate({ children }: LockGateProps) {
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [retryAfter, setRetryAfter] = useState(0);
+  // A lockout that is already running when the page loads counts down at
+  // once, instead of the first try failing with "too many attempts".
+  const [retryAfter, setRetryAfter] = useState(
+    () => getMailboxLockState().retryAfter,
+  );
   const [forgotMode, setForgotMode] = useState(false);
   const [wpPassword, setWpPassword] = useState("");
+  const [resetAddress, setResetAddress] = useState(
+    () => getMailboxLockState().resetAddresses[0] ?? "",
+  );
+  const [resetSentTo, setResetSentTo] = useState<string | null>(null);
 
   // ApplicationLayout never mounts behind this gate, so apply the shell mode it
   // would normally set, otherwise the safe-area and touch utilities are absent
@@ -97,6 +138,48 @@ export function LockGate({ children }: LockGateProps) {
 
   useEffect(() => subscribeMailboxLock(setLockState), []);
 
+  // The emailed reset link lands here. It works only for the signed-in user it
+  // was sent to, once, within 30 minutes; the server checks all of that.
+  useEffect(() => {
+    const token = takeResetToken();
+    if (token === "") return;
+    void (async () => {
+      try {
+        const res = await apiFetch(
+          `${getApiUrl()}${getRuntimeRestNamespace()}/security/lock/reset-confirm`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          },
+        );
+        const data = (await res
+          .json()
+          .catch(() => null)) as LockActionResponse | null;
+        if (res.ok && data?.status === "success") {
+          setMailboxLockStatus(data.lock);
+          appMessage(
+            data.message || __("PressedMail Lock is off.", "pressedmail"),
+            "success",
+          );
+          return;
+        }
+        const text =
+          data?.message ||
+          __("That didn’t work. Please try again.", "pressedmail");
+        setError(text);
+        appMessage(text, "error");
+      } catch {
+        setError(
+          __(
+            "Something went wrong. Reload the page and try again.",
+            "pressedmail",
+          ),
+        );
+      }
+    })();
+  }, []);
+
   // Lockout countdown after a 429.
   useEffect(() => {
     if (retryAfter <= 0) {
@@ -120,7 +203,7 @@ export function LockGate({ children }: LockGateProps) {
   }
 
   const postLockAction = async (
-    endpoint: "unlock" | "reset" | "setup",
+    endpoint: "unlock" | "reset-request" | "setup",
     body: Record<string, string>,
   ) => {
     setSubmitting(true);
@@ -140,12 +223,26 @@ export function LockGate({ children }: LockGateProps) {
       if (res.ok && data?.status === "success") {
         setPassphrase("");
         setWpPassword("");
+        if (endpoint === "reset-request") {
+          // The lock stays on until the emailed link is opened.
+          setResetSentTo(data.address || body.address || "");
+          return;
+        }
         setForgotMode(false);
         setMailboxLockStatus(data.lock);
         return;
       }
-      if (typeof data?.retry_after === "number" && data.retry_after > 0) {
+      // Only a real lockout counts down. A rate limit (429) or a storage
+      // fault (503) also send retry_after, and reading those as "too many
+      // failed attempts" is what told users with one typo they were locked out.
+      if (
+        data?.code === "locked_out" &&
+        typeof data.retry_after === "number" &&
+        data.retry_after > 0
+      ) {
         setRetryAfter(data.retry_after);
+        setError(null);
+        return;
       }
       setError(
         data?.message ||
@@ -163,8 +260,14 @@ export function LockGate({ children }: LockGateProps) {
     }
   };
 
-  const lockedOut = retryAfter > 0;
+  // A passphrase lockout never blocks the forgot flow, which has its own count.
+  const lockedOut = retryAfter > 0 && !forgotMode;
   const busy = submitting || lockedOut;
+  const canEmailReset =
+    lockState.mailReady && lockState.resetAddresses.length > 0;
+  const chosenAddress = lockState.resetAddresses.includes(resetAddress)
+    ? resetAddress
+    : (lockState.resetAddresses[0] ?? "");
 
   return (
     <div
@@ -206,7 +309,7 @@ export function LockGate({ children }: LockGateProps) {
               <p className="text-base text-muted-foreground">
                 {forgotMode
                   ? __(
-                      "Enter your WordPress password to reset PressedMail Lock. The lock will be turned off; no mail or settings are lost.",
+                      "Pick one of your email addresses and confirm your WordPress password. We will email you a link that turns PressedMail Lock off. No mail or settings are lost.",
                       "pressedmail",
                     )
                   : lockState.migrationPrompt
@@ -250,43 +353,108 @@ export function LockGate({ children }: LockGateProps) {
             </Alert>
           )}
 
-          {forgotMode ? (
+          {forgotMode && resetSentTo !== null ? (
+            <div className="space-y-4" data-test="lock-gate-reset-sent">
+              <Alert>
+                <MailCheck className="h-4 w-4" />
+                <AlertDescription>
+                  {sprintf(
+                    /* translators: %s: email address the reset link went to. */
+                    __(
+                      "Check %s. The link in that email works once, for 30 minutes, in a browser where you are signed in to WordPress as yourself.",
+                      "pressedmail",
+                    ),
+                    resetSentTo,
+                  )}
+                </AlertDescription>
+              </Alert>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => {
+                  setForgotMode(false);
+                  setResetSentTo(null);
+                  setError(null);
+                }}>
+                {__("Back to passphrase", "pressedmail")}
+              </Button>
+            </div>
+          ) : forgotMode ? (
             <form
               className="space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                if (!busy && wpPassword !== "") {
-                  void postLockAction("reset", { wp_password: wpPassword });
+                if (!busy && canEmailReset && wpPassword !== "") {
+                  void postLockAction("reset-request", {
+                    address: chosenAddress,
+                    wp_password: wpPassword,
+                  });
                 }
               }}>
-              <div className="space-y-2">
-                <Label
-                  htmlFor="lock-gate-wp-password"
-                  className="text-sm font-medium">
-                  {__("WordPress password", "pressedmail")}
-                </Label>
-                <Input
-                  id="lock-gate-wp-password"
-                  type="password"
-                  {...sensitiveInputProps("wordpress-password")}
-                  placeholder={__(
-                    "Enter your WordPress password",
-                    "pressedmail",
-                  )}
-                  value={wpPassword}
-                  onChange={(e) => setWpPassword(e.target.value)}
-                  disabled={busy}
-                />
-              </div>
-              <Button
-                type="submit"
-                className="h-12 w-full text-lg font-semibold"
-                disabled={busy || wpPassword === ""}>
-                {submitting && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                {__("Reset and turn off the lock", "pressedmail")}
-              </Button>
+              {canEmailReset ? (
+                <>
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="lock-gate-reset-address"
+                      className="text-sm font-medium">
+                      {__("Send the link to", "pressedmail")}
+                    </Label>
+                    <NativeSelect
+                      id="lock-gate-reset-address"
+                      data-test="lock-gate-reset-address"
+                      className="w-full"
+                      value={chosenAddress}
+                      onChange={(e) => setResetAddress(e.target.value)}
+                      disabled={busy}>
+                      {lockState.resetAddresses.map((address) => (
+                        <NativeSelectOption key={address} value={address}>
+                          {address}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </div>
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="lock-gate-wp-password"
+                      className="text-sm font-medium">
+                      {__("WordPress password", "pressedmail")}
+                    </Label>
+                    <Input
+                      id="lock-gate-wp-password"
+                      type="password"
+                      {...sensitiveInputProps("wordpress-password")}
+                      placeholder={__(
+                        "Enter your WordPress password",
+                        "pressedmail",
+                      )}
+                      value={wpPassword}
+                      onChange={(e) => setWpPassword(e.target.value)}
+                      disabled={busy}
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="h-12 w-full text-lg font-semibold"
+                    disabled={busy || wpPassword === ""}>
+                    {submitting && (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    )}
+                    {__("Email me a reset link", "pressedmail")}
+                  </Button>
+                </>
+              ) : (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    {__(
+                      "A reset link can't be sent from this site right now. It needs working outgoing mail and one of your own mailboxes connected. Ask an administrator for help.",
+                      "pressedmail",
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
               <Button
                 type="button"
                 variant="ghost"
@@ -301,10 +469,9 @@ export function LockGate({ children }: LockGateProps) {
               </Button>
             </form>
           ) : (
-            <form
+            <LockFieldsForm
               className="space-y-4"
-              onSubmit={(event) => {
-                event.preventDefault();
+              onSubmit={() => {
                 if (!busy && passphrase !== "") {
                   void postLockAction(
                     lockState.migrationPrompt ? "setup" : "unlock",
@@ -373,7 +540,7 @@ export function LockGate({ children }: LockGateProps) {
                 disabled={submitting}>
                 {__("Forgot your passphrase?", "pressedmail")}
               </Button>
-            </form>
+            </LockFieldsForm>
           )}
 
           <p className="border-t pt-4 text-center text-xs text-muted-foreground/80">

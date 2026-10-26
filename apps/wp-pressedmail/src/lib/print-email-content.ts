@@ -176,6 +176,12 @@ export function printEmailContent(options: PrintEmailContentOptions): boolean {
   }
 
   const frame = document.createElement("iframe");
+  // Sandboxed before it is attached, so its first document already is: the
+  // sender's HTML can never run script here, whatever slips past the
+  // sanitizer and the CSP. allow-same-origin lets this code write the
+  // document and call print(); without allow-scripts that grants the frame
+  // nothing. allow-modals is what print() needs inside a sandbox.
+  frame.setAttribute("sandbox", "allow-same-origin allow-modals");
   frame.setAttribute("aria-hidden", "true");
   frame.setAttribute("title", "PressedMail print frame");
   frame.style.position = "fixed";

@@ -21,6 +21,8 @@ import {
   notifyAutosaveSuccess,
   type AutosaveStatus,
 } from "@/hooks/useAutosaveSetting";
+import { appMessage } from "@/context/toast";
+import { LockFieldsForm } from "@/components/security/LockFieldsForm";
 import { useCanShowExternalImages } from "@/context/admin-settings";
 import {
   SettingsSaveState,
@@ -72,6 +74,8 @@ interface LockStatus {
   locked: boolean;
   timeout_seconds: number;
   migration_prompt: boolean;
+  allowed: boolean;
+  mail_ready: boolean;
 }
 
 interface LockActionResponse {
@@ -130,6 +134,8 @@ function normalizeLock(
     timeout_seconds:
       typeof status?.timeout_seconds === "number" ? status.timeout_seconds : 0,
     migration_prompt: status?.migration_prompt === true,
+    allowed: status?.allowed === true,
+    mail_ready: status?.mail_ready === true,
   };
 }
 
@@ -288,7 +294,12 @@ export function SecuritySettingsCard() {
         const data = await postLock(endpoint, body);
         if (applyLockResponse(data)) {
           onSuccess?.();
-          notifyAutosaveSuccess("user-security-settings");
+          // Say what just happened. A generic "Saved" here read as though the
+          // lock fields saved themselves as you typed.
+          appMessage(
+            data?.message || __("PressedMail Lock updated.", "pressedmail"),
+            "success",
+          );
         } else {
           setLockError(
             data?.message ||
@@ -601,6 +612,9 @@ export function SecuritySettingsCard() {
   }
 
   const lockEnabled = lockStatus?.enabled === true;
+  // The site switch: with it off there is no lock to set, so the tile is gone.
+  const lockAllowed = lockStatus?.allowed === true;
+  const lockMailReady = lockStatus?.mail_ready === true;
 
   return (
     <>
@@ -630,214 +644,227 @@ export function SecuritySettingsCard() {
         )}
 
         {/* PressedMail Lock */}
-        <div
-          className="rounded-lg border bg-muted/30 p-4 space-y-3"
-          data-test="security-mailbox-lock-tile">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5 shrink-0 text-muted-foreground" />
-              <p className="text-sm font-medium">
-                {__("PressedMail Lock", "pressedmail")}
-                {lockEnabled && (
-                  <span className="ml-2 text-xs font-normal text-primary">
-                    {__("Enabled", "pressedmail")}
-                  </span>
+        {lockAllowed && (
+          <div
+            className="rounded-lg border bg-muted/30 p-4 space-y-3"
+            data-test="security-mailbox-lock-tile">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 shrink-0 text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  {__("PressedMail Lock", "pressedmail")}
+                  {lockEnabled && (
+                    <span className="ml-2 text-xs font-normal text-primary">
+                      {__("Enabled", "pressedmail")}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {__(
+                  "Lock your mail, contacts, calendar, and sending with a passphrase in each browser. Background sync keeps running.",
+                  "pressedmail",
                 )}
               </p>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {__(
-                "Lock your mail, contacts, calendar, and sending with a passphrase in each browser. Background sync keeps running.",
-                "pressedmail",
-              )}
-            </p>
+
+            {lockError && (
+              <Alert variant="destructive" data-test="security-lock-error">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{lockError}</AlertDescription>
+              </Alert>
+            )}
+
+            {!lockEnabled && !lockMailReady ? (
+              <p
+                className="text-xs text-muted-foreground"
+                data-test="security-lock-mail-not-ready">
+                {__(
+                  "An administrator must set up outgoing mail first. A forgotten passphrase is recovered by email, so the lock stays off until this site can send it.",
+                  "pressedmail",
+                )}
+              </p>
+            ) : !lockEnabled ? (
+              <LockFieldsForm
+                className="space-y-2"
+                data-test="security-lock-setup"
+                onSubmit={() => void handleSetup()}>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Input
+                    type="password"
+                    id="security-lock-setup-passphrase"
+                    aria-label={__("New passphrase", "pressedmail")}
+                    aria-invalid={setupFieldError ? true : undefined}
+                    aria-describedby={
+                      setupFieldError
+                        ? "security-lock-setup-passphrase-error"
+                        : undefined
+                    }
+                    {...sensitiveInputProps("mailbox-lock-passphrase")}
+                    placeholder={__(
+                      "New passphrase (min. 8 characters)",
+                      "pressedmail",
+                    )}
+                    value={setupPassphrase}
+                    onChange={(e) => {
+                      setSetupPassphrase(e.target.value);
+                      setSetupFieldError(null);
+                    }}
+                    disabled={lockBusy}
+                    data-test="security-lock-setup-passphrase"
+                  />
+                  <Input
+                    type="password"
+                    {...sensitiveInputProps("mailbox-lock-passphrase-confirm")}
+                    aria-label={__("Repeat new passphrase", "pressedmail")}
+                    placeholder={__("Repeat passphrase", "pressedmail")}
+                    value={setupConfirm}
+                    onChange={(e) => setSetupConfirm(e.target.value)}
+                    disabled={lockBusy}
+                    data-test="security-lock-setup-confirm"
+                  />
+                </div>
+                {setupFieldError ? (
+                  <p
+                    id="security-lock-setup-passphrase-error"
+                    role="alert"
+                    className="text-xs text-destructive"
+                    data-test="security-lock-setup-error"
+                    data-testid="security-lock-setup-error">
+                    {setupFieldError}
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label
+                    htmlFor="security-lock-setup-timeout"
+                    className="text-xs text-muted-foreground">
+                    {__("Lock after inactivity:", "pressedmail")}
+                  </Label>
+                  <Select
+                    value={String(setupTimeout)}
+                    onValueChange={(value) => setSetupTimeout(Number(value))}
+                    disabled={lockBusy}>
+                    <SelectTrigger
+                      id="security-lock-setup-timeout"
+                      className="w-36"
+                      data-test="security-lock-setup-timeout">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEOUT_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={String(option.value)}>
+                          {option.label()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={lockBusy}
+                    data-test="security-lock-setup-submit">
+                    {lockBusy && (
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                    )}
+                    {__("Enable PressedMail Lock", "pressedmail")}
+                  </Button>
+                </div>
+              </LockFieldsForm>
+            ) : (
+              <div className="space-y-2" data-test="security-lock-manage">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Label
+                    htmlFor="security-lock-timeout"
+                    className="text-xs text-muted-foreground">
+                    {__("Lock after inactivity:", "pressedmail")}
+                  </Label>
+                  <Select
+                    value={String(draft.lock_timeout_seconds)}
+                    onValueChange={(value) =>
+                      updateDraft("lock_timeout_seconds", Number(value))
+                    }
+                    disabled={lockBusy}>
+                    <SelectTrigger
+                      id="security-lock-timeout"
+                      className="w-36"
+                      data-test="security-lock-timeout">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEOUT_OPTIONS.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={String(option.value)}>
+                          {option.label()}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void runLockAction("lock", {})}
+                    disabled={lockBusy}
+                    data-test="security-lock-now">
+                    {__("Lock now", "pressedmail")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void runLockAction("lock-all", {})}
+                    disabled={lockBusy}
+                    data-test="security-lock-all">
+                    {__("Lock all sessions", "pressedmail")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setLockError(null);
+                      setChangeOpen(true);
+                    }}
+                    disabled={lockBusy}
+                    data-test="security-lock-change">
+                    {__("Change passphrase", "pressedmail")}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      setLockError(null);
+                      setDisableOpen(true);
+                    }}
+                    disabled={lockBusy}
+                    data-test="security-lock-disable">
+                    {__("Turn off", "pressedmail")}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <details className="text-xs text-muted-foreground pt-2 border-t">
+              <summary className="cursor-pointer font-medium">
+                {__("What the lock protects", "pressedmail")}
+              </summary>
+              <p className="pt-2">
+                {__(
+                  "PressedMail Lock protects access through the normal WordPress and PressedMail interfaces: switched admin sessions, open sessions on shared devices, and stolen browser sessions. It does not additionally encrypt your data, and it cannot protect against an administrator or hosting operator who can modify website code, database contents, or server configuration.",
+                  "pressedmail",
+                )}
+              </p>
+              <LockShareNote />
+            </details>
           </div>
-
-          {lockError && (
-            <Alert variant="destructive" data-test="security-lock-error">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>{lockError}</AlertDescription>
-            </Alert>
-          )}
-
-          {!lockEnabled ? (
-            <div className="space-y-2" data-test="security-lock-setup">
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input
-                  type="password"
-                  id="security-lock-setup-passphrase"
-                  aria-label={__("New passphrase", "pressedmail")}
-                  aria-invalid={setupFieldError ? true : undefined}
-                  aria-describedby={
-                    setupFieldError
-                      ? "security-lock-setup-passphrase-error"
-                      : undefined
-                  }
-                  {...sensitiveInputProps("mailbox-lock-passphrase")}
-                  placeholder={__(
-                    "New passphrase (min. 8 characters)",
-                    "pressedmail",
-                  )}
-                  value={setupPassphrase}
-                  onChange={(e) => {
-                    setSetupPassphrase(e.target.value);
-                    setSetupFieldError(null);
-                  }}
-                  disabled={lockBusy}
-                  data-test="security-lock-setup-passphrase"
-                />
-                <Input
-                  type="password"
-                  {...sensitiveInputProps("mailbox-lock-passphrase-confirm")}
-                  aria-label={__("Repeat new passphrase", "pressedmail")}
-                  placeholder={__("Repeat passphrase", "pressedmail")}
-                  value={setupConfirm}
-                  onChange={(e) => setSetupConfirm(e.target.value)}
-                  disabled={lockBusy}
-                  data-test="security-lock-setup-confirm"
-                />
-              </div>
-              {setupFieldError ? (
-                <p
-                  id="security-lock-setup-passphrase-error"
-                  role="alert"
-                  className="text-xs text-destructive"
-                  data-test="security-lock-setup-error"
-                  data-testid="security-lock-setup-error">
-                  {setupFieldError}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap items-center gap-2">
-                <Label
-                  htmlFor="security-lock-setup-timeout"
-                  className="text-xs text-muted-foreground">
-                  {__("Lock after inactivity:", "pressedmail")}
-                </Label>
-                <Select
-                  value={String(setupTimeout)}
-                  onValueChange={(value) => setSetupTimeout(Number(value))}
-                  disabled={lockBusy}>
-                  <SelectTrigger
-                    id="security-lock-setup-timeout"
-                    className="w-36"
-                    data-test="security-lock-setup-timeout">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEOUT_OPTIONS.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={String(option.value)}>
-                        {option.label()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => void handleSetup()}
-                  disabled={lockBusy}
-                  data-test="security-lock-setup-submit">
-                  {lockBusy && (
-                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                  )}
-                  {__("Enable PressedMail Lock", "pressedmail")}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2" data-test="security-lock-manage">
-              <div className="flex flex-wrap items-center gap-2">
-                <Label
-                  htmlFor="security-lock-timeout"
-                  className="text-xs text-muted-foreground">
-                  {__("Lock after inactivity:", "pressedmail")}
-                </Label>
-                <Select
-                  value={String(draft.lock_timeout_seconds)}
-                  onValueChange={(value) =>
-                    updateDraft("lock_timeout_seconds", Number(value))
-                  }
-                  disabled={lockBusy}>
-                  <SelectTrigger
-                    id="security-lock-timeout"
-                    className="w-36"
-                    data-test="security-lock-timeout">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEOUT_OPTIONS.map((option) => (
-                      <SelectItem
-                        key={option.value}
-                        value={String(option.value)}>
-                        {option.label()}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void runLockAction("lock", {})}
-                  disabled={lockBusy}
-                  data-test="security-lock-now">
-                  {__("Lock now", "pressedmail")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void runLockAction("lock-all", {})}
-                  disabled={lockBusy}
-                  data-test="security-lock-all">
-                  {__("Lock all sessions", "pressedmail")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setLockError(null);
-                    setChangeOpen(true);
-                  }}
-                  disabled={lockBusy}
-                  data-test="security-lock-change">
-                  {__("Change passphrase", "pressedmail")}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => {
-                    setLockError(null);
-                    setDisableOpen(true);
-                  }}
-                  disabled={lockBusy}
-                  data-test="security-lock-disable">
-                  {__("Turn off", "pressedmail")}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <details className="text-xs text-muted-foreground pt-2 border-t">
-            <summary className="cursor-pointer font-medium">
-              {__("What the lock protects", "pressedmail")}
-            </summary>
-            <p className="pt-2">
-              {__(
-                "PressedMail Lock protects access through the normal WordPress and PressedMail interfaces: switched admin sessions, open sessions on shared devices, and stolen browser sessions. It does not additionally encrypt your data, and it cannot protect against an administrator or hosting operator who can modify website code, database contents, or server configuration.",
-                "pressedmail",
-              )}
-            </p>
-            <LockShareNote />
-          </details>
-        </div>
+        )}
 
         <div className="grid gap-3" data-test="user-security-settings-grid">
           <div
@@ -1104,46 +1131,60 @@ export function SecuritySettingsCard() {
               "pressedmail",
             )}
           />
-          <PressedOverlayBody className="space-y-2">
-            {lockError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{lockError}</AlertDescription>
-              </Alert>
-            )}
-            <Input
-              type="password"
-              {...sensitiveInputProps("mailbox-lock-passphrase")}
-              placeholder={__("Current passphrase", "pressedmail")}
-              value={currentPassphrase}
-              onChange={(e) => setCurrentPassphrase(e.target.value)}
-              disabled={lockBusy}
-              aria-label={__("Current passphrase", "pressedmail")}
-              data-test="security-lock-change-current"
-            />
-            <Input
-              type="password"
-              {...sensitiveInputProps("mailbox-lock-passphrase-new")}
-              placeholder={__(
-                "New passphrase (min. 8 characters)",
-                "pressedmail",
+          <PressedOverlayBody>
+            <LockFieldsForm
+              className="space-y-2"
+              onSubmit={() => {
+                if (
+                  !lockBusy &&
+                  currentPassphrase !== "" &&
+                  newPassphrase !== ""
+                ) {
+                  void handleChangePassphrase();
+                }
+              }}>
+              {lockError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{lockError}</AlertDescription>
+                </Alert>
               )}
-              value={newPassphrase}
-              onChange={(e) => setNewPassphrase(e.target.value)}
-              disabled={lockBusy}
-              aria-label={__("New passphrase", "pressedmail")}
-              data-test="security-lock-change-new"
-            />
-            <Input
-              type="password"
-              {...sensitiveInputProps("mailbox-lock-passphrase-new-confirm")}
-              placeholder={__("Repeat new passphrase", "pressedmail")}
-              value={newConfirm}
-              onChange={(e) => setNewConfirm(e.target.value)}
-              disabled={lockBusy}
-              aria-label={__("Repeat new passphrase", "pressedmail")}
-              data-test="security-lock-change-new-confirm"
-            />
+              <Input
+                type="password"
+                {...sensitiveInputProps("mailbox-lock-passphrase")}
+                placeholder={__("Current passphrase", "pressedmail")}
+                value={currentPassphrase}
+                onChange={(e) => setCurrentPassphrase(e.target.value)}
+                disabled={lockBusy}
+                aria-label={__("Current passphrase", "pressedmail")}
+                data-test="security-lock-change-current"
+              />
+              <Input
+                type="password"
+                {...sensitiveInputProps("mailbox-lock-passphrase-new")}
+                placeholder={__(
+                  "New passphrase (min. 8 characters)",
+                  "pressedmail",
+                )}
+                value={newPassphrase}
+                onChange={(e) => setNewPassphrase(e.target.value)}
+                disabled={lockBusy}
+                aria-label={__("New passphrase", "pressedmail")}
+                data-test="security-lock-change-new"
+              />
+              <Input
+                type="password"
+                {...sensitiveInputProps("mailbox-lock-passphrase-new-confirm")}
+                placeholder={__("Repeat new passphrase", "pressedmail")}
+                value={newConfirm}
+                onChange={(e) => setNewConfirm(e.target.value)}
+                disabled={lockBusy}
+                aria-label={__("Repeat new passphrase", "pressedmail")}
+                data-test="security-lock-change-new-confirm"
+              />
+              {/* Enter submits; the dialog's own button stays the visible one. */}
+              <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+            </LockFieldsForm>
           </PressedOverlayBody>
           <PressedOverlayFooter>
             <AlertDialogCancel disabled={lockBusy}>
@@ -1175,23 +1216,32 @@ export function SecuritySettingsCard() {
               "pressedmail",
             )}
           />
-          <PressedOverlayBody className="space-y-2">
-            {lockError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{lockError}</AlertDescription>
-              </Alert>
-            )}
-            <Input
-              type="password"
-              {...sensitiveInputProps("mailbox-lock-passphrase")}
-              placeholder={__("Passphrase", "pressedmail")}
-              value={disablePassphrase}
-              onChange={(e) => setDisablePassphrase(e.target.value)}
-              disabled={lockBusy}
-              aria-label={__("Passphrase", "pressedmail")}
-              data-test="security-lock-disable-passphrase"
-            />
+          <PressedOverlayBody>
+            <LockFieldsForm
+              className="space-y-2"
+              onSubmit={() => {
+                if (!lockBusy && disablePassphrase !== "") {
+                  void handleDisable();
+                }
+              }}>
+              {lockError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{lockError}</AlertDescription>
+                </Alert>
+              )}
+              <Input
+                type="password"
+                {...sensitiveInputProps("mailbox-lock-passphrase")}
+                placeholder={__("Passphrase", "pressedmail")}
+                value={disablePassphrase}
+                onChange={(e) => setDisablePassphrase(e.target.value)}
+                disabled={lockBusy}
+                aria-label={__("Passphrase", "pressedmail")}
+                data-test="security-lock-disable-passphrase"
+              />
+              <button type="submit" hidden aria-hidden="true" tabIndex={-1} />
+            </LockFieldsForm>
           </PressedOverlayBody>
           <PressedOverlayFooter>
             <AlertDialogCancel disabled={lockBusy}>

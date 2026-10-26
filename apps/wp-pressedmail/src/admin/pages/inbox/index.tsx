@@ -1,4 +1,5 @@
 import { __ } from "@wordpress/i18n";
+import { useEffect, useState } from "react";
 import { ThemedMailLayout } from "@/components/inbox/themed-mail-layout";
 import { useAppContext } from "@/context/AppProvider";
 import Wizard from "@/context/SetupWizardWidget";
@@ -16,6 +17,7 @@ export default function MailPage() {
     isLoading,
     error,
     isAddAccount,
+    reloadAccounts,
   } = useAppContext();
 
   // Single boot point for the admin inbox. Do NOT also call in ThemedMailLayout.
@@ -28,8 +30,16 @@ export default function MailPage() {
 
   const showWizard = !hasCompletedSetup || isAddAccount;
 
+  // The spinner and the full-page error are for the first load of the account list. Adding, saving or
+  // removing an account loads again, and swapping the page for a spinner then threw away the open
+  // wizard and everything typed into it. Once the inbox or the wizard has been shown, it stays.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!isLoading && !error) setShown(true);
+  }, [isLoading, error]);
+
   // Show loading state
-  if (isLoading) {
+  if (isLoading && !shown) {
     return (
       // The boot marker exists so a test can tell a loaded screen from a
       // mounted one. `#pressedmail-plugin` is visible throughout this branch,
@@ -51,7 +61,7 @@ export default function MailPage() {
   }
 
   // Show error state
-  if (error) {
+  if (error && !shown) {
     return (
       <div className="flex h-full items-center justify-center bg-background p-4">
         <Alert variant="destructive" className="max-w-md">
@@ -79,7 +89,26 @@ export default function MailPage() {
   return (
     <div
       data-account-import-state={accountImportState}
-      className={`flex min-h-0 flex-col bg-background ${showWizard ? "h-full overflow-hidden" : "h-full"}`}>
+      className={`relative flex min-h-0 flex-col bg-background ${showWizard ? "h-full overflow-hidden" : "h-full"}`}>
+      {/* A later failure shows over the inbox, which stays as it is. The wizard reports its own. */}
+      {error && !showWizard ? (
+        <div className="pointer-events-none absolute inset-x-0 top-2 z-50 flex justify-center px-4">
+          <Alert
+            variant="destructive"
+            className="pointer-events-auto max-w-md bg-background">
+            <AlertCircle className="h-5 w-5" />
+            <AlertTitle className="font-semibold">
+              {__("Something went wrong", "pressedmail")}
+            </AlertTitle>
+            <AlertDescription className="mt-2">
+              <p className="mb-3">{error}</p>
+              <Button onClick={() => void reloadAccounts()} variant="outline">
+                {__("Try Again", "pressedmail")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      ) : null}
       {showWizard ? (
         <Wizard onComplete={onComplete} isLoading={isLoading} />
       ) : (

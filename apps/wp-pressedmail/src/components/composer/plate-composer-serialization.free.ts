@@ -6,6 +6,8 @@ import {
 } from "@kit/plate/email-editor";
 
 import { parseComposerHtmlInert } from "@/lib/composer/composer-html-inert";
+import { emailDateLabel } from "@/lib/composer/email-date-label";
+import { COMPOSER_CODE_FONT_FAMILY } from "@/lib/font-registry";
 import { serializeComposerValueToPlainText } from "@/lib/composer/plain-text-serialization";
 import { getComposerLinkStyle, readComposerLinkStyle } from "./plate/link-style";
 import { BUTTON_BLOCK, BUTTON_KEY, buttonHtml, readButtonSettings } from "./nodes/button-fields";
@@ -186,6 +188,14 @@ const MARKER_DATE = /^[0-9A-Za-z:+. /-]{1,64}$/;
 const MARKER_WIDTH = /^[0-9]{1,4}(?:\.[0-9]{1,3})?(?:px|%|em|rem)?$/;
 const MARKER_COLOR = /^(?:#[0-9a-fA-F]{3,8}|[a-zA-Z]{3,24}|rgba?\([0-9.,% ]{1,32}\))$/;
 const MARKER_ICON = /^.{1,16}$/u;
+const TODO_GLYPH_STYLE =
+  "display:inline-block;font-family:'Segoe UI Symbol', 'Apple Color Emoji', 'Noto Sans Symbols', sans-serif;margin-right:6px";
+
+function nodeText(node: ComposerNode): string {
+  return typeof node.text === "string"
+    ? node.text
+    : (node.children ?? []).map(nodeText).join("");
+}
 
 function serializeNode(node: ComposerNode): string {
   if (typeof node.text === "string") return serializeText(node);
@@ -195,6 +205,12 @@ function serializeNode(node: ComposerNode): string {
 
   const children = serializeChildren(node);
   const blockTag = BLOCK_TYPES[type];
+
+  if (blockTag && node.listStyleType === "todo") {
+    // Pro's email shape (block-list-static.tsx): a glyph, since email has no
+    // checkbox, and a struck-through done item. The glyph reopens it as a todo.
+    return `<ul style="list-style-type:none;margin:0 0 0 ${Math.max(1, Number(node.indent) || 1) * 24}px;padding:0"><li style="list-style-type:none${node.checked ? ";color:#6b7280;text-decoration:line-through" : ""}"><span aria-hidden="true" style="${TODO_GLYPH_STYLE}">${node.checked ? "\u2611" : "\u2610"}</span>${children}</li></ul>`;
+  }
 
   if (blockTag) {
     const listStyle =
@@ -219,7 +235,7 @@ function serializeNode(node: ComposerNode): string {
     case "horizontal_rule":
       return "<hr>";
     case "code_block":
-      return `<pre style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.5;overflow-wrap:anywhere;padding:12px;white-space:pre-wrap;word-break:break-word"><code>${children}</code></pre>`;
+      return `<pre style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-family:${escapeAttribute(COMPOSER_CODE_FONT_FAMILY)};font-size:13px;line-height:1.5;overflow-wrap:anywhere;padding:12px;white-space:pre-wrap;word-break:break-word"><code>${children}</code></pre>`;
     case "code_line":
       return `${children}\n`;
     case "signature":
@@ -240,15 +256,16 @@ function serializeNode(node: ComposerNode): string {
     case BUTTON_KEY:
       return buttonHtml(node);
     case "date": {
+      // data-date reopens the draft; the text is what the recipient reads.
       const value = typeof node.date === "string" ? node.date : "";
-      return `<span data-pm-block="date"${optionalAttribute("data-date", value)}>${escapeHtml(value)}</span>`;
+      return `<span data-pm-block="date"${optionalAttribute("data-date", value)}>${escapeHtml(emailDateLabel({ date: node.date, rawDate: node.rawDate }))}</span>`;
     }
     case "toggle":
       return `<div data-pm-block="toggle">${children}</div>`;
     case "column_group":
       return `<table role="presentation" data-pm-block="column_group" style="table-layout:fixed;width:100%"><tbody><tr>${children}</tr></tbody></table>`;
     case "column":
-      return `<td data-pm-block="column"${optionalAttribute("data-width", node.width ? String(node.width) : undefined)}${optionalAttribute("style", node.width ? `width:${String(node.width)}` : undefined)}>${children}</td>`;
+      return `<td data-pm-block="column"${optionalAttribute("data-width", node.width ? String(node.width) : undefined)} style="${node.width ? `width:${escapeAttribute(String(node.width))};` : ""}vertical-align:top;padding:4px 8px;border:none">${children}</td>`;
     case "tr":
       return `<tr>${children}</tr>`;
     case "td":
@@ -260,9 +277,16 @@ function serializeNode(node: ComposerNode): string {
     }
     case "img":
     case "image": {
-      const src = safeLink(node.url ?? node.src);
+      // A pasted picture is a data: image; the server sends it as a cid: part.
+      const raw = String(node.url ?? node.src ?? "").trim();
+      const src = /^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/i.test(raw)
+        ? raw
+        : safeLink(raw);
       if (!src) return children;
-      return `<img src="${escapeAttribute(src)}" alt="${escapeAttribute(node.alt ?? "")}"${optionalAttribute("width", node.width)}>`;
+      // Pro's email shape (media-image-node-static.tsx), caption included.
+      const width = typeof node.width === "number" ? `${node.width}px` : typeof node.width === "string" ? node.width : "";
+      const caption = Array.isArray(node.caption) && node.caption[0] ? nodeText(node.caption[0] as ComposerNode) : "";
+      return `<figure style="margin:10px 0;text-align:${escapeAttribute(node.align ?? "center")}"><img src="${escapeAttribute(src)}" alt="${escapeAttribute(node.alt ?? "")}"${optionalAttribute("width", node.width)} style="border-radius:4px;height:auto;max-width:100%${width ? `;width:${escapeAttribute(width)}` : ""}">${caption ? `<figcaption style="color:#6b7280;font-size:12px;margin-top:4px;text-align:center">${escapeHtml(caption)}</figcaption>` : ""}</figure>`;
     }
     case "file":
     case "audio":
@@ -317,9 +341,20 @@ function domListToComposerNodes(
   );
 
   items.forEach((item, index) => {
-    const style = item.dataset.pmListStyle || listStyle;
+    // A todo item, Free's or Pro's, opens with a hidden ballot-box glyph: its
+    // checked state, not text.
+    const first = item.firstElementChild;
+    const glyph =
+      first?.getAttribute("aria-hidden") === "true" &&
+      /^[\u2610\u2611]$/.test(first.textContent ?? "")
+        ? first
+        : null;
+    const style = glyph ? "todo" : item.dataset.pmListStyle || listStyle;
     const indent =
-      positiveInteger(item.dataset.pmListIndent) ?? inheritedIndent;
+      positiveInteger(item.dataset.pmListIndent) ??
+      (glyph
+        ? Math.max(1, Math.round(Number.parseFloat(list.style.marginLeft || "24") / 24))
+        : inheritedIndent);
     const start =
       positiveInteger(item.dataset.pmListStart) ??
       (ordered ? listStart + index : undefined);
@@ -327,11 +362,13 @@ function domListToComposerNodes(
     const contentNodes = Array.from(item.childNodes)
       .filter(
         (child) =>
-          !(child instanceof HTMLElement) ||
-          !["ol", "ul"].includes(child.tagName.toLowerCase()),
+          child !== glyph &&
+          (!(child instanceof HTMLElement) ||
+            !["ol", "ul"].includes(child.tagName.toLowerCase())),
       )
       .flatMap((child) =>
-        domNodeToComposerNodes(child, elementTextMarks(item, marks)),
+        // A done todo's grey is how it shows checked, not the author's colour.
+        domNodeToComposerNodes(child, glyph ? marks : elementTextMarks(item, marks)),
       );
     const children = unwrapListItemChildren(contentNodes);
 
@@ -341,6 +378,7 @@ function domListToComposerNodes(
       indent,
       ...(start !== undefined ? { listStart: start } : {}),
       ...(restart !== undefined ? { listRestartPolite: restart } : {}),
+      ...(glyph ? { checked: glyph.textContent === "\u2611" } : {}),
       children: children.length > 0 ? children : [{ text: "" }],
     });
 
@@ -529,6 +567,13 @@ function domNodeToComposerNodes(
 
   if (tag === "a") {
     return [{ type: "a", url: node.getAttribute("href") ?? "", ...readComposerLinkStyle(node), children }];
+  }
+  if (tag === "figure") {
+    const image = children.find((child) => child.type === "img");
+    const caption = node.querySelector("figcaption")?.textContent?.trim();
+    if (image) {
+      return [caption ? { ...image, caption: [{ children: [{ text: caption }] }] } : image];
+    }
   }
   if (tag === "img") {
     return [

@@ -2,6 +2,8 @@ import * as React from 'react';
 import type { SlateElementProps, SlateLeafProps } from '@kit/plate/static';
 import { SlateElement, SlateLeaf } from '@kit/plate/static';
 
+import { COMPOSER_CODE_FONT_FAMILY } from '@/lib/font-registry';
+
 /**
  * Email-safe code block: inline-styled <pre><code> (classes are stripped by
  * the serializer). Long lines wrap, email bodies must never scroll
@@ -16,8 +18,7 @@ export function CodeBlockElementStatic(props: SlateElementProps) {
           backgroundColor: '#f8fafc',
           border: '1px solid #e2e8f0',
           borderRadius: '6px',
-          fontFamily:
-            'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontFamily: COMPOSER_CODE_FONT_FAMILY,
           fontSize: '13px',
           lineHeight: 1.5,
           overflowWrap: 'anywhere',

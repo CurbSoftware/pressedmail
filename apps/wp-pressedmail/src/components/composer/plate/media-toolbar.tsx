@@ -8,8 +8,13 @@ import {
   useImagePreviewValue,
 } from '@kit/plate/media/react';
 import { cva } from 'class-variance-authority';
-import { Link, Trash2Icon } from 'lucide-react';
-import type { WithRequiredKey } from '@kit/plate';
+import {
+  BetweenHorizontalEnd,
+  BetweenHorizontalStart,
+  Link,
+  Trash2Icon,
+} from 'lucide-react';
+import type { TElement, WithRequiredKey } from '@kit/plate';
 import {
   useEditorRef,
   useEditorSelector,
@@ -32,9 +37,10 @@ import {
   PressedPopoverContent,
 } from "@/components/ui/pressed-overlay";
 
+import { insertLine } from './block-move';
 import { CaptionButton } from './caption';
 
-/** Floating per-media toolbar: edit URL, caption, delete (template port). */
+/** Floating per-media toolbar: edit URL, caption, add a line, delete (template port). */
 const inputVariants = cva(
   'flex h-[28px] w-full rounded-md border-none bg-transparent px-1.5 py-1 text-base placeholder:text-muted-foreground md:text-sm',
 );
@@ -106,6 +112,24 @@ export function MediaToolbar({
             </CaptionButton>
 
             <Separator className="mx-1 h-6" orientation="vertical" />
+
+            <Button
+              aria-label={__('Insert line above', 'pressedmail')}
+              size="sm"
+              variant="ghost"
+              onClick={() => insertLine(editor, element as TElement, -1)}
+            >
+              <BetweenHorizontalStart />
+            </Button>
+
+            <Button
+              aria-label={__('Insert line below', 'pressedmail')}
+              size="sm"
+              variant="ghost"
+              onClick={() => insertLine(editor, element as TElement, 1)}
+            >
+              <BetweenHorizontalEnd />
+            </Button>
 
             <Button
               aria-label={__('Remove media', 'pressedmail')}

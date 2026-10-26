@@ -83,6 +83,8 @@ export interface LoadMessagesResult {
   lastSyncedAt?: number | null;
   /** Server-provided thread messages keyed by thread id. */
   threadGroups?: EmailThreadGroupMap;
+  /** A newer load or a context switch overtook this one, so it reported nothing. Not a failure. */
+  superseded?: boolean;
 }
 
 /**

@@ -61,6 +61,11 @@ interface PressedMailPluginGlobal {
    * need: their REST routes are guarded by `manage_options` alone.
    */
   canManageAccess?: boolean;
+  /**
+   * Administrator capability, which Branding & Appearance needs: the
+   * whitelabel routes are guarded by `manage_options` alone.
+   */
+  canManageBranding?: boolean;
   canAccessPressedMail?: boolean;
   /**
    * True when this browser signed a user out and still holds that session's

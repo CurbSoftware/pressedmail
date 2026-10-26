@@ -121,6 +121,9 @@ import type { MutationTarget } from "@/lib/folder-target";
 const IDENTITY_ERROR =
   "The mailbox reference is incomplete or has changed. Refresh the mailbox and try again.";
 
+/** How the inbox service marks a page the user moved away from while it loaded. */
+const CONTEXT_CHANGED = "Context changed during request";
+
 interface ResolvedMessageRef extends MessageIdentityRef {
   /** Complete token retained for service calls and local state updates. */
   apiId: string;
@@ -1049,6 +1052,7 @@ export function InboxProvider({
 
   // Reset services and clear init flag when account changes
   const prevAccountRef = useRef<string | null>(mailboxScopeKey);
+  const latestLoadRef = useRef(0);
   useLayoutEffect(() => {
     if (prevAccountRef.current === mailboxScopeKey) return;
     const wasNull = prevAccountRef.current === null;
@@ -1283,7 +1287,19 @@ export function InboxProvider({
                 getUserPreferencesSnapshot().email_list_default_sort,
             };
 
+      // Only the latest load reports. One that a mailbox switch, a folder switch or a newer load overtook is
+      // the service's cache only: its count, sync token and error stay off the screen, and its caller is not
+      // told it succeeded, since its page may be another folder's.
+      const load = ++latestLoadRef.current;
+      const scope = prevAccountRef.current;
       const result = await inboxService.loadMessages(enrichedOptions);
+      if (
+        load !== latestLoadRef.current ||
+        prevAccountRef.current !== scope ||
+        result.error?.startsWith(CONTEXT_CHANGED)
+      ) {
+        return { ...result, success: false, superseded: true };
+      }
 
       if (result.success) {
         setInitError(null);
@@ -1437,6 +1453,9 @@ export function InboxProvider({
       if (!currentAccountId) {
         return;
       }
+      // The sync below can take seconds. Switching mailboxes meanwhile makes this reload the old mailbox's,
+      // and loading it then would put its mail under the new one.
+      const scope = prevAccountRef.current;
 
       // Only the explicit Refresh buttons (syncAllAccounts) sync by default. An
       // automatic reload after a send, move or failure rereads the mirror only:
@@ -1510,6 +1529,10 @@ export function InboxProvider({
           // refreshes within a tick. Confirming "up to date" would be a claim about
           // work that had not run yet.
         }
+      }
+
+      if (prevAccountRef.current !== scope) {
+        return;
       }
 
       const currentPageState = inboxService as unknown as {
@@ -3263,6 +3286,9 @@ export function InboxProvider({
         initializedAccountRef.current = null;
         setInitError(null);
         setRetryCount((c) => c + 1);
+        // The error is often the list's own, and the folder retry above never reloads it: without this,
+        // "Try again" only hid the message and left the list empty.
+        void refreshMessages();
       },
 
       // Connection health

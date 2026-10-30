@@ -16,6 +16,7 @@ interface SnoozePopoverProps {
   targets?: SnoozeTargetCandidate[];
   onPick?: (snoozeUntil: string) => Promise<boolean> | boolean;
   onSnoozed?: (succeeded: SnoozeTarget[]) => void;
+  shortcut?: boolean;
   children: ReactNode;
 }
 

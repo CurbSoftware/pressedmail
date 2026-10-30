@@ -2075,6 +2075,35 @@ body
 }
 
 /*
+ * Menu items and options under the pointer. Radix moves focus to the item the
+ * pointer rests on, so a hover matched :focus-visible and drew the outline
+ * above, in a colour the item's own highlight does not use: every hover in the
+ * account switcher, a dropdown or a select looked like keyboard focus. The
+ * highlight is the hover cue. Keyboard navigation keeps the outline, because
+ * on some palettes the highlight alone is 1.44:1 against the menu.
+ * data-pm-modality comes from src/lib/input-modality.ts; without it the
+ * outline shows, as before.
+ */
+html[data-pm-modality="pointer"]
+  body
+  :is(
+    #pressedmail-plugin,
+    #pressedmail-plugin-frontend,
+    .pressedmail-frontend,
+    [data-pm-portal],
+    [data-radix-portal],
+    [data-radix-popper-content-wrapper]
+  )
+  :is(
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"]
+  ):focus-visible {
+  outline-color: transparent !important;
+}
+
+/*
  * Tag checklist rows (tag popover and tag sheets). The box is 16px, so its
  * outline alone is easy to lose; the whole row lights up instead, the way the
  * menu primitives highlight their items. One indicator per focus: the box

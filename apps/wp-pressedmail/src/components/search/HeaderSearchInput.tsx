@@ -35,6 +35,7 @@ import {
   parseUtcDate,
 } from "@/components/calendar/calendar-timezone";
 import type { LocalCalendarEvent } from "@/types/calendar";
+import { useShortcutHandler } from "@/components/keyboard-shortcuts/shortcut-registry";
 import { DateTimeSelector } from "@/components/ui/date-time-selector";
 import {
   PressedOverlayBody,
@@ -497,6 +498,8 @@ export function HeaderSearchInput({
   const [calendarDraft, setCalendarDraft] =
     React.useState<DraftCalendarFilters>(EMPTY_CALENDAR_DRAFT);
   const [isFocused, setIsFocused] = React.useState(false);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  useShortcutHandler("search", () => searchInputRef.current?.focus());
   const [remoteSuggestions, setRemoteSuggestions] = React.useState<
     SearchSuggestion[]
   >([]);
@@ -749,6 +752,7 @@ export function HeaderSearchInput({
           onChange={handleScopeChange}
         />
         <Input
+          ref={searchInputRef}
           autoComplete="off"
           type="search"
           role="searchbox"

@@ -9,6 +9,7 @@ export type PreferenceCategoryId =
   | "inbox"
   | "composer"
   | "notifications"
+  | "keyboard"
   | "language"
   | "ai";
 
@@ -21,6 +22,7 @@ export const PREFERENCE_CATEGORIES: readonly PreferenceCategory[] = [
   { id: "inbox", label: __("Inbox", "pressedmail") },
   { id: "composer", label: __("Composer", "pressedmail") },
   { id: "notifications", label: __("Notifications", "pressedmail") },
+  { id: "keyboard", label: __("Keyboard", "pressedmail") },
   { id: "language", label: __("Language", "pressedmail") },
   { id: "ai", label: __("AI", "pressedmail") },
 ];
@@ -48,6 +50,7 @@ export { EmailListSection } from "./_components/user-settings/email-list-section
 export { MailHandlingSection } from "./_components/user-settings/mail-handling-section";
 export { NotificationsSection } from "./_components/user-settings/notifications-section";
 export { ColorPalettesSection } from "./_components/user-settings/color-palettes-section";
+export { KeyboardShortcutsSection } from "./_components/user-settings/keyboard-shortcuts-section";
 
 export { READING_ACTION_KEYS } from "./_components/user-settings/reading-actions-section";
 export { ROW_DETAIL_KEYS } from "./_components/user-settings/row-detail-section";
@@ -59,6 +62,7 @@ export { EMAIL_LIST_KEYS } from "./_components/user-settings/email-list-section"
 export { MAIL_HANDLING_KEYS } from "./_components/user-settings/mail-handling-section";
 export { NOTIFICATION_KEYS } from "./_components/user-settings/notifications-section";
 export { COLOR_PALETTE_KEYS } from "./_components/user-settings/color-palettes-section";
+export { KEYBOARD_SHORTCUT_KEYS } from "./_components/user-settings/keyboard-shortcuts-section";
 
 export const PREFERENCE_SECTIONS: PreferenceSection[] = [
   {
@@ -218,6 +222,18 @@ export const PREFERENCE_SECTIONS: PreferenceSection[] = [
       const module =
         await import("./_components/user-settings/notifications-section");
       return { default: module.NotificationsSection };
+    }),
+  },
+  {
+    id: "keyboard-shortcuts",
+    title: __("Keyboard shortcuts", "pressedmail"),
+    category: "keyboard",
+    minTier: "free",
+    keys: [],
+    Component: lazy(async () => {
+      const module =
+        await import("./_components/user-settings/keyboard-shortcuts-section");
+      return { default: module.KeyboardShortcutsSection };
     }),
   },
   {

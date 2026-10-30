@@ -2,6 +2,7 @@ import ReactDOM from "react-dom/client";
 
 import { EditionApp } from "@/admin/EditionApp.active";
 
+import { installInputModality } from "@/lib/input-modality";
 import { initializePrincipalStorage } from "@/lib/principal-storage";
 import { installStaleChunkReload } from "@/lib/stale-chunk-reload";
 
@@ -12,6 +13,7 @@ import "./index.css";
 import "@/styles/premium-themes.css";
 
 installStaleChunkReload(import.meta.url);
+installInputModality();
 
 let appRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
 initializePrincipalStorage(() => {

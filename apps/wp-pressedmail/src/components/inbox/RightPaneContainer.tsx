@@ -74,6 +74,7 @@ import {
 } from "@/lib/message-identity";
 import { ScheduledEmailReadingPane } from "@/components/scheduled/ScheduledEmailReadingPane";
 import { buildReplyRecipients } from "./reply-recipients";
+import { useShortcutHandler } from "@/components/keyboard-shortcuts/shortcut-registry";
 
 import {
   Button,
@@ -190,6 +191,7 @@ export function RightPaneContainer({
   const {
     archiveMessage,
     deleteMessage,
+    markAsRead,
     markAsUnread,
     moveMessage,
     toggleStar,
@@ -1039,6 +1041,45 @@ export function RightPaneContainer({
       reportOperationFailure,
     );
   }, [selectedIdentity, identityFailure, toggleStar, reportOperationFailure]);
+
+  // Keyboard shortcuts for the open message: the same handlers as the action
+  // bar, so they keep its confirm-delete and after-archive behaviour. Only
+  // while the pane reads it: behind a reply or a new email the message is
+  // still selected, and a stray "a" or "e" there would replace the draft or
+  // archive the mail being answered. A scheduled email has its own actions.
+  const hasOpenMessage =
+    Boolean(selectedMessage) &&
+    paneMode === "reading" &&
+    !scheduledEmail &&
+    !isScheduledMessage(selectedMessage);
+  // While composing, c does not start another email over this one.
+  useShortcutHandler("compose", () => undefined, paneMode === "compose");
+  useShortcutHandler("reply", handleReply, hasOpenMessage);
+  useShortcutHandler("reply_all", handleReplyAll, hasOpenMessage);
+  useShortcutHandler("forward", handleForward, hasOpenMessage);
+  useShortcutHandler("archive", handleArchive, hasOpenMessage);
+  useShortcutHandler("delete", handleTrash, hasOpenMessage);
+  useShortcutHandler("star", handleToggleStar, hasOpenMessage);
+  useShortcutHandler("mark_unread", handleMarkUnread, hasOpenMessage);
+  useShortcutHandler(
+    "mark_read",
+    () => {
+      if (!selectedIdentity) return;
+      void Promise.resolve(markAsRead(selectedIdentity)).then(
+        reportOperationFailure,
+      );
+    },
+    hasOpenMessage,
+  );
+  useShortcutHandler(
+    "back_to_list",
+    () =>
+      composer.requestNavigation(() => {
+        clearSelection();
+        focusMessageList();
+      }),
+    hasOpenMessage,
+  );
 
   const handleFolderRecovery = React.useCallback(() => {
     if (!selectedIdentity) {

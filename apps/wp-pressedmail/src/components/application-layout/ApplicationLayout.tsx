@@ -19,6 +19,7 @@ import { MobileNotificationsSheet } from "./MobileNotificationsSheet";
 import { UpgradeModal } from "@/components/features/UpgradeModal.active";
 import { WhatsNewDialog } from "@/components/whats-new/WhatsNewDialog";
 import { TemplatePickerHost } from "@/components/templates/TemplatePickerHost";
+import { KeyboardShortcuts } from "@/components/keyboard-shortcuts/keyboard-shortcuts";
 import { PressedTooltipProvider } from "@/components/ui/pressed-tooltip";
 import { PaneComposeProvider } from "@/context/composer";
 import { useAppContext } from "@/context/AppProvider";
@@ -381,6 +382,8 @@ const ApplicationLayout = () => {
                 palette={SPEED_DIAL_MENU_PALETTE_PRESETS.surfacePrimary}
               />
             )}
+            {/* Keys for a keyboard: the phone shell has none to listen for. */}
+            {!compactShellEnabled && !showSetupWizard && <KeyboardShortcuts />}
             {/* The one "New email from template" picker. It hands its email to
                 the pane composer, so it lives inside the provider. Free
                 resolves this to a component that renders nothing. */}

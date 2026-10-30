@@ -1,5 +1,7 @@
 import * as React from "react";
 
+import { useShortcutHandler } from "@/components/keyboard-shortcuts/shortcut-registry";
+
 /**
  * Keyboard model for the message list.
  *
@@ -86,6 +88,40 @@ export function useMessageGridNavigation<T extends HTMLElement>(
     },
     [indexOfEventRow, rowsFromDom],
   );
+
+  // The j and k shortcuts. With a message open they open its neighbour, the
+  // way the reading pane follows the list; with none open they move the focus
+  // and o (or Enter) opens. Gmail does the same.
+  const step = React.useCallback(
+    (delta: 1 | -1) => {
+      const rows = rowsFromDom();
+      if (rows.length === 0) return;
+      const open = rows.findIndex(
+        (row) => row.getAttribute("aria-selected") === "true",
+      );
+      const focused = indexOfEventRow(rows, document.activeElement);
+      const from =
+        open >= 0
+          ? open
+          : focused >= 0
+            ? focused
+            : rows.findIndex((row) => row.tabIndex === 0);
+      const next =
+        from < 0 ? 0 : Math.min(Math.max(from + delta, 0), rows.length - 1);
+      setActiveIndex(next);
+      rows[next]?.focus();
+      if (open >= 0 && next !== open) rows[next]?.click();
+    },
+    [indexOfEventRow, rowsFromDom],
+  );
+  useShortcutHandler("next_email", () => step(1));
+  useShortcutHandler("prev_email", () => step(-1));
+  useShortcutHandler("open_email", () => {
+    const rows = rowsFromDom();
+    const focused = indexOfEventRow(rows, document.activeElement);
+    const row = rows[focused] ?? rows.find((candidate) => candidate.tabIndex === 0);
+    row?.click();
+  });
 
   // Clicking or tabbing into a row makes it the tab stop, so leaving and
   // returning to the list comes back to where the user was.

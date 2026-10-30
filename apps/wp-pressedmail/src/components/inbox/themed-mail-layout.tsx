@@ -39,13 +39,22 @@ interface ThemedMailLayoutProps extends Omit<
  * itself.
  */
 function OpenFolderFromUrl() {
-  const { selectedNav, selectFolder } = useFolderOperations();
+  const { selectedNav, selectFolder, getSystemFolder, folders } =
+    useFolderOperations();
   const { accounts, selectedAccount, setSelectedAccount } = useAppContext();
   const [searchParams, setSearchParams] = useSearchParams();
 
   React.useEffect(() => {
     if (searchParams.has("openMessageId")) return;
-    const requestedFolder = searchParams.get("folder")?.trim() ?? "";
+    // Keyboard shortcuts ask for Sent and Drafts by role, because every
+    // provider names them differently ("[Gmail]/Sent Mail", "Sent Items").
+    const role = searchParams.get("role");
+    let requestedFolder = searchParams.get("folder")?.trim() ?? "";
+    if (role === "sent" || role === "drafts") {
+      if (folders.length === 0) return;
+      requestedFolder =
+        getSystemFolder(role)?.path ?? (role === "sent" ? "Sent" : "Drafts");
+    }
     if (!requestedFolder) return;
 
     const requestedAccountId = Number(searchParams.get("accountId"));
@@ -66,9 +75,12 @@ function OpenFolderFromUrl() {
     const next = new URLSearchParams(searchParams);
     next.delete("accountId");
     next.delete("folder");
+    next.delete("role");
     setSearchParams(next, { replace: true });
   }, [
     accounts,
+    folders.length,
+    getSystemFolder,
     searchParams,
     selectFolder,
     selectedAccount,

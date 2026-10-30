@@ -1080,6 +1080,7 @@ export function EmailActionBar({
     return (
       <SnoozePopover
         key={`snooze:${tagScope.key}`}
+        shortcut
         accountId={tagIdentity.accountId}
         messageUid={tagIdentity.uid}
         folder={tagIdentity.folder}

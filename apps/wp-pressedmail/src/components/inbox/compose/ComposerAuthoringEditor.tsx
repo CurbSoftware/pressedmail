@@ -18,7 +18,7 @@
  * Every surface wears the composer's theme: the app's light or dark canvas,
  * the author's default font and size, and Preview to see it as the recipient
  * will. The preset's `editingCanvas` is not read here; PressedMail dropped the
- * fixed-light signature and auto-reply canvas (Curb.Email still reads it).
+ * fixed-light signature and auto-reply canvas (other apps may still read it).
  *
  * The email composer has more around the canvas than the authoring surfaces do
  * (plain-text mode, recipients, attachments, its own media-upload session

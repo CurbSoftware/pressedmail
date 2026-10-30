@@ -7,7 +7,7 @@
  * code. components/templates/template-fields.ts re-exports it for the editor.
  */
 
-/** The ten namespaces the server fills or blanks. Anything else is the author's own text. `post` is filled inside a posts block (Pro). */
+/** The eleven namespaces the server fills or blanks. Anything else is the author's own text. `post` is filled inside a posts block (Pro); `woo` is filled by the Woo Bridge companion when it is active. */
 export const TEMPLATE_NAMESPACES = [
   "contact",
   "sender",
@@ -19,6 +19,7 @@ export const TEMPLATE_NAMESPACES = [
   "event",
   "date",
   "post",
+  "woo",
 ] as const;
 
 const NAMESPACES: ReadonlySet<string> = new Set(TEMPLATE_NAMESPACES);

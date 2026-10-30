@@ -26,6 +26,7 @@ import {
 } from "@/components/settings-ui";
 import { WpMailConnectionsPanel } from "@/admin/pages/settings/_components/admin-settings/wp-mail-connections-panel.active";
 import { WpMailDefaultSmtp } from "@/admin/pages/settings/_components/admin-settings/wp-mail-default-smtp.active";
+import { WooEmailsPanel } from "@/admin/pages/settings/_components/admin-settings/woo-emails-panel.active";
 import {
   WordPressNotificationTemplates,
   sectionDraftBar,
@@ -50,11 +51,12 @@ const RETENTION_CHOICES = [0, 30, 60, 90];
  * Pro splits the decision in two and names the panels for what they hold:
  * SMTP Accounts (`mail-servers`), Default SMTP (`default-smtp`, where the
  * master switch lives) and System Emails (`system-emails`, the per-email
- * choices and the delivery log). Free keeps the two it has always had. The
- * internal ids are the same in both, so nothing that names a panel by id cares
- * which edition it is running in.
+ * choices and the delivery log). Pro also offers `woo`, the WooCommerce
+ * emails panel, whenever the Woo Bridge companion is active. Free keeps the
+ * two it has always had. The internal ids are the same in both, so nothing
+ * that names a panel by id cares which edition it is running in.
  */
-type WpMailPanel = "system-emails" | "mail-servers" | "default-smtp";
+type WpMailPanel = "system-emails" | "mail-servers" | "default-smtp" | "woo";
 
 /**
  * Settings tab for the SMTP server WordPress uses to send its own email.
@@ -113,9 +115,9 @@ export function WpMailTab() {
   );
   const connectionsDirty = connectionDraftList.some((entry) => entry.dirty);
   const connectionsSaving = connectionDraftList.some((entry) => entry.saving);
-  // The notification section registers like a connection form, so the leave prompt
-  // covers it, but its edits are not a form of their own: this tab's save bar
-  // saves and resets them with the tab's own settings.
+  // The System Emails table and the WooCommerce panel register like connection
+  // forms, so the leave prompt covers them, but their edits are not forms of
+  // their own: this tab's save bar saves and resets them with the tab's own settings.
   const section = sectionDraftBar(connectionDrafts);
 
   const load = useCallback(async () => {
@@ -389,7 +391,7 @@ export function WpMailTab() {
         <TabsList
           variant="line"
           aria-label={__("WordPress email sections", "pressedmail")}
-          className="w-full justify-start rounded-none border-b px-0 max-sm:h-auto! pointer-coarse:h-auto!">
+          className="w-full justify-start rounded-none border-b px-0 max-sm:h-auto! max-sm:flex-wrap pointer-coarse:h-auto! pointer-coarse:flex-wrap">
           {__IS_PRO__ ? (
             <>
               <TabsTrigger
@@ -413,6 +415,15 @@ export function WpMailTab() {
                 data-testid="wp-mail-panel-system-emails">
                 {__("System Emails", "pressedmail")}
               </TabsTrigger>
+              {window.pressedmailPlugin?.wooBridge?.active ? (
+                <TabsTrigger
+                  value="woo"
+                  className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
+                  data-test="wp-mail-panel-woo"
+                  data-testid="wp-mail-panel-woo">
+                  {__("WooCommerce", "pressedmail")}
+                </TabsTrigger>
+              ) : null}
             </>
           ) : (
             <>
@@ -506,6 +517,21 @@ export function WpMailTab() {
               state={state}
               onStateChange={handleStateChange}
               disabled={saving || connectionsSaving}
+            />
+          </TabsContent>
+        ) : null}
+
+        {/* The WooCommerce panel only exists while the Woo Bridge companion is
+            active; it renders nothing otherwise, and never ships in Free. */}
+        {__IS_PRO__ && window.pressedmailPlugin?.wooBridge?.active ? (
+          <TabsContent
+            value="woo"
+            keepMounted
+            className="space-y-4"
+            data-test="wp-mail-woo-panel">
+            <WooEmailsPanel
+              connections={state.connections}
+              registerDraft={registerConnectionDraft}
             />
           </TabsContent>
         ) : null}

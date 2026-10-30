@@ -149,6 +149,12 @@ interface PressedMailPluginGlobal {
   providerExtensions?: {
     protonmail?: { restBase?: string; canManage?: boolean };
   };
+  /** Set by the Woo Bridge companion: where its own REST routes live, once it is active. */
+  wooBridge?: {
+    active?: boolean;
+    restBase?: string;
+    canManage?: boolean;
+  };
   /** Pro: whether the Proton Bridge companion plugin is installed and active. */
   protonCompanion?: {
     installed?: boolean;

@@ -604,6 +604,15 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // The Woo Bridge companion needs Pro. Free resolves a panel that renders
+      // nothing, so the WooCommerce panel never ships in the Free bundle.
+      find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/woo-emails-panel\.active$/,
+      replacement: pick(
+        "./src/admin/pages/settings/_components/admin-settings/woo-emails-panel.free.tsx",
+        "./src/admin/pages/settings/_components/admin-settings/woo-emails-panel.tsx",
+      ),
+    },
+    {
       // The words for a default connection, a system email's assigned connection
       // and a sender two connections dispute only exist with several connections.
       // Free resolves a twin that says nothing, so none of them ship in it.

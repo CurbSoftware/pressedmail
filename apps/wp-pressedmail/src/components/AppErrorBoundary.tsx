@@ -3,6 +3,14 @@ import { __ } from "@wordpress/i18n";
 import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle, Button } from "@kit/ui/plugin";
 
+interface AppErrorBoundaryProps {
+  /**
+   * A contained fallback in place of the full-page one, for a part of the page
+   * that can fail on its own. `retry` renders the children again.
+   */
+  fallback?: (retry: () => void) => React.ReactNode;
+}
+
 interface AppErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
@@ -14,10 +22,10 @@ interface AppErrorBoundaryState {
  * and shows a full-page recovery UI instead of a white screen.
  */
 export class AppErrorBoundary extends React.Component<
-  React.PropsWithChildren,
+  React.PropsWithChildren<AppErrorBoundaryProps>,
   AppErrorBoundaryState
 > {
-  constructor(props: React.PropsWithChildren) {
+  constructor(props: React.PropsWithChildren<AppErrorBoundaryProps>) {
     super(props);
     this.state = { hasError: false, error: null };
   }
@@ -28,13 +36,20 @@ export class AppErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     console.error(
-      "[PressedMail] Unhandled error in provider tree:",
+      "[PressedMail] Unhandled render error:",
       error,
       errorInfo,
     );
   }
 
+  retry = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
   render() {
+    if (this.state.hasError && this.props.fallback) {
+      return this.props.fallback(this.retry);
+    }
     if (this.state.hasError) {
       return (
         <div className="flex h-full items-center justify-center bg-background p-4">

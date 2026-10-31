@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.8.4
+Stable tag: 1.8.5
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -96,9 +96,9 @@ Microsoft sign-in uses Microsoft's identity services and the PressedMail OAuth r
 
 * https://pressedmail.com/oauth/microsoft/start receives the site URL, callback URL and nonce at sign-in.
 * https://pressedmail.com/oauth/microsoft/redeem receives the one-time transfer code, site URL and same nonce after the redirect.
-* https://pressedmail.com/oauth/microsoft/refresh receives the refresh token, site URL and a fresh nonce before the access token expires.
+* https://pressedmail.com/oauth/microsoft/refresh receives the refresh token, the relay's grant ticket for it, site URL and a fresh nonce before the access token expires.
 
-The relay returns mailbox identity, access and refresh tokens, scope and expiry, and never receives bodies, attachments or mailbox contents. Microsoft receives the sign-in data it requires.
+The relay returns mailbox identity, access and refresh tokens, a grant ticket, scope and expiry, and never receives bodies, attachments or mailbox contents. Microsoft receives the sign-in data it requires.
 
 [PressedMail terms](https://pressedmail.com/terms-of-service), [PressedMail privacy](https://pressedmail.com/privacy), [Microsoft terms](https://www.microsoft.com/servicesagreement), [Microsoft privacy](https://privacy.microsoft.com/privacystatement).
 
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.8.4](https://github.com/CurbSoftware/pressedmail/tree/v1.8.4)
-* [Build instructions for version 1.8.4](https://github.com/CurbSoftware/pressedmail/blob/v1.8.4/BUILD.md)
+* [Source for version 1.8.5](https://github.com/CurbSoftware/pressedmail/tree/v1.8.5)
+* [Build instructions for version 1.8.5](https://github.com/CurbSoftware/pressedmail/blob/v1.8.5/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,15 +142,17 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.8.4/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.8.5/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
+= 1.8.5 =
+* Outlook sign-in is bound to your site.
+* IMAP connects only to the checked address.
+* A draft that can't load no longer crashes the app.
+
 = 1.8.4 =
 * Keyboard shortcuts work across the inbox. Press ? for the list, or turn them off in Preferences.
 * Hovering a menu item shows its highlight without a stray outline.
-
-= 1.8.3 =
-* The WordPress Email tabs wrap on a phone screen.

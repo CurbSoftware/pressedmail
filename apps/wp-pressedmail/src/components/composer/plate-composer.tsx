@@ -7,6 +7,9 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { __ } from "@wordpress/i18n";
+import { AlertCircle } from "lucide-react";
+import { Alert, AlertTitle, Button } from "@kit/ui/plugin";
 import {
   Plate,
   PlateContainer,
@@ -29,6 +32,7 @@ import {
   type PlateEmailEditorController,
 } from "@kit/plate/email-editor";
 
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { cn } from "@/lib/utils";
 import { createInertHtmlDeserializer } from "@/lib/composer/composer-html-inert";
 import { buildComposerReactPlugins } from "./plate-composer-dialect";
@@ -161,6 +165,18 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       [editor],
     );
 
+    // A saved document the editor cannot render (a malformed node in a draft
+    // someone else saved) costs this editor, not the page: it is rebuilt from
+    // the message's HTML body, which loads through the inert deserializer.
+    const rebuildFromHtml = useCallback(() => {
+      if (!inertDeserializer) return;
+      editorController.setContent(initialHtml, {
+        deserializer: inertDeserializer,
+        setValue: (value) =>
+          editor.tf.withoutSaving(() => setDocumentValue(value)),
+      });
+    }, [editor, editorController, inertDeserializer, initialHtml, setDocumentValue]);
+
     // Keep latest callbacks without re-subscribing the editor.
     const onChangeRef = useRef(onChange);
     const onValueChangeRef = useRef(onValueChange);
@@ -290,35 +306,54 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       <div
         className={cn("pm-composer-editor-root", className)}
         style={minHeight ? { minHeight: `${minHeight}px` } : undefined}>
-        <Plate
-          editor={editor}
-          onChange={({ value }) => handleEditorChange(value as Value)}>
-          {children ? (
-            <div
-              data-pm-editor-chrome
-              contentEditable={false}
-              suppressContentEditableWarning>
-              {children}
-            </div>
-          ) : null}
-          <PlateContainer
-            className={cn("pm-composer-editor", contentHidden && "hidden")}
-            hidden={contentHidden}
-            style={contentStyle}
-            onClick={handleContainerClick}>
-            <div
-              ref={contentContainerRef}
-              className="pm-composer-editor-content">
-              <PlateContent
-                onBlur={onBlur}
-                readOnly={disabled || contentHidden}
-                autoFocus={autoFocus}
-                aria-label={ariaLabel}
-                placeholder={placeholder}
-              />
-            </div>
-          </PlateContainer>
-        </Plate>
+        <AppErrorBoundary
+          fallback={(retry) => (
+            <Alert variant="destructive" role="alert">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{__("Something went wrong", "pressedmail")}</AlertTitle>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => {
+                  rebuildFromHtml();
+                  retry();
+                }}>
+                {__("Try again", "pressedmail")}
+              </Button>
+            </Alert>
+          )}>
+          <Plate
+            editor={editor}
+            onChange={({ value }) => handleEditorChange(value as Value)}>
+            {children ? (
+              <div
+                data-pm-editor-chrome
+                contentEditable={false}
+                suppressContentEditableWarning>
+                {children}
+              </div>
+            ) : null}
+            <PlateContainer
+              className={cn("pm-composer-editor", contentHidden && "hidden")}
+              hidden={contentHidden}
+              style={contentStyle}
+              onClick={handleContainerClick}>
+              <div
+                ref={contentContainerRef}
+                className="pm-composer-editor-content">
+                <PlateContent
+                  onBlur={onBlur}
+                  readOnly={disabled || contentHidden}
+                  autoFocus={autoFocus}
+                  aria-label={ariaLabel}
+                  placeholder={placeholder}
+                />
+              </div>
+            </PlateContainer>
+          </Plate>
+        </AppErrorBoundary>
       </div>
     );
   },

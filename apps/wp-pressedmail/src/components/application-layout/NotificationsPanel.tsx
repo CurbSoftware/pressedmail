@@ -12,6 +12,7 @@ import {
   CirclePause,
   Clock3,
   Database,
+  Eye,
   Filter,
   Loader2,
   Mail,
@@ -21,9 +22,10 @@ import {
   Reply,
   Send,
   ShieldAlert,
+  SlidersHorizontal,
   Trash2,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   DropdownMenu,
@@ -449,6 +451,7 @@ export function NotificationsPanel({
   clearAll,
 }: NotificationsPanelProps) {
   const navigate = useNavigate();
+  const hiddenSummaryId = React.useId();
   const silence = useNotificationPause();
   const { preferences } = useUserPreferences();
   const [clearOpen, setClearOpen] = React.useState(false);
@@ -665,8 +668,9 @@ export function NotificationsPanel({
       // The inbox and the calendar take it once they have drawn the message or
       // event; a page with neither gets the page.
       const fromKeyboard = event.detail === 0;
-      const opensItem = /[?&]openMessageId=/.test(target)
-        || (__ENABLE_CALENDAR__ && /[?&]openEventId=/.test(target));
+      const opensItem =
+        /[?&]openMessageId=/.test(target) ||
+        (__ENABLE_CALENDAR__ && /[?&]openEventId=/.test(target));
       // A newer pointer open clears a keyboard request whose target never arrived.
       requestLandingFocus(fromKeyboard && opensItem);
       if (fromKeyboard && !opensItem) focusLanding(findMainRegion);
@@ -927,6 +931,48 @@ export function NotificationsPanel({
   // the one switch that explains it.
   const hiddenAreRead = hiddenReadCount > 0 && hiddenReadCount === hiddenCount;
   const showSender = preferences.notification_preview_level !== "none";
+  // What the "show hidden" toggle says when it is hovered. It used to be a band
+  // of its own under the header; the sentence is the same, the room is not.
+  const hiddenSummary = showAll
+    ? hiddenAreRead
+      ? __("Showing read notifications, too.", "pressedmail")
+      : __(
+          "Showing notifications your alert settings hide, too.",
+          "pressedmail",
+        )
+    : hasMore
+      ? // Only the pages loaded so far were counted, so a number would be a
+        // floor that climbs with every page. Say what is true, no count.
+        hiddenAreRead
+        ? __(
+            "Unread only is on, so read notifications are hidden.",
+            "pressedmail",
+          )
+        : __(
+            "Your alert settings are hiding some notifications.",
+            "pressedmail",
+          )
+      : hiddenAreRead
+        ? sprintf(
+            /* translators: %d: number of read notifications (mail, follow-ups) the "Unread only" setting keeps out of the list. */
+            _n(
+              "Unread only hides %d read notification.",
+              "Unread only hides %d read notifications.",
+              hiddenCount,
+              "pressedmail",
+            ),
+            hiddenCount,
+          )
+        : sprintf(
+            /* translators: %d: number of notifications the user's alert settings keep out of the list. */
+            _n(
+              "Your alert settings hide %d notification.",
+              "Your alert settings hide %d notifications.",
+              hiddenCount,
+              "pressedmail",
+            ),
+            hiddenCount,
+          );
   const listed = React.useMemo<Listed[]>(() => {
     const rows: Listed[] = [];
     const folding = (above: number | null) =>
@@ -1074,6 +1120,56 @@ export function NotificationsPanel({
             }
           />
 
+          {hiddenCount > 0 ? (
+            <PressedTooltip content={hiddenSummary} side="bottom">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                data-roving-item=""
+                data-test="notifications-show-hidden"
+                // A switch, so the name stays put and the state says which way it is.
+                aria-pressed={showAll}
+                aria-label={__("Show hidden", "pressedmail")}
+                aria-describedby={hiddenSummaryId}
+                className={cn(
+                  "text-muted-foreground hover:text-foreground",
+                  touch,
+                  showAll && ACTIVE_TOOLBAR_BUTTON,
+                )}
+                onClick={() => setShowAll(!showAll)}>
+                <Eye className="size-4" aria-hidden="true" />
+              </Button>
+            </PressedTooltip>
+          ) : null}
+          {hiddenCount > 0 ? (
+            <span id={hiddenSummaryId} className="sr-only">
+              {hiddenSummary}
+            </span>
+          ) : null}
+
+          <PressedTooltip
+            content={__("Alert settings", "pressedmail")}
+            side="bottom">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              data-roving-item=""
+              data-test="notifications-alert-settings"
+              aria-label={__("Alert settings", "pressedmail")}
+              className={cn(
+                "text-muted-foreground hover:text-foreground",
+                touch,
+              )}
+              onClick={() => {
+                navigate(alertSettingsPath);
+                onNavigate();
+              }}>
+              <SlidersHorizontal className="size-4" aria-hidden="true" />
+            </Button>
+          </PressedTooltip>
+
           <PressedTooltip
             content={__("Clear all", "pressedmail")}
             side="bottom">
@@ -1097,78 +1193,6 @@ export function NotificationsPanel({
           </PressedTooltip>
         </div>
       </div>
-
-      {hiddenCount > 0 ? (
-        <div
-          data-test="notifications-hidden-note"
-          className="flex items-center justify-between gap-x-3 gap-y-0.5 border-b bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
-          <p className="min-w-0">
-            {showAll
-              ? hiddenAreRead
-                ? __("Showing read notifications, too.", "pressedmail")
-                : __(
-                    "Showing notifications your alert settings hide, too.",
-                    "pressedmail",
-                  )
-              : hasMore
-                ? // Only the pages loaded so far were counted, so a number would be
-                  // a floor that climbs with every page. Say what is true and
-                  // leave the count for when it is complete.
-                  hiddenAreRead
-                  ? __(
-                      "Unread only is on, so read notifications are hidden.",
-                      "pressedmail",
-                    )
-                  : __(
-                      "Your alert settings are hiding some notifications.",
-                      "pressedmail",
-                    )
-                : hiddenAreRead
-                  ? sprintf(
-                      /* translators: %d: number of read notifications (mail, follow-ups) the "Unread only" setting keeps out of the list. */
-                      _n(
-                        "Unread only hides %d read notification.",
-                        "Unread only hides %d read notifications.",
-                        hiddenCount,
-                        "pressedmail",
-                      ),
-                      hiddenCount,
-                    )
-                  : sprintf(
-                      /* translators: %d: number of notifications the user's alert settings keep out of the list. */
-                      _n(
-                        "Your alert settings hide %d notification.",
-                        "Your alert settings hide %d notifications.",
-                        hiddenCount,
-                        "pressedmail",
-                      ),
-                      hiddenCount,
-                    )}{" "}
-            {/* One piece, so a narrow screen wraps before it and never inside it. */}
-            <Link
-              to={alertSettingsPath}
-              data-test="notifications-alert-settings"
-              onClick={onNavigate}
-              className="whitespace-nowrap font-medium text-foreground underline underline-offset-2">
-              {__("Alert settings", "pressedmail")}
-            </Link>
-          </p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="xs"
-            data-test="notifications-show-hidden"
-            className={cn(
-              "-me-1 shrink-0 whitespace-nowrap text-primary underline underline-offset-2",
-              touch,
-            )}
-            onClick={() => setShowAll(!showAll)}>
-            {showAll
-              ? __("Hide again", "pressedmail")
-              : __("Show hidden", "pressedmail")}
-          </Button>
-        </div>
-      ) : null}
 
       {showListError ? (
         <div

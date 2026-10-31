@@ -12,7 +12,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 
-import { Button, Dialog, Skeleton } from "@kit/ui/plugin";
+import { Dialog, Skeleton } from "@kit/ui/plugin";
 
 import { useAppFrameRect } from "@/hooks/useAppFrameRect";
 import { cn } from "@/lib/utils";
@@ -297,6 +297,7 @@ export function AttachmentPreviewDialog({
           if (returnFocusTo?.isConnected) returnFocusTo.focus();
         }}>
         <PressedDialogHeader
+          compact
           icon={Eye}
           title={<span className="[overflow-wrap:anywhere]">{title}</span>}
           description={
@@ -308,92 +309,90 @@ export function AttachmentPreviewDialog({
               {sizeLabel ? <span>{sizeLabel}</span> : null}
             </span>
           }
+          actions={
+            <>
+              {items.length > 1 ? (
+                <div className="flex items-center gap-0.5">
+                  <ToolbarButton
+                    label={__("Previous attachment", "pressedmail")}
+                    // Stays focusable at the end of the row, so a keyboard user
+                    // who just arrived there keeps their place in the dialog.
+                    focusableWhenDisabled
+                    disabled={position <= 0}
+                    onClick={() => go(-1)}>
+                    <ChevronLeft className="rtl:rotate-180" />
+                  </ToolbarButton>
+                  <span
+                    aria-live="polite"
+                    className="min-w-14 text-center text-sm text-muted-foreground tabular-nums">
+                    {sprintf(
+                      __("%1$d of %2$d", "pressedmail"),
+                      position + 1,
+                      items.length,
+                    )}
+                  </span>
+                  <ToolbarButton
+                    label={__("Next attachment", "pressedmail")}
+                    focusableWhenDisabled
+                    disabled={position >= items.length - 1}
+                    onClick={() => go(1)}>
+                    <ChevronRight className="rtl:rotate-180" />
+                  </ToolbarButton>
+                </div>
+              ) : null}
+              {state.status === "ready" && state.kind === "image" ? (
+                <div className="flex items-center gap-0.5">
+                  <ToolbarButton
+                    label={__("Zoom out", "pressedmail")}
+                    disabled={!imageReady}
+                    onClick={() => viewport.zoomOut()}>
+                    <ZoomOut />
+                  </ToolbarButton>
+                  <output
+                    aria-label={__("Zoom level", "pressedmail")}
+                    className="min-w-12 text-center text-sm text-muted-foreground tabular-nums">
+                    {viewport.percent}%
+                  </output>
+                  <ToolbarButton
+                    label={__("Zoom in", "pressedmail")}
+                    disabled={!imageReady}
+                    onClick={() => viewport.zoomIn()}>
+                    <ZoomIn />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    label={__("Fit to window", "pressedmail")}
+                    disabled={!imageReady}
+                    onClick={viewport.fitToStage}>
+                    <Minimize2 />
+                  </ToolbarButton>
+                  <ToolbarButton
+                    label={__("Actual size", "pressedmail")}
+                    disabled={!imageReady}
+                    onClick={viewport.actualSize}>
+                    <Maximize2 />
+                  </ToolbarButton>
+                </div>
+              ) : null}
+              {state.status === "ready" && state.kind === "pdf" ? (
+                <PdfControls viewer={pdf} />
+              ) : null}
+              <div className="flex items-center gap-0.5">
+                {canDownload ? (
+                  <ToolbarButton
+                    label={__("Download", "pressedmail")}
+                    onClick={download}>
+                    <Download />
+                  </ToolbarButton>
+                ) : null}
+                <ToolbarButton
+                  label={__("Close preview", "pressedmail")}
+                  onClick={onClose}>
+                  <X />
+                </ToolbarButton>
+              </div>
+            </>
+          }
         />
-        <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-3 py-1.5">
-          {items.length > 1 ? (
-            <div className="flex items-center gap-0.5">
-              <ToolbarButton
-                label={__("Previous attachment", "pressedmail")}
-                // Stays focusable at the end of the row, so a keyboard user
-                // who just arrived there keeps their place in the dialog.
-                focusableWhenDisabled
-                disabled={position <= 0}
-                onClick={() => go(-1)}>
-                <ChevronLeft className="rtl:rotate-180" />
-              </ToolbarButton>
-              <span
-                aria-live="polite"
-                className="min-w-14 text-center text-sm text-muted-foreground tabular-nums">
-                {sprintf(
-                  __("%1$d of %2$d", "pressedmail"),
-                  position + 1,
-                  items.length,
-                )}
-              </span>
-              <ToolbarButton
-                label={__("Next attachment", "pressedmail")}
-                focusableWhenDisabled
-                disabled={position >= items.length - 1}
-                onClick={() => go(1)}>
-                <ChevronRight className="rtl:rotate-180" />
-              </ToolbarButton>
-            </div>
-          ) : null}
-          {state.status === "ready" && state.kind === "image" ? (
-            <div className="flex items-center gap-0.5">
-              <ToolbarButton
-                label={__("Zoom out", "pressedmail")}
-                disabled={!imageReady}
-                onClick={() => viewport.zoomOut()}>
-                <ZoomOut />
-              </ToolbarButton>
-              <output
-                aria-label={__("Zoom level", "pressedmail")}
-                className="min-w-12 text-center text-sm text-muted-foreground tabular-nums">
-                {viewport.percent}%
-              </output>
-              <ToolbarButton
-                label={__("Zoom in", "pressedmail")}
-                disabled={!imageReady}
-                onClick={() => viewport.zoomIn()}>
-                <ZoomIn />
-              </ToolbarButton>
-              <ToolbarButton
-                label={__("Fit to window", "pressedmail")}
-                disabled={!imageReady}
-                onClick={viewport.fitToStage}>
-                <Minimize2 />
-              </ToolbarButton>
-              <ToolbarButton
-                label={__("Actual size", "pressedmail")}
-                disabled={!imageReady}
-                onClick={viewport.actualSize}>
-                <Maximize2 />
-              </ToolbarButton>
-            </div>
-          ) : null}
-          {state.status === "ready" && state.kind === "pdf" ? (
-            <PdfControls viewer={pdf} />
-          ) : null}
-          <div className="ms-auto flex items-center gap-1">
-            {canDownload ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="pointer-coarse:min-h-11"
-                onClick={download}>
-                <Download aria-hidden="true" />
-                {__("Download", "pressedmail")}
-              </Button>
-            ) : null}
-            <ToolbarButton
-              label={__("Close preview", "pressedmail")}
-              onClick={onClose}>
-              <X />
-            </ToolbarButton>
-          </div>
-        </div>
         <div className="relative min-h-0 flex-1 bg-muted/40">{stage}</div>
       </PressedDialogContent>
     </Dialog>

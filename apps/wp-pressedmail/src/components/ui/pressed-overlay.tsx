@@ -118,15 +118,21 @@ type HeaderProps = {
   description?: ReactNode;
   descriptionMode?: "visible" | "sr-only";
   tone?: "default" | "destructive";
+  /**
+   * Dialog header only: controls that belong to what the dialog shows, such as a
+   * viewer's zoom. They sit on the title's row, so the dialog has one header and
+   * not a header and a toolbar under it. They wrap below the title when the row
+   * is too narrow.
+   */
+  actions?: ReactNode;
+  /** Dialog header only: the padding of a bar, for a dialog that wants its room for content. */
+  compact?: boolean;
 };
 
 export function PressedDialogHeader(props: HeaderProps) {
   const Icon = props.icon;
-
-  return (
-    <DialogHeader
-      data-pm-overlay-section="header"
-      className="border-b border-border px-6 py-5">
+  const text = (
+    <>
       <DialogTitle>
         <DialogTitleRow variant={props.tone}>
           {Icon ? <Icon aria-hidden="true" /> : null}
@@ -141,6 +147,29 @@ export function PressedDialogHeader(props: HeaderProps) {
           {props.description}
         </DialogDescription>
       ) : null}
+    </>
+  );
+
+  return (
+    <DialogHeader
+      data-pm-overlay-section="header"
+      className={cn(
+        "border-b border-border",
+        props.compact ? "px-4 py-2" : "px-6 py-5",
+      )}>
+      {props.actions ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* The same stack the header has without actions: title over description. */}
+          <div className="flex min-w-0 flex-1 basis-48 flex-col space-y-1.5">
+            {text}
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+            {props.actions}
+          </div>
+        </div>
+      ) : (
+        text
+      )}
     </DialogHeader>
   );
 }

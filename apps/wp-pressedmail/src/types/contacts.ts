@@ -34,7 +34,12 @@ export interface ListStateMembers {
 }
 
 /** How a member came to be on a list. `legacy` is a member from before lists tracked this. */
-export type ListMembershipSource = "manual" | "import" | "form" | "legacy";
+export type ListMembershipSource =
+  | "manual"
+  | "import"
+  | "form"
+  | "legacy"
+  | "wp_user";
 
 /** One list's subscription detail for one contact. */
 export interface ListMembership {
@@ -50,7 +55,8 @@ export type ContactSource =
   | "imported"
   | "synced"
   | "detected"
-  | "form";
+  | "form"
+  | "wordpress";
 
 export const CONTACT_SOURCES: readonly ContactSource[] = [
   "manual",
@@ -58,6 +64,7 @@ export const CONTACT_SOURCES: readonly ContactSource[] = [
   "synced",
   "detected",
   "form",
+  "wordpress",
 ] as const;
 
 // ============================================
@@ -220,6 +227,15 @@ export interface Contact {
    * The server sends card fields only: no notes, tags, custom fields or history.
    */
   is_shared?: boolean;
+  /**
+   * The contact mirrors a WordPress user and the setting is on. These fields come from WordPress and cannot
+   * be changed here: `email`, a column name, or `custom_fields.<name>`. Absent on an ordinary contact.
+   */
+  managed_fields?: string[];
+  /** The WordPress user behind a managed contact. */
+  wp_user_id?: number;
+  /** The user's edit screen in wp-admin, empty when the viewer cannot edit users. */
+  wp_user_edit_url?: string;
 }
 
 /**
@@ -251,6 +267,8 @@ export interface ContactList {
   /** Set when another user shared this list with the current user (Ultimate). */
   is_shared?: boolean;
   share?: ContactListShare;
+  /** `wp_users` for the list that mirrors the site's WordPress users: view, send and share it, never change it. */
+  managed?: "wp_users" | null;
   /** How many teammates the owner shared this list with. */
   share_count?: number;
 }

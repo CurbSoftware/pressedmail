@@ -39,6 +39,7 @@ import {
 } from "./access-control-tabs";
 import type { AccessControlDraftHandle } from "./access-tab";
 import { useRetryFocus } from "./use-retry-focus";
+import { WpUsersContactsCard } from "@/admin/pages/settings/_components/admin-settings/wp-users-contacts.active";
 import {
   getRuntimeRestNamespace,
   getRuntimeRestRoot,
@@ -574,8 +575,11 @@ export function SecurityAccessTab({
   }
   if (section === "data") {
     return inResults(
-      <div>
-        {" "}
+      <div className="space-y-4">
+        {/* Administrators only: the list holds every user's address. */}
+        {__IS_PRO__ && window.pressedmailPlugin?.canManageAccess ? (
+          <WpUsersContactsCard />
+        ) : null}
         <DangerZoneCard
           purgeEnabled={settings.purge_data_on_uninstall}
           onPurgeChange={(enabled) =>

@@ -722,6 +722,13 @@ function editionAliases(appDir, variant, featureFlags) {
         "./src/components/contacts/ContactCustomFields.tsx",
       ),
     },
+    {
+      find: /^@\/admin\/pages\/settings\/_components\/admin-settings\/wp-users-contacts\.active$/,
+      replacement: pick(
+        "./src/admin/pages/settings/_components/admin-settings/wp-users-contacts.free.tsx",
+        "./src/admin/pages/settings/_components/admin-settings/WpUsersContactsCard.tsx",
+      ),
+    },
     ...FLAG_STUB_ALIASES.filter((entry) => !flags[entry.flag]).map((entry) => ({
       find: entry.find,
       replacement: `${appDir}/${entry.target.replace(/^\.\//, "")}`,

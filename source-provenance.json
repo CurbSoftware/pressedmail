@@ -1,9 +1,9 @@
 {
-  "source_tag": "pressedmail-v1.8.7",
-  "public_source_tag": "v1.8.7",
-  "version": "1.8.7",
+  "source_tag": "pressedmail-v1.8.8",
+  "public_source_tag": "v1.8.8",
+  "version": "1.8.8",
   "verified_lock_sha256": "190bf6c82fe031786820fe38468e0df11900ed652cd85f9c4820ab207e6b3edc",
-  "verified_source_sha256": "8b7ed05fa03f86e791beefbd79c736f721b4dff1d7478e341f79359ef7c0b934",
-  "verified_dist_zip_sha256": "6290ff0e5c493d20306da17bc5db20b29c0469028a61e3b756d8beccaed29c00",
+  "verified_source_sha256": "d503890d441077793908dac4273ec7c6fdee4e3bd89adc8e1b7fdd61cab81179",
+  "verified_dist_zip_sha256": "908f39f9363ce0c25d59a18da35172ec380df76775bf406fab0b5027fbf07551",
   "verified_dist_files": 37
 }

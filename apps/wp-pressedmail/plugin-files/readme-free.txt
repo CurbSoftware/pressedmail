@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.8.6
+Stable tag: 1.8.7
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.8.6](https://github.com/CurbSoftware/pressedmail/tree/v1.8.6)
-* [Build instructions for version 1.8.6](https://github.com/CurbSoftware/pressedmail/blob/v1.8.6/BUILD.md)
+* [Source for version 1.8.7](https://github.com/CurbSoftware/pressedmail/tree/v1.8.7)
+* [Build instructions for version 1.8.7](https://github.com/CurbSoftware/pressedmail/blob/v1.8.7/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,17 +142,15 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.8.6/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.8.7/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
+= 1.8.7 =
+* Filling a field with your browser's autofill no longer throws an error in the console.
+
 = 1.8.6 =
 * Read and star changes made elsewhere reach older messages too.
 * The notifications popover and attachment preview each have one header.
-
-= 1.8.5 =
-* Outlook sign-in is bound to your site.
-* IMAP connects only to the checked address.
-* A draft that can't load no longer crashes the app.

@@ -41,10 +41,12 @@ export function isSequence(key: string): boolean {
  * "´") and a Cyrillic or Greek layout still reach `e` and `j`.
  */
 function eventKey(event: KeyboardEvent): string {
-  const key = event.key.toLowerCase();
+  // Browser autofill and saved-key pickers dispatch a keydown with no key or code.
+  const raw = event.key ?? "";
+  const key = raw.toLowerCase();
   if (/^[a-z0-9]$/.test(key)) return key;
-  const physical = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code);
-  if (physical && (event.altKey || !/^[\x20-\x7e]$/.test(event.key))) {
+  const physical = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(event.code ?? "");
+  if (physical && (event.altKey || !/^[\x20-\x7e]$/.test(raw))) {
     return (physical[1] ?? physical[2] ?? "").toLowerCase();
   }
   return key;

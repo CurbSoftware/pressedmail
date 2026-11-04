@@ -721,6 +721,40 @@ export async function apiFetch(
 }
 
 /**
+ * Read a JSON reply. A body that is not JSON (a PHP fatal, another plugin's
+ * block page, a redirect to HTML) becomes `{ message }` naming the status and
+ * the page's own text, so the administrator can tell which it was instead of
+ * reading "something went wrong".
+ */
+export async function readJsonOrDescribe<T extends object>(
+  response: Response,
+): Promise<Partial<T> & { message?: string }> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as Partial<T>;
+  } catch {
+    // Parsed inert: DOMParser runs no scripts and loads nothing.
+    const page = new DOMParser().parseFromString(text, "text/html");
+    page.querySelectorAll("script, style").forEach((node) => node.remove());
+    const excerpt = (page.body?.textContent ?? "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 240);
+    return {
+      message: sprintf(
+        /* translators: 1: HTTP status code, 2: the start of the page the site sent instead. */
+        __(
+          "This site answered with HTTP %1$d instead of PressedMail's reply: %2$s",
+          "pressedmail",
+        ),
+        response.status,
+        excerpt || response.statusText || "-",
+      ),
+    } as Partial<T> & { message?: string };
+  }
+}
+
+/**
  * Fetch + JSON parse for endpoints that should THROW on failure. A non-nonce 403 becomes a
  * `PermissionError`; other non-2xx becomes an `Error` carrying the status. Success returns
  * the parsed body.

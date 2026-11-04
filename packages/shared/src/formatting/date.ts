@@ -6,6 +6,11 @@
  *
  * These functions are designed to be compatible with the web/lib formatting
  * conventions used across the admin dashboard.
+ *
+ * Every formatter pins `timeZone: 'UTC'`. The server renders here in UTC and
+ * the browser renders in whatever zone the reader is in, so a formatter that
+ * leaves the zone out prints different text on the two passes and React
+ * rejects the hydration (error #418).
  */
 
 /** Default fallback for invalid date values */
@@ -49,6 +54,7 @@ export function formatDate(
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: 'UTC',
   }).format(dateObj);
 }
 
@@ -73,6 +79,7 @@ export function formatDateShort(
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'UTC',
   }).format(dateObj);
 }
 
@@ -100,6 +107,7 @@ export function formatDateTime(
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'UTC',
   }).format(dateObj);
 }
 

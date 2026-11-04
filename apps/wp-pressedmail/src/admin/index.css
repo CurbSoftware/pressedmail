@@ -331,8 +331,15 @@ body.toplevel_page_pressedmail-plugin .pressedmail-plugin-app,
 body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
   margin: 0 !important;
   padding: 0 !important;
+  /* One viewport under the admin bar, and pinned there. A menu longer than the
+     window loses core's sticky-menu class and makes the whole admin page
+     scroll; the app keeps its header at the top and its footer at the bottom
+     of the screen while that page scrolls behind it. */
   min-height: var(--pm-admin-viewport) !important;
   height: var(--pm-admin-viewport) !important;
+  position: sticky !important;
+  top: var(--wp-admin--admin-bar--height, 32px) !important;
+  z-index: 1 !important;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
@@ -344,6 +351,13 @@ body.toplevel_page_pressedmail-plugin #pressedmail-plugin {
      `clip` has no scroll position to leave behind; older browsers keep
      `hidden` above. */
   overflow: clip !important;
+}
+
+/* Sticky needs a containing block tall enough to scroll through. The menu is
+   what makes the page taller than the window, so the content column grows to
+   match it: the page scrolls, the app stays put. */
+body.toplevel_page_pressedmail-plugin #wpbody-content {
+  min-height: max(var(--pm-admin-viewport), var(--wp-admin-menu-height, 0px)) !important;
 }
 
 /* ============================================================================

@@ -123,6 +123,18 @@ interface PressedMailPluginGlobal {
     code?: string;
     message?: string;
   };
+  /**
+   * Synchronous site-move state, injected by PHP at boot for administrators on
+   * a Pro build: the licence instance this subsite holds is still bound to
+   * another address. Per subsite, like every licence option. Null for anyone
+   * who cannot run the move.
+   */
+  siteMove?: {
+    required: boolean;
+    issuedTo: string;
+    domain: string;
+    hasStoredKey: boolean;
+  } | null;
   version?: string;
   userInfo?: {
     username: string;

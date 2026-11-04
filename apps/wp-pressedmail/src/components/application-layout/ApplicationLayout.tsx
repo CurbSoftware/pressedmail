@@ -75,7 +75,7 @@ const _startcase = (str: string) => {
 };
 
 const ApplicationLayout = () => {
-  const { adminBarHeight } = useWpAdminChrome();
+  const { adminBarHeight, adminMenuHeight } = useWpAdminChrome();
   const {
     accounts,
     selectedAccount,
@@ -240,6 +240,21 @@ const ApplicationLayout = () => {
   const statusUnreadCount = statusMessages.filter(
     (message) => !(message.read || message.is_read),
   ).length;
+  // A menu longer than the window makes the whole admin page scroll. The app
+  // stays one viewport tall and sticky under the admin bar, so it needs a
+  // containing block tall enough to scroll through: the content column grows to
+  // the menu's height and the stylesheet reads it from here.
+  useEffect(() => {
+    const height = compactShellEnabled ? "0px" : `${adminMenuHeight}px`;
+    document.documentElement.style.setProperty(
+      "--wp-admin-menu-height",
+      height,
+    );
+    return () => {
+      document.documentElement.style.removeProperty("--wp-admin-menu-height");
+    };
+  }, [adminMenuHeight, compactShellEnabled]);
+
   const statusSyncStatus = inboxIsLoading
     ? "syncing"
     : inboxError
@@ -254,6 +269,7 @@ const ApplicationLayout = () => {
       } as CSSProperties)
     : ({
         "--wp-admin-bar-height": `${adminBarHeight}px`,
+        "--wp-admin-menu-height": `${adminMenuHeight}px`,
         height: "calc(100dvh - var(--wp-admin-bar-height, 32px))",
         minHeight: "calc(100dvh - var(--wp-admin-bar-height, 32px))",
         maxHeight: "calc(100dvh - var(--wp-admin-bar-height, 32px))",

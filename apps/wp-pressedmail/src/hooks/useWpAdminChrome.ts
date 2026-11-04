@@ -6,12 +6,22 @@ export interface WpAdminChromeState {
   adminBarHeight: number;
   hasAdminBar: boolean;
   adminMenuFolded: boolean;
+  /**
+   * The height the admin menu takes, which is how tall the page has to be.
+   *
+   * WordPress keeps the menu fixed while it fits the window and drops the
+   * `sticky-menu` body class when it does not, which turns the menu into a
+   * column that grows the page. Layout code reads this so the app can fill the
+   * page rather than stopping at the fold.
+   */
+  adminMenuHeight: number;
 }
 
 const EMPTY: WpAdminChromeState = {
   adminBarHeight: 0,
   hasAdminBar: false,
   adminMenuFolded: false,
+  adminMenuHeight: 0,
 };
 
 function readState(): WpAdminChromeState {
@@ -20,17 +30,19 @@ function readState(): WpAdminChromeState {
   const isImmersive = document.body.classList.contains("pressedmail-immersive");
   const adminBarHeight =
     bar && !isImmersive ? Math.round(bar.getBoundingClientRect().height) : 0;
+  const menu = document.getElementById("adminmenuwrap");
   return {
     adminBarHeight,
     hasAdminBar: !!bar,
     adminMenuFolded: document.body.classList.contains("folded"),
+    adminMenuHeight: menu ? Math.round(menu.getBoundingClientRect().height) : 0,
   };
 }
 
 /**
- * Observes the WordPress admin chrome: the #wpadminbar height and whether
- * the #adminmenu sidebar is folded, so mobile layout code can reserve
- * the right amount of viewport without fighting WP.
+ * Observes the WordPress admin chrome: the #wpadminbar height, the #adminmenu
+ * sidebar's height and whether it is folded, so layout code can reserve the
+ * right amount of viewport without fighting WP.
  */
 export function useWpAdminChrome(): WpAdminChromeState {
   const [state, setState] = useState<WpAdminChromeState>(() => readState());
@@ -40,10 +52,12 @@ export function useWpAdminChrome(): WpAdminChromeState {
     update();
 
     let resizeObserver: ResizeObserver | null = null;
-    const bar = document.getElementById("wpadminbar");
-    if (bar && typeof ResizeObserver !== "undefined") {
+    const observed = ["wpadminbar", "adminmenuwrap"]
+      .map((id) => document.getElementById(id))
+      .filter((element): element is HTMLElement => element !== null);
+    if (observed.length > 0 && typeof ResizeObserver !== "undefined") {
       resizeObserver = new ResizeObserver(update);
-      resizeObserver.observe(bar);
+      observed.forEach((element) => resizeObserver?.observe(element));
     }
 
     const mutationObserver =

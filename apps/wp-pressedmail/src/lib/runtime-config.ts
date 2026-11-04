@@ -169,3 +169,21 @@ export function getRuntimeLocaleTag(): string {
   }
   return "";
 }
+
+/**
+ * Synchronous site-move state injected by PHP at boot, per subsite. Null when
+ * PHP did not emit it (not an administrator, or a Free build), which is also
+ * the answer while no move is needed.
+ */
+export function getRuntimeSiteMove(): {
+  required: boolean;
+  issuedTo: string;
+  domain: string;
+  hasStoredKey: boolean;
+} | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.pressedmailPlugin?.siteMove ?? null;
+}

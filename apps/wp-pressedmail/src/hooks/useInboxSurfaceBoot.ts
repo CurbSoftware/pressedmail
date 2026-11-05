@@ -369,7 +369,6 @@ export function useInboxSurfaceBoot({
   const inboxService = useMemo(() => getInboxService(), []);
   const syncService = useMemo(() => getSyncService(), []);
   const [activeFolder, setActiveFolder] = useState<string>("INBOX");
-  const activeFolderRef = useRef("INBOX");
   const bootKeyRef = useRef<string | null>(null);
   const entryBootstrapKeyRef = useRef<string | null>(null);
   const mountedRef = useRef(false);
@@ -747,7 +746,6 @@ export function useInboxSurfaceBoot({
         return { serviceable: false };
       }
 
-      activeFolderRef.current = bootFolder;
       setActiveFolder(bootFolder);
       saveSelectedFolder(accountContext.persistenceKey, bootFolder);
 
@@ -929,7 +927,10 @@ export function useInboxSurfaceBoot({
         await completeSuccessfulSync(total);
       };
 
-      const folder = activeFolderRef.current;
+      // The folder the list shows now. The boot folder is only where it started:
+      // reloading that after the user picked Drafts put the Inbox under a Drafts
+      // sidebar until the next click.
+      const folder = inboxService.currentFolder;
       // Every reload below exists because the list may have changed (a deep page or
       // thread view the diff cannot patch, a missing token, or requiresFullSync).
       // Without dropping the cached page first, `loadMessages` re-renders it from
@@ -937,6 +938,16 @@ export function useInboxSurfaceBoot({
       // leader that mail changed showed its boot-time read state until reload.
       // Cheaper than `forceRefresh`, which makes the server bypass its mirror.
       const reloadList = (request: Parameters<typeof loadMessages>[0]) => {
+        // A background reload refreshes the open list and never picks one. The user
+        // may have changed folder while the diff was in flight.
+        if (inboxService.currentFolder !== folder) {
+          return Promise.resolve({
+            success: false,
+            messages: [],
+            total: 0,
+            hasMore: false,
+          });
+        }
         inboxCache?.invalidateMessages({
           accountId: String(
             isCombinedContext(accountContext) &&
@@ -1128,7 +1139,7 @@ export function useInboxSurfaceBoot({
       intervalId = window.setInterval(() => {
         // The leader tab polls this view and says when mail changes.
         if (
-          !isCoveredByLeader(viewAccountsRef.current, activeFolderRef.current)
+          !isCoveredByLeader(viewAccountsRef.current, inboxService.currentFolder)
         ) {
           void syncNow();
         }
@@ -1202,7 +1213,7 @@ export function useInboxSurfaceBoot({
         return;
       }
       // A leader tab covering this view runs the settle poll for both.
-      if (isCoveredByLeader(viewAccountsRef.current, activeFolderRef.current)) {
+      if (isCoveredByLeader(viewAccountsRef.current, inboxService.currentFolder)) {
         return;
       }
       // Skip if boot folder load just happened (within 1 settle interval)
@@ -1331,7 +1342,7 @@ export function useInboxSurfaceBoot({
         return;
       }
       const view = viewAccountsRef.current;
-      const covered = isCoveredByLeader(view, activeFolderRef.current);
+      const covered = isCoveredByLeader(view, inboxService.currentFolder);
       if (message.type === "folders") {
         const scope = message.scope;
         const ctx = settleRef.current[3];

@@ -140,7 +140,7 @@ const DialogContent: React.FC<
       >
         {children}
         {showCloseButton && (
-          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none pointer-coarse:top-1.5 pointer-coarse:right-1.5 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center">
+          <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 end-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none pointer-coarse:top-1.5 pointer-coarse:end-1.5 pointer-coarse:flex pointer-coarse:size-11 pointer-coarse:items-center pointer-coarse:justify-center">
             {/* 44px on coarse pointers: the 16px icon alone is a hard tap. */}
             <Cross2Icon className="h-4 w-4" />
             <span className="sr-only">Close</span>
@@ -178,7 +178,7 @@ const DialogHeader = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn('flex flex-col space-y-1.5 text-left', className)}
+    className={cn('flex flex-col space-y-1.5 text-start', className)}
     {...props}
   />
 );
@@ -202,7 +202,7 @@ const overlayTitleClassName =
   'text-foreground text-lg leading-none font-semibold tracking-tight';
 // Base row layout without an icon color so callers can pick a tone.
 const overlayTitleRowBaseClassName =
-  'flex min-w-0 items-center gap-2 text-left [&_svg]:h-5 [&_svg]:w-5 [&_svg]:shrink-0';
+  'flex min-w-0 items-center gap-2 text-start [&_svg]:h-5 [&_svg]:w-5 [&_svg]:shrink-0';
 const overlayTitleRowClassName = `${overlayTitleRowBaseClassName} [&_svg]:text-primary`;
 
 const DialogTitle: React.FC<

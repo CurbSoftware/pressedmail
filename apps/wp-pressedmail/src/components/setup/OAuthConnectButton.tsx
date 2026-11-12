@@ -20,6 +20,13 @@ export interface OAuthConnectButtonProps {
   accountId?: number;
   /** A contacts or calendar grant instead of a mailbox (Pro sync). */
   purpose?: "contacts" | "calendar";
+  /**
+   * "write" asks Microsoft for a grant that may change contacts or calendars
+   * (two-way sync). Only with a purpose; the server refuses it otherwise.
+   */
+  access?: "write";
+  /** Button text in place of the provider's "connect" label. */
+  label?: string;
   /** Called on completion with the provider-verified mailbox address ('' when unknown). */
   onConnected: (email: string) => void;
   onError?: (message: string) => void;
@@ -45,6 +52,8 @@ export function OAuthConnectButton({
   email,
   accountId,
   purpose,
+  access,
+  label,
   onConnected,
   onError,
 }: OAuthConnectButtonProps) {
@@ -307,7 +316,9 @@ export function OAuthConnectButton({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
-            purpose ? { accountId: 0, purpose } : { accountId: accountId ?? 0 },
+            purpose
+              ? { accountId: 0, purpose, ...(access ? { access } : {}) }
+              : { accountId: accountId ?? 0 },
           ),
           signal: controller.signal,
         });
@@ -368,7 +379,7 @@ export function OAuthConnectButton({
       onClick={handleConnect}
       disabled={busy}
       className="w-full sm:w-auto">
-      {busy ? providerLabels.waiting : providerLabels.connect}
+      {busy ? providerLabels.waiting : (label ?? providerLabels.connect)}
     </Button>
   );
 }

@@ -185,6 +185,10 @@ export interface Contact {
   status: ContactStatus;
   /** How the contact was added (manual, imported, synced, detected, form). */
   source?: ContactSource;
+  /** A linked contact's state: in step, edited here, or edited on both sides. */
+  sync_status?: "local" | "synced" | "pending" | "conflict";
+  /** Who a linked contact syncs with, and whether edits here go back there. */
+  sync?: { label: string; two_way: boolean } | null;
   /** List IDs this contact belongs to */
   lists: number[];
   /**
@@ -345,6 +349,8 @@ export interface CreateContactData {
   important_dates?: ImportantDate[];
   avatar_url?: string | null;
   nickname?: string;
+  /** A two-way connection key that also gets the new contact. */
+  sync_to?: string;
 }
 
 /**
@@ -473,6 +479,15 @@ export interface ContactsContextValue {
   toggleFavorite: (
     contactId: number,
   ) => Promise<{ success: boolean; error?: string }>;
+  /**
+   * Allow mail again to an address that unsubscribed or bounced. For
+   * administrators, and only after they confirmed it: the server refuses
+   * anyone else. `listId` lifts one list; without it, every list.
+   */
+  liftSuppression: (
+    contact: Pick<Contact, "id" | "email">,
+    listId?: number,
+  ) => Promise<{ success: boolean; contact?: Contact; error?: string }>;
   /** Fetch contact lists */
   fetchLists: () => Promise<void>;
   /** Create a contact list */
@@ -513,6 +528,11 @@ export interface ContactsContextValue {
     state: ListSubscriptionState,
     signal?: AbortSignal,
   ) => Promise<ListStateMembers | null>;
+  /**
+   * The user's contacts changed here and at the provider since the last sync,
+   * filtered by the server, page by page, like fetchListMembersByState.
+   */
+  fetchSyncConflicts?: (signal?: AbortSignal) => Promise<ListStateMembers | null>;
   /** Add a member to a list the user owns or edits; the row belongs to the list owner. */
   addListMember: (
     listId: number,
@@ -616,6 +636,11 @@ export interface ContactsContextValue {
     provider: SyncProvider,
     direction?: "pull",
   ) => Promise<{ success: boolean; result?: SyncResult; error?: string }>;
+  /** Settle a linked contact: keep this copy, or take the provider's. */
+  resolveSyncConflict: (
+    contactId: number,
+    keep: "local" | "provider",
+  ) => Promise<{ success: boolean; contact?: Contact; error?: string }>;
 
   // Contact keyword library (string-based)
   /** Sorted, normalized, deduped list of keywords used across all contacts */

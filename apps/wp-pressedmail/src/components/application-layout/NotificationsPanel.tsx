@@ -38,6 +38,7 @@ import {
 } from "@kit/ui/plugin";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
 import { focusQuietly, PressedTooltip } from "@/components/ui/pressed-tooltip";
+import { useUndoSend } from "@/context/undo-send";
 import { useNotificationPause } from "@/hooks/useNotificationPause";
 import { dismissSyncNotice, useSyncNotice } from "@/hooks/useSyncNotice";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -451,6 +452,7 @@ export function NotificationsPanel({
   clearAll,
 }: NotificationsPanelProps) {
   const navigate = useNavigate();
+  const { showHeldSends } = useUndoSend();
   const hiddenSummaryId = React.useId();
   const silence = useNotificationPause();
   const { preferences } = useUserPreferences();
@@ -676,6 +678,21 @@ export function NotificationsPanel({
       if (fromKeyboard && !opensItem) focusLanding(findMainRegion);
       onNavigate();
       navigate(target);
+      // This row lands in Sent, where its message is not listed. Say that it
+      // went out, so nobody sends it a second time.
+      // A held Undo Send message is in no folder list when it has no draft, so
+      // it is offered again here, with Send now and Delete.
+      if (item.type === "send_held" && item.targetKind === "outgoing_mail") {
+        showHeldSends();
+      }
+      if (item.type === "sent_copy_failed") {
+        toast.info(
+          __(
+            "This email was sent. Only its copy for the Sent folder could not be saved, so it is not listed here.",
+            "pressedmail",
+          ),
+        );
+      }
     }
   };
 

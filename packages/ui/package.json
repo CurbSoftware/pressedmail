@@ -120,6 +120,8 @@
     "./hooks/use-mobile": "./src/hooks/use-mobile.tsx",
     "./plugin": "./src/plugin/index.ts",
     "./styles/tailwind-base.css": "./src/styles/tailwind-base.css",
+    "./styles/tailwind-theme.css": "./src/styles/tailwind-theme.css",
+    "./styles/text-color-cascade.cjs": "./src/styles/text-color-cascade.cjs",
     "./pressed-mail-logo": "./src/core/pressed-mail-logo.tsx",
     "./code-block-copy": "./src/shadcn/code-block-copy.tsx"
   },

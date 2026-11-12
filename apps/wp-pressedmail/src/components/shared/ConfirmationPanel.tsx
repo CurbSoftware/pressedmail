@@ -47,6 +47,8 @@ export interface ConfirmationPanelProps {
   onOpenChange: (open: boolean) => void;
   /** Panel title */
   title: string;
+  /** `auto` for a title in someone else's words, such as a companion's, which keeps its own direction. */
+  titleDir?: "auto";
   /** Description/message to display */
   description: React.ReactNode;
   /** Callback when user confirms */
@@ -78,6 +80,7 @@ export function ConfirmationPanel({
   open,
   onOpenChange,
   title,
+  titleDir,
   description,
   onConfirm,
   onCancel,
@@ -119,7 +122,7 @@ export function ConfirmationPanel({
           title={
             <span className="flex min-w-0 items-center gap-2">
               {leadingIcon}
-              <span>{title}</span>
+              <span dir={titleDir}>{title}</span>
             </span>
           }
           tone={variant === "destructive" ? "destructive" : "default"}

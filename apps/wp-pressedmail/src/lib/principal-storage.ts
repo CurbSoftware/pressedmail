@@ -266,7 +266,7 @@ const PURGE_KEEPS = ["normal-send-intent:"];
  * Cached message content, the compose draft, the account list and recent searches
  * all belong to the session that wrote them, and none of them may be left for
  * whoever uses this browser next. Cosmetic preferences (theme, layout, typography)
- * are not scoped to a user and stay where they are.
+ * live under their own prefix (lib/preference-storage.ts) and stay where they are.
  *
  * Pass the principal whose session ended to drop only that user's keys, which is
  * what a page can do without disturbing another session sharing the browser. With
@@ -474,10 +474,13 @@ export function invalidatePrincipalStorage(reason = "principal-changed"): void {
     // Invalidate this page even if notifying sibling tabs is unavailable.
   }
   // Every caller here means the same thing: this page was showing one user's
-  // mailbox and that user is gone (a different principal, a lost session). The
-  // stored copy belongs to that session, so it goes with it, even in a tab the
-  // user abandoned. Without a resolved principal there is no way to tell whose
-  // keys these are, and an unidentifiable page drops them all.
+  // mailbox and somebody else now holds the browser (a different principal, a
+  // sign-out in another tab). The stored copy belongs to that session, so it
+  // goes with it, even in a tab the user abandoned. A session that merely
+  // expired does not come here: the draft is still that user's, and WordPress
+  // asks them to sign in again over the page (lib/nonce.ts). Without a resolved
+  // principal there is no way to tell whose keys these are, and an
+  // unidentifiable page drops them all.
   purgePrincipalStorage(principal);
   if (typeof window !== "undefined") {
     window.removeEventListener("storage", handleStorageChange);

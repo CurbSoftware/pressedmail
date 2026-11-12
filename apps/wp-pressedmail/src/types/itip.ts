@@ -39,6 +39,17 @@ export interface ITipEvent {
   end: string;
   sequence: number;
   attendees: ITipAttendee[];
+  /**
+   * A date-only event, with no time of day. Absent on an envelope stored
+   * before the server sent it.
+   */
+  all_day?: boolean;
+  /**
+   * The event repeats and `start` / `end` are its first occurrence. The
+   * calendar import route answers 422 for these. Absent on an envelope stored
+   * before the server sent it.
+   */
+  recurring?: boolean;
   /** Exact MIME part containing the parsed calendar payload. */
   attachmentPart?: string;
 }

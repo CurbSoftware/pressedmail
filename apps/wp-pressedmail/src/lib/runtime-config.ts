@@ -43,6 +43,15 @@ export function hasUnsubscribeProvider(): boolean {
   return isTruthyRuntimeFlag(window.pressedmailPlugin?.unsubscribeProvider);
 }
 
+/** A companion offers a writing provider, as the page loaded (Pro sets it). */
+export function hasWritingProvider(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return isTruthyRuntimeFlag(window.pressedmailPlugin?.hasWritingProvider);
+}
+
 /** WordPress site timezone shared by browser and server notification policy. */
 export function getRuntimeSiteTimezone(): string {
   if (typeof window === "undefined") {
@@ -125,6 +134,22 @@ export function getRuntimeRestNamespace(): string {
  */
 export function getPluginRestBase(): string {
   return getRuntimeRestRoot() + getRuntimeRestNamespace() + "/";
+}
+
+/**
+ * Make a hand-joined REST URL valid on plain permalinks.
+ *
+ * There the REST root is `index.php?rest_route=/`, so a path that appends its
+ * own `?query` lands inside `rest_route` and matches no route. Every `?` after
+ * the root's own becomes `&`. A pretty-permalink URL is returned unchanged.
+ */
+export function normalizeRestUrl(url: string): string {
+  const first = url.indexOf("?");
+  const second = first === -1 ? -1 : url.indexOf("?", first + 1);
+  if (second === -1 || !/[?&]rest_route=/.test(url.slice(first, second))) {
+    return url;
+  }
+  return url.slice(0, second) + url.slice(second).replace(/\?/g, "&");
 }
 
 /**

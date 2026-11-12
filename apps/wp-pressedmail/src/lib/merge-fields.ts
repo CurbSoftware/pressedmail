@@ -1,13 +1,17 @@
 /**
  * The `{{path}}` and `{{path|fallback}}` merge-field grammar, read the way the
- * server reads it (`TemplateVariables::PATTERN` in plugin-files/includes/Services/Templates).
+ * server reads it (`TemplateVariables::pattern()` in plugin-files/includes/Services/Templates).
  *
  * It lives in lib, not in components/templates, because the Insert button is a
  * Free feature and checks a field too, and Free does not ship the templates
  * code. components/templates/template-fields.ts re-exports it for the editor.
  */
 
-/** The eleven namespaces the server fills or blanks. Anything else is the author's own text. `post` is filled inside a posts block (Pro); `woo` is filled by the Woo Bridge companion when it is active. */
+/**
+ * The built-in namespaces: PressedMail's ten and the seeded `woo`. `post` is
+ * filled inside a posts block (Pro); `woo` by the Woo Bridge companion when it
+ * is active.
+ */
 export const TEMPLATE_NAMESPACES = [
   "contact",
   "sender",
@@ -22,7 +26,29 @@ export const TEMPLATE_NAMESPACES = [
   "woo",
 ] as const;
 
-const NAMESPACES: ReadonlySet<string> = new Set(TEMPLATE_NAMESPACES);
+/** A namespace name, as VariableRegistry checks one. */
+const NAMESPACE_NAME = /^[a-z][a-z0-9_]{0,31}$/;
+
+let namespacesFrom: unknown = null;
+let namespaces: ReadonlySet<string> = new Set(TEMPLATE_NAMESPACES);
+
+/**
+ * The namespaces the server fills or blanks on this site: the built-ins plus
+ * the ones companions registered, live or remembered (runtime data
+ * `templateNamespaces`). Anything else is the author's own text. Rebuilt only
+ * when that list changes.
+ */
+function knownNamespaces(): ReadonlySet<string> {
+  const runtime = typeof window === "undefined" ? undefined : window.pressedmailPlugin?.templateNamespaces;
+  if (runtime !== namespacesFrom) {
+    namespacesFrom = runtime;
+    const extra = Array.isArray(runtime)
+      ? runtime.filter((name): name is string => typeof name === "string" && NAMESPACE_NAME.test(name))
+      : [];
+    namespaces = new Set([...TEMPLATE_NAMESPACES, ...extra]);
+  }
+  return namespaces;
+}
 
 /** Longest field key, and longest fallback the server reads, as written in the pattern. */
 const KEY_MAX = 32;
@@ -47,8 +73,9 @@ export interface TemplateToken {
 
 const isSpace = (char: string | undefined): boolean => char !== undefined && /\s/.test(char);
 const isLower = (char: string | undefined): boolean => char !== undefined && char >= "a" && char <= "z";
+const isDigit = (char: string | undefined): boolean => char !== undefined && char >= "0" && char <= "9";
 const isKeyChar = (char: string | undefined): boolean =>
-  char !== undefined && (isLower(char) || (char >= "0" && char <= "9") || char === "_");
+  char !== undefined && (isLower(char) || isDigit(char) || char === "_");
 const isFallbackChar = (char: string | undefined): boolean =>
   char !== undefined && !"{}|<>\r\n".includes(char);
 
@@ -62,10 +89,11 @@ function skipSpace(text: string, from: number): number {
 function readToken(text: string, start: number): TemplateToken | null {
   let at = skipSpace(text, start + 2);
 
+  // A namespace is a name like a key; only a known one makes a token.
   const spaceName = at;
-  while (isLower(text[at])) at += 1;
+  if (isLower(text[at])) while (isKeyChar(text[at])) at += 1;
   const namespace = text.slice(spaceName, at);
-  if (!NAMESPACES.has(namespace) || text[at] !== ".") return null;
+  if (!knownNamespaces().has(namespace) || text[at] !== ".") return null;
   at += 1;
 
   const keyStart = at;

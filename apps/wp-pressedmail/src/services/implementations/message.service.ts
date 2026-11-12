@@ -24,6 +24,7 @@ import type {
 import type { ICacheService } from "../interfaces";
 import type { IConnectionStateService } from "../interfaces/connection-state.interface";
 import {
+  apiJson,
   apiPost,
   apiForm,
   type ApiResponse,
@@ -693,10 +694,8 @@ export class MessageService implements IMessageOperations {
         ...getMailboxSourceRequestParams(),
       });
 
-      const response = await apiPost<EmailMessage>(url, {
-        ...this.buildMessageMutationPayload(ref),
-        ...getMailboxSourceRequestParams(),
-      });
+      // The route is GET: the identity travels in the query string above.
+      const response = await apiJson<ApiResponse<EmailMessage>>(url);
 
       if (isError(response)) {
         console.error(

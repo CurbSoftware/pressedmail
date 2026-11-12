@@ -104,8 +104,13 @@ export function RunRulesNowButton({
     }
   }, []);
 
+  // One status request at a time, whoever asks: the next waits for the last
+  // to answer, so a slow host never has polls queued behind the run.
+  const pollInFlight = useRef(false);
   const pollRun = useCallback(
     async (runId: number) => {
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
       try {
         const run = await fetchFilterRuleRun(runId);
         pollFailures.current = 0;
@@ -127,19 +132,40 @@ export function RunRulesNowButton({
             ? error.message
             : __("Lost track of the rule run", "pressedmail"),
         );
+      } finally {
+        pollInFlight.current = false;
       }
     },
     [applyRunUpdate],
   );
 
+  // Each poll is scheduled when the one before it has answered. A hidden tab
+  // does not poll at all and picks up as soon as it is shown again.
   useEffect(() => {
     if (activeRunId === null) return;
 
-    const intervalId = window.setInterval(() => {
-      void pollRun(activeRunId);
-    }, 2000);
+    let stopped = false;
+    let timeoutId: number | undefined;
+    const schedule = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => void tick(), 2000);
+    };
+    const tick = async () => {
+      if (stopped || document.visibilityState === "hidden") return;
+      await pollRun(activeRunId);
+      if (!stopped) schedule();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void tick();
+    };
 
-    return () => window.clearInterval(intervalId);
+    schedule();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timeoutId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [activeRunId, pollRun]);
 
   const openPicker = async () => {

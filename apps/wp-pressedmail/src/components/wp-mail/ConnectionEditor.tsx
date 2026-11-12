@@ -42,7 +42,8 @@ export interface ConnectionEditorProps {
   /** Whether the site-wide runtime switch is on, for the test result copy. */
   runtimeEnabled: boolean;
   capabilities?: SmtpConnectionCapabilities;
-  onStateChange: (state: WpMailState) => void;
+  /** A save went through: the new state, and the connection the server says it saved. */
+  onStateChange: (state: WpMailState, saved?: WpMailConnectionView) => void;
   canDelete?: boolean;
   idPrefix?: string;
   /**
@@ -230,7 +231,7 @@ export function ConnectionEditor({
 
       applyErrors(undefined);
       if (result.state) {
-        onStateChange(result.state);
+        onStateChange(result.state, result.connection);
       }
       // The password is never echoed back, so clear the field rather than
       // leaving the just-typed secret sitting in the DOM.

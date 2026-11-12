@@ -126,6 +126,8 @@ export const ToolbarButton = React.forwardRef<
       pressed?: boolean;
       isDropdown?: boolean;
       tooltip?: string;
+      /** `auto` for a tooltip in words that are not PressedMail's own, such as a companion's label. */
+      tooltipDir?: 'auto';
     }
 >(({
   className,
@@ -134,6 +136,7 @@ export const ToolbarButton = React.forwardRef<
   pressed,
   size = 'default',
   tooltip,
+  tooltipDir,
   variant = 'default',
   ...props
 }, ref) => {
@@ -178,7 +181,7 @@ export const ToolbarButton = React.forwardRef<
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent side="bottom" sideOffset={6}>
+        <TooltipContent side="bottom" sideOffset={6} dir={tooltipDir}>
           {tooltip}
         </TooltipContent>
       </Tooltip>

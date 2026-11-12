@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { __, _n, sprintf } from "@wordpress/i18n";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Lock, RotateCw } from "lucide-react";
 
 import {
   Alert,
   AlertDescription,
+  AlertTitle,
+  Button,
   Label,
   Select,
   SelectContent,
@@ -18,10 +20,10 @@ import {
 } from "@kit/ui/plugin";
 
 import {
+  SettingsEmptyState,
   SettingsSaveBar,
   SettingsSectionCard,
   useSettingsNavigationGuard,
-  SettingsSkeleton,
   type SettingsDraftHandle,
 } from "@/components/settings-ui";
 import { WpMailConnectionsPanel } from "@/admin/pages/settings/_components/admin-settings/wp-mail-connections-panel.active";
@@ -31,15 +33,21 @@ import {
   WordPressNotificationTemplates,
   sectionDraftBar,
 } from "@/admin/pages/settings/_components/admin-settings/wordpress-notification-templates.active";
-import { smtpHealthCopy } from "@/components/wp-mail/smtp-health-copy";
+import {
+  pluginMessageOf,
+  smtpHealthCopy,
+} from "@/components/wp-mail/smtp-health-copy";
 import { WpMailRoutingCard } from "@/components/wp-mail/WpMailRoutingCard";
 import { WpMailLogTable } from "./wp-mail-log-table";
+import { WpMailSkeleton } from "./wp-mail-skeleton";
 import {
   fetchWpMailState,
   saveWpMailSettings,
   type WpMailSettingsView,
   type WpMailState,
 } from "@/lib/wp-mail-api";
+import { PermissionError } from "@/lib/api-client";
+import { usesExternalConnections } from "@/lib/wp-mail-connections";
 
 const RETENTION_CHOICES = [0, 30, 60, 90];
 
@@ -51,7 +59,8 @@ const RETENTION_CHOICES = [0, 30, 60, 90];
  * Pro splits the decision in two and names the panels for what they hold:
  * SMTP Accounts (`mail-servers`), Default SMTP (`default-smtp`, where the
  * master switch lives) and System Emails (`system-emails`, the per-email
- * choices and the delivery log). Pro also offers `woo`, the WooCommerce
+ * choices and the delivery log). Once another plugin provides a connection
+ * type, the first two are Connections and Default connection. Pro also offers `woo`, the WooCommerce
  * emails panel, whenever the Woo Bridge companion is active. Free keeps the
  * two it has always had. The internal ids are the same in both, so nothing
  * that names a panel by id cares which edition it is running in.
@@ -70,6 +79,9 @@ type WpMailPanel = "system-emails" | "mail-servers" | "default-smtp" | "woo";
  * component owns only the two site-wide settings: the runtime switch and log
  * retention.
  */
+/** On body while this page is open: admin/index.css hides the admin notice. */
+const NOTICE_HIDDEN_CLASS = "pressedmail-wp-mail-open";
+
 export function WpMailTab() {
   const [state, setState] = useState<WpMailState | null>(null);
   const [draft, setDraft] = useState<WpMailSettingsView | null>(null);
@@ -80,6 +92,8 @@ export function WpMailTab() {
   const [saving, setSaving] = useState(false);
   const settingsSaveInFlight = useRef(false);
   const [error, setError] = useState("");
+  // The server refused the load for lack of permission: trying again cannot help.
+  const [denied, setDenied] = useState(false);
   // Connection forms save themselves, but their unsaved edits still have to
   // reach the navigation guard or leaving the tab drops them silently.
   const [connectionDrafts, setConnectionDrafts] = useState<
@@ -115,7 +129,7 @@ export function WpMailTab() {
   );
   const connectionsDirty = connectionDraftList.some((entry) => entry.dirty);
   const connectionsSaving = connectionDraftList.some((entry) => entry.saving);
-  // The System Emails table and the WooCommerce panel register like connection
+  // The system email rows and the WooCommerce panel register like connection
   // forms, so the leave prompt covers them, but their edits are not forms of
   // their own: this tab's save bar saves and resets them with the tab's own settings.
   const section = sectionDraftBar(connectionDrafts);
@@ -123,11 +137,13 @@ export function WpMailTab() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setDenied(false);
     try {
       const next = await fetchWpMailState();
       setState(next);
       setDraft(next.settings);
     } catch (loadError) {
+      setDenied(loadError instanceof PermissionError);
       setError(
         loadError instanceof Error
           ? loadError.message
@@ -141,6 +157,18 @@ export function WpMailTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // WordPress's admin notice above the app repeats what this page shows, with
+  // a link to this page. PHP cannot see the hash route, so the page hides it
+  // while it is open, once it has something to show instead.
+  const loaded = state !== null;
+  useEffect(() => {
+    if (!loaded) {
+      return undefined;
+    }
+    document.body.classList.add(NOTICE_HIDDEN_CLASS);
+    return () => document.body.classList.remove(NOTICE_HIDDEN_CLASS);
+  }, [loaded]);
 
   // A test of a saved connection records its outcome on the server. Look again
   // so the banner and the cards say so, and leave every draft alone: only the
@@ -252,24 +280,42 @@ export function WpMailTab() {
   };
 
   if (loading) {
-    return (
-      <SettingsSkeleton
-        label={__("Loading WordPress email settings", "pressedmail")}
-        dataTest="wp-mail-loading"
-        rows={2}
-      />
-    );
+    return <WpMailSkeleton />;
   }
 
   if (!state || !draft) {
+    if (denied) {
+      // Not a failure to retry: this page is for administrators.
+      return (
+        <div role="alert" data-test="wp-mail-load-denied" data-testid="wp-mail-load-denied">
+          <SettingsEmptyState
+            icon={<Lock className="h-5 w-5" aria-hidden="true" />}
+            title={__("Only administrators can manage WordPress email.", "pressedmail")}
+          />
+        </div>
+      );
+    }
+    const fallback = __("Could not load WordPress email settings.", "pressedmail");
+
     return (
-      <Alert variant="destructive">
-        <AlertCircle className="h-4 w-4" />
-        <AlertDescription>
-          {error ||
-            __("Could not load WordPress email settings.", "pressedmail")}
-        </AlertDescription>
-      </Alert>
+      <div role="alert" data-test="wp-mail-load-error" data-testid="wp-mail-load-error">
+        <SettingsEmptyState
+          icon={<AlertCircle className="h-5 w-5" aria-hidden="true" />}
+          title={__("Could not load WordPress email settings", "pressedmail")}
+          description={error && error !== fallback ? error : undefined}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              onClick={() => void load()}>
+              <RotateCw className="me-2 h-4 w-4" aria-hidden="true" />
+              {__("Try again", "pressedmail")}
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
@@ -278,6 +324,9 @@ export function WpMailTab() {
     (connection) =>
       connection.isDefault && connection.enabled && connection.isUsable,
   );
+  // Mail can go through a service another plugin provides, so the page says
+  // "connection" where it said "SMTP account".
+  const mixed = usesExternalConnections(state);
 
   // The hints name the tab that holds the connections, and Pro calls it
   // something else. Free's two sentences are exactly what they always were.
@@ -288,12 +337,20 @@ export function WpMailTab() {
       hasConnection={hasConnection}
       hasUsableDefault={hasUsableDefault}
       disabled={saving || connectionsSaving}
+      pressedmailTitle={
+        __IS_PRO__ && mixed ? __("PressedMail connection", "pressedmail") : undefined
+      }
       pressedmailDescription={
         __IS_PRO__
-          ? __(
-              "An SMTP account you set up here. Applies site-wide, to every plugin and theme.",
-              "pressedmail",
-            )
+          ? mixed
+            ? __(
+                "A connection you set up here. Applies site-wide, to every plugin and theme.",
+                "pressedmail",
+              )
+            : __(
+                "An SMTP account you set up here. Applies site-wide, to every plugin and theme.",
+                "pressedmail",
+              )
           : __(
               "A mail server you set up here. Applies site-wide, to every plugin and theme.",
               "pressedmail",
@@ -301,10 +358,15 @@ export function WpMailTab() {
       }
       noConnectionHint={
         __IS_PRO__
-          ? __(
-              "Add an SMTP account on the SMTP Accounts tab to use this.",
-              "pressedmail",
-            )
+          ? mixed
+            ? __(
+                "Add a connection on the Connections tab to use this.",
+                "pressedmail",
+              )
+            : __(
+                "Add an SMTP account on the SMTP Accounts tab to use this.",
+                "pressedmail",
+              )
           : __(
               "Add a mail server on the Mail servers tab to use this.",
               "pressedmail",
@@ -312,10 +374,15 @@ export function WpMailTab() {
       }
       notReadyHint={
         __IS_PRO__
-          ? __(
-              "Enable an SMTP account on the SMTP Accounts tab, finish its settings, and make it the default to use this.",
-              "pressedmail",
-            )
+          ? mixed
+            ? __(
+                "Enable a connection on the Connections tab, finish its settings, and make it the default to use this.",
+                "pressedmail",
+              )
+            : __(
+                "Enable an SMTP account on the SMTP Accounts tab, finish its settings, and make it the default to use this.",
+                "pressedmail",
+              )
           : __(
               "Enable a mail server on the Mail servers tab, finish its settings, and make it the default to use this.",
               "pressedmail",
@@ -336,43 +403,40 @@ export function WpMailTab() {
         </Alert>
       ) : null}
 
-      {state.health.map((health) => (
-        <Alert
-          key={health.connectionId}
-          variant="destructive"
-          data-test="wp-mail-health-warning">
+      {/* One message for everything that needs attention, each with its fix. */}
+      {state.health.length > 0 || state.configurationIssues.length > 0 ? (
+        <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
+          <AlertTitle>
+            {__("WordPress email needs attention", "pressedmail")}
+          </AlertTitle>
           <AlertDescription>
-            <span className="font-medium">
-              {__("WordPress email needs attention", "pressedmail")}
-            </span>
-            <span className="ml-1">
-              {health.errorClass
-                ? smtpHealthCopy(
-                    health.errorClass,
-                    health.connectionLabel,
-                    health.detail ?? "",
-                  )
-                : // A payload from before failures were classified.
-                  `${health.connectionLabel ? `${health.connectionLabel}: ` : ""}${
-                    health.message ||
-                    __(
-                      "A recent message could not be sent. Review the mail server and send a test email.",
-                      "pressedmail",
-                    )
-                  }`}
-            </span>
-          </AlertDescription>
-        </Alert>
-      ))}
-
-      {state.configurationIssues.length > 0 ? (
-        <Alert variant="destructive" data-test="wp-mail-configuration-issues">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="space-y-1">
-            {state.configurationIssues.map((issue) => (
-              <p key={issue}>{issue}</p>
-            ))}
+            <ul className="space-y-1">
+              {state.health.map((health) => (
+                <li key={health.connectionId} data-test="wp-mail-health-warning">
+                  {health.errorClass
+                    ? smtpHealthCopy(
+                        health.errorClass,
+                        health.connectionLabel,
+                        health.detail ?? "",
+                        pluginMessageOf(health),
+                      )
+                    : // A payload from before failures were classified.
+                      `${health.connectionLabel ? `${health.connectionLabel}: ` : ""}${
+                        health.message ||
+                        __(
+                          "A recent message could not be sent. Review the mail server and send a test email.",
+                          "pressedmail",
+                        )
+                      }`}
+                </li>
+              ))}
+              {state.configurationIssues.map((issue) => (
+                <li key={issue} data-test="wp-mail-configuration-issues">
+                  {issue}
+                </li>
+              ))}
+            </ul>
           </AlertDescription>
         </Alert>
       ) : null}
@@ -391,7 +455,7 @@ export function WpMailTab() {
         <TabsList
           variant="line"
           aria-label={__("WordPress email sections", "pressedmail")}
-          className="w-full justify-start rounded-none border-b px-0 max-sm:h-auto! max-sm:flex-wrap pointer-coarse:h-auto! pointer-coarse:flex-wrap">
+          className="w-full justify-start rounded-none border-b px-0 max-sm:h-auto! max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:[scrollbar-width:none] max-sm:[&::-webkit-scrollbar]:hidden pointer-coarse:h-auto!">
           {__IS_PRO__ ? (
             <>
               <TabsTrigger
@@ -399,14 +463,20 @@ export function WpMailTab() {
                 className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-mail-servers"
                 data-testid="wp-mail-panel-mail-servers">
-                {__("SMTP Accounts", "pressedmail")}
+                {mixed
+                  ? __("Connections", "pressedmail")
+                  : __("SMTP Accounts", "pressedmail")}
               </TabsTrigger>
               <TabsTrigger
                 value="default-smtp"
                 className="flex-none px-4 max-sm:min-h-11 pointer-coarse:min-h-11 text-muted-foreground dark:text-foreground/70"
                 data-test="wp-mail-panel-default-smtp"
                 data-testid="wp-mail-panel-default-smtp">
-                {__("Default SMTP", "pressedmail")}
+                {/* Title case, as in the other mode: copy across the plugin
+                    names these tabs that way ("the SMTP Accounts tab"). */}
+                {mixed
+                  ? __("Default Connection", "pressedmail")
+                  : __("Default SMTP", "pressedmail")}
               </TabsTrigger>
               <TabsTrigger
                 value="system-emails"
@@ -501,6 +571,7 @@ export function WpMailTab() {
 
               <WpMailLogTable
                 retentionDays={state.settings.logRetentionDays}
+                transportStatuses={mixed}
               />
             </div>
           </SettingsSectionCard>

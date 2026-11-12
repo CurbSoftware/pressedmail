@@ -1,6 +1,7 @@
 "use client";
 
 import { proToolTabs } from "@/components/settings/pro-tools/tools.active";
+import { providerImportOn } from "@/lib/provider-import-flags";
 import { useMemo } from "react";
 import { __ } from "@wordpress/i18n";
 
@@ -47,8 +48,6 @@ function isAutoRepliesBuildEnabled() {
  * 6. Security - always shown
  */
 export function useAvailableSettingsTabs() {
-  const aiAdminStatusLoaded = true;
-
   const tabs = useMemo((): SettingsTab[] => {
     const isPro = window.pressedmailPlugin?.isPro ?? false;
     const result: SettingsTab[] = [
@@ -104,41 +103,12 @@ export function useAvailableSettingsTabs() {
       userOnly: true,
     });
 
-    // Calendar Sync (Pro): connect Google/Outlook/CalDAV. The sync backend and
-    // client exist; this tab surfaces the connection UI. Gated on the pro
-    // edition and the calendar_sync build flag.
-    const calendarSyncEnabled =
-      typeof __ENABLE_CALENDAR_SYNC__ === "boolean"
-        ? __ENABLE_CALENDAR_SYNC__
-        : (
-            globalThis as typeof globalThis & {
-              __ENABLE_CALENDAR_SYNC__?: boolean;
-            }
-          ).__ENABLE_CALENDAR_SYNC__ === true;
-    if (isPro && calendarSyncEnabled) {
+    // Contacts & calendars (Pro): every contacts and calendar connection in
+    // one page. Shown while the build carries it and the companion is on.
+    if (isPro && providerImportOn()) {
       result.push({
-        id: "calendar-sync",
-        label: __("Calendar Sync", "pressedmail"),
-        icon: null,
-        userOnly: true,
-        proOnly: true,
-      });
-    }
-
-    // Contacts Sync (Pro) is on hold and in DISABLED_FEATURES, so no build
-    // offers it. The contacts_sync build flag stays the tree-shaking boundary.
-    const contactsSyncEnabled =
-      typeof __ENABLE_CONTACTS_SYNC__ === "boolean"
-        ? __ENABLE_CONTACTS_SYNC__
-        : (
-            globalThis as typeof globalThis & {
-              __ENABLE_CONTACTS_SYNC__?: boolean;
-            }
-          ).__ENABLE_CONTACTS_SYNC__ === true;
-    if (isPro && contactsSyncEnabled) {
-      result.push({
-        id: "contacts-sync",
-        label: __("Contacts Sync", "pressedmail"),
+        id: "contacts-calendars",
+        label: __("Contacts & calendars", "pressedmail"),
         icon: null,
         userOnly: true,
         proOnly: true,
@@ -149,5 +119,5 @@ export function useAvailableSettingsTabs() {
     return result;
   }, []);
 
-  return { tabs, aiAdminStatusLoaded };
+  return { tabs };
 }

@@ -146,6 +146,7 @@ import type { EmailMessage, EmailMessageTag } from "@/types";
 import {
   getScheduledComposeData,
   parseScheduledDraftHandoff,
+  type ScheduledEmail,
 } from "@/types/scheduled-emails";
 import type {
   FolderTarget,
@@ -192,6 +193,7 @@ import {
 import type { FilterRule } from "@/types/filter-rules";
 import { ruleCanRunManually } from "@/types/filter-rules";
 import { resolveInboxActionVisibility } from "@/lib/inbox-action-visibility";
+import { ConnectionErrorBanner } from "@/layouts/shared/components/ConnectionErrorBanner";
 import { PaginationFooter } from "@/layouts/shared/components/footer-system";
 import { buildEmailRowViewModel } from "@/components/inbox/email-row-model";
 
@@ -723,6 +725,15 @@ export function MobileInboxScreen() {
     null,
   );
   const [isBulkActionRunning, setIsBulkActionRunning] = React.useState(false);
+  // A scheduled email the server is holding (more than a day late), with the
+  // list row it came from. Its sheet offers Send now and Delete, nothing else.
+  const [heldScheduled, setHeldScheduled] = React.useState<{
+    email: ScheduledEmail;
+    rowId: string;
+  } | null>(null);
+  const [heldConfirmingDelete, setHeldConfirmingDelete] = React.useState(false);
+  const [heldBusy, setHeldBusy] = React.useState(false);
+  const heldBusyRef = React.useRef(false);
   // The state above reaches a tap only after the re-render, and a double tap can come first. This is the lock.
   const bulkActionRunningRef = React.useRef(false);
   const [isTagging, setIsTagging] = React.useState(false);
@@ -883,6 +894,15 @@ export function MobileInboxScreen() {
       const scheduledEmail = scheduledEmails?.emails.find(
         (email) => email.id === scheduledEmailId,
       );
+      // A held email is not edited: its sender sends it now or deletes it.
+      if (scheduledEmail?.status === "pending" && scheduledEmail.held === true) {
+        setHeldConfirmingDelete(false);
+        setHeldScheduled({
+          email: scheduledEmail,
+          rowId: getMessageIdentityKey(mail),
+        });
+        return;
+      }
       const sourceIdentity = getScheduledEmailDraftIdentity(
         scheduledEmail ?? null,
       );
@@ -1439,6 +1459,48 @@ export function MobileInboxScreen() {
     selectedMessageIds,
     selectedMessages,
   ]);
+
+  const answerHeldScheduled = React.useCallback(
+    async (action: "send-now" | "delete") => {
+      // Scheduled sending is Pro: Free holds nothing to answer.
+      if (__IS_FREE__ || !heldScheduled || !scheduledEmails) return;
+      // One request per answer: the row is claimed by the first.
+      if (heldBusyRef.current) return;
+      heldBusyRef.current = true;
+      setHeldBusy(true);
+      try {
+        const result = await (action === "delete"
+          ? scheduledEmails.deleteEmail(heldScheduled.email.id)
+          : scheduledEmails.sendNow(heldScheduled.email.id));
+        if (result.status !== "success") {
+          toast.error(
+            result.message ||
+              __("We could not update this scheduled email.", "pressedmail"),
+          );
+          return;
+        }
+        getInboxService().removeMessage(heldScheduled.rowId);
+        setHeldScheduled(null);
+        toast.success(
+          action === "delete"
+            ? sprintf(
+                _n(
+                  "Deleted %d scheduled message",
+                  "Deleted %d scheduled messages",
+                  1,
+                  "pressedmail",
+                ),
+                1,
+              )
+            : __("Email sent", "pressedmail"),
+        );
+      } finally {
+        heldBusyRef.current = false;
+        setHeldBusy(false);
+      }
+    },
+    [heldScheduled, scheduledEmails],
+  );
 
   /**
    * Swipe-to-delete on a row. Outside Trash this moves the message; inside
@@ -2631,6 +2693,11 @@ export function MobileInboxScreen() {
         onQuickFilterChange={handleFilterChange}
       />
       <TaskProgressBanner />
+      {/* Inside the scrolling body, so a long notice scrolls away with the
+          list instead of taking its room. Empty when there is nothing to say. */}
+      <div className="px-3 pt-2 empty:hidden">
+        <ConnectionErrorBanner />
+      </div>
       <PullToRefresh
         onRefresh={async () => {
           // A pull is the person asking for new mail, so it syncs first.
@@ -3293,6 +3360,55 @@ export function MobileInboxScreen() {
           onRun={handleOneOffSweepRun}
           selection={{ selectedCount: selectedMessages.length }}
         />
+      )}
+
+      {!__IS_FREE__ && (
+        <MobileSheet
+          open={heldScheduled !== null}
+          onOpenChange={(open) => {
+            if (!open && !heldBusy) setHeldScheduled(null);
+          }}
+          title={
+            heldConfirmingDelete
+              ? __("Delete this email?", "pressedmail")
+              : heldScheduled?.email.subject || __("(No subject)", "pressedmail")
+          }
+          description={
+            heldConfirmingDelete
+              ? __("Scheduled emails you delete are not sent.", "pressedmail")
+              : heldScheduled?.email.error_message ||
+                __(
+                  "This email was not sent because it was more than a day late. Check Sent first, then send it now or delete it.",
+                  "pressedmail",
+                )
+          }>
+          <div className="flex gap-2 px-1">
+            <button
+              type="button"
+              disabled={heldBusy}
+              className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md border border-border px-3 text-sm font-medium active:bg-muted disabled:opacity-60"
+              onClick={() =>
+                heldConfirmingDelete
+                  ? setHeldConfirmingDelete(false)
+                  : void answerHeldScheduled("send-now")
+              }>
+              {heldConfirmingDelete
+                ? __("Cancel", "pressedmail")
+                : __("Send now", "pressedmail")}
+            </button>
+            <button
+              type="button"
+              disabled={heldBusy}
+              className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground active:bg-destructive/90 disabled:opacity-60"
+              onClick={() =>
+                heldConfirmingDelete
+                  ? void answerHeldScheduled("delete")
+                  : setHeldConfirmingDelete(true)
+              }>
+              {__("Delete", "pressedmail")}
+            </button>
+          </div>
+        </MobileSheet>
       )}
 
       <MobileSheet

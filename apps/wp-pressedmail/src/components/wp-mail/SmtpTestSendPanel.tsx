@@ -78,20 +78,22 @@ export function SmtpTestSendPanel({
         )}
       </div>
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        {/* Not `disabled`: a disabled button drops keyboard focus to the page
+            just as the result appears, so it stays focusable and ignores presses. */}
         <Button
           type="button"
           variant="secondary"
           data-test={id("test-button")}
-          onClick={onTest}
-          disabled={busy}
-          className="w-full pointer-coarse:min-h-11 sm:w-auto">
+          onClick={busy ? undefined : onTest}
+          aria-disabled={busy || undefined}
+          className="w-full pointer-coarse:min-h-11 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 sm:w-auto">
           {testing ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="me-2 h-4 w-4 animate-spin" />
               {__("Sending test...", "pressedmail")}
             </>
           ) : (
-            __("Send Test Email", "pressedmail")
+            __("Send test email", "pressedmail")
           )}
         </Button>
         {onSave && (
@@ -103,7 +105,7 @@ export function SmtpTestSendPanel({
             className="w-full pointer-coarse:min-h-11 sm:w-auto">
             {saving ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="me-2 h-4 w-4 animate-spin" />
                 {__("Saving...", "pressedmail")}
               </>
             ) : (
@@ -116,6 +118,8 @@ export function SmtpTestSendPanel({
       {status && !busy && (
         <Alert
           data-test={id("status")}
+          // Good news is announced politely; only a failure interrupts.
+          role={status.kind === "error" ? "alert" : "status"}
           variant={status.kind === "error" ? "destructive" : "default"}>
           {status.kind === "error" ? (
             <AlertCircle className="h-4 w-4" />

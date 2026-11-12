@@ -52,7 +52,10 @@ export const suggestionVariants = cva(
       },
       remove: {
         false: '',
-        true: 'bg-destructive/10 text-destructive',
+        // Destructive text on its own tint reads 4.0:1, under the 4.5:1 text
+        // needs. The tint and the strike (<del> draws it) stay red; the words
+        // are the foreground colour.
+        true: 'bg-destructive/10 text-foreground decoration-destructive',
       },
       removeActive: {
         false: '',

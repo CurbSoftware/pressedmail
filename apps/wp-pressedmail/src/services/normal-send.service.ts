@@ -36,6 +36,8 @@ export interface NormalSendReceipt {
     | "unknown";
   message: string;
   attempt_key: string;
+  /** Why a send was refused before it started, when the server names it. */
+  code?: string;
   error_type?: string;
   receipt_recorded?: boolean;
   message_id?: string;
@@ -251,10 +253,112 @@ function readIntent(
   throw new NormalSendError("storage_invalid");
 }
 
+/**
+ * wp-admin served over plain HTTP (an intranet host, a staging site without a
+ * certificate). Browsers withhold crypto.subtle, crypto.randomUUID and Web
+ * Locks there, and keep crypto.getRandomValues. Sending still works, with the
+ * same guard: the intent is stored before the POST, and a lost answer reads
+ * the status instead of posting again.
+ */
+function isPlainHttpContext(): boolean {
+  return window.isSecureContext === false;
+}
+
+/** Throws unless this browser can name and fingerprint a send. */
+function assertSendCrypto(): void {
+  const crypto = window.crypto;
+  if (
+    isPlainHttpContext()
+      ? typeof crypto?.getRandomValues !== "function"
+      : !crypto?.subtle || typeof crypto.randomUUID !== "function"
+  )
+    throw new NormalSendError("crypto_unavailable");
+}
+
+function hasSendLocks(): boolean {
+  return typeof navigator.locks?.request === "function" || isPlainHttpContext();
+}
+
+/** A version 4 UUID, from getRandomValues where randomUUID is withheld. */
+function newAttemptKey(): string {
+  if (typeof window.crypto.randomUUID === "function")
+    return window.crypto.randomUUID();
+  const bytes = window.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * The payload fingerprint where crypto.subtle is withheld.
+ *
+ * ponytail: 64 bits and not cryptographic. It only tells this user's own
+ * unresolved sends apart in this browser (a handful at most) and never leaves
+ * it; the server dedupes on the attempt key. Swap in a JS SHA-256 if the
+ * fingerprint ever has to resist a chosen payload.
+ */
+function plainHttpDigest(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let index = 0; index < bytes.length; index++) {
+    h1 = Math.imul(h1 ^ bytes[index]!, 2654435761);
+    h2 = Math.imul(h2 ^ bytes[index]!, 1597334677);
+  }
+  h1 =
+    Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^
+    Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 =
+    Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^
+    Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hex = (value: number) => (value >>> 0).toString(16).padStart(8, "0");
+  return `http-${bytes.length.toString(16)}-${hex(h2)}${hex(h1)}`;
+}
+
+// Stands in for Web Locks over plain HTTP: one queue per key, in this tab.
+const tabLocks = new Map<string, Promise<unknown>>();
+
+/**
+ * Run `work` holding the exclusive lock for `name`.
+ *
+ * ponytail: over plain HTTP the lock is this tab's own queue. Two tabs sending
+ * the same message in the same instant are not serialized; the stored intent
+ * (written and read back before the POST) and the server's attempt key still
+ * stand between them and a duplicate. A storage-based lock closes that if it
+ * ever matters.
+ */
+function withSendLock<T>(
+  name: string,
+  work: (lock: unknown) => T | Promise<T>,
+): Promise<T> {
+  if (typeof navigator.locks?.request === "function")
+    return navigator.locks.request(
+      name,
+      { mode: "exclusive" },
+      work,
+    ) as Promise<T>;
+  const run = (tabLocks.get(name) ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(() => work({ name }));
+  tabLocks.set(name, run);
+  const release = () => {
+    if (tabLocks.get(name) === run) tabLocks.delete(name);
+  };
+  run.then(release, release);
+  return run;
+}
+
 async function sha256(
   bytes: ArrayBuffer,
   principal: StoragePrincipal,
 ): Promise<string> {
+  if (!window.crypto?.subtle && isPlainHttpContext()) {
+    assertCurrent(principal);
+    return plainHttpDigest(bytes);
+  }
   let digest: ArrayBuffer;
   try {
     digest = await window.crypto.subtle.digest("SHA-256", bytes);
@@ -377,6 +481,7 @@ function parseReceipt(
           remaining_seconds: value.remaining_seconds as number,
         }
       : {}),
+    ...(typeof value.code === "string" ? { code: value.code } : {}),
     ...(typeof value.error_type === "string"
       ? { error_type: value.error_type }
       : {}),
@@ -482,7 +587,7 @@ async function sendLocked(
   }
   let attempt: string;
   try {
-    attempt = window.crypto.randomUUID();
+    attempt = newAttemptKey();
   } catch {
     throw new NormalSendError("crypto_unavailable");
   }
@@ -504,6 +609,13 @@ async function sendLocked(
       attempt,
       principal,
     );
+    // A forward refused over its attachments never reached a transport, so
+    // there is no attempt left to ask about: the next send posts again.
+    if (
+      receipt.outcome === "invalid" &&
+      receipt.code?.startsWith("forward_source_")
+    )
+      removePrincipalStorageItem("local", key, principal);
   } catch (error) {
     assertCurrent(principal);
     if (
@@ -528,10 +640,8 @@ export async function retainScheduledListIntent(
   assertCurrent(principal);
   if (!Number.isSafeInteger(account) || account <= 0)
     throw new NormalSendError("invalid_account");
-  if (!window.crypto?.subtle || typeof window.crypto.randomUUID !== "function")
-    throw new NormalSendError("crypto_unavailable");
-  if (typeof navigator.locks?.request !== "function")
-    throw new NormalSendError("locks_unavailable");
+  assertSendCrypto();
+  if (!hasSendLocks()) throw new NormalSendError("locks_unavailable");
   const hash = await sha256(
     new TextEncoder().encode(authoredRequest).buffer,
     principal,
@@ -539,7 +649,7 @@ export async function retainScheduledListIntent(
   const key = `scheduled-list-intent:${account}:${hash}`;
   const physical = getPrincipalStorageKey(key, principal);
   if (!physical) throw new NormalSendError("storage_unavailable");
-  return navigator.locks.request(physical, { mode: "exclusive" }, () => {
+  return withSendLock(physical, () => {
     const existing = readIntent(key, account, hash, principal);
     if (existing) {
       scheduledIntents.set(existing.attempt_key, {
@@ -549,7 +659,7 @@ export async function retainScheduledListIntent(
       });
       return existing.attempt_key;
     }
-    const attempt = window.crypto.randomUUID();
+    const attempt = newAttemptKey();
     if (!UUID.test(attempt)) throw new NormalSendError("crypto_unavailable");
     const raw = JSON.stringify({
       account_id: account,
@@ -582,12 +692,10 @@ export async function sendNormalEmail(
   formData: FormData,
   options: NormalSendOptions = {},
 ): Promise<NormalSendReceipt> {
-  if (!window.crypto?.subtle || typeof window.crypto.randomUUID !== "function")
-    throw new NormalSendError("crypto_unavailable");
+  assertSendCrypto();
   const principal = captureStoragePrincipal();
   if (!principal) throw new NormalSendError("storage_unavailable");
-  if (typeof navigator.locks?.request !== "function")
-    throw new NormalSendError("locks_unavailable");
+  if (!hasSendLocks()) throw new NormalSendError("locks_unavailable");
   // Snapshot synchronously, before hashing yields or the caller can edit the form.
   const form = new FormData();
   const capturedOptions = { confirmNewAttempt: options.confirmNewAttempt };
@@ -617,22 +725,18 @@ export async function sendNormalEmail(
   const request = Promise.resolve()
     .then(
       async () =>
-        await navigator.locks.request(
-          physical,
-          { mode: "exclusive" },
-          (lock) => {
-            if (!lock) throw new NormalSendError("locks_unavailable");
-            acquired = true;
-            return sendLocked(
-              form,
-              account,
-              hash,
-              key,
-              principal,
-              capturedOptions,
-            );
-          },
-        ),
+        await withSendLock(physical, (lock) => {
+          if (!lock) throw new NormalSendError("locks_unavailable");
+          acquired = true;
+          return sendLocked(
+            form,
+            account,
+            hash,
+            key,
+            principal,
+            capturedOptions,
+          );
+        }),
     )
     .catch((error: unknown) => {
       if (!acquired) throw new NormalSendError("locks_unavailable");
@@ -656,27 +760,22 @@ export async function acknowledgeNormalSend(
   if (!observed || !isStoragePrincipalCurrent(observed.principal)) return false;
   try {
     const physical = getPrincipalStorageKey(observed.key, observed.principal);
-    if (!physical || typeof navigator.locks?.request !== "function")
-      return false;
-    return await navigator.locks.request(
-      physical,
-      { mode: "exclusive" },
-      () => {
-        if (readRaw(observed.key, observed.principal) !== observed.raw)
-          return false;
-        if (
-          !removePrincipalStorageItem(
-            "local",
-            observed.key,
-            observed.principal,
-          ) ||
-          readRaw(observed.key, observed.principal) !== null
-        )
-          return false;
-        acceptedIntents.delete(attempt_key);
-        return true;
-      },
-    );
+    if (!physical || !hasSendLocks()) return false;
+    return await withSendLock(physical, () => {
+      if (readRaw(observed.key, observed.principal) !== observed.raw)
+        return false;
+      if (
+        !removePrincipalStorageItem(
+          "local",
+          observed.key,
+          observed.principal,
+        ) ||
+        readRaw(observed.key, observed.principal) !== null
+      )
+        return false;
+      acceptedIntents.delete(attempt_key);
+      return true;
+    });
   } catch {
     return false;
   }

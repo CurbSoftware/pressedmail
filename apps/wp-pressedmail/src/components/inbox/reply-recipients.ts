@@ -8,11 +8,15 @@
  *  - Reply All keeps every other recipient of the original: the reply target
  *    plus the original To line, with the original Cc line as Cc.
  *  - The account doing the replying drops out of both lists. Nobody wants a
- *    copy of their own reply.
+ *    copy of their own reply. A sub-address of it (me+news@) is the same
+ *    mailbox and drops out too. Other people's sub-addresses are left alone.
  *  - Display names are re-quoted on the way out. A name like "Müller, Hans"
  *    carries a comma, and a bare comma inside an address list is a recipient
  *    separator, which is how one Outlook-style contact could reject a send.
  */
+
+import { getMessageIdentityRef } from "@/lib/message-identity";
+import type { EmailAccount, EmailMessage } from "@/types";
 
 export interface MailAddress {
   name: string;
@@ -154,6 +158,11 @@ function normalize(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** An own address with any "+tag" taken off the local part. */
+function ownKey(email: string): string {
+  return normalize(email).replace(/\+[^@]*(?=@[^@]*$)/, "");
+}
+
 function dedupe(addresses: MailAddress[], exclude: Set<string>): MailAddress[] {
   const seen = new Set(exclude);
   const result: MailAddress[] = [];
@@ -180,6 +189,42 @@ export interface ReplyRecipients {
   cc: string;
 }
 
+/** The original message's addressing, Reply-To included. */
+export function getReplyHeaders(
+  message: EmailMessage | null | undefined,
+): ReplySourceHeaders {
+  const headers = message?.headers as Record<string, string> | undefined;
+  const replyTo =
+    (message?.replyTo as string | undefined) ||
+    (message?.reply_to as string | undefined) ||
+    headers?.["Reply-To"] ||
+    headers?.["reply-to"];
+
+  // Some rows carry only a display name in `from`, with the address in `email`.
+  const from = String(message?.from ?? "");
+
+  return {
+    from: from.includes("@") ? from : message?.email || from,
+    replyTo: replyTo ?? "",
+    to: message?.to ?? "",
+    cc: message?.cc ?? "",
+  };
+}
+
+/** Every address that belongs to the account this message arrived on. */
+export function getOwnAddresses(
+  message: EmailMessage | null | undefined,
+  accounts: readonly EmailAccount[],
+): string[] {
+  const ref = getMessageIdentityRef(message ?? null);
+  const account = ref
+    ? accounts.find(
+        (candidate) => String(candidate.id) === String(ref.accountId),
+      )
+    : undefined;
+  return account?.email ? [String(account.email)] : [];
+}
+
 /**
  * Build the To and Cc for a reply.
  *
@@ -192,23 +237,37 @@ export function buildReplyRecipients(
 ): ReplyRecipients {
   const own = new Set(
     (options.ownAddresses ?? [])
-      .map(normalize)
+      .map(ownKey)
       .filter((address) => address !== ""),
   );
+  const isOwn = (address: MailAddress) => own.has(ownKey(address.email));
+  const others = (addresses: MailAddress[]) =>
+    dedupe(
+      addresses.filter((address) => !isOwn(address)),
+      new Set(),
+    );
 
   // Reply-To exists precisely so the sender can redirect replies. Honour it.
   const replyTarget = parseAddressList(headers.replyTo);
   const primary =
     replyTarget.length > 0 ? replyTarget : parseAddressList(headers.from);
 
+  const originalTo = parseAddressList(headers.to);
+
   if (!options.replyAll) {
-    // A plain reply goes to the sender even when that is one of your own
-    // addresses (replying to your own sent mail is a real thing).
-    return { to: formatAddressList(dedupe(primary, new Set())), cc: "" };
+    // Replying to your own sent mail follows up with the people it went to,
+    // not with yourself. With nobody else on it, the reply keeps the sender.
+    const fromSelf = primary.length > 0 && primary.every(isOwn);
+    const audience = fromSelf ? others(originalTo) : [];
+    return {
+      to: formatAddressList(
+        audience.length > 0 ? audience : dedupe(primary, new Set()),
+      ),
+      cc: "",
+    };
   }
 
-  const originalTo = parseAddressList(headers.to);
-  let toList = dedupe([...primary, ...originalTo], own);
+  let toList = others([...primary, ...originalTo]);
 
   // Replying to your own message: everyone on the original To line is the
   // audience. If that is empty too, keep the sender so the reply has a To.
@@ -216,11 +275,13 @@ export function buildReplyRecipients(
     toList = dedupe(primary, new Set());
   }
 
-  const alreadyAddressed = new Set([
-    ...own,
-    ...toList.map((address) => normalize(address.email)),
-  ]);
-  const ccList = dedupe(parseAddressList(headers.cc), alreadyAddressed);
+  const alreadyAddressed = new Set(
+    toList.map((address) => normalize(address.email)),
+  );
+  const ccList = dedupe(
+    parseAddressList(headers.cc).filter((address) => !isOwn(address)),
+    alreadyAddressed,
+  );
 
   return { to: formatAddressList(toList), cc: formatAddressList(ccList) };
 }

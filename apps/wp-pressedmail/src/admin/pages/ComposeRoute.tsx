@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
+import { composeSourceParams } from "@/companions/companions.active";
 import { useMobileShellFlag } from "@/components/mobile-shell/useMobileShellFlag";
 import { usePaneCompose } from "@/context/composer";
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
@@ -13,9 +14,18 @@ function DesktopComposeRoute() {
   const navigate = useNavigate();
   const paneCompose = usePaneCompose();
   const handled = useRef(false);
+  // `?source=<companion>&ref=<ref>`: the mailbox shows while a companion fills
+  // a new email (CompanionComposeSourceHost, in ApplicationLayout).
+  const fromCompanion = composeSourceParams(location.search) !== null;
 
   useEffect(() => {
-    if (handled.current || !paneCompose) return;
+    if (handled.current) return;
+    if (fromCompanion) {
+      handled.current = true;
+      navigate("/inbox", { replace: true });
+      return;
+    }
+    if (!paneCompose) return;
     handled.current = true;
 
     const fields = parseComposeRouteFields(
@@ -49,7 +59,7 @@ function DesktopComposeRoute() {
     }
     window.history.replaceState(window.history.state, "", url);
     navigate("/inbox", { replace: true });
-  }, [location.search, navigate, paneCompose]);
+  }, [fromCompanion, location.search, navigate, paneCompose]);
 
   return null;
 }

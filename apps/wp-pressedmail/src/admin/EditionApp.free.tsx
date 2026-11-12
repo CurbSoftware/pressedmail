@@ -10,6 +10,7 @@ import { ImpersonationGate } from "@/components/security/ImpersonationGate";
 import { LockGate } from "@/components/security/LockGate";
 import { LocaleProvider } from "@/context/i18n/LocaleProvider";
 import { PressedMailToaster } from "@/components/ui/pressedmail-toaster";
+import { preferenceStorageKey } from "@/lib/preference-storage";
 import { queryClient } from "@/lib/query-client";
 
 import { FreeProviders } from "./components/FreeProviders";
@@ -18,7 +19,9 @@ import { router } from "./routes.free";
 export function EditionApp() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+      <ThemeProvider
+        defaultTheme="system"
+        storageKey={preferenceStorageKey("vite-ui-theme")}>
         <AdminSettingsProvider>
           <UIThemeProvider initialTheme="pressedm">
             <LayoutProvider>

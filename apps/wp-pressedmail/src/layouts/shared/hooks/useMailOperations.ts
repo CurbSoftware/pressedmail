@@ -18,6 +18,15 @@ import {
   useFilterOperations,
 } from "@/context/InboxContext";
 import { DEFAULT_COMPOSE_DATA, useComposer } from "@/context/composer";
+import {
+  buildReplyRecipients,
+  getOwnAddresses,
+  getReplyHeaders,
+} from "@/components/inbox/reply-recipients";
+import {
+  forwardSubject,
+  replySubject,
+} from "@/components/inbox/compose/compose-utils";
 import { appMessage } from "@/context/toast";
 import type { EmailMessage, ComposeData } from "@/types";
 import {
@@ -25,6 +34,7 @@ import {
   sharedRoleRefusal,
   type SharedMailboxRole,
 } from "@/components/sharing";
+import { forwardedMessageHeader } from "@/lib/composer/quote-headers";
 import type { MutationTarget } from "@/lib/folder-target";
 import { getUserPreferencesSnapshot } from "@/hooks/useUserPreferences";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
@@ -632,10 +642,15 @@ export function useMailOperations(): UseMailOperationsReturn {
       };
 
       if (mode === "reply" || mode === "replyAll") {
-        newComposeData.to = message.from || "";
-        newComposeData.subject = message.subject?.startsWith("Re:")
-          ? message.subject
-          : `Re: ${message.subject}`;
+        // The reading pane's rules: Reply-To, the original To on a reply all,
+        // and never the replier's own address.
+        const recipients = buildReplyRecipients(getReplyHeaders(message), {
+          replyAll: mode === "replyAll",
+          ownAddresses: getOwnAddresses(message, accounts),
+        });
+        newComposeData.to = recipients.to;
+        newComposeData.cc = recipients.cc;
+        newComposeData.subject = replySubject(message.subject);
         newComposeData.is_reply = true;
         newComposeData.inReplyTo = message.messageId ?? message.message_id;
         newComposeData.references = message.references;
@@ -647,15 +662,9 @@ export function useMailOperations(): UseMailOperationsReturn {
         };
       }
 
-      if (mode === "replyAll") {
-        newComposeData.cc = message.cc || "";
-      }
-
       if (mode === "forward") {
-        newComposeData.subject = message.subject?.startsWith("Fwd:")
-          ? message.subject
-          : `Fwd: ${message.subject}`;
-        newComposeData.body = `\n\n---------- Forwarded message ----------\n${message.body || ""}`;
+        newComposeData.subject = forwardSubject(message.subject);
+        newComposeData.body = `\n\n${forwardedMessageHeader()}\n${message.body || ""}`;
       }
 
       composer.setComposeData(newComposeData);

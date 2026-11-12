@@ -613,6 +613,15 @@ function editionAliases(appDir, variant, featureFlags) {
       ),
     },
     {
+      // Companion slots need Pro, as companions do. Free resolves twins that
+      // place nothing, so the slot host never ships in the Free bundle.
+      find: /^@\/companions\/companions\.active$/,
+      replacement: pick(
+        "./src/companions/companions.free.ts",
+        "./src/companions/companions.tsx",
+      ),
+    },
+    {
       // The words for a default connection, a system email's assigned connection
       // and a sender two connections dispute only exist with several connections.
       // Free resolves a twin that says nothing, so none of them ship in it.

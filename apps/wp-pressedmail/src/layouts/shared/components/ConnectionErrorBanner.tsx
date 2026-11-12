@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCw } from "lucide-react";
 import { __ } from "@wordpress/i18n";
 
 import { Alert, AlertDescription, Button } from "@kit/ui/plugin";
+import { AutomationReviewActions } from "@/components/features/automation-review";
 import { useInbox, useInboxState } from "@/context/InboxContext";
 import { getConnectionStateService } from "@/services/implementations/connection-state.service";
 
@@ -232,32 +233,20 @@ export function ConnectionErrorBanner() {
   const pluginGlobal =
     typeof window === "undefined" ? undefined : window.pressedmailPlugin;
   const automationPaused = pluginGlobal?.automationPaused === true;
-  const automationReviewUrl =
-    typeof pluginGlobal?.automationReviewUrl === "string"
-      ? pluginGlobal.automationReviewUrl
-      : "";
   const pauseChip = automationPaused ? (
     <div
       data-test="automation-paused-chip"
-      className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-xs">
+      className="flex flex-wrap items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-xs">
       <AlertTriangle className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-      <span className="flex-1">
+      {/* basis-48: on a phone the answers wrap under the sentence instead of
+          squeezing it into a column or running off the side. */}
+      <span className="min-w-0 grow basis-48">
         {__(
           "Automatic mailbox work is paused on this site. New mail still arrives, but sending, rules and scheduled mail do not run until an administrator approves it.",
           "pressedmail",
         )}
       </span>
-      {automationReviewUrl ? (
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className="h-7 shrink-0 px-2 text-xs">
-          <a href={automationReviewUrl} data-test="automation-paused-review">
-            {__("Review", "pressedmail")}
-          </a>
-        </Button>
-      ) : null}
+      <AutomationReviewActions />
     </div>
   ) : null;
 
@@ -342,8 +331,8 @@ export function ConnectionErrorBanner() {
         data-test="connection-error-banner"
         data-test-kind={resolved.kind}>
         <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-        <div className="flex items-center gap-3">
-          <AlertDescription className="flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <AlertDescription className="min-w-0 grow basis-40 break-words">
             {resolved.message}
           </AlertDescription>
           {(resolved.kind === "auth" || resolved.kind === "credentials") && (

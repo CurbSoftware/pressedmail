@@ -23,6 +23,9 @@ export function consumeComposeRouteSearch(search: string): string {
     "pm_share_title",
     "pm_share_text",
     "pm_share_url",
+    // A companion's compose source (src/companions/compose-source.tsx).
+    "source",
+    "ref",
   ]) {
     params.delete(key);
   }

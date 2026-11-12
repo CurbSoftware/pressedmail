@@ -26,6 +26,11 @@ export interface WpMailRoutingCardProps {
    * thing you set up: a mail server in Free, an SMTP account in Pro.
    */
   pressedmailDescription: string;
+  /**
+   * The option's name. "PressedMail SMTP" unless the site also sends through
+   * a service another plugin provides, which the tab knows.
+   */
+  pressedmailTitle?: string;
 }
 
 /**
@@ -44,6 +49,7 @@ export function WpMailRoutingCard({
   noConnectionHint,
   notReadyHint,
   pressedmailDescription,
+  pressedmailTitle = __("PressedMail SMTP", "pressedmail"),
 }: WpMailRoutingCardProps) {
   return (
     <SettingsSectionCard
@@ -63,18 +69,22 @@ export function WpMailRoutingCard({
         <Label
           htmlFor="wp-mail-mailer-wordpress"
           className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-[input:checked]:border-primary/50 has-[input:checked]:bg-primary/5">
+          {/* Base UI does not put this id on the element with the radio role,
+              so the label around it does not name it: the spans do. */}
           <RadioGroupItem
             id="wp-mail-mailer-wordpress"
             data-test="wp-mail-mailer-wordpress"
             value="wordpress"
             disabled={disabled}
+            aria-labelledby="wp-mail-mailer-wordpress-title"
+            aria-describedby="wp-mail-mailer-wordpress-description"
             className="mt-0.5"
           />
           <span className="space-y-1">
-            <span className="block text-sm font-medium">
+            <span id="wp-mail-mailer-wordpress-title" className="block text-sm font-medium">
               {__("WordPress default", "pressedmail")}
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span id="wp-mail-mailer-wordpress-description" className="block text-xs text-muted-foreground">
               {__(
                 "PHP mail(). Fine on hosts that deliver it, and quietly dropped on the ones that do not.",
                 "pressedmail",
@@ -97,13 +107,15 @@ export function WpMailRoutingCard({
             data-test="wp-mail-enabled"
             value="pressedmail"
             disabled={disabled || !hasUsableDefault}
+            aria-labelledby="wp-mail-mailer-pressedmail-title"
+            aria-describedby="wp-mail-mailer-pressedmail-description"
             className="mt-0.5"
           />
           <span className="space-y-1">
-            <span className="block text-sm font-medium">
-              {__("PressedMail SMTP", "pressedmail")}
+            <span id="wp-mail-mailer-pressedmail-title" className="block text-sm font-medium">
+              {pressedmailTitle}
             </span>
-            <span className="block text-xs text-muted-foreground">
+            <span id="wp-mail-mailer-pressedmail-description" className="block text-xs text-muted-foreground">
               {pressedmailDescription}
             </span>
             {!hasConnection ? (

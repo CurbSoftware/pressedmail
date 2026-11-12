@@ -3224,6 +3224,14 @@ html.dark [data-radix-portal] {
   }
 }
 
+/* Slate dims the empty editor's placeholder with an inline opacity of 0.333,
+   about 2:1. Muted text at full strength clears 4.5:1 on the canvas
+   (composer-canvas-theme.test.ts). */
+#pressedmail-plugin .pm-composer-editor [data-slate-placeholder] {
+  opacity: 1 !important;
+  color: var(--muted-foreground);
+}
+
 /* A touch handle belongs to the active block; keyboard focus also reveals it.
    Its 44px target fits in the gutter instead of covering authored text. */
 @media (pointer: coarse) {

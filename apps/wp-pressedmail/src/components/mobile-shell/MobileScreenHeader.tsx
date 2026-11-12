@@ -28,6 +28,12 @@ export type MobileScreenHeaderVariant = "default" | "large" | "search-active";
 
 export interface MobileScreenHeaderProps {
   title: string;
+  /**
+   * `auto` for a title in words that are not PressedMail's own, such as a
+   * companion's label: it keeps its own direction, so a long English title in
+   * a right-to-left admin is cut at its end, not its start.
+   */
+  titleDir?: "auto";
   /** Custom leading slot. When omitted and back-stack has depth, a back button is shown. */
   leading?: React.ReactNode;
   trailing?: React.ReactNode;
@@ -54,6 +60,7 @@ export interface MobileScreenHeaderProps {
 
 export function MobileScreenHeader({
   title,
+  titleDir,
   leading,
   trailing,
   variant = "default",
@@ -134,7 +141,7 @@ export function MobileScreenHeader({
           one undifferentiated region. aria-level 2 rather than an <h1>: this
           renders inside wp-admin, which already owns the page's h1. */}
       {hideTitle ? (
-        <div role="heading" aria-level={2} className="sr-only">
+        <div role="heading" aria-level={2} dir={titleDir} className="sr-only">
           {title}
         </div>
       ) : (
@@ -142,6 +149,7 @@ export function MobileScreenHeader({
           data-variant={variant}
           role="heading"
           aria-level={2}
+          dir={titleDir}
           className={cn(
             "min-w-0 truncate",
             isLarge

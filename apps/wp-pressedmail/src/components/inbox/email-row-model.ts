@@ -42,6 +42,8 @@ export interface EmailRowViewModel {
    */
   isScheduled?: boolean;
   scheduledStatus?: string;
+  /** Scheduled, still pending, and too late for the server to send by itself. */
+  isHeld?: boolean;
   hasAttachment: boolean;
   visibleLabels: string[];
   extraLabelCount: number;
@@ -194,7 +196,16 @@ export function buildEmailRowViewModel(
         ? message.important
         : Boolean(message.is_important),
     importanceSource: message.importanceSource ?? null,
-    ...(__IS_FREE__ ? null : { isScheduled, scheduledStatus }),
+    ...(__IS_FREE__
+      ? null
+      : {
+          isScheduled,
+          scheduledStatus,
+          isHeld:
+            isScheduled &&
+            scheduledStatus === "pending" &&
+            message.held === true,
+        }),
     hasAttachment: Boolean(
       message.hasAttachments ||
       message.attachments?.length ||

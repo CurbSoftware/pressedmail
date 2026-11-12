@@ -472,7 +472,12 @@ export function MailDisplay({
   );
   const [calendarImportSource, setCalendarImportSource] =
     React.useState<IcsImportSource | null>(null);
-  const canImportCalendar = __IS_PRO__ && calendarFeatureAvailable;
+  // The server can say this reader may not import from this mailbox, such as
+  // one shared by its owner. Only an explicit false hides Add to calendar.
+  const calendarImportAllowed =
+    (mail?.calendarImportAllowed ?? mail?.calendar_import_allowed) !== false;
+  const canImportCalendar =
+    __IS_PRO__ && calendarFeatureAvailable && calendarImportAllowed;
 
   const buildCalendarAttachmentRef = React.useCallback(
     (part: string | null | undefined): MessageAttachmentRef | null => {
@@ -670,7 +675,7 @@ export function MailDisplay({
   // All useMemo hooks must be called unconditionally (before any early returns)
   // to satisfy React's Rules of Hooks
   const senderName = React.useMemo(
-    () => (mail ? parseSenderName(mail) : "Unknown sender"),
+    () => (mail ? parseSenderName(mail) : __("Unknown sender", "pressedmail")),
     [mail],
   );
 
@@ -1519,7 +1524,7 @@ export function buildAttachmentDownloadUrl(
     uid_validity: ref.uidValidity,
     _wpnonce: getRuntimeWpNonce(),
   });
-  return `${getPluginRestBase()}messages/attachment/${ref.accountId}?${params.toString()}`;
+  return `${getPluginRestBase()}messages/attachment/${ref.accountId}${getPluginRestBase().includes("?") ? "&" : "?"}${params.toString()}`;
 }
 
 function downloadAttachment(

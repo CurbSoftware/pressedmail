@@ -23,9 +23,20 @@ function label(state: SmtpHealthState): string {
   }
 }
 
+/**
+ * A connection a service has only taken mail for: it works as far as anyone
+ * knows, but no message is known to have gone out. "Working" would claim that.
+ */
+export function onlyHandedOver(
+  health: Partial<Pick<WpMailConnectionHealth, "state" | "lastSuccessAt" | "lastHandoverAt">> | undefined,
+): boolean {
+  return health?.state === "ok" && !health.lastSuccessAt && Boolean(health.lastHandoverAt);
+}
+
 export interface SmtpHealthBadgeProps {
   /** A connection's health view. Renders nothing without one. */
-  health?: Pick<WpMailConnectionHealth, "state">;
+  health?: Pick<WpMailConnectionHealth, "state"> &
+    Partial<Pick<WpMailConnectionHealth, "lastSuccessAt" | "lastHandoverAt">>;
   /** The state to show when only that is known, such as on a system email row. */
   state?: SmtpHealthState;
   className?: string;
@@ -49,6 +60,18 @@ export function SmtpHealthBadge({
   const shown = state ?? health?.state;
   if (!shown) {
     return null;
+  }
+
+  if (!state && onlyHandedOver(health)) {
+    return (
+      <StatusPill
+        tone="info"
+        label={__("Taking mail", "pressedmail")}
+        className={className}
+        data-test={dataTest}
+        data-testid={dataTestId}
+      />
+    );
   }
 
   return (

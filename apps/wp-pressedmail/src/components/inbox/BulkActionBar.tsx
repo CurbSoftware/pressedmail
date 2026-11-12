@@ -153,6 +153,7 @@ import {
 import { MAIL_ACTION_ICON_CLASS } from "./reading-pane-action-icons";
 import { useOverflowScroll } from "./useOverflowScroll";
 import { useWarnIfBusy } from "@/hooks/useWarnIfBusy";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { resolveInboxActionVisibility } from "@/lib/inbox-action-visibility";
 import {
   type StartOneOffSweepRequest,
@@ -719,7 +720,16 @@ export function BulkActionBar({
           const errorMessage = "error" in result ? result.error : "";
           toast.error(
             errorMessage ||
-              `${failCount} ${failCount === 1 ? "message" : "messages"} failed`,
+              sprintf(
+                /* translators: %d: number of messages the action failed for. */
+                _n(
+                  "%d message failed",
+                  "%d messages failed",
+                  failCount,
+                  "pressedmail",
+                ),
+                failCount,
+              ),
           );
         }
         if (result.warning) toast.warning(result.warning);
@@ -879,6 +889,40 @@ export function BulkActionBar({
     selectedMessages,
     trashPath,
   ]);
+
+  // Bulk delete asks first when the user wants a confirmation, as the reading
+  // pane does, and always in Scheduled: deleting there cancels queued sends.
+  const { preferences } = useUserPreferences();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deletesScheduled = !__IS_FREE__ && currentFolderRole === "scheduled";
+  const requestDelete = useCallback(() => {
+    if (deletesScheduled || preferences.confirm_delete) {
+      setConfirmingDelete(true);
+      return;
+    }
+    void handleDelete();
+  }, [deletesScheduled, handleDelete, preferences.confirm_delete]);
+  const deleteConfirmation = (
+    <ConfirmationPanel
+      open={confirmingDelete}
+      onOpenChange={setConfirmingDelete}
+      title={__("Delete the selected emails?", "pressedmail")}
+      description={
+        !__IS_FREE__ && deletesScheduled
+          ? __("Scheduled emails you delete are not sent.", "pressedmail")
+          : currentFolderRole === "drafts"
+            ? __("The selected drafts will be deleted.", "pressedmail")
+            : __("The selected emails will be moved to Trash.", "pressedmail")
+      }
+      confirmText={__("Delete", "pressedmail")}
+      cancelText={__("Cancel", "pressedmail")}
+      variant="destructive"
+      onConfirm={() => {
+        setConfirmingDelete(false);
+        void handleDelete();
+      }}
+    />
+  );
 
   const handleArchive = useCallback(async () => {
     await handleBatchOp(
@@ -2416,9 +2460,10 @@ export function BulkActionBar({
             label={__("Delete", "pressedmail")}
             className={cn("hover:bg-destructive/10 hover:text-destructive")}
             disabled={!hasBulkSelection || isLoading}
-            onClick={handleDelete}
+            onClick={requestDelete}
             icon={<EmailTrashIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />}
           />
+          {deleteConfirmation}
         </div>
       );
     }
@@ -2436,11 +2481,12 @@ export function BulkActionBar({
             size="icon"
             className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
             disabled={isLoading}
-            onClick={handleDelete}
+            onClick={requestDelete}
             aria-label={__("Delete", "pressedmail")}>
             <EmailTrashIcon className={MAIL_ACTION_ICON_CLASS} />
           </Button>
         </PressedTooltip>
+        {deleteConfirmation}
       </div>
     );
   }
@@ -2524,7 +2570,7 @@ export function BulkActionBar({
                 label={__("Delete", "pressedmail")}
                 className={cn("hover:bg-destructive/10 hover:text-destructive")}
                 disabled={pressedOutBulkDisabled}
-                onClick={handleDelete}
+                onClick={requestDelete}
                 icon={
                   <EmailTrashIcon className={PRESSED_OUT_RIBBON_ICON_CLASS} />
                 }
@@ -2733,6 +2779,7 @@ export function BulkActionBar({
           }}
         />
         {spamBulk.dialogs}
+        {deleteConfirmation}
       </div>
     );
   }
@@ -2840,7 +2887,7 @@ export function BulkActionBar({
                   size="icon"
                   className="h-8 w-8"
                   disabled={isLoading}
-                  onClick={handleDelete}
+                  onClick={requestDelete}
                   aria-label={__("Delete", "pressedmail")}>
                   <EmailTrashIcon className={MAIL_ACTION_ICON_CLASS} />
                 </Button>
@@ -3191,6 +3238,7 @@ export function BulkActionBar({
         />
       )}
       {!__IS_FREE__ && spamBulk.dialogs}
+      {deleteConfirmation}
     </div>
   );
 }

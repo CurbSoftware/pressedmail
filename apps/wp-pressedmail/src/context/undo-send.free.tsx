@@ -11,5 +11,5 @@ export function UndoSendProvider({ children }: { children: ReactNode }) {
 }
 
 export function useUndoSend() {
-  return { showUndoSend: () => undefined };
+  return { showUndoSend: () => undefined, showHeldSends: () => undefined };
 }

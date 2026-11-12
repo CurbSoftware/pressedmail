@@ -3,6 +3,7 @@ import React from "react";
 import { __ } from "@wordpress/i18n";
 import { cn } from "@/lib/utils";
 import { sanitizeEmailHtml, blockExternalImages } from "@/lib/sanitize-email";
+import { buildApiUrl } from "@/context/Strings";
 import { getPluginRestBase, getRuntimeWpNonce } from "@/lib/runtime-config";
 import { subscribeRuntimeNonce } from "@/lib/nonce";
 import type { EmailMessage } from "@/types";
@@ -295,8 +296,8 @@ export function buildIframeEndpointUrl(
   opts: IframeUrlOpts,
   nonce = getRuntimeWpNonce(),
 ): string {
-  const base = getPluginRestBase();
-  const params = new URLSearchParams({
+  // buildApiUrl joins with `&` on plain permalinks, where the base has a `?`.
+  return buildApiUrl(`${getPluginRestBase()}messages/iframe/${opts.accountId}`, {
     uid: opts.uid,
     uid_validity: opts.uidValidity,
     folder: opts.folder,
@@ -309,7 +310,6 @@ export function buildIframeEndpointUrl(
     chrome_border: opts.chromeColors.border,
     _wpnonce: nonce,
   });
-  return `${base}messages/iframe/${opts.accountId}?${params.toString()}`;
 }
 
 /**

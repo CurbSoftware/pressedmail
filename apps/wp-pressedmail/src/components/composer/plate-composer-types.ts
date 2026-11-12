@@ -50,6 +50,12 @@ export interface PressedMailPlateComposerProps extends PlateEmailEditorAdapterPr
    * kit is empty, so this does nothing there.
    */
   variablesEnabled?: boolean;
+  /**
+   * Ghost-text autocomplete. It follows `aiEnabled` unless told otherwise: a
+   * writing provider can write for the composer without doing autocomplete,
+   * and then every typing pause would only ask a provider nobody set up.
+   */
+  copilotEnabled?: boolean;
   /** Keep the document mounted while a server-rendered preview is shown. */
   contentHidden?: boolean;
 }

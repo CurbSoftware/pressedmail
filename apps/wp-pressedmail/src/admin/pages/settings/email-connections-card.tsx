@@ -1,7 +1,14 @@
 "use client";
 
 import { __, sprintf } from "@wordpress/i18n";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Check,
@@ -15,6 +22,18 @@ import {
 } from "lucide-react";
 
 import type { EmailAccount } from "@/types";
+import {
+  providerImportBuildEnabled,
+  providerImportOn,
+} from "@/lib/provider-import-flags";
+
+// Pro contacts and calendar import: a column only builds that carry it get.
+const AccountImportIcons = providerImportBuildEnabled
+  ? lazy(async () => ({
+      default: (await import("@/components/accounts/AccountImportIcons"))
+        .AccountImportIcons,
+    }))
+  : null;
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { useAppContext } from "@/context/AppProvider";
 import { useCombinedViewAvailable } from "@/hooks/useCombinedAccountIds";
@@ -118,6 +137,10 @@ const getAssignedSignature = (
   ) ?? null;
 
 export function EmailConnectionsCard() {
+  const showImports =
+    AccountImportIcons !== null &&
+    (window.pressedmailPlugin?.isPro ?? false) &&
+    providerImportOn();
   const {
     accounts,
     isLoading,
@@ -485,6 +508,13 @@ export function EmailConnectionsCard() {
                               <span className="block text-xs text-muted-foreground">
                                 {provider}
                               </span>
+                              {showImports && AccountImportIcons ? (
+                                <span className="mt-1 block">
+                                  <Suspense fallback={null}>
+                                    <AccountImportIcons imports={account.sync} />
+                                  </Suspense>
+                                </span>
+                              ) : null}
                             </div>
                           </div>
 
@@ -582,6 +612,11 @@ export function EmailConnectionsCard() {
                           <th className="w-[1%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
                             {__("Signature", "pressedmail")}
                           </th>
+                          {showImports ? (
+                            <th className="w-[1%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
+                              {__("Import", "pressedmail")}
+                            </th>
+                          ) : null}
                           {__SINGLE_MAILBOX__ || !offerBadge ? null : (
                             <th className="w-[1%] whitespace-nowrap px-4 py-3 font-medium text-muted-foreground">
                               {__("Account badge", "pressedmail")}
@@ -653,6 +688,13 @@ export function EmailConnectionsCard() {
                                   onClick={() => openSignatureDialog(account)}
                                 />
                               </td>
+                              {showImports && AccountImportIcons ? (
+                                <td className="whitespace-nowrap px-4 py-3">
+                                  <Suspense fallback={null}>
+                                    <AccountImportIcons imports={account.sync} />
+                                  </Suspense>
+                                </td>
+                              ) : null}
                               {__SINGLE_MAILBOX__ || !offerBadge ? null : (
                                 <td className="whitespace-nowrap px-4 py-3">
                                   <AccountBadgeControl account={account} />

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { Suspense, lazy, useState } from "react";
 import { apiFetch } from "@/lib/api-client";
 import { useLocation, useNavigate } from "react-router-dom";
 import { __, sprintf } from "@wordpress/i18n";
@@ -18,6 +18,17 @@ import { useAppContext } from "./AppProvider";
 // undefined (this hid the free Outlook OAuth button).
 import { useFeaturesOptional } from "@/context/features/FeaturesContext";
 import type { AccountData, EmailAccount } from "@/types";
+import {
+  providerImportBuildEnabled,
+  providerImportOn,
+} from "@/lib/provider-import-flags";
+import type { ImportRunner } from "@/components/setup/steps/ImportContactsCalendars";
+
+// Pro contacts and calendar import. Gated like the settings tabs so a build
+// without the feature carries no chunk for it.
+const ImportContactsCalendars = providerImportBuildEnabled
+  ? lazy(() => import("@/components/setup/steps/ImportContactsCalendars"))
+  : null;
 
 import {
   isAdvancedProvider,
@@ -298,6 +309,7 @@ export default function SetupWizard({
     createInitialSetupFormData(editingAccount),
   );
   const initialFormDataRef = React.useRef<SetupFormData | null>(null);
+  const importRunnerRef = React.useRef<ImportRunner | null>(null);
   if (initialFormDataRef.current === null) {
     initialFormDataRef.current = formData;
   }
@@ -981,6 +993,8 @@ export default function SetupWizard({
   };
 
   const handleFinish = async (): Promise<void> => {
+    // Taken now: saving unmounts the step that owns it.
+    const runImports = importRunnerRef.current;
     if (!formData.testConnection) {
       // Untested credentials must never silently persist, but the block must be
       // LOUD: surface a toast and return the user to the test step (the inline
@@ -1112,6 +1126,10 @@ export default function SetupWizard({
               ? undefined
               : formData.outgoingProviderConfig,
         });
+        // The account list carries each row's import icons.
+        if (runImports && (await runImports(Number(editingAccount.id)))) {
+          await reloadAccounts();
+        }
         initialFormDataRef.current = formData;
         setEditingAccount(null);
         setIsAddAccount(false);
@@ -1119,7 +1137,15 @@ export default function SetupWizard({
         if (!onComplete) {
           return;
         }
-        await onComplete(accountPayload);
+        const created = await onComplete(accountPayload);
+        if (
+          runImports &&
+          created &&
+          Number(created.id) > 0 &&
+          (await runImports(Number(created.id)))
+        ) {
+          await reloadAccounts();
+        }
         initialFormDataRef.current = formData;
       }
     } catch (error) {
@@ -1280,6 +1306,31 @@ export default function SetupWizard({
             connectionStatus={connectionStatus}
             onTestConnection={testConnection}
             onAddEmail={handleFinish}
+            importSlot={
+              ImportContactsCalendars &&
+              window.pressedmailPlugin?.isPro &&
+              providerImportOn() &&
+              !managedSetupMode ? (
+                <Suspense fallback={null}>
+                  <ImportContactsCalendars
+                    provider={formData.provider}
+                    useOAuth={formData.useOAuth}
+                    username={
+                      formData.useSeparateCredentials && formData.imapUsername
+                        ? formData.imapUsername
+                        : formData.email
+                    }
+                    password={
+                      formData.useSeparateCredentials && formData.imapPassword
+                        ? formData.imapPassword
+                        : formData.password
+                    }
+                    existing={editingAccount?.sync}
+                    runnerRef={importRunnerRef}
+                  />
+                </Suspense>
+              ) : null
+            }
           />
         );
       default:

@@ -16,6 +16,7 @@ import {
   getPrincipalStorageKey,
   isStoragePrincipalCurrent,
 } from "@/lib/principal-storage";
+import { preferenceStorageKey } from "@/lib/preference-storage";
 
 const prefixedKey = "pressedmail-";
 
@@ -24,11 +25,21 @@ const prefixedKey = "pressedmail-";
 let instanceCounter = 0;
 
 export interface UseLocalStorageOptions<T> {
+  /**
+   * Mail, drafts and account data: scoped to the site and the user, and
+   * deleted at sign-out. Left out, the key is a look-and-feel preference:
+   * scoped the same way, but kept across sign-out (lib/preference-storage.ts).
+   */
   principalScoped?: boolean;
   /** Map an in-memory value to its JSON-safe persisted representation. */
   toStorage?: (value: T) => unknown;
   /** Notify the owner before another hook or tab replaces the value. */
   onExternalChange?: () => void;
+  /**
+   * Asked when another tab changes the key. Answer false to keep this tab's
+   * value. Left out, every cross-tab change is adopted.
+   */
+  adoptCrossTabChange?: () => boolean;
 }
 
 /**
@@ -46,9 +57,14 @@ export default function useLocalStorage<T>(
   const logicalKey = prefixedKey + key;
   const scoped = options?.principalScoped === true;
   const principal = useMemo(() => captureStoragePrincipal(), []);
+  const preferenceKey = useMemo(
+    () => (scoped ? "" : preferenceStorageKey(logicalKey)),
+    [scoped, logicalKey],
+  );
+  // The physical key. Cross-tab and same-tab change events are matched on it.
   const prefixedKeyCombined = scoped
     ? getPrincipalStorageKey(logicalKey, principal)
-    : logicalKey;
+    : preferenceKey;
 
   // Unique instance ID to prevent handling our own events
   // Uses useMemo with empty deps to generate ID only once per hook instance
@@ -61,7 +77,7 @@ export default function useLocalStorage<T>(
     try {
       storedValue = scoped
         ? getPrincipalStorageItem("local", logicalKey, principal)
-        : localStorage.getItem(logicalKey);
+        : localStorage.getItem(preferenceKey);
     } catch {
       /* Storage can be disabled. Keep the in-memory value usable. */
     }
@@ -84,7 +100,7 @@ export default function useLocalStorage<T>(
     } else {
       return initialValue;
     }
-  }, [scoped, logicalKey, principal, initialValue]);
+  }, [scoped, logicalKey, preferenceKey, principal, initialValue]);
 
   const [value, setValue] = useState<T>(readValue);
   const previousKey = useRef(logicalKey);
@@ -96,6 +112,7 @@ export default function useLocalStorage<T>(
   // Write to localStorage when value changes
   const toStorage = options?.toStorage;
   const onExternalChange = options?.onExternalChange;
+  const adoptCrossTabChange = options?.adoptCrossTabChange;
   useEffect(() => {
     try {
       // Clearing is a write too. Skipping it left the previous value in
@@ -105,23 +122,24 @@ export default function useLocalStorage<T>(
       // was cleaning up after.
       if (value == null) {
         if (scoped) removePrincipalStorageItem("local", logicalKey, principal);
-        else localStorage.removeItem(logicalKey);
+        else localStorage.removeItem(preferenceKey);
         return;
       }
       const serialized = JSON.stringify(toStorage ? toStorage(value) : value);
       if (scoped)
         setPrincipalStorageItem("local", logicalKey, serialized, principal);
-      else localStorage.setItem(logicalKey, serialized);
+      else localStorage.setItem(preferenceKey, serialized);
     } catch {
       /* Quota failures do not prevent editing. */
     }
-  }, [scoped, logicalKey, principal, value, toStorage]);
+  }, [scoped, logicalKey, preferenceKey, principal, value, toStorage]);
 
   // Listen for storage events to sync across components/tabs
   useEffect(() => {
     const handleStorageChange = (event: StorageEvent) => {
       if (prefixedKeyCombined && event.key === prefixedKeyCombined) {
         if (scoped && !isStoragePrincipalCurrent(principal)) return;
+        if (adoptCrossTabChange && !adoptCrossTabChange()) return;
         if (event.newValue === null) {
           onExternalChange?.();
           setValue(readValue());
@@ -173,6 +191,7 @@ export default function useLocalStorage<T>(
     prefixedKeyCombined,
     instanceId,
     onExternalChange,
+    adoptCrossTabChange,
     scoped,
     principal,
     readValue,

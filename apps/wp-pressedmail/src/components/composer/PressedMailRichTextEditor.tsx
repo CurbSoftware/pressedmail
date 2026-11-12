@@ -13,7 +13,10 @@ import type {
 
 export interface PressedMailRichTextEditorProps
   extends PlateEmailEditorAdapterProps<PressedMailComposerValue>,
-    Pick<PressedMailPlateComposerProps, "variablesEnabled" | "contentHidden"> {}
+    Pick<
+      PressedMailPlateComposerProps,
+      "variablesEnabled" | "copilotEnabled" | "contentHidden"
+    > {}
 
 /**
  * Canonical PressedMail rich-text editor adapter.

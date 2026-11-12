@@ -40,7 +40,8 @@ export type NotificationTargetKind =
   | "wp_mail_settings"
   | "security_settings"
   | "calendar_event"
-  | "plugin_integrity";
+  | "plugin_integrity"
+  | "outgoing_mail";
 
 export interface PressedMailNotification {
   id: number;
@@ -295,6 +296,27 @@ export function getNotificationTargetPath(
       notification.targetKind === "scheduled" ? "Scheduled" : "Sent";
     params.set("folder", folder);
     addMessageContext(params);
+    return `/inbox?${params.toString()}`;
+  }
+
+  // A send that went wrong after its request ended. The row names the mailbox
+  // and never a message, so it opens a folder, by role because every provider
+  // names Sent and Drafts differently. A failed send goes to Drafts, where the
+  // message waits to be opened and sent again. A message whose Sent copy could
+  // not be saved was delivered, so its row goes to Sent. A held message goes to
+  // Drafts when the server says it is there, and to Scheduled otherwise, where
+  // held mail is answered. Held mail is Pro, so Free names no Scheduled route.
+  if (notification.targetKind === "outgoing_mail") {
+    const accountId = toInteger(metadata.accountId ?? notification.accountId);
+    const params =
+      !__IS_FREE__ &&
+      notification.type === "send_held" &&
+      metadata.hasDraft !== true
+        ? new URLSearchParams({ folder: "Scheduled" })
+        : new URLSearchParams({
+            role: notification.type === "sent_copy_failed" ? "sent" : "drafts",
+          });
+    if (accountId) params.set("accountId", String(accountId));
     return `/inbox?${params.toString()}`;
   }
 

@@ -55,6 +55,11 @@ export interface ScheduledEmail {
   status: ScheduledEmailStatus;
   sent_at: string | null;
   error_message: string | null;
+  /**
+   * True for a pending row more than a day overdue: the server will not send
+   * it by itself. Its sender sends it now or deletes it.
+   */
+  held?: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -147,6 +152,8 @@ export interface ScheduleEmailResponse {
 export interface ScheduledEmailActionResponse {
   status: "success" | "error";
   message?: string;
+  /** `delivery_outcome_unknown`: the message may already have been delivered. */
+  code?: string;
   data?: ScheduledEmail;
 }
 
@@ -206,6 +213,8 @@ export interface ScheduledAttachmentDescriptor {
   size?: number;
   url?: string;
   source?: string;
+  /** Content-ID of a staged inline image; goes back to the server unchanged. */
+  contentId?: string;
 }
 
 /**
@@ -311,6 +320,9 @@ export function getScheduledComposeData(
         size: descriptor.size ?? 0,
         url: descriptor.url,
         source: "media-library" as const,
+        ...(typeof descriptor.contentId === "string" && descriptor.contentId
+          ? { contentId: descriptor.contentId }
+          : {}),
       };
     })
     .filter((attachment): attachment is NonNullable<typeof attachment> =>

@@ -468,7 +468,7 @@ export function HeaderAccountSelector({
                               variant="secondary"
                               className="shrink-0 px-1.5 py-0 text-[10px] font-medium uppercase tracking-wide"
                               data-test={`account-default-badge-${accountEmail}`}>
-                              Default
+                              {__("Default", "pressedmail")}
                             </Badge>
                           )}
                         </div>

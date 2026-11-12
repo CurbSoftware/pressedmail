@@ -118,6 +118,16 @@ export const AdminSettingsProvider: React.FC<AdminSettingsProviderProps> = ({
       signal,
     });
 
+    // The route is for settings managers. For anyone else who may open the app
+    // a 403 is the normal answer, not an outage, and nothing else carries the
+    // site policy to them. The plugin's defaults keep the composer and reader
+    // usable; the server still applies the real switches to every upload,
+    // download and image request.
+    if (response.status === 403) {
+      setPluginSettings(DEFAULT_PLUGIN_SETTINGS);
+      return;
+    }
+
     if (!response.ok) {
       throw new Error(`Failed to fetch plugin settings: ${response.status}`);
     }

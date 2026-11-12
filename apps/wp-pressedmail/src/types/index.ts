@@ -142,6 +142,8 @@ export interface EmailMessage {
   scheduledEmailId?: number;
   scheduledAt?: string;
   scheduledStatus?: "pending" | "sending" | "sent" | "failed" | "cancelled";
+  /** Still pending, but too late for the server to send by itself. */
+  held?: boolean;
   draftUid?: number;
   draftFolder?: string;
   /** Local Snoozed view: durable record ID, never an IMAP UID. */
@@ -195,7 +197,23 @@ export interface EmailAttachment {
   url?: string;
   data?: string | ArrayBuffer;
   mime?: string;
-  source?: "received" | "media-library";
+  /**
+   * "forward-source": a file of the message being forwarded. The browser never
+   * holds it: the server reads it from `forwardSource` when it sends or saves.
+   */
+  source?: "received" | "media-library" | "forward-source";
+  /**
+   * Where a forwarded file comes from, and its part id there. Kept once a
+   * saved draft holds the file (`source` is then "received"), because a
+   * schedule still reads it from the original.
+   */
+  forwardSource?: {
+    accountId: number;
+    folder: string;
+    uid: number;
+    uidValidity: number;
+    part: string;
+  };
   inline?: boolean;
   /** Content-ID of a part the body shows through `cid:`, when read live from the mail server. */
   contentId?: string | null;
@@ -279,6 +297,19 @@ export interface ComposeData {
   scheduledAt?: string;
   /** Originating message used by reply-only post-send actions. */
   replySource?: ComposeReplySource;
+  /**
+   * Names of the original's files a forward does not carry over, so the
+   * composer can say so until the session ends. Only files the reader has no
+   * part id for, or every file when the original has no stable identity: the
+   * rest travel as "forward-source" attachments.
+   */
+  forwardOmittedAttachments?: string[];
+  /**
+   * Reserved, and set by nothing yet: true once the server reports that it
+   * attached the original's files to this forward itself. The composer then
+   * shows no notice about `forwardOmittedAttachments`.
+   */
+  forwardOriginalAttachmentsIncluded?: boolean;
 }
 
 export interface GroupedMessage {
@@ -293,6 +324,8 @@ export interface GroupedMessage {
 export interface EmailAccount {
   id: string | number;
   email: string;
+  /** Pro: this mailbox's contacts and calendar imports, when the build carries them. */
+  sync?: import("@/lib/provider-import").AccountImports;
   provider:
     | "gmail"
     | "outlook"

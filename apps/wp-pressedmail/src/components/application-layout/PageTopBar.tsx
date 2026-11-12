@@ -10,6 +10,11 @@ interface PageTopBarProps {
   title?: string;
   /** Optional description that appears inline with the title */
   description?: string;
+  /**
+   * `auto` for a title and description in someone else's words, such as a
+   * companion's, which keep their own direction while the bar keeps the page's.
+   */
+  dir?: "auto";
   /** Optional icon displayed before the title */
   icon?: React.ReactNode;
   /** Optional info marker beside the title */
@@ -35,6 +40,7 @@ interface PageTopBarProps {
 export function PageTopBar({
   title,
   description,
+  dir,
   icon,
   tooltip,
   docHref,
@@ -53,13 +59,15 @@ export function PageTopBar({
       ) : null}
       <div className="min-w-0 leading-tight">
         <div className="flex min-h-6 items-center gap-2">
-          <span className="text-base font-semibold text-foreground">{title}</span>
+          <span dir={dir} className="text-base font-semibold text-foreground">{title}</span>
           {tooltip ? (
             <SettingsInfoTooltip tooltip={tooltip} docHref={docHref} />
           ) : null}
         </div>
         {description ? (
-          <p className="text-sm text-muted-foreground">{description}</p>
+          <p className="text-sm text-muted-foreground">
+            <span dir={dir}>{description}</span>
+          </p>
         ) : null}
       </div>
     </div>
@@ -67,12 +75,12 @@ export function PageTopBar({
     <div className="flex items-center gap-2">
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
       <div className="flex flex-wrap items-baseline gap-2 leading-tight">
-        <span className="text-base font-semibold text-foreground">{title}</span>
+        <span dir={dir} className="text-base font-semibold text-foreground">{title}</span>
         {tooltip ? (
           <SettingsInfoTooltip tooltip={tooltip} docHref={docHref} />
         ) : null}
         {description ? (
-          <span className="text-sm text-muted-foreground">{description}</span>
+          <span dir={dir} className="text-sm text-muted-foreground">{description}</span>
         ) : null}
       </div>
     </div>

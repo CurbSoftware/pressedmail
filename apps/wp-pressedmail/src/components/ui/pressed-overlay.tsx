@@ -51,7 +51,7 @@ export const PRESSED_OVERLAY_WIDTH_CLASS_NAMES = {
  * moves nor covers more of the title than it did.
  */
 const CLOSE_TOUCH_TARGET =
-  "max-sm:[&>button.absolute]:top-0.5 max-sm:[&>button.absolute]:right-0.5 max-sm:[&>button.absolute]:flex max-sm:[&>button.absolute]:size-11 max-sm:[&>button.absolute]:items-center max-sm:[&>button.absolute]:justify-center";
+  "max-sm:[&>button.absolute]:top-0.5 max-sm:[&>button.absolute]:end-0.5 max-sm:[&>button.absolute]:flex max-sm:[&>button.absolute]:size-11 max-sm:[&>button.absolute]:items-center max-sm:[&>button.absolute]:justify-center";
 
 type SizedContentProps<T> = T & {
   size: PressedOverlaySize;
@@ -153,9 +153,12 @@ export function PressedDialogHeader(props: HeaderProps) {
   return (
     <DialogHeader
       data-pm-overlay-section="header"
+      // The end padding keeps a title that wraps clear of the close button,
+      // which is 44 px wide on a touch screen. A compact dialog hides that
+      // button, so it keeps its bar padding.
       className={cn(
         "border-b border-border",
-        props.compact ? "px-4 py-2" : "px-6 py-5",
+        props.compact ? "px-4 py-2" : "py-5 ps-6 pe-14",
       )}>
       {props.actions ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -232,12 +235,23 @@ export function PressedPopoverHeader(props: HeaderProps) {
   );
 }
 
+/**
+ * The body's padding is published as --pm-dialog-pad-x and --pm-dialog-pad-y,
+ * because companion footers reach through it to the dialog's edges: the
+ * SDK's DialogActions and the host's own slot skeleton. They are part of the
+ * companion contract (COMPANION_CSS_VARIABLES in
+ * packages/pressedmail-companion/src/contract.ts): change the values here
+ * freely, never the names.
+ */
 export function PressedOverlayBody(props: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...props}
       data-pm-overlay-section="body"
-      className={cn("px-6 py-5", props.className)}
+      className={cn(
+        "[--pm-dialog-pad-x:--spacing(6)] [--pm-dialog-pad-y:--spacing(5)] px-(--pm-dialog-pad-x) py-(--pm-dialog-pad-y)",
+        props.className,
+      )}
     />
   );
 }

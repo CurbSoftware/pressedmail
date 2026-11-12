@@ -20,8 +20,8 @@ export const PDF_ASSET_FOLDERS: Record<PdfAssetKind, string> = {
   wasmUrl: "wasm/",
 };
 
-/** A file name inside one of those folders. No slash and no dot-dot, so it cannot leave the folder. */
-export const PDF_ASSET_NAME = /^[\w.-]{1,80}$/;
+/** A file name inside one of those folders. No slash and never only dots, so it cannot leave the folder. */
+export const PDF_ASSET_NAME = /^(?!\.+$)[\w.-]{1,80}$/;
 
 /** How the frame starts pdf.js's worker. 'auto' tries a classic blob worker, then the page's own thread. */
 export type PdfWorkerMode = "auto" | "wrap" | "data" | "fake";

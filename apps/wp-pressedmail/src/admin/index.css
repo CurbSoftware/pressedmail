@@ -42,6 +42,12 @@ body.toplevel_page_pressedmail-plugin #wpbody {
   transition: padding-top 0.25s ease-out !important;
 }
 
+/* The WordPress Email page shows its own problems, so the admin notice that
+   repeats them steps aside while it is open (wp-mail-tab.tsx). */
+body.pressedmail-wp-mail-open .pressedmail-smtp-health-notice {
+  display: none;
+}
+
 /* Immersive mode - hide WP admin UI with smooth transitions */
 
 /* Override wp-toolbar class on HTML element that reserves space for admin bar */
@@ -250,6 +256,16 @@ body.toplevel_page_pressedmail-plugin
   background-color: var(--card, #ffffff);
   color: var(--card-foreground, #1d2327);
   box-shadow: none;
+}
+
+/* WordPress core gives a notice's paragraphs and bold text a dark colour of
+   their own, which vanishes on the dark card. They take the card's text colour,
+   the same as the notice. */
+body.toplevel_page_pressedmail-plugin
+  #wpbody-content
+  > :is(.notice, .update-nag)
+  :is(p, strong, li) {
+  color: var(--card-foreground, var(--foreground));
 }
 
 /* Notice severity keeps reading as severity, in the theme's own colours.

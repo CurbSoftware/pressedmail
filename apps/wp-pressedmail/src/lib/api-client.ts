@@ -2,7 +2,6 @@ import {
   captureRequestPrincipal,
   captureEmailCacheRevision,
   applyMailboxCachePolicy,
-  invalidatePrincipalStorage,
   isRequestPrincipalCurrent,
   type StoragePrincipal,
 } from "./principal-storage";
@@ -16,6 +15,8 @@ import {
  *    admin-ajax (`lib/nonce.ts`, single-flight) and retries the request EXACTLY ONCE with
  *    the fresh value. A FormData body is re-sent on that retry; raw streams are not
  *    supported (a consumed `ReadableStream` body cannot be replayed).
+ *  - Plain permalinks: the REST root is `index.php?rest_route=/` there, so a call site that
+ *    appends `?query` by hand is rewritten to `&query` (`normalizeRestUrl`).
  *  - Classify failures visibly: a non-nonce 403 surfaces as `PermissionError`; a heal that
  *    is impossible (mint yields nothing, or the retry is still a nonce 403 → the login
  *    cookie is gone) surfaces as `SessionExpiredError`. Neither is ever swallowed.
@@ -30,7 +31,7 @@ import {
 
 import { __, sprintf } from "@wordpress/i18n";
 
-import { getRuntimeWpNonce } from "@/lib/runtime-config";
+import { getRuntimeWpNonce, normalizeRestUrl } from "@/lib/runtime-config";
 import { refreshRestNonce } from "@/lib/nonce";
 import {
   credentialsRequiredFallbackMessage,
@@ -149,6 +150,7 @@ function fenceResponse(
       throw new TypeError("Response body verification is unavailable.");
     Reflect.apply(bodyUsed, response, []);
     const descriptors: PropertyDescriptorMap = {};
+    const readText = Response.prototype.text;
     for (const name of [
       "json",
       "text",
@@ -167,7 +169,15 @@ function fenceResponse(
           assertCurrentPrincipal(principal);
           if (this !== response) throw new TypeError("Illegal invocation");
           try {
-            const result: unknown = await Reflect.apply(reader, this, args);
+            // JSON is read as text so a 2xx body with notices in front of
+            // it can still be parsed (parseJsonBody).
+            const result: unknown =
+              name === "json"
+                ? parseJsonBody(
+                    (await Reflect.apply(readText, this, [])) as string,
+                    this.ok,
+                  )
+                : await Reflect.apply(reader, this, args);
             checkCache();
             assertCurrentPrincipal(principal);
             if (name === "json") applyMailboxCachePolicy(result);
@@ -206,6 +216,34 @@ function fenceResponse(
         "pressedmail",
       ),
     );
+  }
+}
+
+/**
+ * Parse a JSON body. On a 2xx reply, text printed before the JSON (PHP notices
+ * on a `display_errors` host) is skipped, so a write the server completed is
+ * not read as a failure. Error replies stay strict.
+ */
+function parseJsonBody(text: string, skipLeadingJunk: boolean): unknown {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    if (!skipLeadingJunk) throw error;
+    // A notice can hold a bracket of its own, so try a few starts in order.
+    // The real body is the first one that parses through to the end.
+    let start = text.search(/[[{]/);
+    for (let tries = 0; start !== -1 && tries < 20; tries++) {
+      if (start > 0) {
+        try {
+          return JSON.parse(text.slice(start));
+        } catch {
+          // Not the body yet.
+        }
+      }
+      const next = text.slice(start + 1).search(/[[{]/);
+      start = next === -1 ? -1 : start + 1 + next;
+    }
+    throw error;
   }
 }
 
@@ -476,7 +514,13 @@ function normalizeErrorFields(body: Record<string, unknown>): {
  * up on retry. Header shape is preserved (a plain-object stays a plain object, a `Headers`
  * stays `Headers`) so callers, and their tests, see the same headers they passed plus the
  * nonce, without key-casing surprises from a forced `Headers` round-trip.
+ *
+ * Every request also asks for JSON unless the caller named its own `Accept`. WordPress
+ * turns `display_errors` off only for a request it recognises as JSON, and a multipart
+ * post or a header-less GET is not one without it.
  */
+const JSON_ACCEPT = "application/json";
+
 function withNonce(init: RequestInit): RequestInit {
   const nonce = getRuntimeWpNonce();
   const existing = init.headers;
@@ -484,16 +528,24 @@ function withNonce(init: RequestInit): RequestInit {
   let headers: HeadersInit;
   if (existing instanceof Headers) {
     const merged = new Headers(existing);
+    if (!merged.has("Accept")) merged.set("Accept", JSON_ACCEPT);
     merged.set("X-WP-Nonce", nonce);
     headers = merged;
   } else if (Array.isArray(existing)) {
+    const hasAccept = existing.some(([key]) => key.toLowerCase() === "accept");
     headers = [
+      ...(hasAccept ? [] : [["Accept", JSON_ACCEPT] as [string, string]]),
       ...existing.filter(([key]) => key.toLowerCase() !== "x-wp-nonce"),
       ["X-WP-Nonce", nonce],
     ];
   } else {
+    const given = existing as Record<string, string> | undefined;
+    const hasAccept = Object.keys(given ?? {}).some(
+      (key) => key.toLowerCase() === "accept",
+    );
     headers = {
-      ...(existing as Record<string, string> | undefined),
+      ...(hasAccept ? null : { Accept: JSON_ACCEPT }),
+      ...given,
       "X-WP-Nonce": nonce,
     };
   }
@@ -615,6 +667,12 @@ function announcePermissionDenied(code: string | null): void {
   }
 }
 
+/**
+ * A 401 that says the login cookie is gone. Nothing stored is dropped here: the
+ * unsent draft is still this user's, and WordPress offers its own sign-in
+ * prompt over the page. A different user signing in is caught by the principal
+ * checks, which do purge.
+ */
 async function rejectConfirmedLogout(response: Response): Promise<void> {
   if (response.status !== 401) return;
   const body = await response.clone().json().catch(ignoreMalformedJson);
@@ -625,7 +683,6 @@ async function rejectConfirmedLogout(response: Response): Promise<void> {
     code === "not_logged_in" ||
     code === "rest_forbidden"
   ) {
-    invalidatePrincipalStorage("session-ended");
     throw new SessionExpiredError();
   }
 }
@@ -651,7 +708,7 @@ export async function apiFetch(
 ): Promise<Response> {
   const principal = captureRequestPrincipal();
   assertCurrentPrincipal(principal);
-  const url = coerceUrl(input);
+  const url = normalizeRestUrl(coerceUrl(input));
   const cacheRevision =
     !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase()) ||
     /\/user\/preferences(?:[/?]|$)|\/performance\/clear-body-cache/.test(url)
@@ -731,7 +788,7 @@ export async function readJsonOrDescribe<T extends object>(
 ): Promise<Partial<T> & { message?: string }> {
   const text = await response.text();
   try {
-    return JSON.parse(text) as Partial<T>;
+    return parseJsonBody(text, response.ok) as Partial<T>;
   } catch {
     // Parsed inert: DOMParser runs no scripts and loads nothing.
     const page = new DOMParser().parseFromString(text, "text/html");

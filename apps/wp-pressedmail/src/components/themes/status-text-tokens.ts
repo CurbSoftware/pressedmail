@@ -106,7 +106,8 @@ ${scope} .signature-preview a:where([href]) {
 }
 
 /**
- * Text utilities and all their variants are promoted by styles/text-color-cascade.cjs
+ * Text utilities and all their variants are promoted by
+ * @kit/ui/styles/text-color-cascade.cjs
  * from Tailwind's compiled CSS. Runtime base-class overrides would mask them.
  */
 export function themeTextUtilityCss(): string {

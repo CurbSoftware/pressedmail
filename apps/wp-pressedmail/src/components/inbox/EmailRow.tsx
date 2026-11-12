@@ -1,6 +1,6 @@
 import * as React from "react";
 import { __, _x, sprintf } from "@wordpress/i18n";
-import { Paperclip, Star } from "lucide-react";
+import { CirclePause, Paperclip, Star } from "lucide-react";
 import { ScheduledFolderIcon } from "@/components/icons/FolderIcons";
 
 import { cn } from "@/lib/utils";
@@ -517,6 +517,37 @@ function HoverActions({
   );
 }
 
+/** The mark on a row that backs a scheduled email: waiting to send, or held. */
+function ScheduledRowMark({
+  row,
+}: {
+  row: { isHeld?: boolean; dateLabel: string };
+}) {
+  if (!row.isHeld) {
+    return (
+      <ScheduledFolderIcon
+        className="h-3 w-3 shrink-0"
+        aria-label={__("Scheduled", "pressedmail")}
+      />
+    );
+  }
+  // The Scheduled view's own words for a held email, on the row's send time.
+  const label = sprintf(
+    /* translators: %s: the date and time the email was due to be sent. */
+    __("Held. Was scheduled for %s", "pressedmail"),
+    row.dateLabel,
+  );
+  return (
+    <span title={label} className="inline-flex">
+      <CirclePause
+        className="h-3 w-3 shrink-0"
+        role="img"
+        aria-label={label}
+      />
+    </span>
+  );
+}
+
 function handleKeySelect(
   event: React.KeyboardEvent,
   message: EmailMessage,
@@ -863,10 +894,7 @@ export function EmailRow({
               )}>
               {/* Scheduled sends are Pro; Free rows never carry the flag. */}
               {!__IS_FREE__ && row.isScheduled && (
-                <ScheduledFolderIcon
-                  className="h-3 w-3 shrink-0"
-                  aria-label={__("Scheduled", "pressedmail")}
-                />
+                <ScheduledRowMark row={row} />
               )}
               {row.dateLabel}
             </span>
@@ -1037,12 +1065,7 @@ export function EmailRow({
                 : "text-primary"
               : "text-muted-foreground",
           )}>
-          {!__IS_FREE__ && row.isScheduled && (
-            <ScheduledFolderIcon
-              className="h-3 w-3 shrink-0"
-              aria-label={__("Scheduled", "pressedmail")}
-            />
-          )}
+          {!__IS_FREE__ && row.isScheduled && <ScheduledRowMark row={row} />}
           {row.dateLabel}
         </span>
         <div className="relative flex items-center justify-end gap-1">

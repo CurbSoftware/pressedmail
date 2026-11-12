@@ -19,6 +19,7 @@ import { MobileNotificationsSheet } from "./MobileNotificationsSheet";
 import { UpgradeModal } from "@/components/features/UpgradeModal.active";
 import { WhatsNewDialog } from "@/components/whats-new/WhatsNewDialog";
 import { TemplatePickerHost } from "@/components/templates/TemplatePickerHost";
+import { CompanionComposeSourceHost } from "@/companions/companions.active";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts/keyboard-shortcuts";
 import { PressedTooltipProvider } from "@/components/ui/pressed-tooltip";
 import { PaneComposeProvider } from "@/context/composer";
@@ -404,6 +405,10 @@ const ApplicationLayout = () => {
                 the pane composer, so it lives inside the provider. Free
                 resolves this to a component that renders nothing. */}
             <TemplatePickerHost />
+            {/* A companion's email for the desktop compose route, shown over
+                the mailbox until the pane composer opens it. Free renders
+                nothing. */}
+            <CompanionComposeSourceHost enabled={!compactShellEnabled} />
           </LayoutUiProvider>
         </PaneComposeProvider>
         <UpgradeModal />

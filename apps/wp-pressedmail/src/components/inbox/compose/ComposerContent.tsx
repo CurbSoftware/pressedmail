@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { __, sprintf } from "@wordpress/i18n";
+import { __, _n, sprintf } from "@wordpress/i18n";
 import {
   getPlateEmailEditorSurfacePreset,
   type PlateEmailEditorDialect,
@@ -140,6 +140,7 @@ export function ComposerContent({
   const emailSurfacePreset = getPlateEmailEditorSurfacePreset("email");
   const emailSurfaceFeatures = emailSurfacePreset.features;
   const attachments = form.attachments;
+  const forwardOmitted = form.forwardOmittedAttachments ?? [];
   const {
     canUploadAttachments,
     canUseMediaLibraryAttachments,
@@ -420,6 +421,7 @@ export function ComposerContent({
             fromAccount={form.fromAccount}
             onFromAccountChange={form.setFromAccount}
             disabled={isExclusiveOperationPending}
+            locked={form.fromAccountLocked}
           />
         </div>
 
@@ -553,6 +555,33 @@ export function ComposerContent({
             onRemove={form.removeAttachment}
             disabled={isExclusiveOperationPending}
           />
+          {forwardOmitted.length > 0 ? (
+            <div
+              role="status"
+              data-test="forward-omitted-attachments"
+              className="mt-1.5 flex w-full items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-2 py-1.5 text-xs text-foreground">
+              <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                {sprintf(
+                  /* translators: %s: comma-separated file names. */
+                  _n(
+                    "The original attachment is not included. To send it, download it and attach it here: %s",
+                    "The original attachments are not included. To send them, download them and attach them here: %s",
+                    forwardOmitted.length,
+                    "pressedmail",
+                  ),
+                  forwardOmitted.join(", "),
+                )}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 shrink-0 px-2 text-xs"
+                onClick={form.dismissForwardOmittedAttachments}>
+                {__("Dismiss", "pressedmail")}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         {/* ── 5. Hidden image upload input ──

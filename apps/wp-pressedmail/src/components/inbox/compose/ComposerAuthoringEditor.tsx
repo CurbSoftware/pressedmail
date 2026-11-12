@@ -285,6 +285,13 @@ export const ComposerAuthoringEditor = forwardRef<
     !__IS_FREE__ && (features?.isFeatureAvailable("ai_drafting") ?? false);
   const aiEnabled =
     enableAiCommands && surfaceFeatures.aiCommands && aiFeatureEnabled;
+  // Ghost-text autocomplete is its own flag: a writing provider that writes
+  // for the composer but does not do autocomplete leaves it off, instead of
+  // asking a provider nobody set up on every typing pause.
+  const copilotEnabled =
+    aiEnabled &&
+    !__IS_FREE__ &&
+    (features?.isFeatureAvailable("ai_suggestions") ?? false);
   // Saved blocks belong to emails and templates, on Pro licences that have
   // Templates: one rule for the toolbar button, the slash menu and the Settings
   // dialog. Another surface opts in by passing the prop.
@@ -528,6 +535,7 @@ export const ComposerAuthoringEditor = forwardRef<
             disabled={disabled}
             contentHidden={inlinePreview}
             aiEnabled={aiEnabled}
+            copilotEnabled={copilotEnabled}
             variablesEnabled={variablesEnabled}
             onReady={onEditorReady}
             contentStyle={editorStyle}

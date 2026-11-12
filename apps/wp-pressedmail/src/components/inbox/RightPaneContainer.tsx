@@ -28,7 +28,11 @@ import {
   useInboxState,
   useMessageOperations,
 } from "@/context/InboxContext";
-import { useComposer, usePaneCompose } from "@/context/composer";
+import {
+  useComposer,
+  usePaneCompose,
+  type ComposerSessionData,
+} from "@/context/composer";
 import { useSecurity } from "@/context/security";
 import {
   getPersistedPaneState,
@@ -73,7 +77,16 @@ import {
   getMessageIdentityRef,
 } from "@/lib/message-identity";
 import { ScheduledEmailReadingPane } from "@/components/scheduled/ScheduledEmailReadingPane";
-import { buildReplyRecipients } from "./reply-recipients";
+import {
+  buildReplyRecipients,
+  getOwnAddresses,
+  getReplyHeaders,
+} from "./reply-recipients";
+import {
+  forwardSubject,
+  replySubject,
+  seedForwardAttachments,
+} from "./compose/compose-utils";
 import { useShortcutHandler } from "@/components/keyboard-shortcuts/shortcut-registry";
 
 import {
@@ -208,6 +221,11 @@ export function RightPaneContainer({
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<PendingDelete | null>(null);
+  // Failed scheduled emails the server would not send again because it cannot
+  // say whether they were delivered. Send now is not offered for them twice.
+  const [outcomeUnknownIds, setOutcomeUnknownIds] = React.useState<
+    ReadonlySet<number>
+  >(() => new Set());
   const [isScheduledActionLoading, setIsScheduledActionLoading] =
     React.useState(false);
   // Expanded ("pop out") reading view, shows the message in a large in-app modal.
@@ -418,35 +436,15 @@ export function RightPaneContainer({
     [],
   );
 
-  /** Every address that belongs to the account this message arrived on. */
-  const ownAddresses = React.useMemo(() => {
-    const ref = getMessageIdentityRef(selectedMessage);
-    const account = ref
-      ? accounts.find(
-          (candidate) => String(candidate.id) === String(ref.accountId),
-        )
-      : undefined;
-    return account?.email ? [String(account.email)] : [];
-  }, [accounts, selectedMessage]);
-
-  /** The original message's addressing, Reply-To included. */
-  const replyHeaders = React.useMemo(() => {
-    const headers = selectedMessage?.headers as
-      | Record<string, string>
-      | undefined;
-    const replyToHeader =
-      (selectedMessage?.replyTo as string | undefined) ||
-      (selectedMessage?.reply_to as string | undefined) ||
-      headers?.["Reply-To"] ||
-      headers?.["reply-to"];
-
-    return {
-      from: selectedMessage?.from || selectedMessage?.email || "",
-      replyTo: replyToHeader ?? "",
-      to: selectedMessage?.to ?? "",
-      cc: selectedMessage?.cc ?? "",
-    };
-  }, [selectedMessage]);
+  // Shared with the phone reader, so both address a reply the same way.
+  const ownAddresses = React.useMemo(
+    () => getOwnAddresses(selectedMessage, accounts),
+    [accounts, selectedMessage],
+  );
+  const replyHeaders = React.useMemo(
+    () => getReplyHeaders(selectedMessage),
+    [selectedMessage],
+  );
   const replyContext = React.useCallback(
     (threaded = true, restored = false): Partial<ComposeData> | null => {
       const ref = getMessageIdentityRef(selectedMessage);
@@ -526,7 +524,7 @@ export function RightPaneContainer({
   }, [composeMode, paneFolder, paneMode, paneScopeKey, selectedAccount]);
 
   const openPaneCompose = React.useCallback(
-    (nextComposeMode: ComposeMode, draft: Partial<ComposeData>) => {
+    (nextComposeMode: ComposeMode, draft: Partial<ComposerSessionData>) => {
       resumingComposeRef.current = false;
       composer.setComposeData({
         fromAccount: draft.fromAccount,
@@ -550,6 +548,10 @@ export function RightPaneContainer({
         mode: nextComposeMode,
         bodyBackgroundColor: draft.bodyBackgroundColor,
         attachments: draft.attachments ?? [],
+        forwardOmittedAttachments:
+          nextComposeMode === "forward"
+            ? draft.forwardOmittedAttachments
+            : undefined,
         draftUid: draft.draftUid,
         draftFolder: draft.draftFolder,
         draftAccountId: draft.draftAccountId,
@@ -700,9 +702,7 @@ export function RightPaneContainer({
       const source = replyContext(true, restored);
       if (!source) return;
 
-      const subject = selectedMessage.subject?.startsWith("Re:")
-        ? selectedMessage.subject
-        : `Re: ${selectedMessage.subject || ""}`;
+      const subject = replySubject(selectedMessage.subject);
       // Reply All answers the whole conversation: the reply target plus everyone
       // on the original To, with the original Cc kept as Cc, minus this account.
       const recipients = buildReplyRecipients(replyHeaders, {
@@ -744,9 +744,7 @@ export function RightPaneContainer({
         return;
       }
 
-      const subject = selectedMessage.subject?.startsWith("Re:")
-        ? selectedMessage.subject
-        : `Re: ${selectedMessage.subject || ""}`;
+      const subject = replySubject(selectedMessage.subject);
       // Reply-To exists so a sender can redirect replies: mailing lists, support
       // desks and no-reply senders all set it, and it used to be ignored.
       const recipients = buildReplyRecipients(replyHeaders, {
@@ -784,13 +782,18 @@ export function RightPaneContainer({
       const source = replyContext(false, restored);
       if (!source) return;
 
-      const subject = selectedMessage.subject?.startsWith("Fwd:")
-        ? selectedMessage.subject
-        : `Fwd: ${selectedMessage.subject || ""}`;
+      const subject = forwardSubject(selectedMessage.subject);
 
       openPaneCompose("forward", {
         ...source,
         subject,
+        // The original's files ride along as chips the server reads from the
+        // mail server. A message just restored lost its UID in the move, so
+        // its files can only be named.
+        ...seedForwardAttachments(
+          selectedMessage,
+          restored ? null : getMessageIdentityRef(selectedMessage),
+        ),
         body:
           preferredContentType === "plain"
             ? formatForwardedText(selectedMessage)
@@ -860,6 +863,13 @@ export function RightPaneContainer({
   React.useEffect(() => {
     if (!paneComposeRequest || !paneCompose) return;
 
+    // Every one of these replaces the open compose session, so it goes
+    // through the composer's guard: unsaved words are saved or confirmed
+    // first. A clean composer, or none, is replaced at once.
+    const requestNavigation = composer.requestNavigation;
+    const replaceCompose = (open: () => void) =>
+      requestNavigation(open, { waitForSave: true });
+
     switch (paneComposeRequest.type) {
       case "resume":
         resumingComposeRef.current = true;
@@ -871,19 +881,21 @@ export function RightPaneContainer({
         setPaneMode("compose");
         break;
       case "new":
-        handleNewMessage();
+        replaceCompose(handleNewMessage);
         break;
-      case "prefill":
-        openPaneCompose("new", paneComposeRequest.data);
+      case "prefill": {
+        const data = paneComposeRequest.data;
+        replaceCompose(() => openPaneCompose("new", data));
         break;
+      }
       case "reply":
-        handleReply();
+        replaceCompose(handleReply);
         break;
       case "reply-all":
-        handleReplyAll();
+        replaceCompose(handleReplyAll);
         break;
       case "forward":
-        handleForward();
+        replaceCompose(handleForward);
         break;
     }
     paneCompose.clearPaneComposeRequest();
@@ -891,6 +903,7 @@ export function RightPaneContainer({
     paneComposeRequest,
     composer.composeData.mode,
     composer.composeData.is_reply,
+    composer.requestNavigation,
     handleNewMessage,
     handleReply,
     handleReplyAll,
@@ -1217,9 +1230,14 @@ export function RightPaneContainer({
       const source = captureSelection();
       setIsScheduledActionLoading(true);
       try {
+        // A failed email is only sent again when its sender asks for exactly
+        // that. A waiting or held one needs no such word.
         const result = await (action === "cancel"
           ? scheduledCtx.cancelEmail(scheduledEmail.id)
-          : scheduledCtx.sendNow(scheduledEmail.id));
+          : scheduledCtx.sendNow(
+              scheduledEmail.id,
+              scheduledEmail.status === "failed" ? { retry: true } : undefined,
+            ));
 
         if (result.status === "success") {
           if (!isCurrentSelection(source)) return;
@@ -1228,6 +1246,11 @@ export function RightPaneContainer({
           onScheduledEmailCleared?.();
           onScheduledEmailChanged?.();
         } else {
+          // It may already have been delivered: say so, and stop offering it.
+          if (result.code === "delivery_outcome_unknown") {
+            const unknownId = scheduledEmail.id;
+            setOutcomeUnknownIds((ids) => new Set(ids).add(unknownId));
+          }
           appMessage(
             result.message ||
               __("We could not update this scheduled email.", "pressedmail"),
@@ -1446,6 +1469,7 @@ export function RightPaneContainer({
         <ScheduledEmailReadingPane
           email={scheduledEmail}
           isActionLoading={isScheduledActionLoading}
+          sendNowBlocked={outcomeUnknownIds.has(scheduledEmail.id)}
           onEdit={() => void handleScheduledEdit()}
           onChangeTime={(date) => void handleChangeTime(date)}
           onSendNow={() => void runScheduledAction("send-now")}

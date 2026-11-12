@@ -16,7 +16,7 @@ installStaleChunkReload(import.meta.url);
 installInputModality();
 
 let appRoot: ReturnType<typeof ReactDOM.createRoot> | null = null;
-initializePrincipalStorage(() => {
+const bootPrincipal = initializePrincipalStorage(() => {
   // Identity checks may run during render. Finish that stack, then remove all
   // providers, portals and beforeunload guards before attempting navigation.
   queueMicrotask(() => {
@@ -27,7 +27,16 @@ initializePrincipalStorage(() => {
 
 const rootElement = document.getElementById("pressedmail-plugin");
 
-if (rootElement) {
+if (bootPrincipal === null) {
+  // PHP's boot data is missing or unreadable: an optimisation plugin dropped
+  // or reordered the inline script, or a filter made the REST root relative.
+  // Every request would then fail as an expired session, so the page says it
+  // could not load (the notice Admin/Menu.php renders) instead of mounting.
+  const loading = document.getElementById("pressedmail-plugin-loading");
+  const failed = document.getElementById("pressedmail-plugin-failed");
+  if (loading) loading.hidden = true;
+  if (failed) failed.hidden = false;
+} else if (rootElement) {
   appRoot = ReactDOM.createRoot(rootElement);
   appRoot.render(<EditionApp />);
 }

@@ -62,12 +62,8 @@ function matchesVerifiedPrincipal(
     if (url.username || url.password) return false;
     const normalizedSite =
       url.origin + (url.pathname.replace(/\/+$/, "") || "/");
-    if (userId === 0) {
-      if (normalizedSite === captured.site) {
-        invalidatePrincipalStorage("authentication-lost");
-      }
-      return false;
-    }
+    // Signed out. Nothing is purged: see the note on applyHeartbeatNonce.
+    if (userId === 0) return false;
     if (normalizedSite !== captured.site || userId !== captured.userId) {
       invalidatePrincipalStorage("nonce-principal-changed");
       return false;
@@ -132,32 +128,6 @@ export function getAdminAjaxUrl(): string {
 /** WordPress core action that returns a fresh REST nonce as plain text. */
 const REFRESH_NONCE_ACTION = "rest-nonce";
 
-/** Only explicit authentication loss invalidates; outages must remain recoverable. */
-async function invalidateOnAuthenticationLoss(
-  response: Response,
-  captured: StoragePrincipal,
-  coreMint = false,
-): Promise<void> {
-  let loggedOut = false;
-  if (coreMint && response.status === 400) {
-    // Core has no unauthenticated rest-nonce AJAX action and answers 0/400.
-    loggedOut = (await response.text()).trim() === "0";
-  } else if (response.status === 401) {
-    const body = (await response.json().catch(() => null)) as {
-      code?: unknown;
-      data?: { code?: unknown };
-    } | null;
-    const code = body?.code ?? body?.data?.code;
-    loggedOut =
-      code === "rest_not_logged_in" ||
-      code === "not_logged_in" ||
-      code === "rest_forbidden";
-  }
-  if (loggedOut && isRequestPrincipalCurrent(captured)) {
-    invalidatePrincipalStorage("authentication-lost");
-  }
-}
-
 // Single-flight: a burst of concurrent 403s only triggers ONE admin-ajax mint. The
 // resolved nonce is shared by every waiter.
 let refreshInFlight: Promise<string | null> | null = null;
@@ -192,10 +162,9 @@ export function refreshRestNonce(
         `${url}${url.includes("?") ? "&" : "?"}action=${REFRESH_NONCE_ACTION}`,
         { credentials: "same-origin", cache: "no-store" },
       );
-      if (!res.ok) {
-        await invalidateOnAuthenticationLoss(res, captured, true);
-        return null;
-      }
+      // A refusal here, a lost session included, mints nothing and purges
+      // nothing: the caller reports the expired session and local state stays.
+      if (!res.ok) return null;
       const fresh = (await res.text()).trim();
       if (!fresh || !isRequestPrincipalCurrent(captured)) return null;
 
@@ -211,10 +180,7 @@ export function refreshRestNonce(
           headers: { "X-WP-Nonce": fresh },
         },
       );
-      if (!verification.ok) {
-        await invalidateOnAuthenticationLoss(verification, captured);
-        return null;
-      }
+      if (!verification.ok) return null;
       const data: unknown = await verification.json();
       const evidence = (data as { principal?: unknown } | null)?.principal;
       return setRuntimeNonce(fresh, captured, evidence) ? fresh : null;
@@ -231,6 +197,12 @@ export function refreshRestNonce(
  * Apply a nonce delivered by a WordPress Heartbeat tick (proactive refresh). Called by
  * `useNonceRefresh` from the `heartbeat-tick` handler when Heartbeat is enabled, so the
  * reactive mint in `api-client` rarely has to fire.
+ *
+ * A tick that says the session is gone (`wp-auth-check: false`, or a principal
+ * with user 0) installs nothing and purges nothing. The unsent draft is still
+ * this user's, and WordPress shows its own sign-in prompt over the page; once
+ * they sign back in the next tick or the reactive mint renews the nonce. Someone
+ * else signing in is a principal change, which still purges and reloads.
  */
 export function applyHeartbeatNonce(data: unknown): void {
   const captured = captureRequestPrincipal();
@@ -243,10 +215,7 @@ export function applyHeartbeatNonce(data: unknown): void {
       }
     | null
     | undefined;
-  if (payload?.["wp-auth-check"] === false) {
-    invalidatePrincipalStorage("authentication-lost");
-    return;
-  }
+  if (payload?.["wp-auth-check"] === false) return;
   if (!matchesVerifiedPrincipal(captured, payload?.pressedmail_principal)) {
     return;
   }

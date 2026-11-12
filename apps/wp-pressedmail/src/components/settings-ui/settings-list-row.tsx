@@ -5,11 +5,14 @@ export function SettingsListRow({
   description,
   icon: Icon,
   onSelect,
+  dir,
 }: {
   label: string;
   description?: string;
   icon: LucideIcon;
   onSelect: () => void;
+  /** `auto` for words that are not PressedMail's own, such as a companion's label. */
+  dir?: "auto";
 }) {
   return (
     <button
@@ -20,9 +23,9 @@ export function SettingsListRow({
         <Icon className="h-5 w-5" aria-hidden="true" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-sm font-medium">{label}</span>
+        <span dir={dir} className="text-sm font-medium">{label}</span>
         {description ? (
-          <span className="text-xs text-muted-foreground">{description}</span>
+          <span dir={dir} className="text-xs text-muted-foreground">{description}</span>
         ) : null}
       </span>
       <ChevronRight

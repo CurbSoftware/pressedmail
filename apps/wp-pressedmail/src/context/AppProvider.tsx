@@ -954,19 +954,20 @@ export default function AppProvider({ children }: AppProviderProps) {
       } catch (err) {
         if (signal?.aborted) return null;
         console.error("[AppProvider] Error loading accounts:", err);
-        setError(
-          serverFailed
-            ? __(
-                "PressedMail is still starting up. Give it a moment and try again.",
-                "pressedmail",
-              )
-            : __("Failed to load accounts", "pressedmail"),
-        );
+        // One message for the banner and the toast, so a cold start never
+        // reads as a failure in one place and a startup notice in the other.
+        const message = serverFailed
+          ? __(
+              "PressedMail is still starting up. Give it a moment and try again.",
+              "pressedmail",
+            )
+          : __("Failed to load accounts", "pressedmail");
+        setError(message);
         // Surface the failure instead of silently rendering the empty/setup
         // state. Existing accounts are intentionally left intact here, only an
         // empty list clears them, so a transient auth/network failure, or a
         // 404 from a route that is not there, does not look like "no accounts".
-        appMessage(__("Failed to load accounts", "pressedmail"), "error");
+        appMessage(message, "error");
         return null;
       } finally {
         if (!signal?.aborted) {

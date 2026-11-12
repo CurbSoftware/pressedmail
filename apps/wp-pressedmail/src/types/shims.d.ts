@@ -84,10 +84,20 @@ interface PressedMailPluginGlobal {
   automationPaused?: boolean;
   /** Where an administrator confirms the site, empty for a non-administrator. */
   automationReviewUrl?: string;
+  /**
+   * Administrators only: how to answer the pause from inside the app. A form
+   * POST to `url` with `action`, `_wpnonce` (the nonce) and `decision`
+   * (`resume` or `pause`); the server redirects back afterwards.
+   */
+  automationReview?: { url: string; action: string; nonce: string };
   isPro?: boolean | string;
   isLicensed?: boolean;
   /** Pro: a plugin fills `pressedmail_unsubscribe_url` at send time. */
   unsubscribeProvider?: boolean | string;
+  /** Pro: the Contacts & Calendars plugin turned on contacts and calendar sync. */
+  providerSync?: boolean | string;
+  /** Pro: a companion offers a writing provider (`pressedmail_ai_writing_provider`). */
+  hasWritingProvider?: boolean | string;
   /** Server-resolved custom_themes entitlement for the theme provider. */
   customThemesEnabled?: boolean | string;
   /**
@@ -149,8 +159,6 @@ interface PressedMailPluginGlobal {
   };
   userCapabilities?: string[];
   whitelabel?: EffectiveWhitelabelRuntime | null;
-  aiEnabled?: boolean;
-  aiApiKeyConfigured?: boolean;
   useCustomUpdates?: boolean;
   managedDomainSetup?: ManagedDomainSetupRuntime;
   providerGate?: {
@@ -167,6 +175,26 @@ interface PressedMailPluginGlobal {
     restBase?: string;
     canManage?: boolean;
   };
+  /**
+   * Pro: the companion plugins this user may see, as Companions\Registry
+   * declared them, slots cut to the user's access. Read through
+   * `src/companions/registry.ts`, which checks the shape.
+   */
+  companions?: Array<{
+    id: string;
+    name: string;
+    slots: Record<string, Record<string, unknown>>;
+    data: unknown;
+    /** The companion's stylesheets, loaded the first time one of its slots mounts. */
+    styles?: string[];
+  }>;
+  /** Every merge-field namespace the server's token grammar reads, built-ins first. */
+  templateNamespaces?: string[];
+  /**
+   * Pro: the Plugins screen, for a user who may activate plugins; empty for
+   * anyone else (Companions\Registry). The app adds a search for a companion.
+   */
+  pluginsUrl?: string;
   /** Pro: whether the Proton Bridge companion plugin is installed and active. */
   protonCompanion?: {
     installed?: boolean;
@@ -281,6 +309,18 @@ declare global {
   interface Window {
     pressedmailPlugin?: PressedMailPluginGlobal;
     pressedmail?: PressedMailFrontendGlobal;
+    /**
+     * Companion bundles push their registrations here
+     * (`registerPressedMailCompanion()` in the SDK). PressedMail drains it and
+     * replaces `push`, so what arrives later registers at once.
+     */
+    pressedmailCompanions?: unknown[];
+    /**
+     * Ids of companion bundles that failed to load. Each bundle's tag pushes
+     * its own (Companions\Registry::report_load_failure()), even before the
+     * app starts; the app drains it and replaces `push` the same way.
+     */
+    pressedmailCompanionFailures?: unknown[];
     /** Server-injected Jed locale-data for the active plugin locale. */
   }
 }

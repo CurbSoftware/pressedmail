@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction } from "react";
+import { type Dispatch, type ReactNode, type SetStateAction } from "react";
 import { __, sprintf } from "@wordpress/i18n";
 import {
   Alert,
@@ -28,6 +28,7 @@ import {
   Server,
   XCircle,
 } from "lucide-react";
+import { OrphanMailboxNotice } from "@/components/setup/orphan-mailbox-notice";
 import { EmailSendIcon } from "@/components/icons/MailActionIcons";
 import { sensitiveInputProps } from "@/lib/sensitive-input-props";
 
@@ -57,6 +58,8 @@ export interface StepServerSettingsProps {
   connectionStatus?: ConnectionStatus | null;
   onTestConnection?: () => void;
   onAddEmail?: () => void;
+  /** Pro: the contacts and calendar import choice, shown above the actions. */
+  importSlot?: ReactNode;
 }
 
 const pendingTestState: ConnectionTestState = {
@@ -126,6 +129,7 @@ export function StepServerSettings({
   connectionStatus = null,
   onTestConnection,
   onAddEmail,
+  importSlot,
 }: StepServerSettingsProps) {
   const isCustomServer = formData.provider === "custom";
   const hasConnectionActivity =
@@ -638,6 +642,8 @@ export function StepServerSettings({
         </Card>
       )}
 
+      {importSlot}
+
       <div className="space-y-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <Button
@@ -700,6 +706,11 @@ export function StepServerSettings({
             <AlertDescription>{errors.submit}</AlertDescription>
           </Alert>
         )}
+
+        {/* Free refuses a second mailbox ("Disconnect the connected mailbox
+            before adding another one"). When the one in the way belongs to a
+            user who is gone, an administrator can remove it here. */}
+        {__IS_FREE__ && errors.submit ? <OrphanMailboxNotice /> : null}
       </div>
     </div>
   );

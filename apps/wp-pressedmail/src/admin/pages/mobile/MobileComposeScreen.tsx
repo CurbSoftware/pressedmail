@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { Loader2, Save } from "lucide-react";
 import { __ } from "@wordpress/i18n";
 
+import { composeSourceParams, useComposeSource } from "@/companions/companions.active";
 import { ComposerContent } from "@/components/inbox/compose/ComposerContent";
 import { EmailSendIcon } from "@/components/icons/MailActionIcons";
 import type { EmailEditorRef } from "@/components/composer";
@@ -232,7 +233,62 @@ export function MobileComposeScreen({
     );
   }, [composerCtx, hasIncomingRoute, location, navigate, routeFields]);
 
+  // `?source=<companion>&ref=<ref>`: a companion's email replaces the open
+  // draft through the same save or discard question as an external payload.
+  const finishSource = React.useCallback(() => {
+    navigate(
+      {
+        pathname: location.pathname,
+        search: consumeComposeRouteSearch(location.search),
+        hash: location.hash,
+      },
+      { replace: true, state: location.state },
+    );
+  }, [location, navigate]);
+  // While a companion prepares the email the composer under it stays still:
+  // anything typed meanwhile would only meet a Save or Discard question when
+  // the email arrives. Known before the wait's code has loaded, so the To
+  // field cannot take focus first.
+  const [sourceWaiting, setSourceWaiting] = React.useState(
+    () => composeSourceParams(location.search) !== null,
+  );
+  // The card held focus and is gone: the To field, as a new message opens
+  // with. The composer is still while the card waits, so this is after it
+  // is freed.
+  const focusAfterSource = React.useRef(false);
+  const composerRegion = React.useRef<HTMLDivElement>(null);
+  const sourceStatus = useComposeSource(location.search, {
+    open: (source) =>
+      composerCtx.requestNavigation(
+        () => {
+          composerCtx.setComposeData({
+            ...DEFAULT_COMPOSE_DATA,
+            subject: source.subject,
+            body: source.html,
+            contentType: "html",
+          });
+          finishSource();
+        },
+        { onCancel: finishSource, waitForSave: true },
+      ),
+    dismiss: (hadFocus) => {
+      focusAfterSource.current = hadFocus;
+      finishSource();
+    },
+    onWaiting: setSourceWaiting,
+  });
+  const sourceShown = Boolean(sourceStatus);
+  const composerStill = sourceShown && sourceWaiting;
+  React.useLayoutEffect(() => {
+    if (sourceShown || !focusAfterSource.current) return;
+    focusAfterSource.current = false;
+    composerRegion.current?.querySelector<HTMLElement>('[data-test="to-input"] input')?.focus();
+  }, [sourceShown]);
+
+  // The header's actions wait with the composer: a draft saved or an email
+  // sent now would be the one the companion's email is about to replace.
   const isDeliveryPending =
+    composerStill ||
     form.isSending ||
     (__ENABLE_EMAIL_TRACKING__ && form.readReceipt?.pending) ||
     (!__IS_FREE__ && form.isScheduling) ||
@@ -336,13 +392,26 @@ export function MobileComposeScreen({
         </span>
       )}
       <div className="flex h-full min-h-0 flex-col">
-        <ComposerContent
-          form={form}
-          editorRef={editorRef}
-          variant="mobile"
-          showHeader={false}
-          className="min-h-0 flex-1"
-        />
+        {/* Above the fields, never over them. The composer is empty and
+            still while this waits, so the one shift when the email arrives
+            costs nothing, and focus stays on the status. */}
+        {sourceStatus ? <div className="px-3 pt-3">{sourceStatus}</div> : null}
+        <div
+          ref={composerRegion}
+          className={cn(
+            "flex min-h-0 flex-1 flex-col transition-opacity motion-reduce:transition-none",
+            // Still, and drawn so: a tap that does nothing reads as broken.
+            composerStill && "opacity-60",
+          )}
+          inert={composerStill}>
+          <ComposerContent
+            form={form}
+            editorRef={editorRef}
+            variant="mobile"
+            showHeader={false}
+            className="min-h-0 flex-1"
+          />
+        </div>
       </div>
     </MobileScreen>
   );

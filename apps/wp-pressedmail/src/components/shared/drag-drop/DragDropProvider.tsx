@@ -13,6 +13,7 @@
  */
 
 import * as React from "react";
+import { __ } from "@wordpress/i18n";
 import {
   DndContext,
   DragOverlay,
@@ -246,10 +247,10 @@ function DragOverlayContent({
       <Mail className="h-5 w-5 text-primary flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="font-medium text-sm truncate">
-          {message.from || "Unknown sender"}
+          {message.from || __("Unknown sender", "pressedmail")}
         </div>
         <div className="text-xs text-muted-foreground truncate">
-          {message.subject || "(No subject)"}
+          {message.subject || __("(No subject)", "pressedmail")}
         </div>
       </div>
       {count > 1 && (

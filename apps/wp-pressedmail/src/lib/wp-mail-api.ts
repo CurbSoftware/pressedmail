@@ -47,7 +47,19 @@ export interface WpMailConnectionHealth {
   lastTestAt: string;
   /** Null until the connection has been tested. */
   lastTestOk: boolean | null;
+  /**
+   * When a service another plugin provides last took a message to send later.
+   * Not when the connection last worked: nobody knows yet whether it went out.
+   * Absent from older servers.
+   */
+  lastHandoverAt?: string;
   consecutiveFailures: number;
+  /**
+   * True when `message` is the sentence the plugin that provides the
+   * connection wrote about its own failure, meant to be read. Otherwise it is
+   * a server's words, kept for diagnosis only. Absent from older servers.
+   */
+  pluginMessage?: boolean;
 }
 
 export interface WpMailConnectionView {
@@ -75,6 +87,30 @@ export interface WpMailConnectionView {
   claimedAddresses: string[];
   /** Absent only from a payload written before health existed. */
   health?: WpMailConnectionHealth;
+  /**
+   * `smtp`, or the type of a connection another plugin provides. Absent from
+   * a server older than those connections, which had SMTP only.
+   */
+  type?: string;
+  /**
+   * The providing service's name, or "" for SMTP. While its plugin is off,
+   * the name it had when the connection was last saved.
+   */
+  typeLabel?: string;
+  /** False while the plugin that provides the connection is off. Always true for SMTP. */
+  typeActive: boolean;
+  /** The providing plugin's one line about the connection, or "". */
+  summary?: string;
+  /** True for a connection another plugin provides: it has no SMTP fields. */
+  managed?: boolean;
+  /** That plugin's settings for it. Never a secret. */
+  transport?: Record<string, string | number | boolean>;
+}
+
+/** A connection type another plugin provides, for the Add menu. */
+export interface WpMailTransportOption {
+  type: string;
+  label: string;
 }
 
 export interface WpMailSettingsView {
@@ -86,7 +122,11 @@ export interface WpMailSettingsView {
 export interface WpMailState {
   settings: WpMailSettingsView;
   connections: WpMailConnectionView[];
-  capabilities: SmtpConnectionCapabilities & { log: boolean };
+  capabilities: SmtpConnectionCapabilities & {
+    log: boolean;
+    /** Connection types other plugins provide right now. Absent from Free and older servers. */
+    transports?: WpMailTransportOption[];
+  };
   configurationIssues: string[];
   health: WpMailHealthView[];
 }
@@ -108,6 +148,8 @@ export interface WpMailHealthView {
   detail?: string;
   lastSuccessAt?: string;
   lastFailureAt?: string;
+  /** See WpMailConnectionHealth. */
+  pluginMessage?: boolean;
 }
 
 export interface WpMailConnectionInput {
@@ -128,11 +170,21 @@ export interface WpMailConnectionInput {
   fallbackId?: string;
   replacementDefaultId?: string;
   disableRuntime?: boolean;
+  /** Set on create only: the type of a connection another plugin provides. */
+  type?: string;
+  /** That plugin's settings for it. */
+  transport?: Record<string, string | number | boolean>;
 }
 
 export interface WpMailMutationResult {
   ok: boolean;
   state?: WpMailState;
+  /**
+   * The connection a create or update saved, as the server returned it. The
+   * one way to know which connection a create made: another administrator may
+   * have added one meanwhile.
+   */
+  connection?: WpMailConnectionView;
   errors?: Record<string, string>;
   message?: string;
 }
@@ -152,8 +204,19 @@ export interface WpMailSenderProbeResult {
   message?: string;
 }
 
-/** How a message left the site. Empty for a row written before this was recorded. */
-export type WpMailLogRoute = "smtp" | "native" | "paused" | "ambiguous" | "";
+/**
+ * How a message left the site: `transport` is a connection another plugin
+ * provides. Empty for a row written before this was recorded.
+ */
+export type WpMailLogRoute =
+  | "smtp"
+  | "transport"
+  | "native"
+  | "paused"
+  | "ambiguous"
+  | "";
+
+export type WpMailLogStatus = "sent" | "failed" | "queued" | "unknown";
 
 export interface WpMailLogEntry {
   id: number;
@@ -164,11 +227,17 @@ export interface WpMailLogEntry {
   fromEmail: string;
   connectionId: string;
   connectionLabel: string;
-  status: "sent" | "failed";
+  /**
+   * `queued`: a connection another plugin provides took the message and has not
+   * said yet whether it went out. `unknown`: it could not find out.
+   */
+  status: WpMailLogStatus;
   attempt: number;
   error: string;
   /** Older payloads and rows have none. */
   route?: WpMailLogRoute;
+  /** The service's id for a message a connection another plugin provides took, or "". */
+  reference?: string;
 }
 
 export interface WpMailLogPage {
@@ -210,7 +279,13 @@ function readMessage(res: unknown): string | undefined {
 function toResult(res: unknown): WpMailMutationResult {
   const status = (res as { status?: string }).status;
   if (status === "success") {
-    return { ok: true, state: readState(res) };
+    const connection = (res as { connection?: WpMailConnectionView })
+      .connection;
+    return {
+      ok: true,
+      state: readState(res),
+      ...(connection?.id ? { connection } : {}),
+    };
   }
 
   return {

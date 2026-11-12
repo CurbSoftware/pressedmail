@@ -7,11 +7,16 @@
  * @since 2.0.0
  */
 
-import { __ } from "@wordpress/i18n";
-import { format } from "date-fns";
+import { __, sprintf } from "@wordpress/i18n";
+import { getCalendarLocale } from "@/components/calendar/calendar-intl";
+import {
+  forwardedMessageHeader,
+  replyQuoteHeader,
+} from "@/lib/composer/quote-headers";
 import { parseEmailDate } from "@/lib/email-date";
 import { parseSenderName } from "@/lib/mail-utils";
-import type { EmailMessage } from "@/types";
+import type { MessageIdentityRef } from "@/lib/message-identity";
+import type { EmailAttachment, EmailMessage } from "@/types";
 import { resolveEmailBody } from "@/lib/email-content-normalization";
 
 /**
@@ -87,9 +92,41 @@ const BLOCK_TAGS = new Set([
   "article",
 ]);
 
+/** The date of a quoted message, written the way the user's language does. */
 function formatEmailDate(value: unknown): string {
   const date = parseEmailDate(value);
-  return date ? format(date, "PPpp") : "";
+  return date
+    ? new Intl.DateTimeFormat(getCalendarLocale(), {
+        dateStyle: "medium",
+        timeStyle: "medium",
+      }).format(date)
+    : "";
+}
+
+/** The From, Date, Subject and To lines of a forwarded message. */
+function forwardedHeaderLines(message: EmailMessage): string[] {
+  return [
+    sprintf(
+      /* translators: %s: the sender of a forwarded message. */
+      __("From: %s", "pressedmail"),
+      message.from || message.email || __("Unknown", "pressedmail"),
+    ),
+    sprintf(
+      /* translators: %s: the date and time a forwarded message arrived. */
+      __("Date: %s", "pressedmail"),
+      formatEmailDate(message.receivedDate ?? message.date),
+    ),
+    sprintf(
+      /* translators: %s: the subject of a forwarded message. */
+      __("Subject: %s", "pressedmail"),
+      message.subject || "",
+    ),
+    sprintf(
+      /* translators: %s: the recipients of a forwarded message. */
+      __("To: %s", "pressedmail"),
+      message.to || "",
+    ),
+  ];
 }
 
 /** Convert HTML to plain text using DOM parsing for accurate extraction. */
@@ -191,13 +228,59 @@ function getQuotedBodyHtml(message: EmailMessage): string {
   return `<p style="text-align: left;">${textToHtmlLines(text)}</p>`;
 }
 
+/**
+ * Put a reply or forward prefix on a subject that does not carry one yet, in
+ * English or in the user's language, whatever its case. Outlook writes "RE:"
+ * and "FW:", and a case-sensitive check stacked a new prefix on every round.
+ */
+function prefixSubject(
+  subject: string | null | undefined,
+  english: RegExp,
+  template: string,
+): string {
+  const value = subject || "";
+  const localized = sprintf(template, "").trim().toLowerCase();
+  if (
+    english.test(value) ||
+    (localized !== "" && value.trim().toLowerCase().startsWith(localized))
+  ) {
+    return value;
+  }
+  return sprintf(template, value);
+}
+
+/** The subject of a reply to a message with this subject. */
+export function replySubject(subject: string | null | undefined): string {
+  return prefixSubject(
+    subject,
+    /^\s*re:/i,
+    /* translators: %s: the subject of the message being replied to. */
+    __("Re: %s", "pressedmail"),
+  );
+}
+
+/** The subject of a forward of a message with this subject. */
+export function forwardSubject(subject: string | null | undefined): string {
+  return prefixSubject(
+    subject,
+    /^\s*fwd?:/i,
+    /* translators: %s: the subject of the message being forwarded. */
+    __("Fwd: %s", "pressedmail"),
+  );
+}
+
+// The two reference lines below ("On ... wrote:" and "Forwarded message")
+// come from src/lib/composer/quote-headers.ts. plain-text-content.ts finds the
+// quoted original by the same strings, to place the signature and to tell an
+// empty reply from a written one. One translation serves both sides.
+
 /** Format quoted text for replies. */
 export function formatQuotedText(message: EmailMessage): string {
   const date = formatEmailDate(message.receivedDate ?? message.date);
   const sender = parseSenderName(message);
   const body = getCleanBody(message);
 
-  return `On ${date}, ${sender} wrote:\n${body
+  return `${replyQuoteHeader(date, sender)}\n${body
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n")}`;
@@ -205,17 +288,10 @@ export function formatQuotedText(message: EmailMessage): string {
 
 /** Format forwarded text with headers. */
 export function formatForwardedText(message: EmailMessage): string {
-  const date = formatEmailDate(message.receivedDate ?? message.date);
-  const from = message.from || message.email || "Unknown";
-  const to = message.to || "";
-  const subject = message.subject || "";
   const body = getCleanBody(message);
 
-  return `---------- Forwarded message ---------
-From: ${from}
-Date: ${date}
-Subject: ${subject}
-To: ${to}
+  return `${forwardedMessageHeader()}
+${forwardedHeaderLines(message).join("\n")}
 
 ${body}`;
 }
@@ -235,18 +311,73 @@ export function formatQuotedHtml(message: EmailMessage): string {
   const sender = parseSenderName(message);
   const bodyHtml = getQuotedBodyHtml(message);
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">On ${escapeHtml(date)}, ${escapeHtml(sender)} wrote:</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">${escapeHtml(replyQuoteHeader(date, sender))}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
 }
 
 /** Format forwarded HTML with headers for inline forward (Outlook-style). */
 export function formatForwardedHtml(message: EmailMessage): string {
-  const date = formatEmailDate(message.receivedDate ?? message.date);
-  const from = message.from || message.email || "Unknown";
-  const to = message.to || "";
-  const subject = message.subject || "";
   const bodyHtml = getQuotedBodyHtml(message);
+  const header = [forwardedMessageHeader(), ...forwardedHeaderLines(message)]
+    .map(escapeHtml)
+    .join("<br>");
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">---------- Forwarded message ---------<br>From: ${escapeHtml(from)}<br>Date: ${escapeHtml(date)}<br>Subject: ${escapeHtml(subject)}<br>To: ${escapeHtml(to)}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">${header}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+}
+
+/** The names of the files a forward leaves behind, for the composer to say so. */
+export function forwardOmittedAttachmentNames(message: EmailMessage): string[] {
+  return (message.attachments ?? [])
+    .map((attachment) => String(attachment.filename ?? "").trim())
+    .filter((name) => name !== "");
+}
+
+/**
+ * What a forward starts with: a chip for each of the original's files the
+ * server can read back from the mail server, and the names of the files it
+ * cannot. `ref` is null when the original has no identity that will still hold
+ * at send time (it was just moved out of Trash or Spam): every file is then
+ * only named, as before.
+ */
+export function seedForwardAttachments(
+  message: EmailMessage,
+  ref: MessageIdentityRef | null,
+): { attachments: EmailAttachment[]; forwardOmittedAttachments: string[] } {
+  const attachments: EmailAttachment[] = [];
+  const kept = new Set<EmailAttachment>();
+  if (ref) {
+    for (const attachment of message.attachments ?? []) {
+      const part =
+        typeof attachment.part === "string" ? attachment.part.trim() : "";
+      if (part === "") continue;
+      kept.add(attachment);
+      attachments.push({
+        id: `forward-${part}`,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType ?? attachment.mime ?? "",
+        size: attachment.size ?? 0,
+        ...(attachment.inline ? { inline: true } : {}),
+        ...(attachment.contentId ? { contentId: attachment.contentId } : {}),
+        part,
+        source: "forward-source",
+        forwardSource: {
+          accountId: ref.accountId,
+          folder: ref.folder,
+          uid: Number(ref.uid),
+          uidValidity: Number(ref.uidValidity),
+          part,
+        },
+      });
+    }
+  }
+  return {
+    attachments,
+    forwardOmittedAttachments: forwardOmittedAttachmentNames({
+      ...message,
+      attachments: (message.attachments ?? []).filter(
+        (attachment) => !kept.has(attachment),
+      ),
+    }),
+  };
 }
 
 /** Get display title for compose mode. */
@@ -265,8 +396,24 @@ export function getModeTitle(mode: ComposeMode): string {
 
 /** Format file size to human-readable string. */
 export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes === 0) return __("0 Bytes", "pressedmail");
+  if (bytes < 1024) {
+    return sprintf(
+      /* translators: %s: a file size in bytes. */
+      __("%s B", "pressedmail"),
+      String(bytes),
+    );
+  }
+  if (bytes < 1024 * 1024) {
+    return sprintf(
+      /* translators: %s: a file size in kilobytes. */
+      __("%s KB", "pressedmail"),
+      (bytes / 1024).toFixed(1),
+    );
+  }
+  return sprintf(
+    /* translators: %s: a file size in megabytes. */
+    __("%s MB", "pressedmail"),
+    (bytes / (1024 * 1024)).toFixed(1),
+  );
 }

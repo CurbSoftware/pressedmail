@@ -6,7 +6,8 @@
  * The pro `HeaderThemeMegaMenu` carries premium palettes, layouts, custom
  * themes, and pro display-preference rows (with lock/upgrade affordances). The
  * Free build intentionally ships only: appearance mode, typography, the two
- * free color themes (default + high-contrast), and the speed-dial On/Off row.
+ * free color themes (default + high-contrast), and the inbox, speed-dial and
+ * toolbar rows.
  * This component is self-contained and imports none of the pro lock/upgrade
  * machinery, keeping the Free edition boundary clean.
  */
@@ -14,6 +15,7 @@ import { __ } from "@wordpress/i18n";
 import {
   Check,
   LayoutTemplate,
+  Mail,
   Monitor,
   Moon,
   Palette,
@@ -107,6 +109,23 @@ const SPEED_DIAL_ENABLED_OPTIONS: Array<{
     value: false,
     label: __("Off", "pressedmail"),
     dataTest: "free-speed-dial-off",
+  },
+];
+
+const TOOLBAR_SHORTCUT_OPTIONS: Array<{
+  value: boolean;
+  label: string;
+  dataTest: string;
+}> = [
+  {
+    value: true,
+    label: __("On", "pressedmail"),
+    dataTest: "toolbar-shortcut-on",
+  },
+  {
+    value: false,
+    label: __("Off", "pressedmail"),
+    dataTest: "toolbar-shortcut-off",
   },
 ];
 
@@ -298,6 +317,37 @@ export function FreeThemePopover() {
                   data-test={dataTest}
                   onClick={() =>
                     void updatePreference("speed_dial_enabled", value)
+                  }>
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/*
+          The mail icon in the WordPress toolbar. It ships in Free, but it is
+          off until the user turns it on, and the Pro popover's TOOLBAR row is
+          the same switch, with the same test hooks, as the inbox row shares
+          its own. Without this row a Free user could never see the icon.
+        */}
+        <div className="mb-3">
+          <SectionLabel icon={Mail}>{__("TOOLBAR", "pressedmail")}</SectionLabel>
+          <div className="grid grid-cols-2 gap-1.5 rounded-lg bg-muted p-1">
+            {TOOLBAR_SHORTCUT_OPTIONS.map(({ value, label, dataTest }) => {
+              const selected =
+                (preferences.admin_bar_enabled ?? false) === value;
+              return (
+                <Button
+                  key={dataTest}
+                  type="button"
+                  variant={selected ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 text-xs"
+                  aria-pressed={selected}
+                  data-test={dataTest}
+                  onClick={() =>
+                    void updatePreference("admin_bar_enabled", value)
                   }>
                   {label}
                 </Button>

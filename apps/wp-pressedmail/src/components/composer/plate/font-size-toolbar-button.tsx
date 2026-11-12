@@ -136,6 +136,9 @@ export function FontSizeToolbarButton({
       <Popover modal={false} open={isFocused}>
         <PopoverTrigger asChild>
           <input autoComplete="off"
+            // A field that opens a list of sizes. As a plain textbox, the
+            // aria-expanded its popover trigger sets is not allowed.
+            role="combobox"
             aria-label={__('Font size', 'pressedmail')}
             className={FONT_SIZE_INPUT_CLASS}
             data-plate-focus="true"

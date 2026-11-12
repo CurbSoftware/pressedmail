@@ -75,6 +75,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
       contentHidden = false,
       autoFocus = false,
       aiEnabled = false,
+      copilotEnabled = aiEnabled,
       variablesEnabled = false,
       minHeight,
       onChange,
@@ -106,9 +107,9 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
           ],
           aiEnabled,
           aiPlugins: ComposerAIKit,
-          copilotPlugins: ComposerCopilotKit,
+          copilotPlugins: copilotEnabled ? ComposerCopilotKit : [],
         }),
-      [aiEnabled, dialect, variablesEnabled],
+      [aiEnabled, copilotEnabled, dialect, variablesEnabled],
     );
 
     // A dialect change rebuilds the editor from a different plugin set, which
@@ -130,7 +131,7 @@ export const PlateComposer = forwardRef<EmailEditorRef, PlateComposerProps>(
           | null
           | undefined,
       }),
-      [aiEnabled, dialect, variablesEnabled],
+      [aiEnabled, copilotEnabled, dialect, variablesEnabled],
     );
 
     useEffect(() => {

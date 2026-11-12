@@ -9,7 +9,12 @@ import React, {
 import type { ComposeData } from "@/types";
 import useLocalStorage from "@/context/useLocalStorage";
 
-export const DEFAULT_COMPOSE_DATA: ComposeData & { is_reply?: boolean } = {
+/** One compose session. */
+export type ComposerSessionData = ComposeData & {
+  is_reply?: boolean;
+};
+
+export const DEFAULT_COMPOSE_DATA: ComposerSessionData = {
   to: "",
   cc: "",
   bcc: "",
@@ -36,7 +41,7 @@ export const DEFAULT_COMPOSE_DATA: ComposeData & { is_reply?: boolean } = {
 };
 
 const COMPOSE_DRAFT_STORAGE = {
-  toStorage: (value: ComposeData & { is_reply?: boolean }) => ({
+  toStorage: (value: ComposerSessionData) => ({
     ...value,
     // Browser File objects are intentionally memory-only. JSON serializes them
     // as `{}`, which reloads as a ghost attachment that cannot be sent.
@@ -58,10 +63,8 @@ interface ComposerContextType {
   toggleMaximize: () => void;
 
   // Compose data (persisted to localStorage)
-  composeData: ComposeData & { is_reply?: boolean };
-  setComposeData: React.Dispatch<
-    React.SetStateAction<ComposeData & { is_reply?: boolean }>
-  >;
+  composeData: ComposerSessionData;
+  setComposeData: React.Dispatch<React.SetStateAction<ComposerSessionData>>;
   getComposeSessionVersion: () => number;
   queueDraftSave: (
     composeSessionVersion: number,
@@ -113,6 +116,8 @@ export interface ComposerDraftSaveResult {
     draft_account_id: number;
   } | null;
   attachmentParts?: Record<string, string>;
+  /** Forwarded message part id to the part the saved draft now holds it in. */
+  forwardAttachmentParts?: Record<string, string>;
   savedSnapshot?: string;
 }
 
@@ -161,15 +166,28 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
   const advanceExternalComposeSession = useCallback(() => {
     composeSessionVersionRef.current += 1;
   }, []);
-  const [composeData, setStoredComposeData] = useLocalStorage<
-    ComposeData & { is_reply?: boolean }
-  >("compose-draft", DEFAULT_COMPOSE_DATA, {
-    ...COMPOSE_DRAFT_STORAGE,
-    principalScoped: true,
-    onExternalChange: advanceExternalComposeSession,
-  });
+  // Registered by the mounted composer (see registerNavigationGuard below).
+  const navigationGuardRef = useRef<
+    ((request: NavigationRequest) => void) | null
+  >(null);
+  // Another tab writes the same stored draft. A composer open here keeps its
+  // own words: it only reads storage when it mounts. A tab with no composer
+  // open still follows, so it never resumes a message the other tab sent.
+  // ponytail: one stored draft per user, so after a reload the tab that wrote
+  // last wins. Per-tab keys if two live composers must both survive a reload.
+  const adoptCrossTabDraft = useCallback(
+    () => navigationGuardRef.current === null,
+    [],
+  );
+  const [composeData, setStoredComposeData] =
+    useLocalStorage<ComposerSessionData>("compose-draft", DEFAULT_COMPOSE_DATA, {
+      ...COMPOSE_DRAFT_STORAGE,
+      principalScoped: true,
+      onExternalChange: advanceExternalComposeSession,
+      adoptCrossTabChange: adoptCrossTabDraft,
+    });
   const setComposeData = useCallback<
-    React.Dispatch<React.SetStateAction<ComposeData & { is_reply?: boolean }>>
+    React.Dispatch<React.SetStateAction<ComposerSessionData>>
   >(
     (next) => {
       // Full values open, replace, or clear a compose session. Field edits use
@@ -314,10 +332,6 @@ export function ComposerProvider({ children }: { children: React.ReactNode }) {
     },
     [setComposeData],
   );
-
-  const navigationGuardRef = useRef<
-    ((request: NavigationRequest) => void) | null
-  >(null);
 
   const registerNavigationGuard = useCallback(
     (guard: (request: NavigationRequest) => void) => {

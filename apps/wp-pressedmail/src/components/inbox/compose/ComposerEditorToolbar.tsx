@@ -100,6 +100,7 @@ import {
   type ComposerToolbarCustomizeDialogProps,
 } from "./ComposerToolbarCustomizeDialog";
 import { FieldsToolbarButton } from "@/components/inbox/compose/composer-fields.active";
+import { CompanionInsertButtons } from "@/companions/companions.active";
 import { cn } from "@/lib/utils";
 import { composerDialectLabel } from "@/components/composer/plate-composer-dialect";
 import {
@@ -473,6 +474,16 @@ export function ComposerEditorToolbar({
                 />
               </ToolbarGroup>
             )}
+
+          {/* A companion's insert buttons (composer.insert) sit with Fields, outside the
+              customizable groups, so a button its plugin declared cannot be customized
+              away. They bring their own group, and none without a companion. */}
+          {surface === "email" || surface === "template" ? (
+            <CompanionInsertButtons
+              surface={surface === "email" ? "composer" : "template"}
+              disabled={disabled}
+            />
+          ) : null}
 
           <ToolbarGroup>
             <FieldsToolbarButton surface={surface} disabled={disabled} />

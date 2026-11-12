@@ -39,7 +39,7 @@ export function buildWpMailTestStatus(
         (result.message || __("Test email sent.", "pressedmail")) +
         " " +
         __(
-          "WordPress email is not being routed through this server yet. Turn on “Use for WordPress email” on a connection and save.",
+          "WordPress email is not being routed through this connection yet. Turn on “Use for WordPress email” on a connection and save.",
           "pressedmail",
         ),
     };

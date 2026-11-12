@@ -40,7 +40,7 @@ export function takeLandingFocus(): boolean {
 }
 
 /** A node that takes focus by script, and is not a stop in the tab order. */
-function focusProgrammatically(element: HTMLElement): void {
+export function focusProgrammatically(element: HTMLElement): void {
   if (!element.hasAttribute("tabindex")) element.tabIndex = -1;
   element.focus();
 }

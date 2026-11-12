@@ -1,3 +1,5 @@
+import { __ } from "@wordpress/i18n";
+
 import { decodeMimeWords } from "@/components/inbox/mail-display";
 
 interface SenderFields {
@@ -17,7 +19,7 @@ export function parseSenderName(msg: SenderFields): string {
     msg.name ||
     msg.from?.split("<")[0]?.trim() ||
     msg.email ||
-    "Unknown sender";
+    __("Unknown sender", "pressedmail");
 
   // Strip surrounding slashes, quotes, and whitespace
   raw = raw.replace(/^[\\/"'<>]+|[\\/"'<>]+$/g, "").trim();
@@ -25,7 +27,7 @@ export function parseSenderName(msg: SenderFields): string {
   // Decode MIME words (=?UTF-8?B?...?=)
   raw = decodeMimeWords(raw);
 
-  return raw || "Unknown sender";
+  return raw || __("Unknown sender", "pressedmail");
 }
 
 /**

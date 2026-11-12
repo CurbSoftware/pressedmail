@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.8.10
+Stable tag: 1.9.0
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -58,7 +58,7 @@ Password resets, notifications, receipts and other wp_mail() messages can go thr
 
 = WordPress integration =
 
-On WordPress 6.9 and later, mail actions register as WordPress abilities for MCP Adapter agents and WP-CLI, with the same permission checks.
+On WordPress 6.9 and later, MCP Adapter agents and WP-CLI can read your tags through read-only WordPress abilities, with the same permission checks.
 
 = No PressedMail account needed =
 
@@ -69,13 +69,13 @@ No license key required and no trial expiration. There is no telemetry, no analy
 1. In Plugins > Add New, search for PressedMail, install and activate it.
 2. Open PressedMail in the sidebar and connect your mailbox.
 
-PressedMail needs WordPress 6.6+, PHP 8.2+, and MySQL 5.7+ or MariaDB 10.2+ with named locks and the user metadata table on InnoDB. SQLite cannot finish mailbox setup. Site Health flags this under "PressedMail database requirements".
+PressedMail needs WordPress 6.6+, PHP 8.2+, and MySQL 5.7.9+ or MariaDB 10.2.7+ with named locks and the user metadata table on InnoDB. SQLite cannot finish mailbox setup. Site Health flags this under "PressedMail database requirements".
 
 == Screenshots ==
 
 1. Connect an account: provider, IMAP and SMTP details, test it.
 2. The inbox: folders, labels, tags, search, reading pane.
-3. Composing: rich text formatting and recipient controls.
+3. Composing: rich text, Markdown or plain text, Cc, Bcc and signature.
 4. On a phone: inbox, settings and compose toolbar.
 5. Settings: accounts, signatures, email rules, security, WordPress email, diagnostics.
 6. Calendar, contacts and layouts come from PressedMail Pro, the separate paid plugin.
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.8.10](https://github.com/CurbSoftware/pressedmail/tree/v1.8.10)
-* [Build instructions for version 1.8.10](https://github.com/CurbSoftware/pressedmail/blob/v1.8.10/BUILD.md)
+* [Source for version 1.9.0](https://github.com/CurbSoftware/pressedmail/tree/v1.9.0)
+* [Build instructions for version 1.9.0](https://github.com/CurbSoftware/pressedmail/blob/v1.9.0/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,11 +142,16 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.8.10/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.9.0/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
+
+= 1.9.0 =
+* Going https no longer pauses automation.
+* Forwards keep attachments.
+* Plain permalinks work.
 
 = 1.8.10 =
 * A folder you open stays on screen when new mail arrives.
@@ -154,6 +159,3 @@ Older releases: https://pressedmail.com/changelog
 
 = 1.8.9 =
 * The screen stays one window tall under a long admin menu.
-
-= 1.8.8 =
-* No change to the free plugin. Numbered in step with Pro.

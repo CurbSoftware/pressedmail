@@ -1,5 +1,5 @@
 import * as React from "react";
-import { __, _x, sprintf } from "@wordpress/i18n";
+import { __, _x } from "@wordpress/i18n";
 import { MoreHorizontal, Star } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -27,7 +27,15 @@ import {
   formatForwardedHtml,
   formatQuotedText,
   formatQuotedHtml,
+  forwardSubject,
+  replySubject,
+  seedForwardAttachments,
 } from "@/components/inbox/compose/compose-utils";
+import {
+  buildReplyRecipients,
+  getOwnAddresses,
+  getReplyHeaders,
+} from "@/components/inbox/reply-recipients";
 import { useComposer } from "@/context/composer";
 import { useAppContext } from "@/context/AppProvider";
 import {
@@ -51,29 +59,8 @@ import {
   nextVisibleMessageAfterRemoval,
 } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
-import type { EmailMessage } from "@/types";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { appMessage } from "@/context/toast";
-
-function prefixedSubject(prefix: "Re" | "Fwd", subject?: string): string {
-  const value = subject || "";
-  if (value.toLowerCase().startsWith(`${prefix.toLowerCase()}:`)) return value;
-  return prefix === "Re"
-    ? sprintf(
-        /* translators: %s: the subject of the message being replied to. */
-        __("Re: %s", "pressedmail"),
-        value,
-      )
-    : sprintf(
-        /* translators: %s: the subject of the message being forwarded. */
-        __("Fwd: %s", "pressedmail"),
-        value,
-      );
-}
-
-function replyAddress(message: EmailMessage): string {
-  return message.email || message.from || "";
-}
 
 /**
  * Phone-shell mail reader. Renders the currently selected message inside a
@@ -244,23 +231,37 @@ export function MobileMailReaderScreen() {
           to: "",
           cc: "",
           bcc: "",
-          subject: prefixedSubject("Fwd", displayMessage.subject),
+          subject: forwardSubject(displayMessage.subject),
           body:
             preferredContentType === "plain"
               ? formatForwardedText(displayMessage)
               : formatForwardedHtml(displayMessage),
           contentType: preferredContentType,
-          attachments: [],
+          // The original's files ride along as chips the server reads from
+          // the mail server. A message just restored lost its UID in the
+          // move, so its files can only be named.
+          ...seedForwardAttachments(
+            displayMessage,
+            restoreBeforeReply ? null : ref,
+          ),
           mode: "forward",
           is_reply: false,
         });
       } else {
+        // The same recipient rules and own-address set as the desktop pane.
+        const recipients = buildReplyRecipients(
+          getReplyHeaders(displayMessage),
+          {
+            replyAll: mode === "reply-all",
+            ownAddresses: getOwnAddresses(displayMessage, accounts),
+          },
+        );
         setComposeData({
           fromAccount: sourceAccount.email,
-          to: replyAddress(displayMessage),
-          cc: mode === "reply-all" ? (displayMessage.cc ?? "") : "",
+          to: recipients.to,
+          cc: recipients.cc,
           bcc: "",
-          subject: prefixedSubject("Re", displayMessage.subject),
+          subject: replySubject(displayMessage.subject),
           body:
             preferredContentType === "plain"
               ? formatQuotedText(displayMessage)

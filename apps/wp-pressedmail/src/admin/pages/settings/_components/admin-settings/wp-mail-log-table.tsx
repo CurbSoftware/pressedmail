@@ -1,25 +1,79 @@
-import { useCallback, useEffect, useState } from "react";
-import { __, sprintf } from "@wordpress/i18n";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  RotateCw,
-  Trash2,
-} from "lucide-react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import { __, _n, sprintf } from "@wordpress/i18n";
+import { ChevronDown, Loader2, RotateCw, Trash2 } from "lucide-react";
 
-import { Badge, Button } from "@kit/ui/plugin";
+import {
+  Badge,
+  Button,
+  cn,
+  Label,
+  NativeSelect,
+  NativeSelectOption,
+} from "@kit/ui/plugin";
 
 import { SettingsEmptyState } from "@/components/settings-ui";
 import { ConfirmationPanel } from "@/components/shared/ConfirmationPanel";
+import { CellLabel } from "@/components/ui/cell-label";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { formatHealthTime, reportOverdue } from "@/components/wp-mail/smtp-health-copy";
 import { proRouteLabel } from "@/components/wp-mail/smtp-pro-copy.active";
+import { withValue } from "@/lib/with-value";
 import {
   clearWpMailLog,
   fetchWpMailLog,
   type WpMailLogEntry,
+  type WpMailLogStatus,
 } from "@/lib/wp-mail-api";
 
 const PER_PAGE = 25;
+
+/**
+ * The log's columns once its container is wide enough (the System Emails
+ * table's breakpoint). Narrower, each entry is a card: when, the result, then
+ * To, Subject and Connection as labelled lines.
+ *
+ * Every track is fixed or a share of what is left (minmax(0, ...)), never
+ * sized by its content: the header and each entry are grids of their own, and
+ * only fixed tracks resolve to the same widths in all of them, so every column
+ * starts where its heading does.
+ */
+export const LOG_GRID =
+  "grid gap-x-3 @4xl:grid-cols-[9.5rem_11rem_minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)]";
+
+/** The log's result filter: every row, or one result. */
+type ResultFilter = "all" | WpMailLogStatus;
+
+const RESULTS: readonly ResultFilter[] = ["all", "sent", "failed", "queued", "unknown"];
+
+function resultLabel(filter: ResultFilter): string {
+  switch (filter) {
+    case "sent":
+      return __("Sent", "pressedmail");
+    case "failed":
+      return __("Failed", "pressedmail");
+    case "queued":
+      return __("Queued", "pressedmail");
+    case "unknown":
+      return __("Outcome unknown", "pressedmail");
+    default:
+      return __("All results", "pressedmail");
+  }
+}
+
+/** One look for every result, so the column reads at a glance. */
+const RESULT_TONE: Record<WpMailLogStatus, StatusTone> = {
+  sent: "pass",
+  failed: "fail",
+  queued: "info",
+  unknown: "warning",
+};
+
+/**
+ * A queued message the service has not reported on for a day. It is still
+ * queued: only the words and the tone change, so a late report settles it.
+ */
+const overdue = (entry: WpMailLogEntry): boolean =>
+  entry.status === "queued" && reportOverdue(entry.createdAt);
 
 /**
  * How a message that did not go through SMTP left the site. A message that did,
@@ -42,9 +96,60 @@ function routeLabel(route: WpMailLogEntry["route"]): string {
   }
 }
 
+/**
+ * The service's id for a message, in its translated sentence, set in a
+ * monospace face so it reads as the token it is.
+ */
+function ServiceReference({ reference }: { reference: string }) {
+  return (
+    <span className="block">
+      {withValue(
+        /* translators: %s: the id the service that sends for a connection gave the message. */
+        __("Service reference: %s", "pressedmail"),
+        <span className="font-mono">{reference}</span>,
+      )}
+    </span>
+  );
+}
+
+/**
+ * What the log draws while it loads: three entries in the log's own grid, so the
+ * columns, the card layout on a phone and the height the rows land at are the
+ * ones the rows will have. The page's live region says what is loading.
+ */
+function LogSkeleton() {
+  const bar = "h-3 rounded bg-muted";
+
+  return (
+    <div aria-hidden="true" className="@container w-full min-w-0">
+      <div className="animate-pulse space-y-2 motion-reduce:animate-none @4xl:space-y-0">
+        {[0, 1, 2].map((row) => (
+          <div
+            key={row}
+            className={cn(
+              LOG_GRID,
+              "items-start gap-y-2 rounded-lg border p-3 @4xl:gap-y-0 @4xl:rounded-none @4xl:border-0 @4xl:border-b @4xl:px-0 @4xl:py-2 @4xl:last:border-b-0",
+            )}>
+            <div className={cn(bar, "w-28")} />
+            <div className="h-[1.375rem] w-20 rounded-full bg-muted" />
+            <div className={cn(bar, "w-40 max-w-full")} />
+            <div className={cn(bar, "w-3/4")} />
+            <div className={cn(bar, "w-24")} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export interface WpMailLogTableProps {
   /** Retention in days. 0 means logging is off. */
   retentionDays: number;
+  /**
+   * The site has connections another plugin provides, whose messages can wait
+   * as Queued and end as Outcome unknown, so the log offers a result filter.
+   */
+  transportStatuses?: boolean;
 }
 
 /**
@@ -53,7 +158,11 @@ export interface WpMailLogTableProps {
  * Deliberately shows only metadata, because that is all the server stores: no
  * message body, headers, or attachments are ever recorded.
  */
-export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
+export function WpMailLogTable({
+  retentionDays,
+  transportStatuses = false,
+}: WpMailLogTableProps) {
+  const [filter, setFilter] = useState<ResultFilter>("all");
   const [entries, setEntries] = useState<WpMailLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -63,11 +172,12 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
+  const status = transportStatuses && filter !== "all" ? filter : "";
   const load = useCallback(async (nextPage: number) => {
     setLoading(true);
     setError("");
     try {
-      const result = await fetchWpMailLog(nextPage, PER_PAGE);
+      const result = await fetchWpMailLog(nextPage, PER_PAGE, status);
       setEntries(result.entries);
       setTotal(result.total);
       setPage(result.page);
@@ -80,7 +190,7 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [status]);
 
   useEffect(() => {
     void load(1);
@@ -105,6 +215,34 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
   };
 
   const lastPage = Math.max(1, Math.ceil(total / PER_PAGE));
+  const connectionHeading = transportStatuses
+    ? __("Connection", "pressedmail")
+    : __("Server", "pressedmail");
+  const emptyTitle =
+    status !== ""
+      ? __("No entries with this result", "pressedmail")
+      : retentionDays === 0
+        ? __("Delivery logging is off", "pressedmail")
+        : __("Nothing logged yet", "pressedmail");
+  const emptyDescription =
+    status !== ""
+      ? __("Choose All results to see every entry.", "pressedmail")
+      : retentionDays === 0
+        ? __(
+            "Choose a retention period above to start recording genuine WordPress mail.",
+            "pressedmail",
+          )
+        : __(
+            "Genuine WordPress mail appears here after WordPress sends it. PressedMail new-mail notification copies are excluded.",
+            "pressedmail",
+          );
+  const waiting = entries.some(
+    (entry) => entry.status === "queued" || entry.status === "unknown",
+  );
+  // Nothing loaded and the load failed: say so with a way to try again, not
+  // an empty log nobody could read.
+  const unreadable = error !== "" && !loading && entries.length === 0;
+  const unreadableFallback = __("Could not load the delivery log.", "pressedmail");
 
   return (
     <div
@@ -127,7 +265,28 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
                 "pressedmail",
               )}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {transportStatuses ? (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="wp-mail-log-result" className="text-xs font-medium">
+                {__("Show", "pressedmail")}
+              </Label>
+              {/* Native: a popup list would hide the rest of the plugin from
+                  assistive technology while its controls stay focusable. */}
+              <NativeSelect
+                id="wp-mail-log-result"
+                className="w-44"
+                value={filter}
+                disabled={loading || clearing}
+                onChange={(event) => setFilter(event.target.value as ResultFilter)}>
+                {RESULTS.map((choice) => (
+                  <NativeSelectOption key={choice} value={choice}>
+                    {resultLabel(choice)}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </div>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -136,7 +295,7 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
             data-test="wp-mail-log-refresh"
             onClick={() => void load(page)}
             disabled={loading || clearing}>
-            <RotateCw className="mr-2 h-4 w-4" />
+            <RotateCw className="me-2 h-4 w-4" />
             {__("Refresh", "pressedmail")}
           </Button>
           <Button
@@ -147,18 +306,20 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
             data-test="wp-mail-log-clear"
             data-testid="wp-mail-log-clear"
             onClick={() => setConfirmClear(true)}
-            disabled={loading || clearing || total === 0}>
+            // A result filter that matches nothing still leaves rows to clear,
+            // and Clear log removes every one of them.
+            disabled={loading || clearing || (status === "" && total === 0)}>
             {clearing ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="me-2 h-4 w-4 animate-spin" />
             ) : (
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="me-2 h-4 w-4" />
             )}
             {__("Clear log", "pressedmail")}
           </Button>
         </div>
       </div>
 
-      {error ? (
+      {error && !unreadable ? (
         <p className="text-xs text-destructive" role="alert">
           {error}
         </p>
@@ -179,131 +340,210 @@ export function WpMailLogTable({ retentionDays }: WpMailLogTableProps) {
         onConfirm={handleClear}
       />
 
+      {/* Said once per change, not the whole table again: what the list now holds. */}
+      <span role="status" aria-live="polite" className="sr-only">
+        {loading
+          ? __("Loading delivery log", "pressedmail")
+          : unreadable
+            ? ""
+            : entries.length === 0
+              ? emptyTitle
+              : sprintf(
+                  /* translators: %d: number of delivery log entries. */
+                  _n("%d entry", "%d entries", total, "pressedmail"),
+                  total,
+                )}
+      </span>
+
       {loading ? (
-        <div className="flex justify-center py-6">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <LogSkeleton />
+      ) : unreadable ? (
+        <div role="alert" data-test="wp-mail-log-load-error">
+          <SettingsEmptyState
+            title={__("Could not load the delivery log", "pressedmail")}
+            description={error !== unreadableFallback ? error : undefined}
+            actions={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11"
+                onClick={() => void load(page)}>
+                <RotateCw className="me-2 h-4 w-4" />
+                {__("Try again", "pressedmail")}
+              </Button>
+            }
+          />
         </div>
       ) : entries.length === 0 ? (
-        <SettingsEmptyState
-          title={
-            retentionDays === 0
-              ? __("Delivery logging is off", "pressedmail")
-              : __("Nothing logged yet", "pressedmail")
-          }
-          description={
-            retentionDays === 0
-              ? __(
-                  "Choose a retention period above to start recording genuine WordPress mail.",
-                  "pressedmail",
-                )
-              : __(
-                  "Genuine WordPress mail appears here after WordPress sends it. PressedMail new-mail notification copies are excluded.",
-                  "pressedmail",
-                )
-          }
-        />
+        <SettingsEmptyState title={emptyTitle} description={emptyDescription} />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-left text-xs">
-            <thead className="text-muted-foreground">
-              <tr className="border-b">
-                <th className="py-2 pr-3 font-medium">
+        <div className="space-y-2">
+          <div
+            role="table"
+            aria-label={__("Delivery log", "pressedmail")}
+            className="@container w-full min-w-0 text-start text-xs">
+            <div role="rowgroup" className="hidden @4xl:block">
+              <div role="row" className={cn(LOG_GRID, "border-b py-2 text-muted-foreground")}>
+                <div role="columnheader" className="text-start font-medium">
                   {__("When", "pressedmail")}
-                </th>
-                <th className="py-2 pr-3 font-medium">
-                  {__("To", "pressedmail")}
-                </th>
-                <th className="py-2 pr-3 font-medium">
-                  {__("Subject", "pressedmail")}
-                </th>
-                <th className="py-2 pr-3 font-medium">
-                  {__("Server", "pressedmail")}
-                </th>
-                <th className="py-2 font-medium">
+                </div>
+                {/* Second, so the result is the first thing after the time. */}
+                <div role="columnheader" className="text-start font-medium">
                   {__("Result", "pressedmail")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr
-                  key={entry.id}
-                  className="border-b align-top last:border-b-0"
-                  data-test="wp-mail-log-row"
-                  data-testid="wp-mail-log-row">
-                  <td className="py-2 pr-3 whitespace-nowrap text-muted-foreground">
-                    {entry.createdAt}
-                  </td>
-                  <td className="py-2 pr-3">
-                    <span className="break-all">{entry.toSummary}</span>
-                    {entry.recipientCount > 1 ? (
-                      <span className="ml-1 text-muted-foreground">
-                        {sprintf(
-                          /* translators: %d: number of additional recipients. */
-                          __("+%d more", "pressedmail"),
-                          entry.recipientCount - 1,
-                        )}
-                      </span>
+                </div>
+                <div role="columnheader" className="text-start font-medium">
+                  {__("To", "pressedmail")}
+                </div>
+                <div role="columnheader" className="text-start font-medium">
+                  {__("Subject", "pressedmail")}
+                </div>
+                <div role="columnheader" className="text-start font-medium">
+                  {connectionHeading}
+                </div>
+              </div>
+            </div>
+            <div role="rowgroup" className="space-y-2 @4xl:space-y-0">
+              {entries.map((entry) => {
+                const reference = entry.reference ?? "";
+                const rowId = `wp-mail-log-${entry.id}`;
+                const detailsId = `wp-mail-log-details-${entry.id}`;
+                const open = expanded === entry.id;
+
+                return (
+                  <Fragment key={entry.id}>
+                    <div
+                      role="row"
+                      className={cn(
+                        LOG_GRID,
+                        "items-start gap-y-2 rounded-lg border p-3 @4xl:gap-y-0 @4xl:rounded-none @4xl:border-0 @4xl:border-b @4xl:px-0 @4xl:py-2 @4xl:last:border-b-0",
+                        open && "@4xl:border-b-0",
+                      )}
+                      data-test="wp-mail-log-row"
+                      data-testid="wp-mail-log-row">
+                      <div role="cell" className="text-muted-foreground">
+                        <time id={`${rowId}-time`} dateTime={entry.createdAt}>
+                          {formatHealthTime(entry.createdAt) || entry.createdAt}
+                        </time>
+                      </div>
+                      <div role="cell" className="min-w-0">
+                        {/* Under the result, so Details sits in the same place on
+                            every row whatever the pill's width. */}
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusPill
+                            tone={overdue(entry) ? "warning" : (RESULT_TONE[entry.status] ?? "info")}
+                            label={
+                              overdue(entry)
+                                ? __("No report yet", "pressedmail")
+                                : resultLabel(entry.status)
+                            }
+                          />
+                          {/* What went wrong, and the service's id for a
+                              message it took, open on request. */}
+                          {entry.error || reference ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="-ms-2 h-7 gap-1 px-2 text-xs pointer-coarse:min-h-11"
+                              aria-expanded={open}
+                              aria-controls={detailsId}
+                              // Which entry: a log of twenty says "Details" twenty times.
+                              aria-describedby={`${rowId}-subject ${rowId}-time`}
+                              onClick={() => setExpanded(open ? null : entry.id)}
+                              data-test="wp-mail-log-error-toggle"
+                              data-testid="wp-mail-log-error-toggle">
+                              {__("Details", "pressedmail")}
+                              <ChevronDown
+                                aria-hidden="true"
+                                className={cn(
+                                  "size-3.5 motion-safe:transition-transform",
+                                  open && "rotate-180",
+                                )}
+                              />
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div role="cell" className="grid min-w-0 gap-0.5 @4xl:block">
+                        <CellLabel>{__("To", "pressedmail")}</CellLabel>
+                        <span>
+                          {/* break-words: an address wraps only when it must, never mid-word beside spare room. */}
+                          <bdi className="break-words">{entry.toSummary}</bdi>
+                          {entry.recipientCount > 1 ? (
+                            <span className="ms-1 text-muted-foreground">
+                              {sprintf(
+                                /* translators: %d: number of additional recipients. */
+                                __("+%d more", "pressedmail"),
+                                entry.recipientCount - 1,
+                              )}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div role="cell" className="grid min-w-0 gap-0.5 @4xl:block">
+                        <CellLabel>{__("Subject", "pressedmail")}</CellLabel>
+                        {/* In a span, as To and Connection are: a bdi that is itself the
+                            grid item takes its own direction, and an Arabic site's
+                            Latin subject would sit flush left under a right-aligned label. */}
+                        <span>
+                          <bdi id={`${rowId}-subject`} className="break-words">
+                            {entry.subject}
+                          </bdi>
+                        </span>
+                      </div>
+                      <div role="cell" className="grid min-w-0 gap-0.5 @4xl:block">
+                        <CellLabel>{connectionHeading}</CellLabel>
+                        <span>
+                          <bdi className="break-words">
+                            {entry.connectionLabel || "-"}
+                          </bdi>
+                          {entry.attempt > 1 ? (
+                            <Badge variant="outline" className="ms-1">
+                              {__("Fallback", "pressedmail")}
+                            </Badge>
+                          ) : null}
+                          {routeLabel(entry.route) ? (
+                            <Badge
+                              variant="outline"
+                              className="ms-1"
+                              data-test={`wp-mail-log-route-${entry.id}`}>
+                              {routeLabel(entry.route)}
+                            </Badge>
+                          ) : null}
+                        </span>
+                      </div>
+                    </div>
+                    {/* What went wrong, and the service's id, on a line of its
+                        own under the entry, so opening it never moves a column. */}
+                    {open ? (
+                      <div
+                        role="row"
+                        className="px-3 @4xl:border-b @4xl:px-0 @4xl:pb-2 @4xl:last:border-b-0">
+                        <div
+                          role="cell"
+                          aria-colspan={5}
+                          id={detailsId}
+                          className="max-w-prose space-y-1 break-words text-xs text-muted-foreground">
+                          {/* Spans, not paragraphs: WordPress sizes every admin <p>. */}
+                          {entry.error ? <span className="block">{entry.error}</span> : null}
+                          {reference ? <ServiceReference reference={reference} /> : null}
+                        </div>
+                      </div>
                     ) : null}
-                  </td>
-                  <td className="py-2 pr-3">
-                    <span className="break-words">{entry.subject}</span>
-                  </td>
-                  <td className="py-2 pr-3">
-                    <span className="break-words">
-                      {entry.connectionLabel || "-"}
-                    </span>
-                    {entry.attempt > 1 ? (
-                      <Badge variant="outline" className="ml-1">
-                        {__("Fallback", "pressedmail")}
-                      </Badge>
-                    ) : null}
-                    {routeLabel(entry.route) ? (
-                      <Badge
-                        variant="outline"
-                        className="ml-1"
-                        data-test={`wp-mail-log-route-${entry.id}`}>
-                        {routeLabel(entry.route)}
-                      </Badge>
-                    ) : null}
-                  </td>
-                  <td className="py-2">
-                    {entry.status === "sent" ? (
-                      <span className="flex items-center gap-1 text-muted-foreground">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        {__("Sent", "pressedmail")}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        className="flex min-h-11 items-center gap-1 text-left text-destructive underline-offset-2 hover:underline"
-                        aria-expanded={expanded === entry.id}
-                        aria-controls={
-                          entry.error
-                            ? `wp-mail-log-error-${entry.id}`
-                            : undefined
-                        }
-                        onClick={() =>
-                          setExpanded(expanded === entry.id ? null : entry.id)
-                        }
-                        data-test="wp-mail-log-error-toggle"
-                        data-testid="wp-mail-log-error-toggle">
-                        <AlertCircle className="h-3.5 w-3.5" />
-                        {__("Failed", "pressedmail")}
-                      </button>
-                    )}
-                    {expanded === entry.id && entry.error ? (
-                      <p
-                        id={`wp-mail-log-error-${entry.id}`}
-                        className="mt-1 max-w-md break-words text-muted-foreground">
-                        {entry.error}
-                      </p>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+          {waiting ? (
+            <p className="text-xs text-muted-foreground">
+              {__(
+                "Queued means the sending service took the message and hasn't reported back. No report yet means it has been quiet for over a day. Outcome unknown means it couldn't say whether the message went out. Open Details for its reference, if it gave one, then check that service's records.",
+                "pressedmail",
+              )}
+            </p>
+          ) : null}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import { parseMessageIdentityRef } from "@/lib/message-identity";
+import { buildApiUrl } from "@/context/Strings";
 import { getPluginRestBase } from "@/lib/runtime-config";
 import type { EmailAttachment } from "@/types";
 
@@ -124,11 +125,14 @@ export function buildAttachmentPreviewUrl(
     folder: context.folder,
   });
   if (!ref || !Number.isInteger(index) || index < 0 || index > 200) return "";
-  const params = new URLSearchParams({
-    index: String(index),
-    folder: ref.folder,
-    uid: ref.uid,
-    uid_validity: ref.uidValidity,
-  });
-  return `${getPluginRestBase()}messages/attachment-preview/${ref.accountId}?${params.toString()}`;
+  // buildApiUrl joins with `&` on plain permalinks, where the base has a `?`.
+  return buildApiUrl(
+    `${getPluginRestBase()}messages/attachment-preview/${ref.accountId}`,
+    {
+      index: String(index),
+      folder: ref.folder,
+      uid: ref.uid,
+      uid_validity: ref.uidValidity,
+    },
+  );
 }

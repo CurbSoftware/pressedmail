@@ -277,6 +277,14 @@ export interface UseComposeFormReturn {
    * Absent in the Free build, which has no shared mailboxes.
    */
   isSharedMailbox?: boolean;
+  /**
+   * The draft is saved (or scheduled) in a mailbox, so it sends from that
+   * mailbox and the From choice cannot change.
+   */
+  fromAccountLocked?: boolean;
+  /** Files a forward could not carry over from the original message. */
+  forwardOmittedAttachments?: string[];
+  dismissForwardOmittedAttachments?: () => void;
 
   // Computed
   canSend: boolean;
@@ -427,6 +435,42 @@ interface ScheduledAttachmentPayload {
   url?: string;
   source: "media-library";
   sha256?: string;
+  /** Content-ID of a staged inline image, sent back as the server gave it. */
+  contentId?: string;
+}
+
+/** Where a forwarded file is read from; undefined for any other attachment. */
+function forwardSourceOf(attachment: File | EmailAttachment) {
+  return typeof File !== "undefined" && attachment instanceof File
+    ? undefined
+    : (attachment as EmailAttachment).forwardSource;
+}
+
+/**
+ * The request fields that ask the server to attach the forwarded message's
+ * files itself, or null when no such file is left. `staged` also counts files
+ * a saved draft already holds: a schedule reads those from the original too.
+ */
+function forwardSourceFields(
+  attachments: Array<File | EmailAttachment>,
+  staged = false,
+): Record<string, string | number | Array<{ part: string }>> | null {
+  const kept = attachments.filter(
+    (attachment): attachment is EmailAttachment =>
+      forwardSourceOf(attachment) !== undefined &&
+      (staged || (attachment as EmailAttachment).source === "forward-source"),
+  );
+  const source = kept[0]?.forwardSource;
+  if (!source) return null;
+  return {
+    forward_source_account_id: source.accountId,
+    forward_source_folder: source.folder,
+    forward_source_uid: source.uid,
+    forward_source_uid_validity: source.uidValidity,
+    forward_source_parts: kept.map((attachment) => ({
+      part: attachment.forwardSource!.part,
+    })),
+  };
 }
 
 function serializeScheduledAttachments(
@@ -464,6 +508,7 @@ function serializeScheduledAttachments(
       url: att.url,
       source: "media-library",
       ...(att.sha256 !== undefined ? { sha256: att.sha256 } : {}),
+      ...(att.contentId ? { contentId: att.contentId } : {}),
     });
   }
   return out;
@@ -490,6 +535,8 @@ function appendAttachmentsToFormData(
       mediaAttachmentIds.push(att.wpAttachmentId);
       continue;
     }
+    // Read by the server from the forwarded message, never from a draft.
+    if (att.source === "forward-source") continue;
 
     if (
       includeExistingDraftParts &&
@@ -525,6 +572,15 @@ function appendAttachmentsToFormData(
     formData.append(
       "existing_draft_attachments",
       JSON.stringify(existingDraftAttachments),
+    );
+  }
+
+  for (const [field, value] of Object.entries(
+    forwardSourceFields(attachments) ?? {},
+  )) {
+    formData.append(
+      field,
+      typeof value === "string" ? value : JSON.stringify(value),
     );
   }
 }
@@ -833,6 +889,26 @@ export function useComposeForm({
   // through the owner's transport, with none of the owner's per-mailbox tools
   // (undo send, scheduling, read receipts, bound signatures).
   const isSharedMailbox = isSharedResource(resolveSendingAccount());
+  // The effect below puts From back on the bound mailbox, so the control is
+  // disabled rather than left to snap back after a choice.
+  const fromAccountLocked =
+    typeof contextBoundAccountId === "number" &&
+    accounts.some(
+      (account) =>
+        getAccountNumericId(account) === contextBoundAccountId &&
+        Boolean(account.email),
+    );
+  // Nothing to say once the server has attached the originals itself.
+  const forwardOmittedAttachments = composerContext?.composeData
+    .forwardOriginalAttachmentsIncluded
+    ? undefined
+    : composerContext?.composeData.forwardOmittedAttachments;
+  const dismissForwardOmittedAttachments = useCallback(() => {
+    composerContext?.setComposeData((previous) => ({
+      ...previous,
+      forwardOmittedAttachments: undefined,
+    }));
+  }, [composerContext]);
 
   // The client default for auto_save_drafts is off. The timed save waits for a
   // successful read of the preferences, so a stored choice is honoured before
@@ -934,6 +1010,45 @@ export function useComposeForm({
       (mountedRef.current || leftRunningRef.current) &&
       (!isContextMode || getComposeSessionVersion() === composeSessionVersion),
     [getComposeSessionVersion, isContextMode],
+  );
+  // The way past a forward whose files the mail server no longer gives up:
+  // drop them and send the text. Offered with the refusal, never done for the
+  // user. Spread into the toast call: empty for every other refusal, so those
+  // toasts are called exactly as before.
+  const forwardRefusalAction = useCallback(
+    (
+      code: unknown,
+      composeSessionVersion: number | null,
+    ): [] | [NonNullable<Parameters<typeof appMessage>[2]>] => {
+      if (
+        code !== "forward_source_changed" &&
+        code !== "forward_source_unavailable"
+      )
+        return [];
+      const drop = (items: Array<File | EmailAttachment>) =>
+        items.filter((item) => forwardSourceOf(item) === undefined);
+      return [
+        {
+          // Long enough to read the reason and reach the button.
+          duration: 20_000,
+          action: {
+            label: __("Remove the original's attachments", "pressedmail"),
+            onClick: () => {
+              if (!ownsComposeSession(composeSessionVersion)) return;
+              if (isContextMode) {
+                composerContext!.setComposeData((previous) => ({
+                  ...previous,
+                  attachments: drop(previous.attachments ?? []),
+                }));
+              } else {
+                setLocalAttachments(drop);
+              }
+            },
+          },
+        },
+      ];
+    },
+    [composerContext, isContextMode, ownsComposeSession],
   );
   const resolveConfirmation = useCallback(
     (confirmed: boolean) => {
@@ -1885,11 +2000,15 @@ export function useComposeForm({
       }
 
       const savedDraft = result.draft;
-      const attachmentParts = result.attachmentParts;
+      const attachmentParts = result.attachmentParts ?? {};
+      const forwardParts = result.forwardAttachmentParts ?? {};
       let rebindAttachment:
         | ((attachment: File | EmailAttachment) => File | EmailAttachment)
         | null = null;
-      if (attachmentParts && Object.keys(attachmentParts).length > 0) {
+      if (
+        Object.keys(attachmentParts).length > 0 ||
+        Object.keys(forwardParts).length > 0
+      ) {
         rebindAttachment = (
           attachment: File | EmailAttachment,
         ): File | EmailAttachment => {
@@ -1897,6 +2016,19 @@ export function useComposeForm({
             return attachment;
           }
           const part = (attachment as EmailAttachment).part;
+          // The saved draft now holds this forwarded file: from here it is an
+          // ordinary draft attachment, and no later request asks for it again.
+          if ((attachment as EmailAttachment).source === "forward-source") {
+            const draftPart =
+              typeof part === "string" ? forwardParts[part] : undefined;
+            return draftPart
+              ? {
+                  ...(attachment as EmailAttachment),
+                  part: draftPart,
+                  source: "received",
+                }
+              : attachment;
+          }
           const replacementPart =
             typeof part === "string" ? attachmentParts[part] : undefined;
           return replacementPart
@@ -2142,6 +2274,7 @@ export function useComposeForm({
             draft_uidvalidity?: string | number;
             draft_message_id?: string;
             attachment_parts?: Record<string, string>;
+            forward_attachments?: Array<{ part?: string; draft_part?: string }>;
             draft_document_stored?: boolean;
           };
         };
@@ -2164,6 +2297,7 @@ export function useComposeForm({
               notify(
                 response?.message || __("Failed to save draft", "pressedmail"),
                 "error",
+                ...forwardRefusalAction(response?.code, composeSessionVersion),
               );
             }
           }
@@ -2204,6 +2338,11 @@ export function useComposeForm({
           ok: true,
           draft: savedDraft,
           attachmentParts: data?.attachment_parts,
+          forwardAttachmentParts: Object.fromEntries(
+            (data?.forward_attachments ?? [])
+              .filter((file) => file.part && file.draft_part)
+              .map((file) => [file.part, file.draft_part]),
+          ),
           savedSnapshot: getDraftSnapshot({
             subject: opts?.subject ?? subject,
             body: resolvedDraftBody,
@@ -2264,6 +2403,7 @@ export function useComposeForm({
       isContextMode,
       ownsComposeSession,
       closeDeletedDraft,
+      forwardRefusalAction,
     ],
   );
 
@@ -2818,24 +2958,29 @@ export function useComposeForm({
             getAccountNumericId(account) === activeSendSnapshot.accountId,
         ),
       );
-      if (
+      const undoSendOn =
         __IS_PRO__ &&
         composePro !== null &&
         composePro.undoSendEnabled &&
         !activeSendSnapshot.listDelivery &&
-        !sendsFromSharedMailbox
+        !sendsFromSharedMailbox;
+      // The undo queue cannot hold files, so a message with attachments goes
+      // out now through the normal send below, and says so.
+      if (__IS_PRO__ && undoSendOn && currentAttachments.length > 0) {
+        appMessage(
+          __(
+            "Emails with attachments are sent right away and cannot be undone.",
+            "pressedmail",
+          ),
+          "info",
+        );
+      }
+      if (
+        __IS_PRO__ &&
+        undoSendOn &&
+        composePro !== null &&
+        currentAttachments.length === 0
       ) {
-        if (currentAttachments.length > 0) {
-          appMessage(
-            __(
-              "Undo message is not available for messages with attachments yet.",
-              "pressedmail",
-            ),
-            "error",
-          );
-          return;
-        }
-
         const saved = await saveDraftToServer(
           {
             silent: true,
@@ -2965,6 +3110,7 @@ export function useComposeForm({
               "pressedmail",
             ),
           response.outcome === "pending" ? "info" : "error",
+          ...forwardRefusalAction(response.code, composeSessionVersion),
         );
         return;
       }
@@ -3119,6 +3265,7 @@ export function useComposeForm({
     releaseComposeOperation,
     waitForPendingSaves,
     requestConfirmation,
+    forwardRefusalAction,
   ]);
 
   // Commit the composer to a scheduled-email row. Shared by the Schedule button
@@ -3194,7 +3341,15 @@ export function useComposeForm({
 
       const principal = captureRequestPrincipal();
       if (!principal) return false;
-      const scheduledSources = [...attachments];
+      // A forwarded message's files are staged by the server when the row is
+      // queued. An edit sends the row's own descriptors and never these fields.
+      const forwardFields = isScheduledEdit
+        ? null
+        : forwardSourceFields(attachments, true);
+      const scheduledSources = attachments.filter(
+        (attachment) =>
+          !forwardFields || forwardSourceOf(attachment) === undefined,
+      );
       const newUploads = scheduledSources.filter(
         (attachment) => attachment instanceof File,
       );
@@ -3403,6 +3558,7 @@ export function useComposeForm({
           in_reply_to: inReplyTo,
           references,
           attachments: scheduledAttachments,
+          ...forwardFields,
           scheduled_at:
             typeof scheduledAt === "string"
               ? scheduledAt
@@ -3456,6 +3612,7 @@ export function useComposeForm({
               result.data?.message ||
               __("Failed to schedule email", "pressedmail"),
             "error",
+            ...forwardRefusalAction(result.code, composeSessionVersion),
           );
           return false;
         }
@@ -3520,6 +3677,7 @@ export function useComposeForm({
       }
     },
     [
+      forwardRefusalAction,
       getDraftSnapshot,
       onScheduledChanged,
       toRecipients,
@@ -4943,6 +5101,9 @@ export function useComposeForm({
     modeTitle,
     fromAccount,
     ...(__IS_FREE__ ? null : { isSharedMailbox }),
+    fromAccountLocked,
+    forwardOmittedAttachments,
+    dismissForwardOmittedAttachments,
     canSend,
     signaturesEnabled,
     canUploadAttachments,

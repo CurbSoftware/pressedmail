@@ -122,6 +122,18 @@ export interface LocalCalendarEvent {
   user_id: number;
   /** Local calendar ID */
   local_calendar_id: number;
+  /** Pro: an imported event that cannot be changed here. */
+  read_only?: boolean;
+  /** Pro: its calendar syncs both ways, so edits made here go back to the provider. */
+  two_way?: boolean;
+  /** Pro: pending is waiting to be sent; conflict changed here and at the provider. */
+  sync_status?: "synced" | "pending" | "conflict";
+  /** Pro: the provider's name, such as Outlook, for notes about the event. */
+  provider_label?: string;
+  /** Pro: the name of the imported calendar it came from. */
+  imported_calendar?: string;
+  /** Pro: the imported calendar's color. */
+  color?: string | null;
   /** Event title */
   title: string;
   /** Event description */
@@ -596,6 +608,9 @@ export interface ConnectedCalendar {
   id: number;
   user_id: number;
   provider: CalendarSyncProvider;
+  /** The connection key: the provider, or "<provider>:<account id>" for a mailbox's import. */
+  connection?: string;
+  account_id?: number;
   external_id: string;
   name: string;
   color: string | null;

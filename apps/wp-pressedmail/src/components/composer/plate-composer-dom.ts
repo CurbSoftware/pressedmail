@@ -10,7 +10,9 @@ export function getComposerDomHtml(
   const body = editable.cloneNode(true) as HTMLElement;
   // Immediate Preview/Send can precede structured serialization. Rewrite the
   // attribute text, since assigning style.color would expand hex back to RGB.
-  body.querySelectorAll("a[style]").forEach((link) => {
+  // Every styled node, not only links: KSES drops rgb() from coloured or
+  // highlighted text just the same.
+  body.querySelectorAll("[style]").forEach((link) => {
     link.setAttribute("style", link.getAttribute("style")!.replace(
       /(^|;)(\s*(?:color|background-color)\s*:\s*)([^;]+)/gi,
       (_declaration, separator, property, value: string) => `${separator}${property}${normalizeComposerLinkColor(value)}`,

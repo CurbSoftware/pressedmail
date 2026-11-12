@@ -1,7 +1,10 @@
+import { __ } from "@wordpress/i18n";
+
 import {
   deserializeLegacyHtmlToPlateValue,
   serializePlateValueToPlainText,
 } from "@/components/composer/plate-composer-serialization.active";
+import { replyQuoteHeader } from "@/lib/composer/quote-headers";
 import type { SignatureContentType } from "@/types/signatures";
 
 type PlainTextComposeMode = "new" | "reply" | "reply-all" | "forward";
@@ -53,23 +56,69 @@ function signatureHtmlToPlainText(html: string): string {
     .join("\n");
 }
 
-const QUOTED_REPLY_PATTERN =
-  /(?:^|\n{2,})(?=On [^\n]+ wrote:\n(?:> ?[^\n]*(?:\n|$))*)/i;
-const FORWARDED_MESSAGE_PATTERN =
-  /(?:^|\n{2,})(?=-{5,}[ \t]+Forwarded message[ \t]+-{5,})/i;
+const escapeRegExp = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * English always, because mail quoted before these lines were translated, or
+ * by a correspondent writing in English, has to be found too. The user's
+ * language is added beside it.
+ */
+const ENGLISH_REPLY_LINE = "On [^\\n]+ wrote:";
+const ENGLISH_FORWARD_WORDS = "Forwarded message";
+
+let quotePatterns: {
+  replyLine: string;
+  forwardWords: string;
+  reply: RegExp;
+  forwarded: RegExp;
+} | null = null;
+
+function getQuotePatterns() {
+  // Marker characters stand in for the date and the sender, so the rest of
+  // the translated line can be escaped whatever it contains.
+  const replyLine = replyQuoteHeader("\uFDD2", "\uFDD2");
+  const forwardWords = __("Forwarded message", "pressedmail");
+  if (
+    quotePatterns?.replyLine === replyLine &&
+    quotePatterns.forwardWords === forwardWords
+  ) {
+    return quotePatterns;
+  }
+  const replyLines = [ENGLISH_REPLY_LINE];
+  // A translation with no words of its own would match any line: skip it.
+  if (/\p{L}/u.test(replyLine)) {
+    replyLines.push(
+      replyLine.split("\uFDD2").map(escapeRegExp).join("[^\\n]+"),
+    );
+  }
+  const forwardWordsPattern = [
+    ENGLISH_FORWARD_WORDS,
+    escapeRegExp(forwardWords),
+  ].join("|");
+  quotePatterns = {
+    replyLine,
+    forwardWords,
+    reply: new RegExp(`(?:^|\\n{2,})(?=(?:${replyLines.join("|")})\\n)`, "iu"),
+    forwarded: new RegExp(
+      `(?:^|\\n{2,})(?=-{5,}[ \\t]+(?:${forwardWordsPattern})[ \\t]+-{5,})`,
+      "iu",
+    ),
+  };
+  return quotePatterns;
+}
 
 function findQuotedOriginalStart(
   text: string,
   mode: PlainTextComposeMode,
 ): number {
+  const patterns = getQuotePatterns();
   const reply =
     mode === "reply" || mode === "reply-all"
-      ? QUOTED_REPLY_PATTERN.exec(text)?.index
+      ? patterns.reply.exec(text)?.index
       : undefined;
   const forwarded =
-    mode === "forward"
-      ? FORWARDED_MESSAGE_PATTERN.exec(text)?.index
-      : undefined;
+    mode === "forward" ? patterns.forwarded.exec(text)?.index : undefined;
 
   if (reply === undefined) return forwarded ?? text.length;
   if (forwarded === undefined) return reply;

@@ -1,3 +1,4 @@
+import * as React from "react";
 import { __ } from "@wordpress/i18n";
 
 import type { EmailAccount } from "@/types";
@@ -14,6 +15,8 @@ interface ComposerFromAccountSelectProps {
   fromAccount: string;
   onFromAccountChange: (account: string) => void;
   disabled?: boolean;
+  /** The draft is saved in a mailbox and sends from it: From cannot change. */
+  locked?: boolean;
 }
 
 /**
@@ -26,15 +29,33 @@ export function ComposerFromAccountSelect({
   fromAccount,
   onFromAccountChange,
   disabled = false,
+  locked = false,
 }: ComposerFromAccountSelectProps) {
   const selectedFromAccount = fromAccount || accounts[0]?.email || "";
-  const fromDisabled = disabled || accounts.length <= 1;
+  // Only say why when there was a choice to make.
+  const showLockReason = locked && accounts.length > 1;
+  const fromDisabled = disabled || locked || accounts.length <= 1;
+  const lockReasonId = React.useId();
+  const lockReason = __(
+    "A saved draft sends from the mailbox it is saved in. To send from another mailbox, start a new email.",
+    "pressedmail",
+  );
 
   return (
-    <div className="min-w-0" data-test="from-account-column">
+    // The title sits on the wrapper: a disabled control shows no tooltip.
+    <div
+      className="min-w-0"
+      data-test="from-account-column"
+      title={showLockReason ? lockReason : undefined}>
+      {showLockReason ? (
+        <span id={lockReasonId} className="sr-only">
+          {lockReason}
+        </span>
+      ) : null}
       <Select value={selectedFromAccount} onValueChange={onFromAccountChange}>
         <SelectTrigger
           aria-label={__("From account", "pressedmail")}
+          aria-describedby={showLockReason ? lockReasonId : undefined}
           className="w-full min-w-0"
           data-test="from-account-selector"
           disabled={fromDisabled}>

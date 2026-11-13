@@ -209,6 +209,8 @@ export type EmailListPreviewPreference = "full" | "snippet" | "hidden";
 export type EmailListUnreadIndicator = "dot_and_bold" | "dot" | "bold";
 export type EmailListDateGrouping = "none" | "day" | "week";
 export type EmailListGroupingPreference = "list" | "threads";
+/** The number beside each sidebar folder: unread, or every message in it. */
+export type FolderCountMode = "unread" | "total";
 export type AdminFaviconModePreference = "site" | "pressed";
 export type ComposerDefaultFormat = "rich_text" | "rtf" | "plain_text";
 export type ComposerDefaultFont = "system" | "sans" | "serif" | "mono";
@@ -296,6 +298,7 @@ export const PREFERENCE_ALLOWED_VALUES = {
   email_list_unread_indicator: ["dot_and_bold", "dot", "bold"],
   email_list_date_grouping: ["none", "day", "week"],
   email_list_grouping: ["list", "threads"],
+  folder_count_mode: ["unread", "total"],
   // AI is Pro: the Free build carries no AI preference.
   ...(__ENABLE_AI_SETTINGS__
     ? {
@@ -409,6 +412,7 @@ export interface UserPreferences {
   /** Flat list (one row per message) vs threads (one row per conversation). */
   email_list_grouping: EmailListGroupingPreference;
   email_list_remember_folder: boolean;
+  folder_count_mode: FolderCountMode;
   // Sweep: senders auto-routed to trash / spam (lowercased email addresses)
   // v2 composer preferences (Area 2J)
   composer_typography_auto_format: boolean;
@@ -526,6 +530,7 @@ const DEFAULT_PREFERENCES = {
   email_list_date_grouping: "none",
   email_list_grouping: "list",
   email_list_remember_folder: true,
+  folder_count_mode: "unread",
   composer_typography_auto_format: true,
   // AI is Pro: the Free build carries no AI preference.
   ...(__ENABLE_AI_SETTINGS__

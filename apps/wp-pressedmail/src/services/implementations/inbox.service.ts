@@ -2926,9 +2926,25 @@ export class InboxService implements IInboxOperations {
       if (deletedId) messageMap.delete(deletedId);
     }
 
+    // The diff has no view. A held draft belongs in the Scheduled view only,
+    // as the two list requests say, and a row on the wrong side leaves like a
+    // deleted one.
+    const place = (key: string, message: EmailMessage) => {
+      if (
+        !__IS_FREE__ &&
+        Boolean(this._activeFilters.scheduledOnly) !==
+          Boolean(message.scheduledEmailId || message.isScheduled)
+      ) {
+        messageMap.delete(key);
+        deletedTokens.push(key);
+        return;
+      }
+      messageMap.set(key, message);
+    };
+
     for (const message of delta.added as EmailMessage[]) {
       const normalized = normalizeMessage(message);
-      messageMap.set(getMessageIdentityKey(normalized), normalized);
+      place(getMessageIdentityKey(normalized), normalized);
     }
 
     for (const [index, update] of delta.updated.entries()) {
@@ -2939,7 +2955,7 @@ export class InboxService implements IInboxOperations {
         continue;
       }
 
-      messageMap.set(
+      place(
         token,
         normalizeMessage({
           ...existing,

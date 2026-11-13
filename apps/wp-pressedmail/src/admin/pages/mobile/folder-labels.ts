@@ -1,5 +1,7 @@
 import { __ } from "@wordpress/i18n";
 
+import type { FolderCountMode } from "@/hooks/useUserPreferences";
+import { folderBadgeCount } from "@/lib/folder-badge";
 import type { ImapFolder, SystemFolderType } from "@/services/interfaces";
 
 /**
@@ -67,19 +69,13 @@ export function flattenImapFolders(folders: ImapFolder[]): ImapFolder[] {
 }
 
 /**
- * Badge number for a mailbox row: unread everywhere, total for Drafts.
- *
- * Same rule as lib/folder-badge, which every desktop sidebar uses. The phone
- * preferred `displayCount` (the folder total), so mobile showed "Inbox 46"
- * where the desktop sidebar showed "Inbox 38" for the same mailbox and the two
- * numbers meant different things.
+ * Badge number for a mailbox row: the same rule as lib/folder-badge, which
+ * every desktop sidebar uses, so the phone and the desktop never show two
+ * different numbers for one mailbox. Zero when there is nothing to show.
  */
-export function mailboxBadgeCount(folder: {
-  systemType?: SystemFolderType;
-  count?: number;
-  unseen?: number;
-}): number {
-  const value =
-    folder.systemType === "drafts" ? (folder.count ?? 0) : (folder.unseen ?? 0);
-  return value > 0 ? value : 0;
+export function mailboxBadgeCount(
+  folder: Parameters<typeof folderBadgeCount>[0],
+  mode: FolderCountMode = "unread",
+): number {
+  return folderBadgeCount(folder, mode) ?? 0;
 }

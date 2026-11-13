@@ -23,3 +23,12 @@ export function replyQuoteHeader(date: string, sender: string): string {
 export function forwardedMessageHeader(): string {
   return `---------- ${__("Forwarded message", "pressedmail")} ---------`;
 }
+
+/**
+ * Marks quoted mail in the HTML a reply or forward opens with: "header" on the
+ * line above the quote, "body" on the blockquote. The editor keeps it on the
+ * node (plate/quoted-plugin.ts) and writes it back out, and the send-time
+ * scrub reads it (TemplateVariables::history_spans), so a quote is known for
+ * one in every language.
+ */
+export const QUOTED_ATTRIBUTE = "data-pm-quoted";

@@ -101,13 +101,16 @@ function folderStateSignature(
     path: string;
     count?: number;
     unseen?: number;
+    counts_known?: boolean;
     syncPhase?: unknown;
   }[],
 ): string {
+  // `counts_known` is part of it: a total the server has just confirmed can
+  // be the same number as before, and the sidebar still starts showing it.
   return folders
     .map(
       (f) =>
-        `${f.path}|${f.count ?? ""}|${f.unseen ?? ""}|${String(f.syncPhase ?? "")}`,
+        `${f.path}|${f.count ?? ""}|${f.unseen ?? ""}|${f.counts_known ?? ""}|${String(f.syncPhase ?? "")}`,
     )
     .join("\n");
 }

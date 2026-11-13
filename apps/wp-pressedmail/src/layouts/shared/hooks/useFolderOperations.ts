@@ -89,6 +89,8 @@ export interface NormalizedFolder {
   path: string;
   count: number;
   unseen?: number;
+  /** True when the server has confirmed `count` (see ImapFolder). */
+  counts_known?: boolean;
   displayCount: number;
   icon?: string;
   isSystem?: boolean;
@@ -606,6 +608,7 @@ export function useFolderOperations(): UseFolderOperationsReturn {
           overriddenUnseen !== undefined
             ? Math.max(0, overriddenUnseen)
             : folder.unseen,
+        counts_known: folder.counts_known,
         displayCount,
         icon: getFolderIcon(folder.path),
         isSystem: systemType !== undefined,

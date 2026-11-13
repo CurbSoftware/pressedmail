@@ -264,6 +264,13 @@ const InlineComboboxInput = ({
           value={value}
           {...inputProps}
           {...props}
+          onKeyDown={(event) => {
+            inputProps.onKeyDown?.(event);
+            // Escape closes this list and nothing behind it. Left unclaimed,
+            // a popped-out or full-view composer reads it as its own and goes
+            // back to the pane (useModalPanel), taking focus off the message.
+            if (event.key === "Escape") event.preventDefault();
+          }}
         />
       </span>
     </>

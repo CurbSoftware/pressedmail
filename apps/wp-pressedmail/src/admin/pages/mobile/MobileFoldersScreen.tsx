@@ -41,6 +41,15 @@ import type {
 } from "@/services/interfaces";
 import { cn } from "@/lib/utils";
 import {
+  FOLDER_TOTAL_CLASS,
+  folderCountLabel,
+  formatFolderTotal,
+} from "@/lib/folder-badge";
+import {
+  FolderCountToggle,
+  useFolderCountMode,
+} from "@/layouts/shared/components/FolderCountToggle";
+import {
   ProviderFolderTree,
   filterProviderFolderTree,
 } from "@/layouts/shared/components/ProviderFolderTree";
@@ -165,6 +174,8 @@ interface MailboxRow {
   iconKey: string;
   syncing?: boolean;
   countPartial?: boolean;
+  /** True when `count` is every message in the folder, not the unread ones. */
+  isTotal?: boolean;
 }
 
 function SectionHeading({ children }: { children: React.ReactNode }) {
@@ -204,6 +215,7 @@ export function MobileFoldersScreen() {
     selectedFolderTarget,
     virtualFolderCounts,
   } = useFolderOperations();
+  const countMode = useFolderCountMode();
   const providerFolders = React.useMemo<ImapFolder[]>(
     () =>
       folders.length > 0
@@ -286,14 +298,18 @@ export function MobileFoldersScreen() {
         // Always the translated slot label. The provider's own name is where
         // "INBOX" came from.
         name: label,
-        count: mailboxBadgeCount({ ...resolved, systemType: slot.type }),
+        count: mailboxBadgeCount(
+          { ...resolved, systemType: slot.type },
+          countMode,
+        ),
+        isTotal: countMode === "total",
         iconKey: slot.iconKey,
         syncing: resolved.path === syncFrontier,
       });
     }
 
     return systemRows;
-  }, [normalizedFolders, providerFolders, virtualFolderCounts]);
+  }, [normalizedFolders, providerFolders, virtualFolderCounts, countMode]);
 
   const customTree = React.useMemo(
     () =>
@@ -363,7 +379,10 @@ export function MobileFoldersScreen() {
           </button>
         ) : null}
 
-        <SectionHeading>{__("Mailboxes", "pressedmail")}</SectionHeading>
+        <div className="flex items-center justify-between">
+          <SectionHeading>{__("Mailboxes", "pressedmail")}</SectionHeading>
+          <FolderCountToggle className="pm-touch-target pm-no-tap-highlight my-0 h-11 w-11" />
+        </div>
         <ul role="list" className="flex flex-col gap-1">
           {rows.map((row) => {
             const Icon = ICONS[row.iconKey] ?? Folder;
@@ -373,6 +392,12 @@ export function MobileFoldersScreen() {
                 <button
                   type="button"
                   aria-current={active ? "true" : undefined}
+                  // A total is drawn short ("1.2K"), so the row says it in full.
+                  aria-label={
+                    row.isTotal && !row.syncing
+                      ? folderCountLabel(row.name, row.count, "total")
+                      : undefined
+                  }
                   onClick={() => handleSelect(row.id)}
                   className={cn(
                     "pm-touch-target pm-no-tap-highlight flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left active:bg-muted",
@@ -393,8 +418,20 @@ export function MobileFoldersScreen() {
                       className="h-4 w-4 shrink-0 animate-spin text-primary"
                     />
                   ) : row.countPartial || row.count > 0 ? (
-                    <span className="text-xs text-muted-foreground">
-                      {row.countPartial ? "2000+" : row.count}
+                    <span
+                      data-test="folder-count"
+                      data-count-mode={row.isTotal ? "total" : "unread"}
+                      data-count={row.count}
+                      className={
+                        row.isTotal
+                          ? FOLDER_TOTAL_CLASS
+                          : "text-xs text-muted-foreground"
+                      }>
+                      {row.countPartial
+                        ? "2000+"
+                        : row.isTotal
+                          ? formatFolderTotal(row.count)
+                          : row.count}
                     </span>
                   ) : null}
                 </button>

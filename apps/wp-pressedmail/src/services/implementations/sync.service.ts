@@ -91,19 +91,25 @@ function normalizeUpdatedItem(item: Record<string, unknown>) {
   const changes =
     item.changes && typeof item.changes === "object"
       ? (item.changes as Record<string, unknown>)
-      : Object.fromEntries(
-          Object.entries(item).filter(
-            ([key]) =>
-              ![
-                "localId",
-                "local_id",
-                "identityKey",
-                "uid",
-                "id",
-                "messageId",
-              ].includes(key),
+      : {
+          // A whole server row also says whether the draft is still held.
+          ...(__IS_FREE__
+            ? null
+            : { isScheduled: false, scheduledEmailId: undefined }),
+          ...Object.fromEntries(
+            Object.entries(item).filter(
+              ([key]) =>
+                ![
+                  "localId",
+                  "local_id",
+                  "identityKey",
+                  "uid",
+                  "id",
+                  "messageId",
+                ].includes(key),
+            ),
           ),
-        );
+        };
 
   return {
     localId: String(localId ?? ""),

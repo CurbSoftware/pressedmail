@@ -11,6 +11,7 @@ import { __, sprintf } from "@wordpress/i18n";
 import { getCalendarLocale } from "@/components/calendar/calendar-intl";
 import {
   forwardedMessageHeader,
+  QUOTED_ATTRIBUTE,
   replyQuoteHeader,
 } from "@/lib/composer/quote-headers";
 import { parseEmailDate } from "@/lib/email-date";
@@ -297,6 +298,14 @@ ${body}`;
 }
 
 /**
+ * The header line and the blockquote of a reply or forward, marked as quoted
+ * mail. `type="cite"` is what other mail clients write; the data attribute is
+ * the one WordPress's KSES keeps on a stored body. See QUOTED_ATTRIBUTE.
+ */
+const QUOTE_HEADER_OPEN = `<p ${QUOTED_ATTRIBUTE}="header" style="text-align: left;">`;
+const QUOTE_BODY_OPEN = `<blockquote type="cite" ${QUOTED_ATTRIBUTE}="body" style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">`;
+
+/**
  * Format quoted HTML for inline reply (Outlook-style).
  *
  * A plain <blockquote>, which Plate's own BlockquotePlugin deserializes. It
@@ -311,7 +320,7 @@ export function formatQuotedHtml(message: EmailMessage): string {
   const sender = parseSenderName(message);
   const bodyHtml = getQuotedBodyHtml(message);
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">${escapeHtml(replyQuoteHeader(date, sender))}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr>${QUOTE_HEADER_OPEN}${escapeHtml(replyQuoteHeader(date, sender))}</p>${QUOTE_BODY_OPEN}${bodyHtml}</blockquote>`;
 }
 
 /** Format forwarded HTML with headers for inline forward (Outlook-style). */
@@ -321,7 +330,7 @@ export function formatForwardedHtml(message: EmailMessage): string {
     .map(escapeHtml)
     .join("<br>");
 
-  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr><p style="text-align: left;">${header}</p><blockquote style="border-left: 2px solid #b0b0b0; padding-left: 12px; margin-left: 0; color: #555;">${bodyHtml}</blockquote>`;
+  return `${COMPOSER_LEADING_BLANK_LINES_HTML}<hr>${QUOTE_HEADER_OPEN}${header}</p>${QUOTE_BODY_OPEN}${bodyHtml}</blockquote>`;
 }
 
 /** The names of the files a forward leaves behind, for the composer to say so. */

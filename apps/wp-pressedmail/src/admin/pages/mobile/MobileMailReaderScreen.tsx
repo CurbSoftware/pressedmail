@@ -60,6 +60,7 @@ import {
 } from "@/lib/preference-behavior";
 import { cn } from "@/lib/utils";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useAfterDetailLoad } from "@/hooks/useAfterDetailLoad";
 import { appMessage } from "@/context/toast";
 
 /**
@@ -79,7 +80,8 @@ export function MobileMailReaderScreen() {
   }, [params.id]);
   const { accounts } = useAppContext();
   const inbox = useInbox();
-  const { selectedMessage, messages, isLoading } = useInboxState();
+  const { selectedMessage, messages, isLoading, isMessageDetailLoading } =
+    useInboxState();
   const { folders } = useFolderOperations();
   const {
     selectMessage,
@@ -296,6 +298,18 @@ export function MobileMailReaderScreen() {
     ],
   );
 
+  // A reply or forward needs the original's body and files, which a message
+  // fresh from the list does not have yet: it opens when the detail load
+  // settles.
+  const openWhenLoaded = useAfterDetailLoad(
+    displayedIdentity,
+    isMessageDetailLoading,
+    React.useCallback(
+      (mode: "reply" | "reply-all" | "forward") => void openCompose(mode),
+      [openCompose],
+    ),
+  );
+
   const finishAfterRemoval = React.useCallback(
     (
       action: "message_list" | "next_message",
@@ -487,7 +501,7 @@ export function MobileMailReaderScreen() {
               ? __("Reply to all recipients", "pressedmail")
               : __("Reply to sender", "pressedmail")
           }
-          onClick={() => void openCompose(preferredReplyMode)}
+          onClick={() => openWhenLoaded(preferredReplyMode)}
           className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
           {preferredReplyMode === "reply-all" ? (
             <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
@@ -505,7 +519,7 @@ export function MobileMailReaderScreen() {
               ? __("Reply to all recipients", "pressedmail")
               : __("Reply to sender", "pressedmail")
           }
-          onClick={() => void openCompose(alternateReplyMode)}
+          onClick={() => openWhenLoaded(alternateReplyMode)}
           className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
           {alternateReplyMode === "reply-all" ? (
             <EmailReplyAllIcon className="h-4 w-4" aria-hidden="true" />
@@ -519,7 +533,7 @@ export function MobileMailReaderScreen() {
         <button
           type="button"
           aria-label={__("Forward message", "pressedmail")}
-          onClick={() => void openCompose("forward")}
+          onClick={() => openWhenLoaded("forward")}
           className="pm-touch-target pm-no-tap-highlight inline-flex flex-1 items-center justify-center gap-1 rounded-full text-xs font-medium text-foreground active:bg-muted">
           <EmailForwardIcon className="h-4 w-4" aria-hidden="true" />
           {__("Forward", "pressedmail")}

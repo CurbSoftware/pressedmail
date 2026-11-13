@@ -31,6 +31,64 @@ export interface WhatsNewRelease {
 export function getWhatsNewReleases(): WhatsNewRelease[] {
   return [
     {
+      version: "1.10.0",
+      items: [
+        {
+          id: "folder-count-toggle",
+          title: __("Unread or total, you choose", "pressedmail"),
+          body: __(
+            "A new switch at the top of the folder list changes the number beside each folder between unread messages and all messages.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "composer-long-message",
+          title: __("No line across long messages", "pressedmail"),
+          body: __(
+            "Writing a message longer than the window no longer draws a line through your text as you scroll.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "escape-one-layer",
+          title: __("Escape closes one thing at a time", "pressedmail"),
+          body: __(
+            "With the composer popped out, pressing Escape in an open list closes the list and leaves your message where it is.",
+            "pressedmail",
+          ),
+        },
+      ],
+    },
+    {
+      version: "1.9.0",
+      items: [
+        {
+          id: "copied-site-answer",
+          title: __("Answer a paused copy from inside PressedMail", "pressedmail"),
+          body: __(
+            "When automatic work is paused because the site looks like a copy, an administrator can now choose right there: use this site, or keep the copy paused.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "https-switch",
+          title: __("Going https no longer pauses mail", "pressedmail"),
+          body: __(
+            "Switching your site from http to https is no longer read as a copied site, so automatic work carries on.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "forward-attachments",
+          title: __("Forwards keep their attachments", "pressedmail"),
+          body: __(
+            "A forwarded message now carries the original's files.",
+            "pressedmail",
+          ),
+        },
+      ],
+    },
+    {
       version: "1.8.0",
       items: [
         {

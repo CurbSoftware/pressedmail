@@ -155,6 +155,7 @@ import {
   ComposerEquationFallbackPlugin,
   ComposerInlineEquationFallbackPlugin,
 } from './plate/optional-fallback-plugins';
+import { QuotedPlugin } from './plate/quoted-plugin';
 import { SlashKit } from './plate/slash-kit';
 import { SplitSoftBreaksPlugin } from './plate/split-soft-breaks-plugin';
 import { getComposerLinkStyle, parseComposerLink } from './plate/link-style';
@@ -508,6 +509,10 @@ export const ComposerReactPlugins = [
           node: { component: AISuggestionNode },
         }),
       ]),
+
+  // Quoted mail keeps its mark. Plate tries the plugins last to first, so this
+  // reads a marked blockquote or header line before their own plugins do.
+  QuotedPlugin,
 
   // Promote every <br>/\n soft break to its own block so each line can be
   // styled independently (alignment, line-height). Wraps

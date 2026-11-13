@@ -13,6 +13,13 @@ import { Folder, FolderOpen } from "lucide-react";
 import { useDragDropContext } from "@/components/shared/drag-drop";
 import { cn } from "@/lib/utils";
 import {
+  FOLDER_TOTAL_CLASS,
+  folderBadgeCount,
+  folderCountLabel,
+  formatFolderCount,
+} from "@/lib/folder-badge";
+import { useFolderCountMode } from "@/layouts/shared/components/FolderCountToggle";
+import {
   SIDEBAR_NAV_ICON_CLASS,
   SIDEBAR_NAV_ITEM_CLASS,
 } from "@/lib/sidebar-navigation-styles";
@@ -314,6 +321,7 @@ export function ProviderFolderTree({
   testIdPrefix,
   renderTrailing,
 }: ProviderFolderTreeProps) {
+  const countMode = useFolderCountMode();
   const tree = React.useMemo(() => buildProviderFolderTree(folders), [folders]);
   const index = React.useMemo(
     () => indexTree(tree, accountId),
@@ -414,6 +422,12 @@ export function ProviderFolderTree({
       const folderAccountId = folder.accountId ?? accountId;
       const folderId = realFolderId(folder);
       const hasChildren = Boolean(folder.children?.length);
+      // Unread as it has always been; in total mode, every message in the
+      // folder, and nothing while that total is unconfirmed.
+      const isTotal = countMode === "total";
+      const count = isTotal
+        ? folderBadgeCount(folder, "total")
+        : folder.unseen || undefined;
       const isExpanded =
         folderId !== null &&
         expanded.has(expansionKey(folderAccountId, folderId));
@@ -444,7 +458,9 @@ export function ProviderFolderTree({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={folder.selectable !== false ? isSelected : undefined}
           aria-disabled={folder.selectable === false || undefined}
-          aria-label={node.label}
+          aria-label={
+            isTotal ? folderCountLabel(node.label, count, "total") : node.label
+          }
           data-test="folder-item"
           data-folder={folder.path}
           data-testid={
@@ -530,15 +546,20 @@ export function ProviderFolderTree({
             </span>
           )}
           {!compact &&
-          (Boolean(folder.unseen) || (folderId !== null && renderTrailing)) ? (
+          (count !== undefined || (folderId !== null && renderTrailing)) ? (
             <span
               className="flex shrink-0 items-center gap-1"
               data-test="folder-trailing-cluster">
-              {Boolean(folder.unseen) && (
+              {count !== undefined && (
                 <span
-                  className="shrink-0 text-xs font-semibold"
-                  data-test="folder-unseen-count">
-                  {folder.unseen}
+                  className={cn(
+                    "shrink-0",
+                    isTotal ? FOLDER_TOTAL_CLASS : "text-xs font-semibold",
+                  )}
+                  data-test={isTotal ? "folder-count" : "folder-unseen-count"}
+                  data-count-mode={countMode}
+                  data-count={count}>
+                  {formatFolderCount(count, countMode)}
                 </span>
               )}
               {folderId !== null && renderTrailing ? (

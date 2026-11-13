@@ -40,6 +40,16 @@ const STATUS_POLL_INTERVAL_MS = 2000;
 const STATUS_POLL_MAX_ATTEMPTS = 150;
 
 /**
+ * The sign-in in flight for each provider and purpose, as the call that ends
+ * it. The server keeps one sign-in per provider and purpose, and every button
+ * for the same pair opens the same named popup, so a second one takes both
+ * over and the first can never finish: starting one ends the other instead of
+ * leaving it waiting to act on someone else's grant. A contacts and a calendar
+ * sign-in are separate on the server, so they are separate here too.
+ */
+const liveSessions = new Map<string, () => void>();
+
+/**
  * OAuth connect popup flow (Microsoft / Google). Opens the popup
  * synchronously (so popup blockers allow it), fetches the relay start URL,
  * and resolves completion via the landing page's same-origin postMessage,
@@ -59,7 +69,13 @@ export function OAuthConnectButton({
 }: OAuthConnectButtonProps) {
   const providerLabels = getOAuthConnectProviderLabels(provider);
   const [busy, setBusy] = React.useState(false);
-  const doneRef = React.useRef(false);
+  // True whenever no sign-in of this button is in flight, so from the first
+  // render: an idle button must never act on a completion it did not start.
+  // Several of these share a screen (mail, contacts, calendar), and each one
+  // hears every landing message.
+  const doneRef = React.useRef(true);
+  // The state id the server issued for this button's sign-in; the landing page echoes it.
+  const stateRef = React.useRef("");
   const mountedRef = React.useRef(true);
   const sessionGenerationRef = React.useRef(0);
   const sessionAbortRef = React.useRef<AbortController | null>(null);
@@ -117,6 +133,7 @@ export function OAuthConnectButton({
   const cancelOAuthSession = React.useCallback(() => {
     sessionGenerationRef.current += 1;
     doneRef.current = true;
+    stateRef.current = "";
     sessionAbortRef.current?.abort();
     sessionAbortRef.current = null;
     clearPollTimer();
@@ -181,6 +198,8 @@ export function OAuthConnectButton({
       const data = event.data as {
         type?: string;
         provider?: string;
+        purpose?: string;
+        state?: string;
         status?: string;
         email?: string;
       } | null;
@@ -188,6 +207,19 @@ export function OAuthConnectButton({
         !data ||
         data.type !== COMPLETE_MESSAGE_TYPE ||
         data.provider !== provider
+      ) {
+        return;
+      }
+      // Another button's sign-in: a different grant (mail, contacts or
+      // calendar), or a different session of the same kind. A message that
+      // names a state must name ours, so until the server has told us ours
+      // every such message is someone else's.
+      if (
+        (typeof data.purpose === "string" &&
+          data.purpose !== (purpose ?? "mail")) ||
+        (typeof data.state === "string" &&
+          data.state !== "" &&
+          data.state !== stateRef.current)
       ) {
         return;
       }
@@ -208,7 +240,7 @@ export function OAuthConnectButton({
     return () => {
       window.removeEventListener("message", onMessage);
     };
-  }, [finish, fail, provider]);
+  }, [finish, fail, provider, purpose]);
 
   const pollStatusAfterClose = React.useCallback(
     (generation: number, signal: AbortSignal) => {
@@ -284,13 +316,21 @@ export function OAuthConnectButton({
 
   const handleConnect = () => {
     cancelOAuthSession();
+    // This sign-in takes over the popup from any other button's of the same
+    // provider and purpose. A mailbox sign-in keeps the name it always had.
+    const sessionKey = purpose ? `${provider}-${purpose}` : provider;
+    liveSessions.get(sessionKey)?.();
+    liveSessions.set(sessionKey, () => {
+      cancelOAuthSession();
+      if (mountedRef.current) setBusy(false);
+    });
     const generation = sessionGenerationRef.current;
     doneRef.current = false;
     popupNavigatedRef.current = false;
     // Open synchronously in the click handler so popup blockers allow it.
     const popup = window.open(
       "about:blank",
-      "pressedmail-oauth-" + provider,
+      "pressedmail-oauth-" + sessionKey,
       "width=600,height=720",
     );
     if (!popup) {
@@ -327,12 +367,14 @@ export function OAuthConnectButton({
         }
         const payload = (await response.json()) as {
           status?: string;
-          data?: { url?: string; message?: string };
+          data?: { url?: string; state?: string; message?: string };
         };
         if (!isCurrentSession(generation)) {
           return;
         }
         if (payload?.status === "success" && payload.data?.url) {
+          stateRef.current =
+            typeof payload.data.state === "string" ? payload.data.state : "";
           popupNavigatedRef.current = true;
           popup.location.href = payload.data.url;
           pollStatusAfterClose(generation, controller.signal);

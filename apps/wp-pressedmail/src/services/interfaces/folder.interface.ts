@@ -43,6 +43,12 @@ export interface ImapFolder {
   count: number;
   /** Unseen/unread message count */
   unseen?: number;
+  /**
+   * True when the server has confirmed `count` for this folder. False or
+   * absent (its STATUS failed, has not run yet, or the list predates the
+   * mark) means `count` may be short, and the sidebar's total count hides it.
+   */
+  counts_known?: boolean;
   /** Child folders (for nested structures) */
   children?: ImapFolder[];
   /** Folder attributes from IMAP */

@@ -34,6 +34,7 @@ export const SharedBadge = nothing;
 export const SharedWithIcon = nothing;
 export const LeaveShareMenuItem = nothing;
 export const LeaveShareButton = nothing;
+export const MobileSharedMenu = nothing;
 export const InboxShareDialog = nothing;
 export const LockShareNote = nothing;
 export const SharedAccountsSection = nothing;
@@ -57,6 +58,7 @@ export const useShares = (_options?: unknown) => ({
   create: idle,
   update: idle,
   remove: idle,
+  removeAll: idle,
 });
 export const useShareCandidates = (..._args: unknown[]) => ({
   candidates: [] as never[],

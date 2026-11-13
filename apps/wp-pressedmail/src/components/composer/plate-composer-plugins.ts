@@ -116,6 +116,7 @@ import {
 import { parseTableCellBorders } from './plate/table-border-styles';
 import { TocElementStatic } from './plate/toc-node-static';
 import { ToggleElementStatic } from './plate/toggle-node-static';
+import { QuotedPlugin } from './plate/quoted-plugin';
 import { SplitSoftBreaksPlugin } from './plate/split-soft-breaks-plugin';
 
 function parseTableCell({
@@ -341,6 +342,8 @@ export const ComposerEditorPlugins = [
     : [AISuggestionPlugin.withComponent(AISuggestionElementStatic)]),
   // Merge-field chips serialize back to their token text (Pro; empty in Free).
   ...TemplateVariableStaticKit,
+  // Quoted mail keeps its mark (type="cite" and data-pm-quoted) in sent HTML.
+  QuotedPlugin,
   // Promote every <br>/\n soft break to its own block (mirrors the
   // interactive kit's SplitSoftBreaksPlugin) so static deserialize +
   // email serialization treat each line as an independent block.

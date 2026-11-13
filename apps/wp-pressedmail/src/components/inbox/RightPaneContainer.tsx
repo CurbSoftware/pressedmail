@@ -108,6 +108,7 @@ import {
 import { useOptionalScheduledEmails } from "@/context/scheduled/ScheduledEmailsContext";
 import { getRuntimeRestNamespace } from "@/lib/runtime-config";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useAfterDetailLoad } from "@/hooks/useAfterDetailLoad";
 import { nextVisibleMessageAfterRemoval } from "@/lib/preference-behavior";
 import { appMessage } from "@/context/toast";
 
@@ -200,7 +201,7 @@ export function RightPaneContainer({
     selectedAccountId,
     folders,
   } = useInbox();
-  const { messages } = useInboxState();
+  const { messages, isMessageDetailLoading } = useInboxState();
   const {
     archiveMessage,
     deleteMessage,
@@ -834,17 +835,36 @@ export function RightPaneContainer({
       selectedMessage,
     ],
   );
+  // A reply or forward needs the original's body and files, which a message
+  // fresh from the list does not have yet: it opens when the detail load
+  // settles. Not if another compose session opened meanwhile, which it would
+  // replace.
+  const openWhenLoaded = useAfterDetailLoad(
+    `${selectedIdentity}#${composer.getComposeSessionVersion()}`,
+    isMessageDetailLoading,
+    React.useCallback(
+      (mode: "reply" | "reply-all" | "forward") =>
+        restoreThen(
+          mode === "reply"
+            ? openReply
+            : mode === "reply-all"
+              ? openReplyAll
+              : openForward,
+        ),
+      [restoreThen, openReply, openReplyAll, openForward],
+    ),
+  );
   const handleReply = React.useCallback(
-    () => restoreThen(openReply),
-    [restoreThen, openReply],
+    () => openWhenLoaded("reply"),
+    [openWhenLoaded],
   );
   const handleReplyAll = React.useCallback(
-    () => restoreThen(openReplyAll),
-    [restoreThen, openReplyAll],
+    () => openWhenLoaded("reply-all"),
+    [openWhenLoaded],
   );
   const handleForward = React.useCallback(
-    () => restoreThen(openForward),
-    [restoreThen, openForward],
+    () => openWhenLoaded("forward"),
+    [openWhenLoaded],
   );
 
   // Handle New Message

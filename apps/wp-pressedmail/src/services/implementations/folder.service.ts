@@ -595,6 +595,9 @@ function mergeConsolidatedFolders(
         ...existing,
         count: existing.count + count,
         unseen: (existing.unseen ?? 0) + unseen,
+        // A sum is only a total when every account's part of it is.
+        counts_known:
+          existing.counts_known === true && folder.counts_known === true,
         selectable:
           existing.selectable !== false || folder.selectable !== false,
         systemType: existing.systemType ?? folder.systemType,
@@ -1221,7 +1224,11 @@ export class FolderService implements IFolderOperations {
       // prior counts. But a fresh unread of 0 while the folder STILL has
       // messages is legitimate (everything was just read), so trust it; keeping
       // the stale unread there is what froze the sidebar badge after reading.
-      const statusLikelyFailed = folder.count === 0 && prev.count > 0;
+      // A zero the server marks confirmed is a real one (the folder was just
+      // emptied), so it replaces the old total instead of being taken for a
+      // failure and leaving that total on screen.
+      const statusLikelyFailed =
+        folder.count === 0 && prev.count > 0 && folder.counts_known !== true;
       const mergedCount = statusLikelyFailed ? prev.count : folder.count;
       const mergedUnseen =
         statusLikelyFailed && (prev.unseen ?? 0) > 0

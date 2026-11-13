@@ -7,7 +7,12 @@ import { useNavigate } from "react-router-dom";
 
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import { MobileScreen, MobileScreenHeader } from "@/components/mobile-shell";
-import { SharedBadge, SharedWithIcon } from "@/components/sharing";
+import {
+  isSharedResource,
+  MobileSharedMenu,
+  SharedBadge,
+  SharedWithIcon,
+} from "@/components/sharing";
 import { useAppContext } from "@/context/AppProvider";
 import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import {
@@ -36,6 +41,7 @@ export function MobileAccountsScreen() {
     setSelectedAccount,
     setIsAddAccount,
     setEditingAccount,
+    reloadAccounts,
   } = useAppContext();
 
   const licenseValid = useProLicenseValid();
@@ -78,7 +84,20 @@ export function MobileAccountsScreen() {
   return (
     <MobileScreen
       header={
-        <MobileScreenHeader title={__("Switch account", "pressedmail")} />
+        <MobileScreenHeader
+          title={__("Switch account", "pressedmail")}
+          trailing={
+            <MobileSharedMenu
+              resourceType="inbox"
+              items={(accounts ?? []).filter(isSharedResource).map((account) => ({
+                id: Number(account.id),
+                name: String(account.email ?? ""),
+                owner: account.share?.owner_name || undefined,
+              }))}
+              onLeft={reloadAccounts}
+            />
+          }
+        />
       }>
       <div className="px-3 py-4">
         <ul role="list" className="flex flex-col gap-1">

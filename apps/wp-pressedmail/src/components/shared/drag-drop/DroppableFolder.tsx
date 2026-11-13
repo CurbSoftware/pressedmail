@@ -15,6 +15,11 @@ import * as React from "react";
 import { __, _n, sprintf } from "@wordpress/i18n";
 import { useDroppable } from "@dnd-kit/core";
 import { cn } from "@/lib/utils";
+import {
+  FOLDER_TOTAL_CLASS,
+  folderCountLabel,
+  formatFolderTotal,
+} from "@/lib/folder-badge";
 import { useDragDropContext } from "./DragDropProvider";
 import { PressedTooltip } from "@/components/ui/pressed-tooltip";
 import { Loader2, type LucideIcon } from "lucide-react";
@@ -36,6 +41,11 @@ export interface DroppableFolderProps {
   unseenCount?: number;
   /** Whether the count is capped and more matching messages may exist. */
   countPartial?: boolean;
+  /**
+   * "total" when `unseenCount` is every message in the folder, not the unread
+   * ones: drawn muted and short ("1.2K"), and read out as "1,204 messages".
+   */
+  countMode?: "unread" | "total";
   /** Click handler */
   onClick?: () => void;
   /** Additional class names */
@@ -76,6 +86,7 @@ export function DroppableFolder({
   isActive = false,
   unseenCount,
   countPartial = false,
+  countMode = "unread",
   onClick,
   className,
   isLabel = false,
@@ -92,11 +103,15 @@ export function DroppableFolder({
 
   const isDropTarget =
     !disabled && (isOver || activeDropZone === `folder-${id}`);
+  // A total is never capped: "2000+" belongs to the unread and flag counts.
+  const isTotal = countMode === "total" && !countPartial;
   const countLabel =
     unseenCount !== undefined
       ? countPartial
         ? "2000+"
-        : String(unseenCount)
+        : isTotal
+          ? formatFolderTotal(unseenCount)
+          : String(unseenCount)
       : undefined;
 
   // The unread count is part of what this row says. Sighted users read it from
@@ -106,24 +121,26 @@ export function DroppableFolder({
   const accessibleLabel =
     unseenCount === undefined || !(countPartial || unseenCount > 0)
       ? label
-      : countPartial
-        ? sprintf(
-            /* translators: 1: folder name, 2: capped unread count. */
-            __("%1$s, more than %2$d unread", "pressedmail"),
-            label,
-            2000,
-          )
-        : sprintf(
-            /* translators: 1: folder name, 2: number of unread messages. */
-            _n(
-              "%1$s, %2$d unread message",
-              "%1$s, %2$d unread messages",
+      : isTotal
+        ? folderCountLabel(label, unseenCount, "total")
+        : countPartial
+          ? sprintf(
+              /* translators: 1: folder name, 2: capped unread count. */
+              __("%1$s, more than %2$d unread", "pressedmail"),
+              label,
+              2000,
+            )
+          : sprintf(
+              /* translators: 1: folder name, 2: number of unread messages. */
+              _n(
+                "%1$s, %2$d unread message",
+                "%1$s, %2$d unread messages",
+                unseenCount,
+                "pressedmail",
+              ),
+              label,
               unseenCount,
-              "pressedmail",
-            ),
-            label,
-            unseenCount,
-          );
+            );
 
   if (isCollapsed) {
     const tooltipLabel =
@@ -182,6 +199,9 @@ export function DroppableFolder({
       data-testid="folder-item"
       data-folder={id}
       aria-current={isActive ? "page" : undefined}
+      // "Inbox 1.2K" is no way to hear a total, so a total row names itself in
+      // full. An unread row keeps the name its text gives it.
+      aria-label={isTotal ? accessibleLabel : undefined}
       className={cn(
         SIDEBAR_NAV_ITEM_CLASS,
         "w-full transition-all",
@@ -209,9 +229,18 @@ export function DroppableFolder({
         unseenCount !== undefined &&
         (countPartial || unseenCount > 0) && (
           <span
+            data-test="folder-count"
+            data-count-mode={isTotal ? "total" : "unread"}
+            data-count={unseenCount}
             className={cn(
-              "text-xs font-bold",
-              isActive && !isDragging ? "text-primary" : "text-foreground",
+              isTotal
+                ? FOLDER_TOTAL_CLASS
+                : [
+                    "text-xs font-bold",
+                    isActive && !isDragging
+                      ? "text-primary"
+                      : "text-foreground",
+                  ],
               isDragging && isDropTarget && "text-primary",
             )}>
             {countLabel}

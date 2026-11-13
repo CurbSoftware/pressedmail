@@ -3,7 +3,7 @@ Contributors: curbsoftwareinc
 Tags: email, email client, imap, smtp, webmail
 Requires at least: 6.6
 Tested up to: 7.1
-Stable tag: 1.9.0
+Stable tag: 1.10.0
 Requires PHP: 8.2
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -131,8 +131,8 @@ The site email delivery log is off by default. Choose 30, 60 or 90 days to recor
 == Development ==
 
 * [Source repository](https://github.com/CurbSoftware/pressedmail)
-* [Source for version 1.9.0](https://github.com/CurbSoftware/pressedmail/tree/v1.9.0)
-* [Build instructions for version 1.9.0](https://github.com/CurbSoftware/pressedmail/blob/v1.9.0/BUILD.md)
+* [Source for version 1.10.0](https://github.com/CurbSoftware/pressedmail/tree/v1.10.0)
+* [Build instructions for version 1.10.0](https://github.com/CurbSoftware/pressedmail/blob/v1.10.0/BUILD.md)
 
 Use Node.js 22.13 or later and `corepack enable` for the pinned pnpm, then run `pnpm install --frozen-lockfile && pnpm build`. Output goes to `assets/admin/dist/`; Pro source is excluded.
 
@@ -142,20 +142,18 @@ React, ReactDOM and the JSX runtime come from WordPress. Libraries: Plate.js, Sl
 
 The build writes `assets/admin/dist/THIRD-PARTY-NOTICES.txt`, listing every bundled package with version, licence and notice. OpenDyslexic ships under the SIL Open Font License 1.1, in `assets/fonts/OFL.txt`.
 
-Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.9.0/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
+Provenance of adapted files: https://github.com/CurbSoftware/pressedmail/blob/v1.10.0/apps/wp-pressedmail/THIRD-PARTY-PROVENANCE.md
 
 == Changelog ==
 
 Older releases: https://pressedmail.com/changelog
 
+= 1.10.0 =
+* Folder list: show unread or total counts.
+* No line across long messages.
+* Fixes for MySQL 5.7 and MariaDB 10.2.
+
 = 1.9.0 =
 * Going https no longer pauses automation.
 * Forwards keep attachments.
 * Plain permalinks work.
-
-= 1.8.10 =
-* A folder you open stays on screen when new mail arrives.
-* Important and Starred count faster on big mailboxes.
-
-= 1.8.9 =
-* The screen stays one window tall under a long admin menu.

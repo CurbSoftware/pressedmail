@@ -40,11 +40,15 @@ import {
   SnoozeClockIcon,
 } from "@/components/icons/FolderIcons";
 import { cn } from "@/lib/utils";
-import { folderBadgeCount } from "@/lib/folder-badge";
+import { findSystemFolderInTree, folderBadgeCount } from "@/lib/folder-badge";
 import { computeSyncFrontier } from "@/hooks/useMailboxSyncProgress";
 import { Button, ScrollArea, Separator } from "@kit/ui/plugin";
 import { FolderCrudPopover } from "@/layouts/shared/components/FolderCrudPopover";
 import { FolderRowActions } from "@/layouts/shared/components/FolderRowActions";
+import {
+  FolderCountToggle,
+  useFolderCountMode,
+} from "@/layouts/shared/components/FolderCountToggle";
 import {
   DroppableFolder,
   useDragDropContext,
@@ -157,6 +161,7 @@ export function FolderPane({
     refreshFolders,
   } = useFolderOperations();
   const scheduledVirtualEnabled = __ENABLE_SCHEDULED_EMAILS__ && !__IS_FREE__;
+  const countMode = useFolderCountMode();
   const [mailboxOpen, setMailboxOpen] = React.useState(true);
   const [foldersOpen, setFoldersOpen] = React.useState(true);
   const [createdParentId, setCreatedParentId] = React.useState<number | null>(
@@ -246,7 +251,8 @@ export function FolderPane({
           : folder.name,
         path: selectablePath,
         label: folder.displayCount.toString(),
-        unseenCount: folderBadgeCount(folder) ?? 0,
+        unseenCount: folderBadgeCount(folder, countMode) ?? 0,
+        countMode,
         icon:
           (folder.systemType && SYSTEM_FOLDER_ICONS[folder.systemType]) ||
           Inbox,
@@ -286,7 +292,11 @@ export function FolderPane({
 
     const getVirtualCount = (type: SystemFolderType) => {
       if (type === "inbox") {
-        return { count: filteredMessages.length, partial: false };
+        // No inbox row yet, so no total: the loaded messages are not one.
+        return {
+          count: countMode === "total" ? 0 : filteredMessages.length,
+          partial: false,
+        };
       }
       if (type === "starred" || type === "flagged") {
         return virtualFolderCounts.starred;
@@ -309,7 +319,17 @@ export function FolderPane({
     ) => {
       const path = getFallbackPath(type);
       const isActive = selectedNav === path || selectedNav === type;
-      const count = getVirtualCount(type);
+      // Gmail keeps Sent, Drafts, Spam and Trash under [Gmail], below the top
+      // level this sidebar reads. The row stays as it is; the number comes from
+      // the real folder.
+      const nested = findSystemFolderInTree(providerFolders, type);
+      const count = nested
+        ? {
+            count:
+              folderBadgeCount({ ...nested, systemType: type }, countMode) ?? 0,
+            partial: false,
+          }
+        : getVirtualCount(type);
       return {
         title: getSystemLabel(type),
         path,
@@ -321,6 +341,9 @@ export function FolderPane({
         variant: isActive ? ("default" as const) : ("ghost" as const),
         isActive,
         systemType: type,
+        // Important, Starred and Scheduled already count every flagged or
+        // queued message, in either mode, and keep the look they have.
+        countMode: nested ? countMode : ("unread" as const),
         // Fallback/virtual slots are not real mirrored folders, so they never
         // carry the spinner, only the frontier real folder does.
         syncing: false,
@@ -369,11 +392,13 @@ export function FolderPane({
     return { standardLinks: standard };
   }, [
     normalizedFolders,
+    providerFolders,
     virtualFolderCounts,
     filteredMessages,
     selectedNav,
     selectFolder,
     scheduledVirtualEnabled,
+    countMode,
   ]);
 
   const { isDragging } = useDragDropContext();
@@ -540,16 +565,19 @@ export function FolderPane({
             data-test="mailbox-section"
             data-collapsed={isCollapsed}
             className="group flex flex-col gap-4 py-2 data-[collapsed=true]:py-2">
-            <div className="px-2 py-1">
+            <div className="flex items-center justify-between px-2 py-1">
               {!isCollapsed && (
-                <button
-                  type="button"
-                  aria-expanded={mailboxOpen}
-                  data-test="mailbox-section-toggle"
-                  onClick={() => setMailboxOpen((value) => !value)}
-                  className="-my-1 inline-flex min-h-6 items-center text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground">
-                  {__("Mailbox", "pressedmail")}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    aria-expanded={mailboxOpen}
+                    data-test="mailbox-section-toggle"
+                    onClick={() => setMailboxOpen((value) => !value)}
+                    className="-my-1 inline-flex min-h-6 items-center text-2xs font-medium uppercase tracking-wider text-muted-foreground hover:text-foreground">
+                    {__("Mailbox", "pressedmail")}
+                  </button>
+                  <FolderCountToggle />
+                </>
               )}
             </div>
             {(isCollapsed || mailboxOpen) && (
@@ -568,6 +596,7 @@ export function FolderPane({
                     isActive={link.isActive}
                     unseenCount={link.unseenCount}
                     countPartial={link.countPartial}
+                    countMode={link.countMode}
                     onClick={link.onClick}
                     isCollapsed={isCollapsed}
                     syncing={link.syncing}

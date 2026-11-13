@@ -3203,7 +3203,13 @@ html.dark [data-radix-portal] {
 
 #pressedmail-plugin .pm-composer-editor [data-slate-editor] {
   min-height: inherit;
-  flex: 1 1 auto;
+  /* Grows to fill the pane and never shrinks below its text. Shrinking (the
+     inherited min-height replaces the automatic one) left the editable as tall
+     as the pane while a long message ran on below it, and everything drawn
+     around its box landed mid-text: the bottom edge of its focus outline
+     crossed the message as a hairline and scrolled with it. As tall as its
+     text, the outline sits outside the scroll area at every edge. */
+  flex: 1 0 auto;
   cursor: text;
   line-height: 1.25;
   outline: none;

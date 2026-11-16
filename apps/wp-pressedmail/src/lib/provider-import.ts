@@ -54,10 +54,18 @@ export interface ImportCallResult {
   result?: SyncResult;
   /** How many events a calendar sync left out because it cannot hold them yet. */
   skipped?: number;
+  /** A calendar sync has more calendars to do: ask again with this. */
+  cursor?: number;
 }
 
 function asMode(value: unknown): ImportMode {
   return value === "once" || value === "two_way" ? value : "sync";
+}
+
+function asCursor(value: unknown): { cursor?: number } {
+  return Number.isSafeInteger(value) && (value as number) > 0
+    ? { cursor: value as number }
+    : {};
 }
 
 const PATHS = {
@@ -109,12 +117,14 @@ async function post(
         ...(Number(data?.sync_result?.skipped) > 0
           ? { skipped: Number(data.sync_result.skipped) }
           : {}),
+        ...asCursor(data?.cursor),
       };
     }
     return {
       success: false,
       code: typeof data?.code === "string" ? data.code : undefined,
       ...(reason ? { reason } : {}),
+      ...asCursor(data?.cursor),
       error:
         typeof data?.message === "string" && data.message
           ? data.message
@@ -177,16 +187,35 @@ export function disconnectImport(
   return post(PATHS[kind].disconnect, { provider: key });
 }
 
-/** Sync one connection now: its contacts, or every calendar of it that is switched on. */
-export function runImport(
+/**
+ * Sync one connection now: its contacts, or every calendar of it that is
+ * switched on. The server syncs one calendar per request and hands back a
+ * cursor while more wait, so a large account never rides on one request. A
+ * calendar that could not finish does not stop the rest: the first failure is
+ * the answer, once every calendar had its turn.
+ */
+export async function runImport(
   kind: ImportKind,
   key: string,
 ): Promise<ImportCallResult> {
-  return post(
-    PATHS[kind].sync,
-    { provider: key },
-    __("Sync failed.", "pressedmail"),
-  );
+  let cursor = 0;
+  let skipped = 0;
+  let failure: ImportCallResult | undefined;
+  for (;;) {
+    const result = await post(
+      PATHS[kind].sync,
+      { provider: key, ...(cursor ? { cursor } : {}) },
+      __("Sync failed.", "pressedmail"),
+    );
+    skipped += result.skipped ?? 0;
+    if (!result.success) failure ??= result;
+    // A cursor that does not move forward would ask for the same calendar forever.
+    if (result.cursor && result.cursor > cursor) {
+      cursor = result.cursor;
+      continue;
+    }
+    return failure ?? (skipped ? { ...result, skipped } : result);
+  }
 }
 
 /** Check that a saved connection still signs in and answers. Imports nothing. */

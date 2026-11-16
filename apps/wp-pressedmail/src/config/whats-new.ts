@@ -31,6 +31,27 @@ export interface WhatsNewRelease {
 export function getWhatsNewReleases(): WhatsNewRelease[] {
   return [
     {
+      version: "1.11.0",
+      items: [
+        {
+          id: "gmail-folders-syncing",
+          title: __("Gmail folders show when they sync", "pressedmail"),
+          body: __(
+            "With a Gmail account, Sent, Drafts, Junk and Trash now show the syncing spinner in the folder list, on desktop and on a phone.",
+            "pressedmail",
+          ),
+        },
+        {
+          id: "gmail-folder-numbers",
+          title: __("Gmail folder numbers in every layout", "pressedmail"),
+          body: __(
+            "Sent, Drafts, Junk and Trash show their numbers in the third inbox layout too.",
+            "pressedmail",
+          ),
+        },
+      ],
+    },
+    {
       version: "1.10.0",
       items: [
         {

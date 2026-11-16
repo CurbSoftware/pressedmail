@@ -237,7 +237,10 @@ export function FolderPane({
     // The syncing spinner shows on ONE folder at a time, the current frontier
     // (first still-mirroring folder in canonical order, inbox first), so the
     // mailbox fills visibly one folder after another, not all at once.
-    const syncFrontier = computeSyncFrontier(normalizedFolders);
+    const syncFrontier = computeSyncFrontier(
+      normalizedFolders,
+      providerFolders,
+    );
 
     const buildFolderLink = (folder: (typeof normalizedFolders)[number]) => {
       const selectablePath = getSelectableFolderPath(folder);
@@ -344,9 +347,9 @@ export function FolderPane({
         // Important, Starred and Scheduled already count every flagged or
         // queued message, in either mode, and keep the look they have.
         countMode: nested ? countMode : ("unread" as const),
-        // Fallback/virtual slots are not real mirrored folders, so they never
-        // carry the spinner, only the frontier real folder does.
-        syncing: false,
+        // A virtual slot is not a mirrored folder and never carries the
+        // spinner. A slot whose real folder is nested does, in its turn.
+        syncing: !!nested && nested.path === syncFrontier,
       };
     };
 

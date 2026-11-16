@@ -1,5 +1,6 @@
 import type { SyncPhase, SystemFolderType } from "@/services/interfaces";
 import { partitionFolders } from "@/layouts/shared/folders/standard-folder-order";
+import { findSystemFoldersInTree } from "@/lib/folder-badge";
 
 /**
  * Pure mailbox sync-progress helpers (aggregate counts + the single syncing
@@ -245,6 +246,8 @@ export interface FrontierFolder {
   syncPhase?: SyncPhase;
 }
 
+type FrontierTreeFolder = FrontierFolder & { children?: FrontierTreeFolder[] };
+
 /**
  * The single "frontier" folder currently being mirrored: the FIRST still-syncing
  * folder in canonical sidebar order (Inbox → Important → … → custom). Only this
@@ -254,11 +257,18 @@ export interface FrontierFolder {
  *
  * Virtual views (Important/Starred/Scheduled) are not real mirrored folders and
  * are excluded from `normalizedFolders`, so they never become the frontier.
+ *
+ * `folders` is the top level only. Gmail keeps Sent, Drafts, Spam and Trash
+ * under [Gmail], so pass the provider `tree` as well and those take their turn.
  */
 export function computeSyncFrontier(
   folders: readonly FrontierFolder[],
+  tree: readonly FrontierTreeFolder[] = [],
 ): string | null {
-  const { standard, custom } = partitionFolders(folders);
+  const { standard, custom } = partitionFolders([
+    ...folders,
+    ...findSystemFoldersInTree(tree),
+  ]);
   for (const folder of [...standard, ...custom]) {
     if (!isMirrorTrackedFolder(folder)) {
       continue;

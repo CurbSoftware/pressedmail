@@ -67,6 +67,15 @@ export function findSystemFolderInTree<
   return undefined;
 }
 
+/** The folder behind every mailbox slot the provider has, wherever it is. */
+export function findSystemFoldersInTree<
+  T extends { systemType?: SystemFolderType; children?: T[] },
+>(folders: readonly T[]): T[] {
+  return [...NESTABLE_SLOTS].flatMap(
+    (type) => findSystemFolderInTree(folders, type) ?? [],
+  );
+}
+
 /** How a total is drawn, so it never reads as an unread count. */
 export const FOLDER_TOTAL_CLASS =
   "text-xs font-normal tabular-nums text-muted-foreground";

@@ -232,7 +232,10 @@ export function MobileFoldersScreen() {
     const systemRows: MailboxRow[] = [];
     // One spinner at a time: the current frontier folder (first still-mirroring
     // in canonical order, inbox first).
-    const syncFrontier = computeSyncFrontier(normalizedFolders);
+    const syncFrontier = computeSyncFrontier(
+      normalizedFolders,
+      providerFolders,
+    );
     // Gmail keeps Sent/Drafts/Trash/Spam under [Gmail], and only the top level
     // is normalized, so the tree has to be walked to find them.
     const flatProviderFolders = flattenImapFolders(providerFolders);

@@ -250,15 +250,16 @@ function handleStorageChange(event: StorageEvent): void {
 /**
  * Scoped keys a purge leaves alone.
  *
- * These hold nothing a user can read: an unresolved normal-send guard is an
- * account id, a payload hash and an attempt key. The app still needs it after
- * the session that wrote it ends, because dropping it lets a message the server
- * already accepted be sent a second time. Everything else scoped to a session
- * goes, including keys this list does not yet know about.
+ * These hold nothing a user can read: an unresolved send guard, for a normal
+ * send or a scheduled mail merge, is an account id, a payload hash and an
+ * attempt key. The app still needs it after the session that wrote it ends,
+ * because dropping it lets a message or a mail merge the server already
+ * accepted be sent or scheduled a second time. Everything else scoped to a
+ * session goes, including keys this list does not yet know about.
  *
  * Mirror of PURGE_KEEPS in includes/Services/BrowserStorageCleanup.php.
  */
-const PURGE_KEEPS = ["normal-send-intent:"];
+const PURGE_KEEPS = ["normal-send-intent:", "scheduled-list-intent:"];
 
 /**
  * Drop keys PressedMail scoped to a signed-in user, in both storage areas.

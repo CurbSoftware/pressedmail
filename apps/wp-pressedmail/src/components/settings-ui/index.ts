@@ -33,5 +33,5 @@ export {
 } from "./settings-navigation-guard";
 export type { SettingsNavigationGuardState } from "./settings-navigation-guard";
 export { UnsavedChangesDialog } from "./unsaved-changes-dialog";
-export { useUnsavedChangesGuard } from "./use-unsaved-changes-guard";
+export { RESPELLED_PATH, useUnsavedChangesGuard } from "./use-unsaved-changes-guard";
 export { useSettingsDraft } from "./use-settings-draft";

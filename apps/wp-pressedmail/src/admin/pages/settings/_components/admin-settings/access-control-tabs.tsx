@@ -22,6 +22,7 @@ import {
   type StagedRoleGrants,
 } from "./access-tab";
 import { AccessUsersPanel, defaultPerPage } from "./access-users-panel";
+import { FeatureAccessCard } from "./feature-access-card";
 import {
   ACCESS_TAB_PARAM,
   ACCESS_VIEW_PARAMS,
@@ -195,7 +196,7 @@ export function AccessControlTabs({
     ? "general"
     : drafts["access-users"]?.failed
       ? "users"
-      : drafts["access-roles"]?.failed
+      : drafts["access-roles"]?.failed || drafts["feature-access"]?.failed
         ? "roles"
         : null;
   const shown = useRef<AccessSubtab | null>(null);
@@ -234,7 +235,9 @@ export function AccessControlTabs({
           data-test="access-subtab-roles"
           data-testid="access-subtab-roles">
           {__("Roles", "pressedmail")}
-          <StagedMark draft={drafts["access-roles"]} />
+          <StagedMark
+            draft={together(drafts["access-roles"], drafts["feature-access"])}
+          />
         </UnderlineTabsTrigger>
         <UnderlineTabsTrigger
           value="users"
@@ -257,6 +260,15 @@ export function AccessControlTabs({
           onStagedChange={setStagedRoles}
           onShowUsers={showUsers}
         />
+        {/* Pro: who may use Campaigns, Templates and Forms. The Roles tab, because it is chosen by role and person. */}
+        {__IS_PRO__ ? (
+          <div className="mt-6">
+            <FeatureAccessCard
+              registerDraft={registerDraft}
+              active={active === "roles"}
+            />
+          </div>
+        ) : null}
       </UnderlineTabsContent>
       <UnderlineTabsContent
         value="users"
@@ -273,6 +285,22 @@ export function AccessControlTabs({
       </UnderlineTabsContent>
     </UnderlineTabs>
   );
+}
+
+/** The Roles tab holds two drafts: its mark counts both, and shows a refusal of either. */
+function together(
+  ...drafts: Array<AccessControlDraftHandle | undefined>
+): AccessControlDraftHandle | undefined {
+  const dirty = drafts.filter((draft): draft is AccessControlDraftHandle =>
+    Boolean(draft?.dirty),
+  );
+  const [first] = dirty;
+  if (!first || dirty.length < 2) return first;
+  return {
+    ...first,
+    count: dirty.reduce((sum, draft) => sum + Math.max(1, draft.count ?? 1), 0),
+    failed: dirty.some((draft) => draft.failed),
+  };
 }
 
 /**

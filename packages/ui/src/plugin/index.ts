@@ -312,3 +312,6 @@ export { If } from '../core/if';
 // export { LicenseStatus } from './license-status';
 // export { UpgradePremiumCard } from './upgrade-premium-card';
 // export { FeatureGate } from './feature-gate';
+
+// The page direction for every Radix and Base UI primitive below.
+export { DirectionProvider } from './direction-provider';

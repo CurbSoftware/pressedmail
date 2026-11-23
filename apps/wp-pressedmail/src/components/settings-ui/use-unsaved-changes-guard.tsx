@@ -147,6 +147,38 @@ function UnsavedDataRouteBlocker({
 const NO_VIEW_PARAMS: readonly string[] = [];
 
 /**
+ * History state of a replace that spells the open item's address another way (`#/campaigns/4` becoming
+ * `#/campaigns/autumn-sale`, see lib/name-path.ts). It holds the path it was made for, so state copied onto some
+ * other navigation never matches.
+ */
+export const RESPELLED_PATH = "pmRespelledPath";
+
+const decodedPath = (path: string): string => {
+  try {
+    return decodeURI(path);
+  } catch {
+    return path;
+  }
+};
+
+/** The same page under its other address: nothing on it changes, so nothing staged on it is at risk. */
+function respellsPath({
+  currentLocation,
+  nextLocation,
+  historyAction,
+}: BlockedNavigation): boolean {
+  const marked = (nextLocation.state as Record<string, unknown> | null)?.[
+    RESPELLED_PATH
+  ];
+  return (
+    historyAction === "REPLACE" &&
+    typeof marked === "string" &&
+    decodedPath(marked) === decodedPath(nextLocation.pathname) &&
+    currentLocation.search === nextLocation.search
+  );
+}
+
+/**
  * Whether a navigation only changes which view of the same page shows: the
  * path is the same and so is every search parameter but the view ones.
  */
@@ -338,7 +370,8 @@ export function useUnsavedChangesGuard({
     (navigation: BlockedNavigation) =>
       dirty &&
       !replayingActionRef.current &&
-      !changesOnlyView(navigation, viewParams),
+      !changesOnlyView(navigation, viewParams) &&
+      !respellsPath(navigation),
     [dirty, viewParams],
   );
 

@@ -49,7 +49,12 @@ export interface NormalSendReceipt {
   send_at?: string;
   delay_seconds?: number;
   remaining_seconds?: number;
+  /** A retry found the first attempt by its key and posted nothing. */
+  reused?: boolean;
 }
+
+/** The server refused a mail merge that is already on its way to the list. */
+const LIST_DUPLICATE_CODE = "pressedmail_list_duplicate";
 
 export interface ListDeliveryProgress {
   state:
@@ -61,7 +66,11 @@ export interface ListDeliveryProgress {
     | "uncertain"
     | "complete"
     | "cancelled"
-    | "paused";
+    | "paused"
+    /** Waiting for the merge's pace or the mailbox's daily cap. */
+    | "throttled"
+    /** The mail server said slow down, or a temporary SMTP failure is being waited out. */
+    | "limit_wait";
   audience: number | null;
   counts: Record<
     | "queued"
@@ -75,6 +84,8 @@ export interface ListDeliveryProgress {
   >;
   due_at: string;
   published_at: string | null;
+  /** UTC. When a waiting merge sends again; absent from older servers. */
+  resume_at?: string | null;
 }
 
 export function parseListDeliveryProgress(
@@ -93,6 +104,8 @@ export function parseListDeliveryProgress(
       "complete",
       "cancelled",
       "paused",
+      "throttled",
+      "limit_wait",
     ].includes(String(row.state)) ||
     !(
       row.audience === null ||
@@ -102,6 +115,7 @@ export function parseListDeliveryProgress(
     ) ||
     typeof row.due_at !== "string" ||
     !(row.published_at === null || typeof row.published_at === "string") ||
+    !(row.resume_at == null || typeof row.resume_at === "string") ||
     !row.counts ||
     typeof row.counts !== "object"
   )
@@ -184,6 +198,11 @@ export class NormalSendError extends Error {
 export interface NormalSendOptions {
   /** Only an explicit user decision can authorize a fresh send after an uncertain result. */
   confirmNewAttempt?: (receipt: NormalSendReceipt) => Promise<boolean>;
+  /**
+   * A mail merge is the same send whatever its draft, pace or cap: pass
+   * mailMergeIdentity() and the retry key follows only that.
+   */
+  identity?: string;
 }
 
 interface Intent {
@@ -372,6 +391,51 @@ async function sha256(
   ).join("");
 }
 
+/**
+ * What a mail merge's members get and where it goes from: mailbox, list,
+ * subject, body, content type, attachments, and the time when scheduled.
+ * Draft identity, pace and cap stay out, because they change between a try
+ * and its retry and the retry must still find the first attempt.
+ */
+export function mailMergeIdentity(message: {
+  accountId: number;
+  listIds: readonly number[];
+  subject: string;
+  body: string;
+  contentType: string;
+  attachments: ReadonlyArray<File | SavedAttachment>;
+  scheduledAt?: string;
+}): string {
+  return JSON.stringify([
+    message.accountId,
+    [...message.listIds].sort((a, b) => a - b),
+    message.subject,
+    message.body,
+    message.contentType,
+    // A saved draft rebinds a file's part id, so only what the member gets counts.
+    message.attachments.map((file) => {
+      if (typeof File !== "undefined" && file instanceof File)
+        return ["file", file.name, file.type, file.size, file.lastModified];
+      const saved = file as SavedAttachment;
+      return [
+        "saved",
+        saved.wpAttachmentId ?? null,
+        saved.filename,
+        saved.mimeType,
+        saved.size,
+      ];
+    }),
+    message.scheduledAt ?? null,
+  ]);
+}
+
+interface SavedAttachment {
+  wpAttachmentId?: number;
+  filename: string;
+  mimeType: string;
+  size: number;
+}
+
 async function fingerprint(
   form: FormData,
   principal: StoragePrincipal,
@@ -430,8 +494,13 @@ function parseReceipt(
       : outcome === "pending"
         ? "pending"
         : "error";
+  // A mail merge refused as a duplicate was not accepted: nothing was stored.
+  const duplicate =
+    __ENABLE_CONTACT_LISTS__ &&
+    outcome === "conflict" &&
+    value.code === LIST_DUPLICATE_CODE;
   const state =
-    outcome === "failed" || outcome === "invalid"
+    outcome === "failed" || outcome === "invalid" || duplicate
       ? "not_accepted"
       : outcome === "accepted" ||
           outcome === "queued" ||
@@ -440,6 +509,10 @@ function parseReceipt(
         ? outcome
         : "unknown";
   if (value.status !== status || value.delivery_state !== state) return null;
+  // A refused duplicate names, under data, the delivery already going.
+  const duplicateOf = duplicate
+    ? (value.data as Record<string, unknown> | undefined)?.delivery_id
+    : undefined;
   const progress =
     outcome === "queued" ? parseListDeliveryProgress(value.progress) : null;
   if (
@@ -473,6 +546,11 @@ function parseReceipt(
     message: value.message,
     attempt_key: attempt,
     ...(progress ? { delivery_id: value.delivery_id as number, progress } : {}),
+    ...(typeof duplicateOf === "number" &&
+    Number.isSafeInteger(duplicateOf) &&
+    duplicateOf > 0
+      ? { delivery_id: duplicateOf }
+      : {}),
     ...(typeof value.pending_email_id === "number"
       ? {
           pending_email_id: value.pending_email_id,
@@ -568,7 +646,10 @@ async function sendLocked(
     return receipt;
   };
   if (intent) {
-    let receipt = await getStatus(intent.attempt_key);
+    let receipt: NormalSendReceipt = {
+      ...(await getStatus(intent.attempt_key)),
+      reused: true,
+    };
     assertCurrent(principal);
     if (!retryNeedsConfirmation(receipt) || !options.confirmNewAttempt)
       return remember(receipt);
@@ -576,7 +657,7 @@ async function sendLocked(
     assertCurrent(principal);
     if (confirmed !== true) return receipt;
     // The original request may have completed while the confirmation was open.
-    receipt = await getStatus(intent.attempt_key);
+    receipt = { ...(await getStatus(intent.attempt_key)), reused: true };
     assertCurrent(principal);
     if (!retryNeedsConfirmation(receipt)) return remember(receipt);
     if (
@@ -609,11 +690,15 @@ async function sendLocked(
       attempt,
       principal,
     );
-    // A forward refused over its attachments never reached a transport, so
-    // there is no attempt left to ask about: the next send posts again.
+    // A forward refused over its attachments, or a mail merge refused as a
+    // duplicate, never reached a transport, so there is no attempt left to
+    // ask about: the next send posts again.
     if (
-      receipt.outcome === "invalid" &&
-      receipt.code?.startsWith("forward_source_")
+      (receipt.outcome === "invalid" &&
+        receipt.code?.startsWith("forward_source_")) ||
+      (__ENABLE_CONTACT_LISTS__ &&
+        receipt.outcome === "conflict" &&
+        receipt.code === LIST_DUPLICATE_CODE)
     )
       removePrincipalStorageItem("local", key, principal);
   } catch (error) {
@@ -634,7 +719,7 @@ async function sendLocked(
 /** Persist intent before transport; keep it until the successful composer actually closes. */
 export async function retainScheduledListIntent(
   account: number,
-  authoredRequest: string,
+  identity: string,
 ): Promise<string> {
   const principal = captureStoragePrincipal();
   assertCurrent(principal);
@@ -643,7 +728,7 @@ export async function retainScheduledListIntent(
   assertSendCrypto();
   if (!hasSendLocks()) throw new NormalSendError("locks_unavailable");
   const hash = await sha256(
-    new TextEncoder().encode(authoredRequest).buffer,
+    new TextEncoder().encode(identity).buffer,
     principal,
   );
   const key = `scheduled-list-intent:${account}:${hash}`;
@@ -699,6 +784,7 @@ export async function sendNormalEmail(
   // Snapshot synchronously, before hashing yields or the caller can edit the form.
   const form = new FormData();
   const capturedOptions = { confirmNewAttempt: options.confirmNewAttempt };
+  const identity = options.identity;
   for (const [key, value] of formData.entries())
     if (key !== "attempt_key") form.append(key, value);
   const accounts = form.getAll("account_id");
@@ -710,7 +796,10 @@ export async function sendNormalEmail(
     !Number.isSafeInteger(account)
   )
     throw new NormalSendError("invalid_account");
-  const hash = await fingerprint(form, principal);
+  const hash =
+    identity === undefined
+      ? await fingerprint(form, principal)
+      : await sha256(new TextEncoder().encode(identity).buffer, principal);
   assertCurrent(principal);
   const key = `normal-send-intent:${account}:${hash}`;
   const physical = getPrincipalStorageKey(key, principal);

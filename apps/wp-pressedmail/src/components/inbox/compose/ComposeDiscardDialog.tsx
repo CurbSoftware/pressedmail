@@ -11,7 +11,7 @@
  * @since 2.1.0
  */
 
-import { Trash2, Save, Loader2 } from "lucide-react";
+import { Trash2, Save, Loader2, Undo2 } from "lucide-react";
 import { __ } from "@wordpress/i18n";
 import { cn, Button, AlertDialog, AlertDialogCancel } from "@kit/ui/plugin";
 import {
@@ -33,6 +33,11 @@ interface ComposeDiscardDialogProps {
   isSavingDraft?: boolean;
   /** Hide the Save Draft button (e.g. mobile compose without draft support) */
   hideSaveDraft?: boolean;
+  /**
+   * A scheduled email or mail merge being edited: the prompt is about the
+   * changes, and discarding keeps the scheduled email as it was.
+   */
+  scheduled?: "email" | "merge";
 }
 
 export function ComposeDiscardDialog({
@@ -42,7 +47,38 @@ export function ComposeDiscardDialog({
   onCancel,
   isSavingDraft = false,
   hideSaveDraft = false,
+  scheduled,
 }: ComposeDiscardDialogProps) {
+  // One branch, so the Free build folds the scheduled copy away.
+  const copy =
+    __IS_PRO__ && scheduled
+      ? {
+          icon: Undo2,
+          title: __("Discard your changes?", "pressedmail"),
+          description: __(
+            "The scheduled email stays as it was.",
+            "pressedmail",
+          ),
+          cancel: __("Keep editing", "pressedmail"),
+          discard: __("Discard changes", "pressedmail"),
+          save:
+            scheduled === "merge"
+              ? __("Review and save", "pressedmail")
+              : __("Save changes", "pressedmail"),
+        }
+      : {
+          icon: Trash2,
+          title: __("Discard draft?", "pressedmail"),
+          description: hideSaveDraft
+            ? __("This message will not be saved.", "pressedmail")
+            : __(
+                "You can save this message as a draft, or delete it.",
+                "pressedmail",
+              ),
+          cancel: __("Keep Editing", "pressedmail"),
+          discard: __("Delete Draft", "pressedmail"),
+          save: __("Save Draft", "pressedmail"),
+        };
   return (
     <AlertDialog
       open={open}
@@ -55,17 +91,10 @@ export function ComposeDiscardDialog({
       }}>
       <PressedAlertDialogContent size="confirmation">
         <PressedAlertDialogHeader
-          title={__("Discard draft?", "pressedmail")}
-          icon={Trash2}
+          title={copy.title}
+          icon={copy.icon}
           tone="destructive"
-          description={
-            hideSaveDraft
-              ? __("This message will not be saved.", "pressedmail")
-              : __(
-                  "You can save this message as a draft, or delete it.",
-                  "pressedmail",
-                )
-          }
+          description={copy.description}
         />
 
         <PressedOverlayFooter
@@ -80,7 +109,7 @@ export function ComposeDiscardDialog({
               size="sm"
               data-test="discard-dialog-cancel"
               className="h-9 w-full min-w-0 px-4">
-              {__("Keep Editing", "pressedmail")}
+              {copy.cancel}
             </Button>
           </AlertDialogCancel>
 
@@ -91,8 +120,8 @@ export function ComposeDiscardDialog({
             onClick={onDelete}
             data-test="discard-dialog-delete"
             className="h-9 w-full min-w-0 px-4">
-            <Trash2 className="mr-1.5 h-3.5 w-3.5 shrink-0" />
-            {__("Delete Draft", "pressedmail")}
+            <copy.icon className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+            {copy.discard}
           </Button>
 
           {!hideSaveDraft && onSaveDraft ? (
@@ -108,7 +137,7 @@ export function ComposeDiscardDialog({
               ) : (
                 <Save className="mr-1.5 h-3.5 w-3.5 shrink-0" />
               )}
-              {__("Save Draft", "pressedmail")}
+              {copy.save}
             </Button>
           ) : null}
         </PressedOverlayFooter>

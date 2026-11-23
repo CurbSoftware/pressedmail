@@ -66,6 +66,11 @@ interface PressedMailPluginGlobal {
    * whitelabel routes are guarded by `manage_options` alone.
    */
   canManageBranding?: boolean;
+  /**
+   * Pro: whether the signed-in user may use each feature, as an administrator
+   * set it under Access Control (FeatureAccess). Read through featureAllowed().
+   */
+  featureAccess?: { campaigns: boolean; templates: boolean; forms: boolean };
   canAccessPressedMail?: boolean;
   /**
    * True when this browser signed a user out and still holds that session's

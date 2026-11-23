@@ -57,6 +57,7 @@ import { restoreWordPressChrome } from "@/hooks/useImmersiveMode";
 import { useIsMobileOrTablet } from "@/hooks/useMobile";
 import { useWpAdminChrome } from "@/hooks/useWpAdminChrome";
 import { getPersistedPaneState } from "@/lib/open-pane-persistence";
+import { pageTitle, useScreenTitle } from "@/lib/document-title";
 import {
   MobileAppShell,
   MobileTabBar,
@@ -64,16 +65,6 @@ import {
   useMobileShellFlag,
   type MobileTabItem,
 } from "@/components/mobile-shell";
-
-const _startcase = (str: string) => {
-  return str
-    .toLowerCase() // Convert the whole string to lowercase
-    .replace(/_/g, " ") // Replace underscores with spaces
-    .replace(/-/g, " ") // Replace hyphens with spaces
-    .split(" ") // Split the string into words
-    .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)) // Capitalize the first letter of each word
-    .join(" "); // Join the words back into a string
-};
 
 const ApplicationLayout = () => {
   const { adminBarHeight, adminMenuHeight } = useWpAdminChrome();
@@ -182,8 +173,7 @@ const ApplicationLayout = () => {
   let location = useLocation();
   const pathSegments = location.pathname.split("/").filter(Boolean);
   const hasPath = pathSegments.length > 0;
-  const fallbackSlug = pathSegments[pathSegments.length - 1];
-  const pageTitle = fallbackSlug ? _startcase(fallbackSlug) : "Inbox";
+  const title = pageTitle(location.pathname, useScreenTitle());
   const { preferences, updatePreference } = useUserPreferences();
   // The launcher floats over every page, settings included. It used to be hidden
   // there because the bottom-right spot is where settings panes right-align their
@@ -209,8 +199,8 @@ const ApplicationLayout = () => {
   }, [hasPath, navigate]);
 
   useEffect(() => {
-    window.document.title = pageTitle;
-  }, [pageTitle]);
+    window.document.title = title;
+  }, [title]);
 
   const mobileShellEnabled = useMobileShellFlag();
   const compactShellEnabled = isMobileOrTablet && mobileShellEnabled;

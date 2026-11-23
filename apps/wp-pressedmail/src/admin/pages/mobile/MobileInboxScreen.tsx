@@ -853,6 +853,15 @@ export function MobileInboxScreen() {
         to: draft.to ?? "",
         cc: draft.cc ?? "",
         bcc: draft.bcc ?? "",
+        // Contact lists as recipients are Pro. A scheduled mail merge carries
+        // its intent here: it has no draft document to carry it.
+        ...(__ENABLE_CONTACT_LISTS__
+          ? {
+              contactLists: draft.contactLists ?? [],
+              listDelivery: draft.listDelivery,
+              listDeliveryId: draft.listDeliveryId,
+            }
+          : null),
         subject: draft.subject ?? "",
         body: draft.body ?? "",
         draftDocument: draft.draftDocument,

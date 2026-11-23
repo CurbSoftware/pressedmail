@@ -79,6 +79,7 @@ import {
   unwrapEmailBodyHtml,
 } from "@/services/email-safe-html.service";
 import { parseScheduledDraftHandoff } from "@/types/scheduled-emails";
+import { parseEmailDate } from "@/lib/email-date";
 import { normalizeComposerBackgroundColor } from "@/lib/composer-background-color";
 import {
   COMPOSER_LEADING_BLANK_LINES_HTML,
@@ -95,6 +96,7 @@ import {
   sendNormalEmail,
   retainScheduledListIntent,
   acknowledgeScheduledListIntent,
+  mailMergeIdentity,
   type NormalSendReceipt,
 } from "@/services/normal-send.service";
 import {
@@ -221,9 +223,56 @@ export interface ComposeConfirmation {
   cancelText: string;
 }
 
+/** The pace and daily cap a person picked in the mail merge review. */
+export interface MailMergeSettings {
+  pace: number;
+  dailyCap: number;
+}
+
+/** The message a mail merge review previews: exactly what Send would post. */
+export interface MailMergeReview {
+  accountId: number;
+  fromEmail: string;
+  listId: number;
+  listName: string;
+  subject: string;
+  body: string;
+  contentType: EmailContentType;
+  /** Set when the review was opened by Schedule send. */
+  scheduledAt?: Date;
+  /** The pace and cap to start from: last confirmed here, or stored on the row. */
+  settings?: MailMergeSettings;
+  /** A reopened scheduled mail merge's own pace and cap are still loading. */
+  settingsLoading?: boolean;
+  /** Opened by saving a scheduled email: confirming saves it at its time. */
+  saving?: boolean;
+  /** The stored pace and cap could not be read: confirming leaves them as they are. */
+  settingsUnavailable?: boolean;
+  /** File names every member gets. The test email leaves them out. */
+  attachments?: string[];
+  /** mailMergeIdentity() of what this review shows; Confirm sends only that. */
+  identity?: string;
+  /** The message changed after the review opened, so it was refreshed. */
+  changed?: boolean;
+}
+
 export interface UseComposeFormReturn {
   listDelivery?: boolean;
-  setListDelivery?: (enabled: boolean) => void;
+  /** Set on a reopened scheduled mail merge: its queue is already on the server. */
+  listDeliveryId?: number;
+  /** `keepLists` leaves the list in place, for the one-email (Bcc) choice. */
+  setListDelivery?: (enabled: boolean, keepLists?: boolean) => void;
+  /** Opened from a saved draft or a scheduled email, not started here. */
+  reopened?: boolean;
+  /** The list's size is still loading: Send waits until the choice is made. */
+  setListSizeChecking?: (checking: boolean) => void;
+  /** Pro: Send and Schedule send open this review in a mail merge. Absent in Free. */
+  mailMerge?: {
+    review: MailMergeReview | null;
+    close: () => void;
+    /** null: the stored pace and cap stay as they are. */
+    confirm: (settings: MailMergeSettings | null) => Promise<void>;
+  };
   senderNeedsConfirmation: boolean;
   confirmAccountSender: () => void;
   /** Pro only: the Free build has no read receipts and omits this. */
@@ -331,7 +380,8 @@ export interface UseComposeFormReturn {
   /** Resolves true when the draft reached the server. */
   handleSaveDraft: (opts?: { silent?: boolean }) => Promise<boolean>;
   handleDiscard: () => Promise<void>;
-  handleDiscardConfirm: () => Promise<void>;
+  /** True only from Delete: on a scheduled email, it removes the email. */
+  handleDiscardConfirm: (deleteScheduled?: boolean) => Promise<void>;
   /** The Delete button: moves a server draft to Trash even with auto-save on. */
   handleDelete: () => Promise<void>;
   handleDiscardSaveAndClose: () => Promise<void>;
@@ -437,6 +487,36 @@ interface ScheduledAttachmentPayload {
   sha256?: string;
   /** Content-ID of a staged inline image, sent back as the server gave it. */
   contentId?: string;
+}
+
+/** The server's code for a mail merge already on its way to the list. */
+const LIST_DUPLICATE = "pressedmail_list_duplicate";
+
+/**
+ * "View progress" on a mail merge toast. TemplatePickerHost, which holds the
+ * Mail merges dialog, listens for this event.
+ */
+function mailMergeProgressToast(
+  accountId: number,
+  deliveryId: unknown,
+): NonNullable<Parameters<typeof appMessage>[2]> {
+  return {
+    duration: 20_000,
+    action: {
+      label: __("View progress", "pressedmail"),
+      onClick: () =>
+        window.dispatchEvent(
+          new CustomEvent("pressedmail-list-delivery-queued", {
+            detail: {
+              account_id: accountId,
+              ...(typeof deliveryId === "number"
+                ? { delivery_id: deliveryId }
+                : {}),
+            },
+          }),
+        ),
+    },
+  };
 }
 
 /** Where a forwarded file is read from; undefined for any other attachment. */
@@ -1240,12 +1320,27 @@ export function useComposeForm({
   const draftDocument = isContextMode
     ? composerContext!.composeData.draftDocument
     : localDraftDocument;
+  // The mail merge behind a reopened scheduled email. Its queue is already on
+  // the server, so while it is set the message stays a mail merge.
+  const listDeliveryId =
+    __ENABLE_CONTACT_LISTS__ && isScheduledEdit
+      ? composerContext!.composeData.listDeliveryId
+      : undefined;
   const listDelivery =
     __ENABLE_CONTACT_LISTS__ &&
-    (isContextMode
-      ? composerContext!.composeData.listDelivery === true ||
-        draftDocument?.listDelivery === true
-      : draftDocument?.listDelivery === true);
+    (Boolean(listDeliveryId) ||
+      (isContextMode
+        ? composerContext!.composeData.listDelivery === true ||
+          draftDocument?.listDelivery === true
+        : draftDocument?.listDelivery === true));
+  // Opened from a saved draft or a schedule. Kept in the compose data, so it
+  // survives the composer popping out.
+  const reopened =
+    isScheduledEdit ||
+    (isContextMode &&
+      (composerContext!.composeData.draftOpened === true ||
+        composerContext!.composeData.reopened === true));
+  const [listSizeChecking, setListSizeChecking] = useState(false);
   const draftDocumentRef = useRef(draftDocument);
   draftDocumentRef.current = draftDocument;
   const [draftDocumentStorageUnavailable, setDraftDocumentStorageUnavailable] =
@@ -1414,21 +1509,33 @@ export function useComposeForm({
   const setRecipients = useCallback(
     (field: RecipientField, recipients: Recipient[]) => {
       if (isContextMode) {
-        composerContext!.setComposeData((prev) => ({
-          ...prev,
-          [field]: recipientsToString(recipients),
-          ...(__ENABLE_CONTACT_LISTS__
-            ? {
-                contactLists: [
-                  ...(prev.contactLists ?? []).filter(
-                    (list) => (list.field ?? "to") !== field,
-                  ),
-                  ...getContactListRecipientDescriptors(recipients, field),
-                ],
-              }
-            : {}),
-          ...(field === "to" ? { is_reply: false } : {}),
-        }));
+        composerContext!.setComposeData((prev) => {
+          const contactLists = __ENABLE_CONTACT_LISTS__
+            ? [
+                ...(prev.contactLists ?? []).filter(
+                  (list) => (list.field ?? "to") !== field,
+                ),
+                ...getContactListRecipientDescriptors(recipients, field),
+              ]
+            : [];
+          return {
+            ...prev,
+            [field]: recipientsToString(recipients),
+            ...(__ENABLE_CONTACT_LISTS__ ? { contactLists } : {}),
+            // With the last list chip gone there is nothing left to merge.
+            ...(__ENABLE_CONTACT_LISTS__ &&
+            contactLists.length === 0 &&
+            (prev.listDelivery || prev.draftDocument?.listDelivery)
+              ? {
+                  listDelivery: false,
+                  draftDocument: prev.draftDocument
+                    ? { ...prev.draftDocument, listDelivery: false }
+                    : undefined,
+                }
+              : {}),
+            ...(field === "to" ? { is_reply: false } : {}),
+          };
+        });
       } else {
         const setter =
           field === "to"
@@ -1455,7 +1562,7 @@ export function useComposeForm({
   );
 
   const setListDelivery = useCallback(
-    (enabled: boolean) => {
+    (enabled: boolean, keepLists = false) => {
       if (!__ENABLE_CONTACT_LISTS__) return;
       if (isContextMode) {
         composerContext!.setComposeData((previous) => ({
@@ -1464,13 +1571,13 @@ export function useComposeForm({
           draftDocument: previous.draftDocument
             ? { ...previous.draftDocument, listDelivery: enabled }
             : undefined,
-          ...(enabled ? {} : { contactLists: [] }),
+          ...(enabled || keepLists ? {} : { contactLists: [] }),
         }));
       } else {
         setLocalDraftDocument((previous) =>
           previous ? { ...previous, listDelivery: enabled } : undefined,
         );
-        if (!enabled) {
+        if (!enabled && !keepLists) {
           const withoutLists = (recipients: Recipient[]) =>
             recipients.filter((recipient) => recipient.type !== "list");
           setLocalTo(withoutLists);
@@ -1941,6 +2048,8 @@ export function useComposeForm({
       body?: string;
       inReplyTo?: string;
       references?: string;
+      /** The stored merge flag, for the clean state of a reopened message. */
+      listDelivery?: boolean;
     }): string =>
       JSON.stringify({
         accountId: getSendingAccountId(),
@@ -1955,12 +2064,19 @@ export function useComposeForm({
               recipientListFields: getRecipientListFields(
                 uniqueRecipientGroups,
               ),
-              listDelivery,
+              listDelivery: overrides?.listDelivery ?? listDelivery,
             }
           : null),
         subject: overrides?.subject ?? subject,
         body: resolveOutgoingBody(overrides?.body),
-        draftDocument: contentType === "plain" ? null : draftDocument,
+        draftDocument:
+          contentType === "plain"
+            ? null
+            : draftDocument &&
+                overrides?.listDelivery !== undefined &&
+                overrides.listDelivery !== listDelivery
+              ? { ...draftDocument, listDelivery: overrides.listDelivery }
+              : draftDocument,
         contentType,
         inReplyTo: overrides?.inReplyTo ?? inReplyTo,
         references: overrides?.references ?? references,
@@ -2661,7 +2777,9 @@ export function useComposeForm({
     [applySavedDraftResult, composerContext, ownsComposeSession],
   );
 
-  const handleSend = useCallback(async () => {
+  // `merge` is set only by the mail merge review's confirm button; null means
+  // reviewed with the stored pace and cap kept.
+  const deliver = useCallback(async (merge?: MailMergeSettings | null) => {
     if (senderNeedsConfirmation) {
       appMessage(senderUnavailableMessage, "error");
       return;
@@ -2682,7 +2800,7 @@ export function useComposeForm({
     ) {
       appMessage(
         __(
-          "A full list email needs exactly one contact list and no individual To, Cc or Bcc recipients.",
+          "A mail merge goes to exactly one contact list, with no other To, Cc or Bcc recipients.",
           "pressedmail",
         ),
         "error",
@@ -2728,10 +2846,13 @@ export function useComposeForm({
     ]
       .map((recipient) => recipient.email)
       .filter(Boolean);
-    const needsSendConfirmation = shouldConfirmSend(
-      composerPreferences.send_safety_confirmation,
-      hasExternalRecipient(recipientEmails, sendingAccount.email ?? ""),
-    );
+    // The mail merge review was the confirmation.
+    const needsSendConfirmation =
+      merge === undefined &&
+      shouldConfirmSend(
+        composerPreferences.send_safety_confirmation,
+        hasExternalRecipient(recipientEmails, sendingAccount.email ?? ""),
+      );
 
     if (!claimComposeOperation("delivery")) {
       return;
@@ -2890,6 +3011,14 @@ export function useComposeForm({
         );
       if (__ENABLE_CONTACT_LISTS__ && activeSendSnapshot.listDelivery)
         formData.append("list_delivery", "1");
+      if (
+        __ENABLE_CONTACT_LISTS__ &&
+        activeSendSnapshot.listDelivery &&
+        merge
+      ) {
+        formData.append("merge_pace", String(merge.pace));
+        formData.append("merge_daily_cap", String(merge.dailyCap));
+      }
       formData.append("subject", activeSendSnapshot.subject);
       formData.append("body", activeSendSnapshot.body);
       formData.append("content_type", activeSendSnapshot.contentType);
@@ -3061,6 +3190,18 @@ export function useComposeForm({
       let response: NormalSendReceipt;
       try {
         response = await sendNormalEmail(formData, {
+          ...(__ENABLE_CONTACT_LISTS__ && activeSendSnapshot.listDelivery
+            ? {
+                identity: mailMergeIdentity({
+                  accountId: activeSendSnapshot.accountId,
+                  listIds: activeSendSnapshot.contactListIds ?? [],
+                  subject: activeSendSnapshot.subject,
+                  body: activeSendSnapshot.body,
+                  contentType: activeSendSnapshot.contentType,
+                  attachments: activeSendSnapshot.attachments,
+                }),
+              }
+            : {}),
           confirmNewAttempt: async (receipt) => {
             if (
               !ownsComposeSession(composeSessionVersion) ||
@@ -3110,7 +3251,14 @@ export function useComposeForm({
               "pressedmail",
             ),
           response.outcome === "pending" ? "info" : "error",
-          ...forwardRefusalAction(response.code, composeSessionVersion),
+          ...(__ENABLE_CONTACT_LISTS__ && response.code === LIST_DUPLICATE
+            ? [
+                mailMergeProgressToast(
+                  activeSendSnapshot.accountId,
+                  response.delivery_id,
+                ),
+              ]
+            : forwardRefusalAction(response.code, composeSessionVersion)),
         );
         return;
       }
@@ -3128,8 +3276,28 @@ export function useComposeForm({
               composePro.undoSendDelaySeconds,
           });
       }
+      // A queued mail merge offers its progress.
+      const progressAction:
+        | []
+        | [NonNullable<Parameters<typeof appMessage>[2]>] =
+        __ENABLE_CONTACT_LISTS__ && response.outcome === "queued"
+          ? [
+              mailMergeProgressToast(
+                activeSendSnapshot.accountId,
+                response.delivery_id,
+              ),
+            ]
+          : [];
       appMessage(
-        response.warning ||
+        (__ENABLE_CONTACT_LISTS__ &&
+          response.outcome === "queued" &&
+          response.reused &&
+          activeSendSnapshot.listDelivery &&
+          __(
+            "This mail merge was already queued. It keeps the pace and daily limit it started with.",
+            "pressedmail",
+          )) ||
+          response.warning ||
           response.message ||
           __("Message sent successfully!", "pressedmail"),
         response.outcome === "queued"
@@ -3137,6 +3305,7 @@ export function useComposeForm({
           : response.warning
             ? "warning"
             : "success",
+        ...progressAction,
       );
 
       // Invalidate all message caches for this account so the Sent folder
@@ -3188,15 +3357,6 @@ export function useComposeForm({
           onClose();
           await acknowledgeNormalSend(response.attempt_key);
         }
-        if (__ENABLE_CONTACT_LISTS__ && response.outcome === "queued")
-          window.dispatchEvent(
-            new CustomEvent("pressedmail-list-delivery-queued", {
-              detail: {
-                account_id: activeSendSnapshot.accountId,
-                delivery_id: response.delivery_id,
-              },
-            }),
-          );
       }
     } catch (error) {
       // sendNormalEmail reports its own failures, so anything caught here
@@ -3268,6 +3428,199 @@ export function useComposeForm({
     forwardRefusalAction,
   ]);
 
+  // A mail merge opens its review instead of sending. When the review cannot
+  // be built (no single list, no mailbox), the send path runs and says why.
+  const [mailMergeReview, setMailMergeReview] =
+    useState<MailMergeReview | null>(null);
+  // The pace and cap last confirmed in this compose session: a second review
+  // starts from them, so a retry does not quietly fall back to the defaults.
+  // Kept in the compose data, which survives the composer popping out.
+  const [localConfirmedMerge, setLocalConfirmedMerge] =
+    useState<MailMergeSettings | null>(null);
+  const confirmedMerge = isContextMode
+    ? (composerContext!.composeData.mailMergeSettings ?? null)
+    : localConfirmedMerge;
+  const setConfirmedMerge = useCallback(
+    (settings: MailMergeSettings) => {
+      if (isContextMode)
+        composerContext!.setComposeData((previous) => ({
+          ...previous,
+          mailMergeSettings: settings,
+        }));
+      else setLocalConfirmedMerge(settings);
+    },
+    [isContextMode, composerContext],
+  );
+  useEffect(() => {
+    setMailMergeReview(null);
+  }, [composeSessionVersion]);
+  // A reopened scheduled mail merge starts its review from its own pace and
+  // daily cap. An update that leaves them out keeps the stored values, so a
+  // read that failed sends none. Undefined while the read runs.
+  const [scheduledMerge, setScheduledMerge] = useState<
+    MailMergeSettings | null | undefined
+  >(() => (listDeliveryId ? undefined : null));
+  useEffect(() => {
+    if (
+      !__ENABLE_CONTACT_LISTS__ ||
+      !listDeliveryId ||
+      typeof scheduledAccountId !== "number"
+    ) {
+      setScheduledMerge(null);
+      return;
+    }
+    setScheduledMerge(undefined);
+    let live = true;
+    const apiUrl = window.pressedmailPlugin?.apiUrl || "";
+    void apiFetch(
+      `${apiUrl}${getRuntimeRestNamespace()}/list-deliveries/${listDeliveryId}?account_id=${scheduledAccountId}`,
+    )
+      .then((response) => response.json())
+      .then(
+        (json: {
+          data?: { pace_per_minute?: unknown; daily_cap?: unknown };
+        }) => {
+          const pace = json?.data?.pace_per_minute;
+          const dailyCap = json?.data?.daily_cap;
+          if (live)
+            setScheduledMerge(
+              Number.isInteger(pace) && Number.isInteger(dailyCap)
+                ? { pace: pace as number, dailyCap: dailyCap as number }
+                : null,
+            );
+        },
+      )
+      .catch(() => {
+        if (live) setScheduledMerge(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [listDeliveryId, scheduledAccountId]);
+  const lastMerge = confirmedMerge ?? scheduledMerge ?? null;
+  // Why a mail merge review cannot open right now, or null when it can.
+  const mailMergeBlocker = useCallback((): string | null => {
+    if (!__ENABLE_CONTACT_LISTS__) return null;
+    if (senderNeedsConfirmation) return senderUnavailableMessage;
+    if (hasIncompleteDraftIdentity)
+      return __(
+        "Reload this draft before saving or sending it.",
+        "pressedmail",
+      );
+    if (receiptActions.pending)
+      return __("Finish turning on read receipts first.", "pressedmail");
+    if (
+      getRecipientGroupContactLists(uniqueRecipientGroups).length !== 1 ||
+      [
+        ...uniqueRecipientGroups.to,
+        ...uniqueRecipientGroups.cc,
+        ...uniqueRecipientGroups.bcc,
+      ].some((recipient) => recipient.type !== "list")
+    )
+      return listDeliveryId
+        ? __(
+            "A scheduled mail merge goes to one contact list. Put the list back, or cancel this mail merge.",
+            "pressedmail",
+          )
+        : __(
+            "A mail merge goes to exactly one contact list, with no other To, Cc or Bcc recipients.",
+            "pressedmail",
+          );
+    const account = resolveSendingAccount();
+    if (!account || getAccountNumericId(account) === null)
+      return __("Select a sending account", "pressedmail");
+    return null;
+  }, [
+    senderNeedsConfirmation,
+    senderUnavailableMessage,
+    hasIncompleteDraftIdentity,
+    receiptActions.pending,
+    uniqueRecipientGroups,
+    listDeliveryId,
+    resolveSendingAccount,
+  ]);
+  // The review of the message as it stands, or null when it cannot open.
+  const buildMailMergeReview = useCallback(
+    (scheduledAt?: Date, saving = false): MailMergeReview | null => {
+      if (!__ENABLE_CONTACT_LISTS__ || !listDelivery || mailMergeBlocker())
+        return null;
+      const list = getRecipientGroupContactLists(uniqueRecipientGroups)[0]!;
+      const account = resolveSendingAccount()!;
+      const accountId = getAccountNumericId(account)!;
+      const files = attachmentsRef.current;
+      const review: MailMergeReview = {
+        accountId,
+        fromEmail: account.email ?? "",
+        listId: list.id,
+        listName: list.name,
+        subject: subject.trim() ? subject : __("[No Subject]", "pressedmail"),
+        body:
+          contentType === "plain"
+            ? normalizeOutgoingPlainText(body)
+            : prepareEmailHtmlForSend(editorRef.current?.getHTML() || body, {
+                bodyBackgroundColor,
+              }),
+        contentType,
+        ...(scheduledAt ? { scheduledAt } : {}),
+        ...(saving ? { saving } : {}),
+        ...(files.length > 0
+          ? {
+              attachments: files.map((file) =>
+                typeof File !== "undefined" && file instanceof File
+                  ? file.name
+                  : (file as EmailAttachment).filename,
+              ),
+            }
+          : {}),
+      };
+      // getHTML() gives the live editor markup until the serializer catches
+      // up, 150 ms after a change, and the serialized HTML after: two forms
+      // of one message. The stamp reads the document itself instead.
+      const value =
+        contentType === "plain" ? undefined : editorRef.current?.getValue?.();
+      review.identity = mailMergeIdentity({
+        accountId,
+        listIds: [list.id],
+        subject: review.subject,
+        body: value
+          ? JSON.stringify([value, bodyBackgroundColor ?? null])
+          : review.body,
+        contentType,
+        attachments: files,
+      });
+      return review;
+    },
+    [
+      listDelivery,
+      mailMergeBlocker,
+      uniqueRecipientGroups,
+      resolveSendingAccount,
+      subject,
+      body,
+      contentType,
+      editorRef,
+      bodyBackgroundColor,
+    ],
+  );
+  const openMailMergeReview = useCallback(
+    (scheduledAt?: Date, saving = false): boolean => {
+      const review = buildMailMergeReview(scheduledAt, saving);
+      if (review) setMailMergeReview(review);
+      return review !== null;
+    },
+    [buildMailMergeReview],
+  );
+  // Send waits while the list's size, and so the way it is sent, is unknown.
+  const listSizeStillChecking = useCallback((): boolean => {
+    if (!__ENABLE_CONTACT_LISTS__ || !listSizeChecking) return false;
+    appMessage(__("Checking the list size", "pressedmail"), "info");
+    return true;
+  }, [listSizeChecking]);
+  const handleSend = useCallback(async () => {
+    if (listSizeStillChecking() || openMailMergeReview()) return;
+    await deliver();
+  }, [listSizeStillChecking, openMailMergeReview, deliver]);
+
   // Commit the composer to a scheduled-email row. Shared by the Schedule button
   // and by every persist path taken while editing an already-scheduled email,
   // because the row (not the IMAP draft) is what the sender reads at send time.
@@ -3279,6 +3632,8 @@ export function useComposeForm({
         silent?: boolean;
         /** Run inside an operation another handler already claimed. */
         allowDuringOperation?: boolean;
+        /** A mail merge's pace and daily cap, from its review. */
+        merge?: MailMergeSettings | null;
       } = {},
     ): Promise<boolean> => {
       if (senderNeedsConfirmation) {
@@ -3314,7 +3669,7 @@ export function useComposeForm({
       ) {
         appMessage(
           __(
-            "A full list email needs exactly one contact list and no individual To, Cc or Bcc recipients.",
+            "A mail merge goes to exactly one contact list, with no other To, Cc or Bcc recipients.",
             "pressedmail",
           ),
           "error",
@@ -3512,6 +3867,12 @@ export function useComposeForm({
           ...(__ENABLE_CONTACT_LISTS__ && listDelivery
             ? { list_delivery: "1" }
             : {}),
+          ...(__ENABLE_CONTACT_LISTS__ && listDelivery && submitOptions.merge
+            ? {
+                merge_pace: submitOptions.merge.pace,
+                merge_daily_cap: submitOptions.merge.dailyCap,
+              }
+            : {}),
           // Explicitly clear any retired sender selection after the UI confirmation.
           sender_alias_id: null,
           sender_alias_email: null,
@@ -3578,7 +3939,15 @@ export function useComposeForm({
           __ENABLE_CONTACT_LISTS__ && listDelivery
             ? await retainScheduledListIntent(
                 sendingAccountId,
-                JSON.stringify(authoredRequest),
+                mailMergeIdentity({
+                  accountId: sendingAccountId,
+                  listIds: authoredRequest.contact_list_ids,
+                  subject: effectiveSubject,
+                  body: scheduledBody,
+                  contentType,
+                  attachments: scheduledSources,
+                  scheduledAt: authoredRequest.scheduled_at,
+                }),
               )
             : undefined;
         if (
@@ -3612,7 +3981,14 @@ export function useComposeForm({
               result.data?.message ||
               __("Failed to schedule email", "pressedmail"),
             "error",
-            ...forwardRefusalAction(result.code, composeSessionVersion),
+            ...(__ENABLE_CONTACT_LISTS__ && result.code === LIST_DUPLICATE
+              ? [
+                  mailMergeProgressToast(
+                    sendingAccountId,
+                    result.data?.delivery_id ?? result.delivery_id,
+                  ),
+                ]
+              : forwardRefusalAction(result.code, composeSessionVersion)),
           );
           return false;
         }
@@ -3716,11 +4092,19 @@ export function useComposeForm({
   );
 
   const handleSchedule = useCallback(
-    async (scheduledAt: Date) => {
+    async (scheduledAt: Date, merge?: MailMergeSettings | null) => {
       if (__IS_FREE__) return;
+      if (merge === undefined && listSizeStillChecking()) return;
+      // A mail merge is scheduled only through its review, or says why not.
+      if (__ENABLE_CONTACT_LISTS__ && listDelivery && merge === undefined) {
+        const blocked = mailMergeBlocker();
+        if (blocked) appMessage(blocked, "error");
+        else openMailMergeReview(scheduledAt);
+        return;
+      }
       const composeSessionVersion = getComposeSessionVersion();
       if (
-        (await submitScheduledEmail(scheduledAt)) &&
+        (await submitScheduledEmail(scheduledAt, merge ? { merge } : {})) &&
         ownsComposeSession(composeSessionVersion)
       ) {
         clearForm();
@@ -3728,6 +4112,10 @@ export function useComposeForm({
       }
     },
     [
+      listSizeStillChecking,
+      listDelivery,
+      mailMergeBlocker,
+      openMailMergeReview,
       submitScheduledEmail,
       clearForm,
       getComposeSessionVersion,
@@ -3740,19 +4128,50 @@ export function useComposeForm({
   // time. Every close/save path uses this while editing a scheduled email,
   // because the send reads the row, not the IMAP draft it left in Drafts.
   const saveScheduledEdits = useCallback(
-    async (allowDuringOperation = false): Promise<boolean> => {
+    async (
+      allowDuringOperation = false,
+      merge?: MailMergeSettings | null,
+    ): Promise<boolean> => {
       if (!isScheduledEdit || !scheduledAt) {
         return false;
       }
+      // A mail merge goes out as a review showed it. A save that makes one or
+      // changes one opens the review and stores nothing until it is confirmed.
+      if (
+        __ENABLE_CONTACT_LISTS__ &&
+        listDelivery &&
+        merge === undefined &&
+        lastSavedDraftSnapshotRef.current !== getDraftSnapshot()
+      ) {
+        const blocked = mailMergeBlocker();
+        if (blocked) {
+          appMessage(blocked, "error");
+          return false;
+        }
+        // The review says why it opened: a toast would sit under it.
+        openMailMergeReview(parseEmailDate(scheduledAt) ?? undefined, true);
+        return false;
+      }
+      const settings = merge === null ? null : (merge ?? lastMerge);
       // Pass the stored GMT string straight through. Parsing it into a JS Date
       // would read it as local time and shift the send by the UTC offset on
       // every edit.
       return submitScheduledEmail(scheduledAt, {
         silent: true,
         allowDuringOperation,
+        ...(settings ? { merge: settings } : {}),
       });
     },
-    [isScheduledEdit, scheduledAt, submitScheduledEmail],
+    [
+      isScheduledEdit,
+      scheduledAt,
+      submitScheduledEmail,
+      listDelivery,
+      getDraftSnapshot,
+      mailMergeBlocker,
+      openMailMergeReview,
+      lastMerge,
+    ],
   );
 
   // POST one scheduled-email lifecycle action for the row this composer edits.
@@ -3878,9 +4297,17 @@ export function useComposeForm({
   // The Send button while a schedule is armed. Push the edits onto the row,
   // then let the server run its normal scheduled delivery immediately, so the
   // send, the Sent copy and the draft cleanup all follow one code path.
-  const handleScheduledSendNow = useCallback(async () => {
+  const sendScheduledNow = useCallback(async (merge?: MailMergeSettings | null) => {
     if (__IS_FREE__) return;
     if (!isScheduledEdit || typeof scheduledEmailId !== "number") {
+      return;
+    }
+    if (merge === undefined && listSizeStillChecking()) return;
+    // Sending a mail merge now goes through its review, changed or not.
+    if (__ENABLE_CONTACT_LISTS__ && listDelivery && merge === undefined) {
+      const blocked = mailMergeBlocker();
+      if (blocked) appMessage(blocked, "error");
+      else openMailMergeReview();
       return;
     }
     if (!claimComposeOperation("delivery")) {
@@ -3888,7 +4315,7 @@ export function useComposeForm({
     }
     setIsSending(true);
     try {
-      if (!(await saveScheduledEdits(true))) {
+      if (!(await saveScheduledEdits(true, merge))) {
         return;
       }
       const sent = await postScheduledEmailAction("send-now");
@@ -3919,14 +4346,64 @@ export function useComposeForm({
     claimComposeOperation,
     clearForm,
     isScheduledEdit,
+    listDelivery,
+    listSizeStillChecking,
+    mailMergeBlocker,
     onClose,
     onScheduledChanged,
     onSendSuccess,
+    openMailMergeReview,
     postScheduledEmailAction,
     releaseComposeOperation,
     saveScheduledEdits,
     scheduledEmailId,
   ]);
+  // The Send button passes its click event: never let it stand in for a review.
+  const handleScheduledSendNow = useCallback(
+    () => sendScheduledNow(),
+    [sendScheduledNow],
+  );
+
+  const closeMailMergeReview = useCallback(() => setMailMergeReview(null), []);
+  const confirmMailMerge = useCallback(
+    async (settings: MailMergeSettings | null) => {
+      const review = mailMergeReview;
+      if (!review) return;
+      // What was reviewed is what goes out. An upload or an autosave that
+      // changed the message since sends nothing: the review shows it again.
+      const live = buildMailMergeReview(review.scheduledAt, review.saving);
+      if (!live) {
+        setMailMergeReview(null);
+        const blocked = mailMergeBlocker();
+        if (blocked) appMessage(blocked, "error");
+        return;
+      }
+      if (live.identity !== review.identity) {
+        setMailMergeReview({ ...live, changed: true });
+        return;
+      }
+      setMailMergeReview(null);
+      if (settings) setConfirmedMerge(settings);
+      if (review?.saving) {
+        if (await saveScheduledEdits(false, settings))
+          appMessage(__("Scheduled email updated", "pressedmail"), "success");
+      } else if (review?.scheduledAt)
+        await handleSchedule(review.scheduledAt, settings);
+      else if (isScheduledEdit) await sendScheduledNow(settings);
+      else await deliver(settings);
+    },
+    [
+      mailMergeReview,
+      buildMailMergeReview,
+      mailMergeBlocker,
+      setConfirmedMerge,
+      saveScheduledEdits,
+      handleSchedule,
+      isScheduledEdit,
+      sendScheduledNow,
+      deliver,
+    ],
+  );
 
   const handleSaveDraft = useCallback(
     async (opts?: { silent?: boolean }): Promise<boolean> => {
@@ -3957,10 +4434,15 @@ export function useComposeForm({
   getDraftSnapshotRef.current = getDraftSnapshot;
   const draftOpened =
     isContextMode && !!composerContext!.composeData.draftOpened;
+  // The merge flag as stored, read before any effect could change it.
+  const baselineListDeliveryRef = useRef<boolean | undefined>(undefined);
   useEffect(() => {
     if (draftOpened) {
-      composerContext!.setComposeData(
-        ({ draftOpened: _consumed, ...rest }) => rest,
+      baselineListDeliveryRef.current = __ENABLE_CONTACT_LISTS__
+        ? listDelivery
+        : undefined;
+      composerContext!.setComposeData(({ draftOpened: _consumed, ...rest }) =>
+        __ENABLE_CONTACT_LISTS__ ? { ...rest, reopened: true } : rest,
       );
       draftBaselineStopRef.current?.();
       const events = ["keydown", "pointerdown", "paste", "drop"];
@@ -3973,16 +4455,20 @@ export function useComposeForm({
         }
       };
       timer = window.setTimeout(() => {
-        lastSavedDraftSnapshotRef.current = getDraftSnapshotRef.current();
+        lastSavedDraftSnapshotRef.current = getDraftSnapshotRef.current({
+          listDelivery: baselineListDeliveryRef.current,
+        });
         stop();
       }, 1000);
       events.forEach((type) => window.addEventListener(type, stop, true));
       draftBaselineStopRef.current = stop;
     }
     if (draftBaselineStopRef.current) {
-      lastSavedDraftSnapshotRef.current = getDraftSnapshot();
+      lastSavedDraftSnapshotRef.current = getDraftSnapshot({
+        listDelivery: baselineListDeliveryRef.current,
+      });
     }
-  }, [composerContext, draftOpened, getDraftSnapshot]);
+  }, [composerContext, draftOpened, getDraftSnapshot, listDelivery]);
   useEffect(() => () => draftBaselineStopRef.current?.(), []);
   // One-shot like draftOpened: the signature effect above has read it by now.
   useEffect(() => {
@@ -4237,46 +4723,52 @@ export function useComposeForm({
   // Throw away whatever this composer is backed by. An armed schedule means the
   // row and its IMAP copy go together: deleting only the draft would leave the
   // row queued to send a message the user just discarded.
-  const discardComposeTarget = useCallback(async (): Promise<boolean> => {
-    if (!isScheduledEdit) {
-      return deletePriorDraftFromServer();
-    }
-    if (!claimComposeOperation("discard")) {
-      return false;
-    }
-    try {
-      const deleted = await postScheduledEmailAction("delete");
-      if (deleted?.status !== "success") {
+  const discardComposeTarget = useCallback(
+    async (deleteScheduled = false): Promise<boolean> => {
+      if (!isScheduledEdit) {
+        return deletePriorDraftFromServer();
+      }
+      // Closing a scheduled email discards the changes and keeps the email as
+      // it was. Only Delete removes it.
+      if (!deleteScheduled) return true;
+      if (!claimComposeOperation("discard")) {
+        return false;
+      }
+      try {
+        const deleted = await postScheduledEmailAction("delete");
+        if (deleted?.status !== "success") {
+          appMessage(
+            deleted?.message ||
+              __("Could not delete this scheduled email.", "pressedmail"),
+            "error",
+          );
+          return false;
+        }
+        priorDraftRef.current = null;
+        openedDraftIdentityRef.current = null;
+        onScheduledChanged?.();
+        onDraftSaved?.();
+        return true;
+      } catch (error) {
         appMessage(
-          deleted?.message ||
-            __("Could not delete this scheduled email.", "pressedmail"),
+          __("Could not delete this scheduled email.", "pressedmail"),
           "error",
         );
         return false;
+      } finally {
+        releaseComposeOperation("discard");
       }
-      priorDraftRef.current = null;
-      openedDraftIdentityRef.current = null;
-      onScheduledChanged?.();
-      onDraftSaved?.();
-      return true;
-    } catch (error) {
-      appMessage(
-        __("Could not delete this scheduled email.", "pressedmail"),
-        "error",
-      );
-      return false;
-    } finally {
-      releaseComposeOperation("discard");
-    }
-  }, [
-    claimComposeOperation,
-    deletePriorDraftFromServer,
-    isScheduledEdit,
-    onDraftSaved,
-    onScheduledChanged,
-    postScheduledEmailAction,
-    releaseComposeOperation,
-  ]);
+    },
+    [
+      claimComposeOperation,
+      deletePriorDraftFromServer,
+      isScheduledEdit,
+      onDraftSaved,
+      onScheduledChanged,
+      postScheduledEmailAction,
+      releaseComposeOperation,
+    ],
+  );
 
   const handleDiscard = useCallback(async () => {
     if (operationGateRef.current) {
@@ -4366,41 +4858,44 @@ export function useComposeForm({
     cancel?.();
   }, []);
 
-  const handleDiscardConfirm = useCallback(async () => {
-    if (operationGateRef.current) {
-      return;
-    }
-    if (pendingInlineImageUploadsRef.current > 0) {
-      appMessage(
-        __("Wait for the image upload to finish.", "pressedmail"),
-        "error",
-      );
-      return;
-    }
-    setShowDiscardDialog(false);
-    if (!(await discardComposeTarget())) {
-      // Reopening the dialog here loops forever whenever the discard cannot
-      // succeed: same state, same click, same failure. Report it once, release
-      // the blocked navigation, and let the user decide what to do next.
-      abandonPendingNavigation();
-      return;
-    }
-    removePrincipalStorageItem("local", "pressedmail-compose-draft");
-    removePrincipalStorageItem("local", "compose-draft");
-    // Clear dirtiness synchronously: onClose/consumePendingNavigation may
-    // navigate before the dirty-tracking effect re-runs, and a stale dirty
-    // flag would re-trigger the route blocker on that navigation.
-    dirtyRef.current = false;
-    clearForm();
-    onClose?.();
-    consumePendingNavigation();
-  }, [
-    abandonPendingNavigation,
-    discardComposeTarget,
-    clearForm,
-    onClose,
-    consumePendingNavigation,
-  ]);
+  const handleDiscardConfirm = useCallback(
+    async (deleteScheduled = false) => {
+      if (operationGateRef.current) {
+        return;
+      }
+      if (pendingInlineImageUploadsRef.current > 0) {
+        appMessage(
+          __("Wait for the image upload to finish.", "pressedmail"),
+          "error",
+        );
+        return;
+      }
+      setShowDiscardDialog(false);
+      if (!(await discardComposeTarget(deleteScheduled === true))) {
+        // Reopening the dialog here loops forever whenever the discard cannot
+        // succeed: same state, same click, same failure. Report it once, release
+        // the blocked navigation, and let the user decide what to do next.
+        abandonPendingNavigation();
+        return;
+      }
+      removePrincipalStorageItem("local", "pressedmail-compose-draft");
+      removePrincipalStorageItem("local", "compose-draft");
+      // Clear dirtiness synchronously: onClose/consumePendingNavigation may
+      // navigate before the dirty-tracking effect re-runs, and a stale dirty
+      // flag would re-trigger the route blocker on that navigation.
+      dirtyRef.current = false;
+      clearForm();
+      onClose?.();
+      consumePendingNavigation();
+    },
+    [
+      abandonPendingNavigation,
+      discardComposeTarget,
+      clearForm,
+      onClose,
+      consumePendingNavigation,
+    ],
+  );
 
   const handleDiscardSaveAndClose = useCallback(async () => {
     if (operationGateRef.current) {
@@ -4454,7 +4949,7 @@ export function useComposeForm({
       setShowDiscardDialog(true);
       return;
     }
-    await handleDiscardConfirm();
+    await handleDiscardConfirm(true);
   }, [
     composerPreferences.composer_confirm_unsaved_close,
     handleDiscardConfirm,
@@ -5069,7 +5564,31 @@ export function useComposeForm({
         }
       : {}),
     toRecipients,
-    ...(__ENABLE_CONTACT_LISTS__ ? { listDelivery, setListDelivery } : {}),
+    ...(__ENABLE_CONTACT_LISTS__
+      ? {
+          listDelivery,
+          listDeliveryId,
+          setListDelivery,
+          reopened,
+          setListSizeChecking,
+          mailMerge: {
+            // Live, so a review opened before the stored pace and cap arrive
+            // picks them up, and cannot be confirmed until they do.
+            review: mailMergeReview && {
+              ...mailMergeReview,
+              ...(lastMerge ? { settings: lastMerge } : {}),
+              ...(confirmedMerge || scheduledMerge !== undefined
+                ? {}
+                : { settingsLoading: true }),
+              ...(listDeliveryId && !confirmedMerge && scheduledMerge === null
+                ? { settingsUnavailable: true }
+                : {}),
+            },
+            close: closeMailMergeReview,
+            confirm: confirmMailMerge,
+          },
+        }
+      : {}),
     ccRecipients,
     bccRecipients,
     subject,

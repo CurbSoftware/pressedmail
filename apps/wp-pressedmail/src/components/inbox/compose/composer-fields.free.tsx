@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+
+import type { UseComposeFormReturn } from "@/hooks/compose/v2/useComposeForm";
 
 import type { PlateEmailEditorSurface } from "@/lib/email-surfaces";
 
@@ -20,6 +22,7 @@ export function ComposerFieldCatalog({
 export function FieldsToolbarButton(_props: {
   disabled?: boolean;
   surface: PlateEmailEditorSurface;
+  fallback?: boolean;
 }) {
   return null;
 }
@@ -29,5 +32,27 @@ export function FieldGroupSettings(_props: {
   onChange: (hidden: string[]) => void;
   disabled?: boolean;
 }) {
+  return null;
+}
+
+/** Free has no contact lists, so no mail merge and no fields for plain text. */
+export function TextFieldsButton(_props: {
+  inputRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>;
+  target: "subject" | "body";
+  value: string;
+  onValueChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return null;
+}
+
+export function MailMergeChoice(_props: {
+  form: UseComposeFormReturn;
+  disabled?: boolean;
+}) {
+  return null;
+}
+
+export function MailMergeReviewDialog(_props: { form: UseComposeFormReturn }) {
   return null;
 }

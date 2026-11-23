@@ -244,6 +244,12 @@ export interface ComposeReplySource {
 export interface ComposeData {
   /** Deliver one private personalized message per subscribed list member. */
   listDelivery?: boolean;
+  /** The mail merge behind a reopened scheduled email, for its pace and cap. */
+  listDeliveryId?: number;
+  /** The pace and cap last confirmed in this session's mail merge review. */
+  mailMergeSettings?: { pace: number; dailyCap: number };
+  /** Opened from a saved draft or a schedule: no choice is made for the person. */
+  reopened?: boolean;
   senderIdentity?: {
     accountId: number;
     aliasId: number | null;

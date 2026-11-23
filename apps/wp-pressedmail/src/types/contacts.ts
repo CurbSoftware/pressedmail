@@ -445,6 +445,8 @@ export interface ContactsContextValue {
   contacts: Contact[];
   /** Contact lists */
   lists: ContactList[];
+  /** Whether the lists request is still under way, answered, or failed */
+  listsStatus: "loading" | "ready" | "error";
   /** Loading state */
   loading: boolean;
   /** Error state */

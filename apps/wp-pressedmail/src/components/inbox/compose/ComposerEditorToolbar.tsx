@@ -486,7 +486,11 @@ export function ComposerEditorToolbar({
           ) : null}
 
           <ToolbarGroup>
-            <FieldsToolbarButton surface={surface} disabled={disabled} />
+            <FieldsToolbarButton
+              surface={surface}
+              disabled={disabled}
+              fallback={Boolean(form.listDelivery)}
+            />
           </ToolbarGroup>
 
           {/* Preview, on every surface whose preset offers it: the
@@ -648,6 +652,8 @@ export interface ComposerPlainTextToolbarProps {
   onTogglePreview: () => void;
   previewActive: boolean;
   onToggleContentType: () => void;
+  /** Mail merge: the Fields menu for the textarea. */
+  fields?: React.ReactNode;
 }
 
 /** Context-free toolbar for the textarea composer (no Plate hooks/plugins). */
@@ -660,6 +666,7 @@ export function ComposerPlainTextToolbar({
   onTogglePreview,
   previewActive,
   onToggleContentType,
+  fields,
 }: ComposerPlainTextToolbarProps) {
   return (
     <div
@@ -684,6 +691,7 @@ export function ComposerPlainTextToolbar({
               />
             </ToolbarGroup>
           ) : null}
+          {fields ? <ToolbarGroup>{fields}</ToolbarGroup> : null}
           <ToolbarGroup>
             <ToolbarButton
               tooltip={__("Preview", "pressedmail")}

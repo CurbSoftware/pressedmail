@@ -101,6 +101,8 @@ export interface UpdateScheduledEmailData {
   prior_draft_account_id?: number;
   prior_draft_uidvalidity?: number;
   prior_draft_message_id?: string;
+  /** A mail merge's update re-admits its queue under this send key. */
+  attempt_key?: string;
 }
 
 /**
@@ -360,6 +362,7 @@ export function getScheduledComposeData(
           contactLists: email.contact_lists ?? [],
           listDelivery:
             email.list_delivery === true || email.list_delivery_id != null,
+          listDeliveryId: email.list_delivery_id ?? undefined,
         }
       : null),
     subject: email.subject ?? "",
@@ -386,6 +389,9 @@ export function getScheduledComposeData(
     draftAccountId: draft.draft_account_id,
     draftUidValidity: draft.draft_uidvalidity,
     draftMessageId: draft.draft_message_id,
+    // The row as stored is the clean state: a reopened mail merge that is
+    // closed unchanged needs no second review.
+    draftOpened: true,
   };
 }
 

@@ -5,6 +5,10 @@ import { removePrincipalStorageItem } from "@/lib/principal-storage";
 import { __ } from "@wordpress/i18n";
 import { apiFetch } from "@/lib/api-client";
 import { requestScheduledDraftHandoff } from "@/services/scheduled-email-edit";
+import {
+  acknowledgeScheduledListIntent,
+  retainScheduledListIntent,
+} from "@/services/normal-send.service";
 
 /**
  * Right Pane Container Component
@@ -538,9 +542,14 @@ export function RightPaneContainer({
         to: draft.to ?? "",
         cc: draft.cc ?? "",
         bcc: draft.bcc ?? "",
-        // Contact lists as recipients are Pro.
+        // Contact lists as recipients are Pro. A scheduled mail merge carries
+        // its intent here: it has no draft document to carry it.
         ...(__ENABLE_CONTACT_LISTS__
-          ? { contactLists: draft.contactLists ?? [] }
+          ? {
+              contactLists: draft.contactLists ?? [],
+              listDelivery: draft.listDelivery,
+              listDeliveryId: draft.listDeliveryId,
+            }
           : null),
         subject: draft.subject ?? "",
         body: draft.body ?? "",
@@ -1392,15 +1401,40 @@ export function RightPaneContainer({
         return;
       }
       const source = captureSelection();
+      const scheduledAt = date.toISOString();
       setIsScheduledActionLoading(true);
       try {
+        // A mail merge's new time re-admits its queue, which takes a send key.
+        // Its pace and cap stay as stored, and it was reviewed when scheduled.
+        const attempt =
+          __ENABLE_CONTACT_LISTS__ &&
+          (scheduledEmail.list_delivery === true ||
+            scheduledEmail.list_delivery_id != null)
+            ? await retainScheduledListIntent(
+                scheduledEmail.account_id,
+                JSON.stringify(["send-time", scheduledEmail.id, scheduledAt]),
+              ).catch((error: unknown) => {
+                appMessage(
+                  error instanceof Error && error.message
+                    ? error.message
+                    : __(
+                        "We could not update this scheduled email.",
+                        "pressedmail",
+                      ),
+                  "error",
+                );
+                return null;
+              })
+            : undefined;
+        if (attempt === null) return;
         const result = await scheduledCtx.updateEmail(scheduledEmail.id, {
-          scheduled_at: date.toISOString(),
+          scheduled_at: scheduledAt,
           prior_draft_uid: sourceIdentity.uid,
           prior_draft_folder: sourceIdentity.folder,
           prior_draft_account_id: sourceIdentity.accountId,
           prior_draft_uidvalidity: sourceIdentity.uidValidity,
           prior_draft_message_id: sourceIdentity.messageId,
+          ...(attempt ? { attempt_key: attempt } : {}),
         });
         if (result.status !== "success") {
           appMessage(
@@ -1410,6 +1444,7 @@ export function RightPaneContainer({
           );
           return;
         }
+        if (attempt) await acknowledgeScheduledListIntent(attempt);
         if (isCurrentSelection(source)) onScheduledEmailChanged?.();
       } finally {
         if (isCurrentSelection(source)) setIsScheduledActionLoading(false);

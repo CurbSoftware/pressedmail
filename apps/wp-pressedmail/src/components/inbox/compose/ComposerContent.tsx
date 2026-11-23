@@ -31,6 +31,11 @@ import { ComposerAttachmentChips } from "./ComposerAttachmentChips";
 import { ComposerSubjectAttachmentActions } from "./ComposerSubjectAttachmentActions";
 import { ComposerAddressing } from "./ComposerAddressing";
 import { Button } from "@kit/ui/plugin";
+import {
+  MailMergeChoice,
+  MailMergeReviewDialog,
+  TextFieldsButton,
+} from "@/components/inbox/compose/composer-fields.active";
 import { ComposerFromAccountSelect } from "./ComposerFromAccountSelect";
 import { ComposeContextLabel } from "./ComposeContextLabel";
 import { COMPOSER_ROW_CLASS } from "@/components/compose/composer-row";
@@ -151,6 +156,8 @@ export function ComposerContent({
     signaturesEnabled,
   } = form;
   const imageUploadInputRef = useRef<HTMLInputElement>(null);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
+  const plainBodyRef = useRef<HTMLTextAreaElement>(null);
   const imageUploadSessionRef = useRef<number | null | undefined>(undefined);
   const isExclusiveOperationPending =
     form.isSending || (!__IS_FREE__ && form.isScheduling) || form.isDiscarding;
@@ -489,19 +496,8 @@ export function ComposerContent({
           contentType={form.contentType}
         />
 
-        {__ENABLE_CONTACT_LISTS__ &&
-        !form.listDelivery &&
-        [
-          ...form.toRecipients,
-          ...form.ccRecipients,
-          ...form.bccRecipients,
-        ].some((recipient) => recipient.type === "list") ? (
-          <div className="border-b border-border px-4 py-2 text-xs text-muted-foreground">
-            {__(
-              "Contact-list members receive this email privately as Bcc recipients. Individual contacts keep their selected To, Cc or Bcc field.",
-              "pressedmail",
-            )}
-          </div>
+        {__ENABLE_CONTACT_LISTS__ ? (
+          <MailMergeChoice form={form} disabled={isExclusiveOperationPending} />
         ) : null}
 
         {/* ── 4. Subject ──
@@ -510,26 +506,6 @@ export function ComposerContent({
             starts in column two naturally and the attachment cluster takes
             the action cell. The placeholder and aria-label keep the field's
             full name for naming. */}
-        {__ENABLE_CONTACT_LISTS__ && form.listDelivery ? (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2 text-xs">
-            <p className="text-muted-foreground">
-              {__(
-                "Full list email. Choose one list in To, Cc or Bcc, with no individual recipients. Each subscribed member gets a private message with their own personal fields and unsubscribe link.",
-                "pressedmail",
-              )}
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={isExclusiveOperationPending}
-              onClick={() => form.setListDelivery?.(false)}
-              data-test="composer-list-delivery-clear"
-              data-testid="composer-list-delivery-clear">
-              {__("Use individual recipients", "pressedmail")}
-            </Button>
-          </div>
-        ) : null}
         <div
           className="border-b border-border bg-transparent px-4 py-2"
           data-test="subject-row">
@@ -538,6 +514,7 @@ export function ComposerContent({
               {__("Re", "pressedmail")}
             </span>
             <input
+              ref={subjectInputRef}
               autoComplete="off"
               type="text"
               data-test="subject-input"
@@ -548,7 +525,20 @@ export function ComposerContent({
               className="min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
               disabled={isExclusiveOperationPending}
             />
-            <ComposerSubjectAttachmentActions form={form} />
+            {__ENABLE_CONTACT_LISTS__ && form.listDelivery ? (
+              <div className="flex items-center gap-1">
+                <TextFieldsButton
+                  inputRef={subjectInputRef}
+                  target="subject"
+                  value={form.subject}
+                  onValueChange={form.setSubject}
+                  disabled={isExclusiveOperationPending}
+                />
+                <ComposerSubjectAttachmentActions form={form} />
+              </div>
+            ) : (
+              <ComposerSubjectAttachmentActions form={form} />
+            )}
           </div>
           <ComposerAttachmentChips
             attachments={attachments}
@@ -623,6 +613,19 @@ export function ComposerContent({
                 previewActive={previewMode}
                 toolbarVariant={variant === "mobile" ? "mobile" : "desktop"}
                 onToggleContentType={requestRichTextMode}
+                fields={
+                  __ENABLE_CONTACT_LISTS__ &&
+                  form.listDelivery &&
+                  !previewMode ? (
+                    <TextFieldsButton
+                      inputRef={plainBodyRef}
+                      target="body"
+                      value={form.body}
+                      onValueChange={form.setBody}
+                      disabled={isExclusiveOperationPending}
+                    />
+                  ) : null
+                }
               />
             </div>
             {previewMode ? (
@@ -640,6 +643,7 @@ export function ComposerContent({
               // something that fills its pane edge to edge. The surface class
               // paints it instead, the same colour as the rich editor beside it.
               <textarea
+                ref={plainBodyRef}
                 data-no-theme
                 aria-label={__("Message body", "pressedmail")}
                 autoComplete="off"
@@ -741,9 +745,16 @@ export function ComposerContent({
       <ComposeDiscardDialog
         open={form.showDiscardDialog}
         onSaveDraft={form.handleDiscardSaveAndClose}
-        onDelete={form.handleDiscardConfirm}
+        onDelete={() => void form.handleDiscardConfirm()}
         onCancel={form.handleDiscardCancel}
         isSavingDraft={form.isSavingDraft}
+        scheduled={
+          __IS_PRO__ && form.isScheduledEdit
+            ? form.listDelivery
+              ? "merge"
+              : "email"
+            : undefined
+        }
       />
 
       {form.confirmation ? (
@@ -814,6 +825,8 @@ export function ComposerContent({
           setPendingInertLabels([]);
         }}
       />
+
+      {__ENABLE_CONTACT_LISTS__ ? <MailMergeReviewDialog form={form} /> : null}
     </div>
   );
 }

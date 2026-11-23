@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { __ } from "@wordpress/i18n";
-import { Layers, Plus, Settings2, UserCircle2 } from "lucide-react";
+import { Layers, Plus, Send, Settings2, UserCircle2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
@@ -14,6 +14,7 @@ import {
   SharedWithIcon,
 } from "@/components/sharing";
 import { useAppContext } from "@/context/AppProvider";
+import { useFeatureAvailable } from "@/context/features/FeaturesContext";
 import { useProLicenseValid } from "@/context/features/pro-feature.active";
 import {
   useCombinedAccountIds,
@@ -21,6 +22,7 @@ import {
   useSetCombinedAccountIds,
 } from "@/hooks/useCombinedAccountIds";
 import {
+  getAccountNumericId,
   getAvailableAccountIds,
   normalizeConsolidatedAccountIds,
 } from "@/lib/consolidated-account-scope";
@@ -56,6 +58,16 @@ export function MobileAccountsScreen() {
     combinedInboxAvailable &&
     (accounts ?? []).length > 0;
   const combinedActive = selectedAccount === CONSOLIDATED_INBOX_VALUE;
+  // The phone's way to the desktop account menu's Mail merges: one mailbox's
+  // merges, so the combined inbox has none to show.
+  const mailMergesAvailable = useFeatureAvailable("contact_lists");
+  const activeAccount = (accounts ?? []).find(
+    (account) => String(account.email ?? "") === selectedAccount,
+  );
+  const mailMergeAccountId =
+    __ENABLE_CONTACT_LISTS__ && mailMergesAvailable && activeAccount
+      ? getAccountNumericId(activeAccount)
+      : null;
 
   const rows = React.useMemo(
     () =>
@@ -183,6 +195,24 @@ export function MobileAccountsScreen() {
           <Settings2 className="h-5 w-5" aria-hidden="true" />
           {__("Manage accounts", "pressedmail")}
         </button>
+        {__ENABLE_CONTACT_LISTS__ && mailMergeAccountId !== null ? (
+          <button
+            type="button"
+            // TemplatePickerHost holds the progress dialog and listens for this.
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("pressedmail-list-delivery-queued", {
+                  detail: { account_id: mailMergeAccountId },
+                }),
+              )
+            }
+            data-test="mobile-accounts-mail-merges"
+            data-testid="mobile-accounts-mail-merges"
+            className="pm-touch-target pm-no-tap-highlight mt-2 flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left text-sm font-medium text-foreground active:bg-muted">
+            <Send className="h-5 w-5" aria-hidden="true" />
+            {__("Mail merges", "pressedmail")}
+          </button>
+        ) : null}
       </div>
     </MobileScreen>
   );

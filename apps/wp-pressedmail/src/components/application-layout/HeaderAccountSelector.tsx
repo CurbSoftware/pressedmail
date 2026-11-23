@@ -2,7 +2,7 @@
 
 import { __, sprintf } from "@wordpress/i18n";
 import { useProLicenseValid } from "@/context/features/pro-feature.active";
-import { ChevronDown, Plus, Mail, User } from "lucide-react";
+import { ChevronDown, Plus, Mail, Send, User } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppContext, PROVIDER_ICONS } from "@/context/AppProvider";
@@ -12,7 +12,10 @@ import {
   useCombinedViewAvailable,
   useSetCombinedAccountIds,
 } from "@/hooks/useCombinedAccountIds";
-import { useEntitlements } from "@/context/features/FeaturesContext";
+import {
+  useEntitlements,
+  useFeatureAvailable,
+} from "@/context/features/FeaturesContext";
 import { CONSOLIDATED_INBOX_VALUE } from "@/components/inbox/account-switcher";
 import {
   getAccountNumericId,
@@ -193,6 +196,12 @@ export function HeaderAccountSelector({
       );
 
   const shareActions = useInboxShareActions(activeAccount);
+  // Mail merges belong to one mailbox, so the combined view has none to show.
+  const mailMergesAvailable = useFeatureAvailable("contact_lists");
+  const mailMergeAccountId =
+    __ENABLE_CONTACT_LISTS__ && mailMergesAvailable && activeAccount
+      ? getAccountNumericId(activeAccount)
+      : null;
 
   const activeEmail = isConsolidatedView
     ? explicitConsolidatedAccountIds.length === 0
@@ -494,6 +503,25 @@ export function HeaderAccountSelector({
             <>
               <DropdownMenuSeparator />
               {shareActions.menuItems}
+            </>
+          ) : null}
+          {__ENABLE_CONTACT_LISTS__ && mailMergeAccountId !== null ? (
+            <>
+              <DropdownMenuSeparator />
+              {/* TemplatePickerHost holds the progress dialog and listens for this. */}
+              <DropdownMenuItem
+                onSelect={() =>
+                  window.dispatchEvent(
+                    new CustomEvent("pressedmail-list-delivery-queued", {
+                      detail: { account_id: mailMergeAccountId },
+                    }),
+                  )
+                }
+                data-test="account-menu-mail-merges"
+                data-testid="account-menu-mail-merges">
+                <Send className="h-4 w-4" aria-hidden="true" />
+                {__("Mail merges", "pressedmail")}
+              </DropdownMenuItem>
             </>
           ) : null}
         </DropdownMenuContent>

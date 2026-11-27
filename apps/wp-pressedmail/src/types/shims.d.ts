@@ -101,6 +101,8 @@ interface PressedMailPluginGlobal {
   unsubscribeProvider?: boolean | string;
   /** Pro: the Contacts & Calendars plugin turned on contacts and calendar sync. */
   providerSync?: boolean | string;
+  /** Pro: the Campaigns plugin turned on email campaigns. */
+  campaignsPlugin?: boolean | string;
   /** Pro: a companion offers a writing provider (`pressedmail_ai_writing_provider`). */
   hasWritingProvider?: boolean | string;
   /** Server-resolved custom_themes entitlement for the theme provider. */
